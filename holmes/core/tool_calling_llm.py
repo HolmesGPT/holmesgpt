@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import logging
+import os
 import textwrap
 from typing import Dict, List, Optional, Type, Union
 
@@ -347,7 +348,8 @@ class ToolCallingLLM:
             logging.debug(f"running iteration {i}")
             # on the last step we don't allow tools - we want to force a reply, not a request to run another tool
             tools = None if i == max_steps else tools
-            tool_choice = "auto" if tools else None
+            tool_choice = os.environ.get("HOLMES_TOOL_CHOICE", "auto") if tools else None
+            logging.debug(f"HOLMES_TOOL_CHOICE env var: {os.environ.get('HOLMES_TOOL_CHOICE', 'NOT_SET')}, using tool_choice: {tool_choice}")
 
             total_tokens = self.llm.count_tokens_for_message(messages)
             max_context_size = self.llm.get_context_window_size()
@@ -704,7 +706,8 @@ class ToolCallingLLM:
             logging.debug(f"running iteration {i}")
 
             tools = None if i == max_steps else tools
-            tool_choice = "auto" if tools else None
+            tool_choice = os.environ.get("HOLMES_TOOL_CHOICE", "auto") if tools else None
+            logging.debug(f"HOLMES_TOOL_CHOICE env var: {os.environ.get('HOLMES_TOOL_CHOICE', 'NOT_SET')}, using tool_choice: {tool_choice}")
 
             total_tokens = self.llm.count_tokens_for_message(messages)  # type: ignore
             max_context_size = self.llm.get_context_window_size()

@@ -12,10 +12,30 @@ api_key = os.environ.get("OPENAI_API_KEY", None)
 azure_api_key = os.environ.get("AZURE_API_KEY", None)
 base_url = os.environ.get("AZURE_API_BASE", None)
 api_version = os.environ.get("AZURE_API_VERSION", None)
+# Support for KAITO/custom OpenAI-compatible endpoints
+openai_api_base = os.environ.get("OPENAI_API_BASE", None)
+# Support for separate classifier endpoint
+classifier_openai_api_base = os.environ.get("CLASSIFIER_OPENAI_API_BASE", openai_api_base)
+classifier_api_key = os.environ.get("CLASSIFIER_OPENAI_API_KEY", api_key)
 
 
 def create_llm_client():
     """Create OpenAI/Azure client with same logic used by tests"""
+    # Handle KAITO/custom OpenAI-compatible endpoints
+    if classifier_openai_api_base and classifier_openai_api_base != "https://api.openai.com/v1":
+        if not classifier_api_key:
+            raise ValueError("No CLASSIFIER_OPENAI_API_KEY (even dummy key required for custom endpoints)")
+        client = openai.OpenAI(
+            api_key=classifier_api_key,
+            base_url=classifier_openai_api_base
+        )
+        # For KAITO/custom endpoints, strip provider prefix from model name
+        model_for_api = classifier_model
+        if model_for_api.startswith("openai/"):
+            model_for_api = model_for_api[7:]  # Remove "openai/" prefix
+        return client, model_for_api
+    
+    # Original logic for OpenAI and Azure
     if not api_key and not azure_api_key:
         raise ValueError("No API key found (AZURE_API_KEY or OPENAI_API_KEY)")
 
@@ -75,6 +95,17 @@ def evaluate_correctness(
     if isinstance(expected_elements, str):
         expected_elements = [expected_elements]
     expected_elements_str = "\n- ".join(expected_elements)
+    
+    # Use the same API configuration logic as create_llm_client
+    # Support both Azure (AZURE_API_BASE) and KAITO/custom (OPENAI_API_BASE) endpoints
+    # Use classifier-specific endpoint if provided, otherwise fall back to main endpoint
+    effective_base_url = base_url or classifier_openai_api_base
+    effective_api_key = azure_api_key if base_url else classifier_api_key
+    
+    # For KAITO endpoints, strip the "openai/" prefix from model name if present
+    effective_classifier_model = classifier_model
+    if classifier_openai_api_base and effective_classifier_model.startswith("openai/"):
+        effective_classifier_model = effective_classifier_model.replace("openai/", "", 1)
 
     prompt_prefix = """
 You are evaluating the correctness of an OUTPUT given by a LLM. You must return a score that
@@ -124,16 +155,21 @@ Possible choices:
 - A: The OUTPUT reasonably matches the EXPECTED content
 - B: The OUTPUT does not match the EXPECTED content
 """
-    if base_url:
-        logger.info(
-            f"Evaluating correctness with Azure OpenAI; base_url={base_url}, api_version={api_version}, model={classifier_model}, api_key ending with: {api_key[-4:] if api_key else None}"
-        )
-        logger.info(
-            "To use OpenAI instead, unset the environment variable AZURE_API_BASE"
-        )
+    if effective_base_url:
+        if base_url:  # Azure endpoint
+            logger.info(
+                f"Evaluating correctness with Azure OpenAI; base_url={effective_base_url}, api_version={api_version}, model={effective_classifier_model}, api_key ending with: {effective_api_key[-4:] if effective_api_key else None}"
+            )
+            logger.info(
+                "To use OpenAI instead, unset the environment variable AZURE_API_BASE"
+            )
+        else:  # KAITO/custom OpenAI-compatible endpoint
+            logger.info(
+                f"Evaluating correctness with KAITO endpoint; base_url={effective_base_url}, model={effective_classifier_model}, api_key ending with: {effective_api_key[-4:] if effective_api_key else None}"
+            )
     else:
         logger.info(
-            f"Evaluating correctness with OpenAI; model={classifier_model}, api_key ending with: {api_key[-4:] if api_key else None}"
+            f"Evaluating correctness with OpenAI; model={effective_classifier_model}, api_key ending with: {effective_api_key[-4:] if effective_api_key else None}"
         )
         logger.info(
             "To use Azure OpenAI instead, set the environment variables AZURE_API_BASE, AZURE_API_VERSION, and AZURE_API_KEY"
@@ -144,9 +180,9 @@ Possible choices:
         prompt_template=prompt_prefix,
         choice_scores={"A": 1, "B": 0},
         use_cot=True,
-        model=classifier_model,
-        api_key=api_key,
-        base_url=base_url,
+        model=effective_classifier_model,
+        api_key=effective_api_key,
+        base_url=effective_base_url,
         api_version=api_version,
     )
     if parent_span:

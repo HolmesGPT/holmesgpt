@@ -212,7 +212,7 @@ class DefaultLLM(LLM):
         tools_args = {}
         allowed_openai_params = None
 
-        if tools and len(tools) > 0 and tool_choice == "auto":
+        if tools and len(tools) > 0 and tool_choice:
             tools_args["tools"] = tools
             tools_args["tool_choice"] = tool_choice  # type: ignore
 

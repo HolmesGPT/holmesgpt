@@ -182,7 +182,7 @@ def ask_holmes(
 
     ai = ToolCallingLLM(
         tool_executor=tool_executor,
-        max_steps=40,
+        max_steps=10,  # Increased for KAITO to allow tool result processing
         llm=DefaultLLM(model, tracer=tracer),
     )
 

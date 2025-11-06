@@ -126,10 +126,10 @@ class CoreInvestigationToolset(Toolset):
         super().__init__(
             name="core_investigation",
             description="Core investigation tools for task management and planning",
-            enabled=True,
+            enabled=False,
             tools=[TodoWriteTool()],
             tags=[ToolsetTag.CORE],
-            is_default=True,
+            is_default=False,
         )
         logging.info("Core investigation toolset loaded")
 

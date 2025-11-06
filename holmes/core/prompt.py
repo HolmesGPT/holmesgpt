@@ -55,10 +55,29 @@ def build_initial_ask_messages(
     """
     # Load and render system prompt internally
     system_prompt_template = "builtin://generic_ask.jinja2"
+    
+    # Add KAITO-specific anti-JSON and conciseness system prompt addition
+    anti_json_prompt = """
+
+KAITO ANTI-JSON ENFORCEMENT:
+- You are strictly PROHIBITED from outputting raw JSON as your final response
+- Tool calls are internal operations - the user should never see JSON tool call syntax
+- After tools execute, you MUST provide natural language answers
+- Example: If asked "how many pods?" respond "There are X pods" NOT {"name": "kubectl_get_by_kind_in_namespace", "arguments": {...}}
+- Your final response must be conversational and helpful, never JSON
+
+KAITO CONCISENESS ENFORCEMENT:
+- Keep diagnostic answers direct and concise
+- Lead with the core issue, then brief details if needed
+- For "what's wrong?" questions, state the problem immediately: "The pod was killed due to out of memory"
+- Avoid verbose explanations unless specifically requested  
+- Be actionable and specific rather than lengthy
+"""
+    
     template_context = {
         "toolsets": tool_executor.toolsets,
         "runbooks": runbooks or {},
-        "system_prompt_additions": system_prompt_additions or "",
+        "system_prompt_additions": (system_prompt_additions or "") + anti_json_prompt,
     }
     system_prompt_rendered = load_and_render_prompt(
         system_prompt_template, template_context
@@ -69,7 +88,8 @@ def build_initial_ask_messages(
         console, initial_user_prompt, file_paths
     )
 
-    user_prompt_with_files += get_tasks_management_system_reminder()
+    # KAITO PATCH: Comment out TodoWrite system reminder to restore Wednesday behavior
+    # user_prompt_with_files += get_tasks_management_system_reminder()
     messages = [
         {"role": "system", "content": system_prompt_rendered},
         {"role": "user", "content": user_prompt_with_files},
