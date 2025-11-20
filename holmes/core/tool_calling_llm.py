@@ -258,7 +258,10 @@ class ToolCallingLLM:
         self._runbook_in_use = False
 
     def process_tool_decisions(
-        self, messages: List[Dict[str, Any]], tool_decisions: List[ToolApprovalDecision]
+        self,
+        messages: List[Dict[str, Any]],
+        tool_decisions: List[ToolApprovalDecision],
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
         """
         Process tool approval decisions and execute approved tools.
@@ -319,6 +322,7 @@ class ToolCallingLLM:
                     tool_number=None,
                     user_approved=True,
                     session_approved_prefixes=session_prefixes,
+                    request_context=request_context,
                 )
             else:
                 # Tool was rejected or no decision found, add rejection message
@@ -369,6 +373,7 @@ class ToolCallingLLM:
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -380,6 +385,7 @@ class ToolCallingLLM:
             user_prompt=user_prompt,
             sections=sections,
             trace_span=trace_span,
+            request_context=request_context,
         )
 
     def messages_call(
@@ -387,9 +393,13 @@ class ToolCallingLLM:
         messages: List[Dict[str, str]],
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         trace_span=DummySpan(),
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         return self.call(
-            messages, response_format=response_format, trace_span=trace_span
+            messages,
+            response_format=response_format,
+            trace_span=trace_span,
+            request_context=request_context,
         )
 
     def _should_include_restricted_tools(self) -> bool:
@@ -412,6 +422,7 @@ class ToolCallingLLM:
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
         tool_number_offset: int = 0,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         tool_calls: list[
             dict
@@ -546,6 +557,7 @@ class ToolCallingLLM:
                         previous_tool_calls=tool_calls,
                         trace_span=trace_span,
                         tool_number=tool_number,
+                        request_context=request_context,
                     )
                     futures_tool_numbers[future] = tool_number
                     futures.append(future)
@@ -567,6 +579,7 @@ class ToolCallingLLM:
                             tool_call_result=tool_call_result,
                             tool_number=tool_number,
                             trace_span=trace_span,
+                            request_context=request_context,
                         )
 
                     tool_result_response_dict = (
@@ -603,6 +616,7 @@ class ToolCallingLLM:
         tool_call_id: str,
         tool_number: Optional[int] = None,
         session_approved_prefixes: Optional[List[str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> StructuredToolResult:
         tool = self.tool_executor.get_tool_by_name(tool_name)
         if not tool:
@@ -624,6 +638,7 @@ class ToolCallingLLM:
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
                 session_approved_prefixes=session_approved_prefixes or [],
+                request_context=request_context,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
@@ -656,6 +671,7 @@ class ToolCallingLLM:
         previous_tool_calls: list[dict],
         tool_number: Optional[int] = None,
         session_approved_prefixes: Optional[List[str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> ToolCallResult:
         tool_params = {}
         try:
@@ -681,6 +697,7 @@ class ToolCallingLLM:
                 tool_number=tool_number,
                 tool_call_id=tool_call_id,
                 session_approved_prefixes=session_approved_prefixes,
+                request_context=request_context,
             )
 
         if not isinstance(tool_response, StructuredToolResult):
@@ -750,6 +767,7 @@ class ToolCallingLLM:
         tool_number=None,
         user_approved: bool = False,
         session_approved_prefixes: Optional[List[str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> ToolCallResult:
         if trace_span is None:
             trace_span = DummySpan()
@@ -784,6 +802,7 @@ class ToolCallingLLM:
                     tool_number=tool_number,
                     user_approved=user_approved,
                     session_approved_prefixes=session_approved_prefixes,
+                    request_context=request_context,
                 )
 
             original_token_count = prevent_overly_big_tool_response(
@@ -818,6 +837,7 @@ class ToolCallingLLM:
         tool_call_result: ToolCallResult,
         tool_number: Optional[int],
         trace_span: Any,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> ToolCallResult:
         """
         Handle approval for a single tool call if required.
@@ -869,6 +889,7 @@ class ToolCallingLLM:
                     user_approved=True,
                     tool_number=tool_number,
                     tool_call_id=tool_call_result.tool_call_id,
+                    request_context=request_context,
                 )
                 tool_call_result.result = new_response
             else:
@@ -891,6 +912,7 @@ class ToolCallingLLM:
         msgs: Optional[list[dict]] = None,
         enable_tool_approval: bool = False,
         tool_decisions: List[ToolApprovalDecision] | None = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ):
         """
         This function DOES NOT call llm.completion(stream=true).
@@ -899,7 +921,9 @@ class ToolCallingLLM:
         # Process tool decisions if provided
         if msgs and tool_decisions:
             logging.info(f"Processing {len(tool_decisions)} tool decisions")
-            msgs, events = self.process_tool_decisions(msgs, tool_decisions)
+            msgs, events = self.process_tool_decisions(
+                msgs, tool_decisions, request_context
+            )
             yield from events
 
         messages: list[dict] = []
@@ -1040,6 +1064,7 @@ class ToolCallingLLM:
                         trace_span=DummySpan(),  # Streaming mode doesn't support tracing yet
                         tool_number=tool_number,
                         session_approved_prefixes=session_prefixes,
+                        request_context=request_context,
                     )
                     futures.append(future)
                     yield StreamMessage(
@@ -1179,6 +1204,7 @@ class IssueInvestigator(ToolCallingLLM):
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
         runbooks: Optional[RunbookCatalog] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         issue_runbooks = self.runbook_manager.get_instructions_for_issue(issue)
 
@@ -1252,6 +1278,7 @@ class IssueInvestigator(ToolCallingLLM):
             response_format=response_format,
             sections=sections,
             trace_span=trace_span,
+            request_context=request_context,
         )
         res.instructions = issue_runbooks
         return res

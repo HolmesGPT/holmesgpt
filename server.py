@@ -10,58 +10,59 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import json
-from typing import List, Optional
-from holmes.utils.global_instructions import generate_runbooks_args
-from holmes.core.prompt import generate_user_prompt
-import litellm
-import sentry_sdk
-from holmes import get_version, is_official_release
-
-from holmes.core import investigation
-from holmes.utils.connection_utils import patch_socket_create_connection
-from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
-import uvicorn
-import colorlog
 import threading
 import time
+from typing import List, Optional
 
-from litellm.exceptions import AuthenticationError
+import colorlog
+import litellm
+import sentry_sdk
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
+from litellm.exceptions import AuthenticationError
+
+from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
+    DEVELOPMENT_MODE,
     ENABLE_CONNECTION_KEEPALIVE,
+    ENABLE_TELEMETRY,
     HOLMES_HOST,
     HOLMES_PORT,
     LOG_PERFORMANCE,
     SENTRY_DSN,
-    ENABLE_TELEMETRY,
-    DEVELOPMENT_MODE,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
 )
 from holmes.config import Config
+from holmes.core import investigation
 from holmes.core.conversations import (
     build_chat_messages,
     build_issue_chat_messages,
     build_workload_health_chat_messages,
 )
+from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.core.models import (
-    FollowUpAction,
-    InvestigationResult,
-    InvestigateRequest,
-    WorkloadHealthRequest,
     ChatRequest,
     ChatResponse,
+    FollowUpAction,
+    InvestigateRequest,
+    InvestigationResult,
     IssueChatRequest,
     WorkloadHealthChatRequest,
+    WorkloadHealthRequest,
     workload_health_structured_output,
 )
-from holmes.core.investigation_structured_output import clear_json_markdown
+from holmes.core.prompt import generate_user_prompt
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.utils.connection_utils import patch_socket_create_connection
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
+from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
+
 # removed: add_runbooks_to_user_prompt
 
 
@@ -194,15 +195,17 @@ if LOG_PERFORMANCE:
 
 
 @app.post("/api/investigate")
-def investigate_issues(investigate_request: InvestigateRequest):
+def investigate_issues(investigate_request: InvestigateRequest, http_request: Request):
     try:
         runbooks = config.get_runbook_catalog()
+        request_context = extract_passthrough_headers(http_request)
         result = investigation.investigate_issues(
             investigate_request=investigate_request,
             dal=dal,
             config=config,
             model=investigate_request.model,
             runbooks=runbooks,
+            request_context=request_context,
         )
         return result
 
@@ -216,11 +219,12 @@ def investigate_issues(investigate_request: InvestigateRequest):
 
 
 @app.post("/api/stream/investigate")
-def stream_investigate_issues(req: InvestigateRequest):
+def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
     try:
         ai, system_prompt, user_prompt, response_format, sections, runbooks = (
             investigation.get_investigation_context(req, dal, config)
         )
+        request_context = extract_passthrough_headers(http_request)
 
         return StreamingResponse(
             stream_investigate_formatter(
@@ -229,6 +233,7 @@ def stream_investigate_issues(req: InvestigateRequest):
                     user_prompt=user_prompt,
                     response_format=response_format,
                     sections=sections,
+                    request_context=request_context,
                 ),
                 runbooks,
             ),
@@ -243,7 +248,7 @@ def stream_investigate_issues(req: InvestigateRequest):
 
 
 @app.post("/api/workload_health_check")
-def workload_health_check(request: WorkloadHealthRequest):
+def workload_health_check(request: WorkloadHealthRequest, http_request: Request):
     try:
         runbooks = config.get_runbook_catalog()
         resource = request.resource
@@ -285,10 +290,12 @@ def workload_health_check(request: WorkloadHealthRequest):
             },
         )
 
+        request_context = extract_passthrough_headers(http_request)
         ai_call = ai.prompt_call(
             system_prompt,
             request.ask,
             workload_health_structured_output,
+            request_context=request_context,
         )
 
         ai_call.result = clear_json_markdown(ai_call.result)
@@ -312,6 +319,7 @@ def workload_health_check(request: WorkloadHealthRequest):
 @app.post("/api/workload_health_chat")
 def workload_health_conversation(
     request: WorkloadHealthChatRequest,
+    http_request: Request,
 ):
     try:
         ai = config.create_toolcalling_llm(dal=dal, model=request.model)
@@ -323,7 +331,8 @@ def workload_health_conversation(
             config=config,
             global_instructions=global_instructions,
         )
-        llm_call = ai.messages_call(messages=messages)
+        request_context = extract_passthrough_headers(http_request)
+        llm_call = ai.messages_call(messages=messages, request_context=request_context)
 
         return ChatResponse(
             analysis=llm_call.result,
@@ -341,7 +350,7 @@ def workload_health_conversation(
 
 
 @app.post("/api/issue_chat")
-def issue_conversation(issue_chat_request: IssueChatRequest):
+def issue_conversation(issue_chat_request: IssueChatRequest, http_request: Request):
     try:
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=issue_chat_request.model)
@@ -354,7 +363,8 @@ def issue_conversation(issue_chat_request: IssueChatRequest):
             global_instructions=global_instructions,
             runbooks=runbooks,
         )
-        llm_call = ai.messages_call(messages=messages)
+        request_context = extract_passthrough_headers(http_request)
+        llm_call = ai.messages_call(messages=messages, request_context=request_context)
 
         return ChatResponse(
             analysis=llm_call.result,
@@ -381,8 +391,36 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
     return False
 
 
+def extract_passthrough_headers(request: Request) -> dict:
+    """
+    Extract pass-through headers from the request, excluding sensitive auth headers.
+    These headers are forwarded to MCP servers for authentication and context.
+
+    The blocked headers can be configured via the HOLMES_PASSTHROUGH_BLOCKED_HEADERS
+    environment variable (comma-separated list). Defaults to "authorization,cookie,set-cookie".
+
+    Returns:
+        dict: {"headers": {"X-Foo-Bar": "...", "ABC": "...", ...}}
+    """
+    # Get blocked headers from environment variable or use defaults
+    blocked_headers_str = os.environ.get(
+        "HOLMES_PASSTHROUGH_BLOCKED_HEADERS", "authorization,cookie,set-cookie"
+    )
+    blocked_headers = {
+        h.strip().lower() for h in blocked_headers_str.split(",") if h.strip()
+    }
+
+    passthrough_headers = {}
+    for header_name, header_value in request.headers.items():
+        if header_name.lower() not in blocked_headers:
+            # Preserve original case from request (no normalization)
+            passthrough_headers[header_name] = header_value
+
+    return {"headers": passthrough_headers} if passthrough_headers else {}
+
+
 @app.post("/api/chat")
-def chat(chat_request: ChatRequest):
+def chat(chat_request: ChatRequest, http_request: Request):
     try:
         # Log incoming request details
         has_images = bool(chat_request.images)
@@ -406,6 +444,7 @@ def chat(chat_request: ChatRequest):
             runbooks=runbooks,
             images=chat_request.images,
         )
+        request_context = extract_passthrough_headers(http_request)
 
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):
@@ -438,6 +477,7 @@ def chat(chat_request: ChatRequest):
                         enable_tool_approval=chat_request.enable_tool_approval or False,
                         tool_decisions=chat_request.tool_decisions,
                         response_format=chat_request.response_format,
+                        request_context=request_context,
                     ),
                     [f.model_dump() for f in follow_up_actions],
                 ),
@@ -447,6 +487,7 @@ def chat(chat_request: ChatRequest):
             llm_call = ai.messages_call(
                 messages=messages,
                 response_format=chat_request.response_format,
+                request_context=request_context,
             )
 
             # For non-streaming, we need to handle approvals differently
