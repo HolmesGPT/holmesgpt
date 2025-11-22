@@ -159,6 +159,11 @@ class FetchDatadogTracesList(BaseDatadogTracesTool):
             name="fetch_datadog_traces",
             description="[datadog/traces toolset] Fetch a list of traces from Datadog with optional filters",
             parameters={
+                "query": ToolParameter(
+                    description="Datadog search query (e.g., 'service:web-app @http.status_code:500')",
+                    type="string",
+                    required=False,
+                ),
                 "service": ToolParameter(
                     description="Filter by service name",
                     type="string",
@@ -200,6 +205,9 @@ class FetchDatadogTracesList(BaseDatadogTracesTool):
 
     def get_parameterized_one_liner(self, params: dict) -> str:
         """Get a one-liner description of the tool invocation."""
+        if "query" in params:
+            return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Traces ({params['query']})"
+
         filters = []
         if "service" in params:
             filters.append(f"service={params['service']}")
@@ -238,6 +246,11 @@ class FetchDatadogTracesList(BaseDatadogTracesTool):
             # Build search query
             query_parts = []
 
+            # If a custom query is provided, use it as the base
+            if params.get("query"):
+                query_parts.append(params["query"])
+
+            # Add additional filters
             if params.get("service"):
                 query_parts.append(f"service:{params['service']}")
 
