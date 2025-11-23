@@ -223,10 +223,9 @@ class Config(RobustaBaseConfig):
 
         return None
 
-    @staticmethod
-    def get_runbook_catalog() -> Optional[RunbookCatalog]:
+    def get_runbook_catalog(self) -> Optional[RunbookCatalog]:
         # TODO(mainred): besides the built-in runbooks, we need to allow the user to bring their own runbooks
-        runbook_catalog = load_runbook_catalog()
+        runbook_catalog = load_runbook_catalog(dal=self.dal)
         return runbook_catalog
 
     def create_console_tool_executor(

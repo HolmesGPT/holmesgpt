@@ -3,7 +3,6 @@ Whenever possible you MUST first use tools to investigate then answer the questi
 Ask for multiple tool calls at the same time as it saves time for the user.
 Do not say 'based on the tool output' or explicitly refer to tools at all.
 If you output an answer and then realize you need to call more tools or there are possible next steps, you may do so by calling tools at that point in time.
-{% include '_current_date_time.jinja2' %}
 
 ### Context Awareness:
 Be aware that this conversation is follow-up questions to a prior investigation conducted for the {{issue}}.
@@ -49,3 +48,5 @@ Relevant logs:
 ```
 
 Validation error led to unhandled Java exception causing a crash.
+
+{% include '_current_date_time.jinja2' %}

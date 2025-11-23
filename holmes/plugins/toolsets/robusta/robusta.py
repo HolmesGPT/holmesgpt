@@ -4,7 +4,7 @@ import logging
 
 from typing import Optional, Dict, Any, List
 from holmes.common.env_vars import load_bool
-from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.supabase_dal import SupabaseDal, FindingType
 from holmes.core.tools import (
     StaticPrerequisite,
     Tool,
@@ -89,39 +89,86 @@ class FetchResourceRecommendation(Tool):
     def __init__(self, dal: Optional[SupabaseDal]):
         super().__init__(
             name="fetch_resource_recommendation",
-            description="Fetch workload recommendations for resources requests and limits. Returns the current configured resources, as well as recommendation based on actual historical usage.",
+            description=(
+                "Fetch KRR (Kubernetes Resource Recommendations) for CPU and memory optimization. "
+                "KRR provides AI-powered recommendations based on actual historical usage patterns for right-sizing workloads. "
+                "Supports two usage modes: "
+                "(1) Specific workload lookup - Use name_pattern with an exact name, namespace, and kind to get recommendations for a single workload. "
+                "(2) Discovery mode - Use limit and sort_by to get a ranked list of top optimization opportunities. Optionally filter by namespace, name_pattern (wildcards supported), kind, or container. "
+                "Returns current configured resources alongside recommended values. In discovery mode, results are sorted by potential savings."
+            ),
             parameters={
-                "name": ToolParameter(
-                    description="The name of the kubernetes workload.",
+                "limit": ToolParameter(
+                    description="Maximum number of recommendations to return (default: 10, max: 100).",
+                    type="integer",
+                    required=False,
+                ),
+                "sort_by": ToolParameter(
+                    description=(
+                        "Field to sort recommendations by potential savings. Options: "
+                        "'cpu_total' (default) - Total CPU savings (requests + limits), "
+                        "'memory_total' - Total memory savings (requests + limits), "
+                        "'cpu_requests' - CPU requests savings, "
+                        "'memory_requests' - Memory requests savings, "
+                        "'cpu_limits' - CPU limits savings, "
+                        "'memory_limits' - Memory limits savings, "
+                        "'priority' - Use scan priority field."
+                    ),
                     type="string",
-                    required=True,
+                    required=False,
                 ),
                 "namespace": ToolParameter(
-                    description="The namespace of the kubernetes resource.",
+                    description="Filter by Kubernetes namespace (exact match). Leave empty to search all namespaces.",
                     type="string",
-                    required=True,
+                    required=False,
+                ),
+                "name_pattern": ToolParameter(
+                    description=(
+                        "Filter by workload name pattern. Supports SQL LIKE patterns: "
+                        "Use '%' as wildcard (e.g., '%app%' matches any name containing 'app', "
+                        "'prod-%' matches names starting with 'prod-'). "
+                        "Leave empty to match all names."
+                    ),
+                    type="string",
+                    required=False,
                 ),
                 "kind": ToolParameter(
-                    description="The kind of the kubernetes resource. Must be one of: [Deployment, StatefulSet, DaemonSet, Job].",
+                    description=(
+                        "Filter by Kubernetes resource kind. "
+                        "Must be one of: Deployment, StatefulSet, DaemonSet, Job. "
+                        "Leave empty to include all kinds."
+                    ),
                     type="string",
-                    required=True,
+                    required=False,
+                ),
+                "container": ToolParameter(
+                    description="Filter by container name (exact match). Leave empty to include all containers.",
+                    type="string",
+                    required=False,
                 ),
             },
         )
         self._dal = dal
 
-    def _resource_recommendation(self, params: Dict) -> Optional[List[Dict]]:
+    def _fetch_recommendations(self, params: Dict) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
+            # Set default values
+            limit = min(params.get("limit", 10) or 10, 100)
+            sort_by = params.get("sort_by") or "cpu_total"
+
             return self._dal.get_resource_recommendation(
-                name=params["name"],
-                namespace=params["namespace"],
-                kind=params["kind"],
+                limit=limit,
+                sort_by=sort_by,
+                namespace=params.get("namespace"),
+                name_pattern=params.get("name_pattern"),
+                kind=params.get("kind"),
+                container=params.get("container"),
             )
         return None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
-            recommendations = self._resource_recommendation(params)
+            recommendations = self._fetch_recommendations(params)
             if recommendations:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
@@ -131,20 +178,20 @@ class FetchResourceRecommendation(Tool):
             else:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.NO_DATA,
-                    data=f"Could not find recommendations for {params}",
+                    data=f"Could not find any recommendations with filters: {params}",
                     params=params,
                 )
         except Exception as e:
-            msg = f"There was an internal error while fetching recommendations for {params}. {str(e)}"
+            msg = f"There was an error while fetching top recommendations for {params}. {str(e)}"
             logging.exception(msg)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                data=msg,
+                error=msg,
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Robusta: Check Historical Resource Utilization: ({str(params)})"
+        return f"Robusta: Fetch KRR Recommendations ({str(params)})"
 
 
 class FetchConfigurationChangesMetadataBase(Tool):
@@ -168,7 +215,7 @@ class FetchConfigurationChangesMetadataBase(Tool):
                 required=True,
             ),
             END_TIME: ToolParameter(
-                description="The starting time boundary for the search period. String in RFC3339 format.",
+                description="The ending time boundary for the search period. String in RFC3339 format.",
                 type="string",
                 required=True,
             ),
@@ -188,7 +235,7 @@ class FetchConfigurationChangesMetadataBase(Tool):
                         required=False,
                     ),
                     "workload": ToolParameter(
-                        description="The kubernetes workload name for filtering configuration changes. Deployment name or Pod name for example.",
+                        description="Kubernetes resource name to filter configuration changes (e.g., Pod, Deployment, Job, etc.). Must be the full name. For Pods, include the exact generated suffix.",
                         type="string",
                         required=False,
                     ),
@@ -202,11 +249,14 @@ class FetchConfigurationChangesMetadataBase(Tool):
         )
         self._dal = dal
 
-    def _fetch_change_history(
-        self, params: Dict, cluster: Optional[str] = None
+    def _fetch_issues(
+        self,
+        params: Dict,
+        cluster: Optional[str] = None,
+        finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
-            return self._dal.get_configuration_changes_metadata(
+            return self._dal.get_issues_metadata(
                 start_datetime=params["start_datetime"],
                 end_datetime=params["end_datetime"],
                 limit=min(
@@ -216,12 +266,13 @@ class FetchConfigurationChangesMetadataBase(Tool):
                 ns=params.get("namespace"),
                 workload=params.get("workload"),
                 cluster=cluster,
+                finding_type=finding_type,
             )
         return None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
-            changes = self._fetch_change_history(params)
+            changes = self._fetch_issues(params)
             if changes:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
@@ -231,7 +282,7 @@ class FetchConfigurationChangesMetadataBase(Tool):
             else:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.NO_DATA,
-                    data=f"Could not find changes for {params}",
+                    data=f"{self.name} found no data. {params}",
                     params=params,
                 )
         except Exception as e:
@@ -254,7 +305,7 @@ class FetchConfigurationChangesMetadata(FetchConfigurationChangesMetadataBase):
             name="fetch_configuration_changes_metadata",
             description=(
                 "Fetch configuration changes metadata in a given time range. "
-                "By default, fetch all cluster changes. Can be filtered on a given namespace or a specific workload. "
+                "By default, fetch all cluster changes. Can be filtered on a given namespace or a specific kubernetes resource. "
                 "Use fetch_finding_by_id to get detailed change of one specific configuration change."
             ),
         )
@@ -278,11 +329,45 @@ class FetchExternalConfigurationChangesMetadata(FetchConfigurationChangesMetadat
             add_cluster_filter=False,
         )
 
-    def _fetch_change_history(self, params: Dict) -> Optional[List[Dict]]:  # type: ignore
-        return super()._fetch_change_history(params, cluster="external")
+    def _fetch_issues(self, params: Dict) -> Optional[List[Dict]]:  # type: ignore
+        return super()._fetch_issues(params, cluster="external")
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return f"Robusta: Search External Change History {params}"
+
+
+class FetchResourceIssuesMetadata(FetchConfigurationChangesMetadataBase):
+    def __init__(self, dal: Optional[SupabaseDal]):
+        super().__init__(
+            dal=dal,
+            name="fetch_resource_issues_metadata",
+            description=(
+                "Fetch issues and alert metadata in a given time range. "
+                "Must be filtered on a given namespace and specific kubernetes resource, such as pod, deployment, job, etc. "
+                "Use fetch_finding_by_id to get further information on a specific issue or alert."
+            ),
+            add_cluster_filter=False,
+        )
+        self.parameters.update(
+            {
+                "namespace": ToolParameter(
+                    description="The Kubernetes namespace name for filtering issues and alerts",
+                    type="string",
+                    required=True,
+                ),
+                "workload": ToolParameter(
+                    description="Kubernetes resource name to filter issues and alerts (e.g., Pod, Deployment, Job, etc.). Must be the full name. For Pods, include the exact generated suffix.",
+                    type="string",
+                    required=True,
+                ),
+            }
+        )
+
+    def _fetch_issues(self, params: Dict) -> Optional[List[Dict]]:  # type: ignore
+        return super()._fetch_issues(params, finding_type=FindingType.ISSUE)
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return f"Robusta: fetch resource issues metadata {params}"
 
 
 class RobustaToolset(Toolset):
@@ -300,6 +385,7 @@ class RobustaToolset(Toolset):
             FetchRobustaFinding(dal),
             FetchConfigurationChangesMetadata(dal),
             FetchResourceRecommendation(dal),
+            FetchResourceIssuesMetadata(dal),
         ]
 
         if PULL_EXTERNAL_FINDINGS:

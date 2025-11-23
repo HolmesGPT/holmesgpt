@@ -1,0 +1,17 @@
+description: |
+  A test case that simulates an issue real customer bumped into.
+  When holmes was asked about a pod that died some time ago and could not find any information about it , it made up an answer about his condition.
+  This test checks the new fetch_resource_issue_metadata function to allow holmes to get historical issues from our timeline and find the pod kill reason in history.
+
+user_prompt: "why did my pod analytics-exporter-fast-76897854c-xxljr died around 2025-10-19?"
+expected_output:
+  - The result mentions the analytics-exporter-fast pod was OOMKILLED
+before_test:
+after_test:
+
+
+test_type: "server"
+
+tags:
+  - easy
+  - kubernetes

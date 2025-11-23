@@ -1,4 +1,5 @@
+sort:
+  direction: desc
 nav:
   - index.md
-  - Weekly: weekly/
-  - Special: special/
+  - "*"

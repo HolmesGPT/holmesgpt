@@ -8,13 +8,9 @@ If you have a good and concrete suggestion for how the user can fix something, t
 If you are unsure about the answer to the user's request or how to satisfy their request, you should gather more information. This can be done by asking the user for more information.
 Bias towards not asking the user for help if you can find the answer yourself.
 
-{% include '_current_date_time.jinja2' %}
-
 Use conversation history to maintain continuity when appropriate, ensuring efficiency in your responses.
 
 {% include '_general_instructions.jinja2' %}
-
-{% include '_runbook_instructions.jinja2' %}
 
 # Style guide
 
@@ -41,3 +37,5 @@ Validation error led to unhandled Java exception causing a crash.
 {% if system_prompt_additions %}
 {{ system_prompt_additions }}
 {% endif %}
+
+{% include '_current_date_time.jinja2' %}

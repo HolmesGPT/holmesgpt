@@ -2,7 +2,7 @@ import logging
 import os
 import textwrap
 from typing import Any, Dict, List, Optional
-
+from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
     StructuredToolResult,
     Tool,
@@ -21,24 +21,23 @@ from holmes.plugins.runbooks import (
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
-# TODO(mainred): currently we support fetch runbooks hosted internally, in the future we may want to support fetching
-# runbooks from external sources as well.
 class RunbookFetcher(Tool):
     toolset: "RunbookToolset"
     available_runbooks: List[str] = []
     additional_search_paths: Optional[List[str]] = None
+    _dal: Optional[SupabaseDal] = None
 
     def __init__(
         self,
         toolset: "RunbookToolset",
         additional_search_paths: Optional[List[str]] = None,
+        dal: Optional[SupabaseDal] = None,
     ):
-        catalog = load_runbook_catalog()
+        catalog = load_runbook_catalog(dal=dal)
         available_runbooks = []
         if catalog:
-            available_runbooks = [entry.link for entry in catalog.catalog]
+            available_runbooks = catalog.list_available_runbooks()
 
-        # If additional search paths are configured (e.g., for testing), also scan those for .md files
         if additional_search_paths:
             for search_path in additional_search_paths:
                 if not os.path.isdir(search_path):
@@ -46,17 +45,16 @@ class RunbookFetcher(Tool):
 
                 for file in os.listdir(search_path):
                     if file.endswith(".md") and file not in available_runbooks:
-                        available_runbooks.append(file)
+                        available_runbooks.append(f"{file}")
 
-        # Build description with available runbooks
         runbook_list = ", ".join([f'"{rb}"' for rb in available_runbooks])
 
         super().__init__(
             name="fetch_runbook",
             description="Get runbook content by runbook link. Use this to get troubleshooting steps for incidents",
             parameters={
-                "link": ToolParameter(
-                    description=f"The link to the runbook (non-empty string required). Must be one of: {runbook_list}",
+                "runbook_id": ToolParameter(
+                    description=f"The runbook_id: either a UUID or a .md filename. Must be one of: {runbook_list}",
                     type="string",
                     required=True,
                 ),
@@ -65,11 +63,14 @@ class RunbookFetcher(Tool):
             available_runbooks=available_runbooks,  # type: ignore[call-arg]
             additional_search_paths=additional_search_paths,  # type: ignore[call-arg]
         )
+        self._dal = dal
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        link: str = params.get("link", "")
+        runbook_id: str = params.get("runbook_id", "")
+        is_md_file: bool = True if runbook_id.endswith(".md") else False
+
         # Validate link is not empty
-        if not link or not link.strip():
+        if not runbook_id or not runbook_id.strip():
             err_msg = (
                 "Runbook link cannot be empty. Please provide a valid runbook path."
             )
@@ -80,23 +81,52 @@ class RunbookFetcher(Tool):
                 params=params,
             )
 
-        # Build list of allowed search paths
-        search_paths = [DEFAULT_RUNBOOK_SEARCH_PATH]
-        if self.additional_search_paths:
-            search_paths.extend(self.additional_search_paths)
+        if is_md_file:
+            return self._get_md_runbook(runbook_id, params)
+        else:
+            return self._get_robusta_runbook(runbook_id, params)
 
-        # Validate link is in the available runbooks list OR is a valid path within allowed directories
-        if link not in self.available_runbooks:
-            # For links not in the catalog, perform strict path validation
-            if not link.endswith(".md"):
-                err_msg = f"Invalid runbook link '{link}'. Must end with .md extension."
+    def _get_robusta_runbook(self, link: str, params: dict) -> StructuredToolResult:
+        if self._dal and self._dal.enabled:
+            try:
+                runbook_content = self._dal.get_runbook_content(link)
+                if runbook_content:
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.SUCCESS,
+                        data=runbook_content.pretty(),
+                        params=params,
+                    )
+                else:
+                    err_msg = f"Runbook with UUID '{link}' not found in remote storage."
+                    logging.error(err_msg)
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error=err_msg,
+                        params=params,
+                    )
+            except Exception as e:
+                err_msg = f"Failed to fetch runbook with UUID '{link}': {str(e)}"
                 logging.error(err_msg)
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
                     error=err_msg,
                     params=params,
                 )
+        else:
+            err_msg = "Runbook link appears to be a UUID, but no remote data access layer (dal) is enabled."
+            logging.error(err_msg)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=err_msg,
+                params=params,
+            )
 
+    def _get_md_runbook(self, link: str, params: dict) -> StructuredToolResult:
+        search_paths = [DEFAULT_RUNBOOK_SEARCH_PATH]
+        if self.additional_search_paths:
+            search_paths.extend(self.additional_search_paths)
+        # Validate link is in the available runbooks list OR is a valid path within allowed directories
+        if link not in self.available_runbooks:
             # Check if the link would resolve to a valid path within allowed directories
             # This prevents path traversal attacks like ../../secret.md
             is_valid_path = False
@@ -125,7 +155,6 @@ class RunbookFetcher(Tool):
                 )
 
         runbook_path = get_runbook_by_path(link, search_paths)
-
         if runbook_path is None:
             err_msg = (
                 f"Runbook '{link}' not found in any of the search paths: {search_paths}"
@@ -136,8 +165,6 @@ class RunbookFetcher(Tool):
                 error=err_msg,
                 params=params,
             )
-
-        # Read and return the runbook content
         try:
             with open(runbook_path, "r") as file:
                 content = file.read()
@@ -190,12 +217,16 @@ class RunbookFetcher(Tool):
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        path: str = params.get("link", "")
+        path: str = params.get("runbook_id", "")
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Runbook {path}"
 
 
 class RunbookToolset(Toolset):
-    def __init__(self, additional_search_paths: Optional[List[str]] = None):
+    def __init__(
+        self,
+        dal: Optional[SupabaseDal],
+        additional_search_paths: Optional[List[str]] = None,
+    ):
         # Store additional search paths in config for RunbookFetcher to access
         config = {}
         if additional_search_paths:
@@ -206,7 +237,7 @@ class RunbookToolset(Toolset):
             description="Fetch runbooks",
             icon_url="https://platform.robusta.dev/demos/runbook.svg",
             tools=[
-                RunbookFetcher(self, additional_search_paths),
+                RunbookFetcher(self, additional_search_paths, dal),
             ],
             docs_url="https://holmesgpt.dev/data-sources/",
             tags=[

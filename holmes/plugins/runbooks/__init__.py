@@ -4,16 +4,66 @@ import os
 import os.path
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Pattern, Union
-
+from typing import List, Optional, Pattern, Union, Tuple, TYPE_CHECKING
+import yaml
 from pydantic import BaseModel, PrivateAttr
 
 from holmes.utils.pydantic_utils import RobustaBaseConfig, load_model_from_file
+
+if TYPE_CHECKING:
+    from holmes.core.supabase_dal import SupabaseDal
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 DEFAULT_RUNBOOK_SEARCH_PATH = THIS_DIR
 
 CATALOG_FILE = "catalog.json"
+
+
+class RobustaRunbookInstruction(BaseModel):
+    id: str
+    symptom: str
+    title: str
+    instruction: Optional[str] = None
+
+    """
+    Custom YAML dumper to represent multi-line strings in literal block style due to instructions often being multi-line.
+    for example:
+    instructions: |
+      Step 1: Do this
+      Step 2: Do that
+
+    instead of:
+    instructions: "Step 1: Do this
+    Step 2: Do that"
+
+    """
+
+    class _LiteralDumper(yaml.SafeDumper):
+        pass
+
+    @staticmethod
+    def _repr_str(dumper, s: str):
+        s = s.replace("\\n", "\n")
+        return dumper.represent_scalar(
+            "tag:yaml.org,2002:str", s, style="|" if "\n" in s else None
+        )
+
+    _LiteralDumper.add_representer(str, _repr_str)  # type: ignore
+
+    def to_list_string(self) -> str:
+        return f"{self.id}"
+
+    def to_prompt_string(self) -> str:
+        return f"id='{self.id}' | title='{self.title}' | symptom='{self.symptom}'"
+
+    def pretty(self) -> str:
+        try:
+            data = self.model_dump(exclude_none=True)  # pydantic v2
+        except AttributeError:
+            data = self.dict(exclude_none=True)  # pydantic v1
+        return yaml.dump(
+            data, Dumper=self._LiteralDumper, sort_keys=False, allow_unicode=True
+        )
 
 
 class IssueMatcher(RobustaBaseConfig):
@@ -62,37 +112,81 @@ class RunbookCatalogEntry(BaseModel):
     Different from runbooks provided by Runbook class, this entry points to markdown file containing the runbook content.
     """
 
+    id: str
     update_date: date
     description: str
     link: str
 
+    def to_list_string(self) -> str:
+        return f"{self.link}"
+
+    def to_prompt_string(self) -> str:
+        return f"{self.link} | description: {self.description}"
+
 
 class RunbookCatalog(BaseModel):
-    """
-    RunbookCatalog is a collection of runbook entries, each entry contains metadata about the runbook.
-    The correct runbook can be selected from the list by comparing the description with the user question.
-    """
+    catalog: List[Union[RunbookCatalogEntry, "RobustaRunbookInstruction"]]  # type: ignore
 
-    catalog: List[RunbookCatalogEntry]
+    def list_available_runbooks(self) -> list[str]:
+        return [entry.to_list_string() for entry in self.catalog]
+
+    def split_by_type(
+        self,
+    ) -> Tuple[List[RunbookCatalogEntry], List[RobustaRunbookInstruction]]:
+        md: List[RunbookCatalogEntry] = []
+        robusta: List[RobustaRunbookInstruction] = []  #
+        for catalog_entry in self.catalog:
+            if isinstance(catalog_entry, RunbookCatalogEntry):
+                md.append(catalog_entry)
+            elif isinstance(catalog_entry, RobustaRunbookInstruction):
+                robusta.append(catalog_entry)
+        return md, robusta
+
+    def to_prompt_string(self) -> str:
+        md, robusta = self.split_by_type()
+        parts: List[str] = [""]
+        if md:
+            parts.append("Here are MD runbooks:")
+            parts.extend(f"* {e.to_prompt_string()}" for e in md)
+        if robusta:
+            parts.append("Here are Robusta runbooks:")
+            parts.extend(f"* {e.to_prompt_string()}" for e in robusta)
+        return "\n".join(parts)
 
 
-def load_runbook_catalog() -> Optional[RunbookCatalog]:
+def load_runbook_catalog(
+    dal: Optional["SupabaseDal"] = None,
+) -> Optional[RunbookCatalog]:  # type: ignore
     dir_path = os.path.dirname(os.path.realpath(__file__))
-
+    catalog = None
     catalogPath = os.path.join(dir_path, CATALOG_FILE)
-    if not os.path.isfile(catalogPath):
-        return None
     try:
-        with open(catalogPath) as file:
-            catalog_dict = json.load(file)
-            return RunbookCatalog(**catalog_dict)
+        if os.path.isfile(catalogPath):
+            with open(catalogPath) as file:
+                catalog_dict = json.load(file)
+                catalog = RunbookCatalog(**catalog_dict)
     except json.JSONDecodeError as e:
         logging.error(f"Error decoding JSON from {catalogPath}: {e}")
     except Exception as e:
         logging.error(
             f"Unexpected error while loading runbook catalog from {catalogPath}: {e}"
         )
-    return None
+
+    # Append additional runbooks from SupabaseDal if provided
+    if dal:
+        try:
+            supabase_entries = dal.get_runbook_catalog()
+            if not supabase_entries:
+                return catalog
+            if catalog:
+                catalog.catalog.extend(supabase_entries)
+            else:
+                # if failed to load from file, create new catalog from supabase
+                catalog = RunbookCatalog(catalog=supabase_entries)  # type: ignore
+        except Exception as e:
+            logging.error(f"Error loading runbooks from Supabase: {e}")
+
+    return catalog
 
 
 def get_runbook_by_path(

@@ -4,7 +4,6 @@ Ask for multiple tool calls at the same time as it saves time for the user.
 Do not say 'based on the tool output'
 
 Provide an terse analysis of the following {{ issue.source_type }} alert/issue and why it is firing.
-* {% include '_current_date_time.jinja2' %}
 * If the tool requires string format timestamps, query from 'start_timestamp' until 'end_timestamp'
 * If the tool requires timestamps in milliseconds, query from 'start_timestamp' until 'end_timestamp'
 * If you need timestamp in string format, query from 'start_timestamp_millis' until 'end_timestamp_millis'
@@ -41,3 +40,5 @@ Use these rules when deciding how to apply them:
 * Remove unnecessary words
 
 {% include 'investigation_output_format.jinja2' %}
+
+{% include '_current_date_time.jinja2' %}

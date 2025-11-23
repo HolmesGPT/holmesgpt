@@ -1,0 +1,9 @@
+Grafana Loki is a multi-tenant log aggregation system designed to store and query logs from all your applications and infrastructure.
+
+* Deleted K8s objects don’t delete their past logs. You can still find them by time-bounded queries on stable labels (e.g., namespace + app) or by regex on pod names.
+* If you can't find the kubernetes workload in the cluster YOU SHOULD still try to find logs from it using non specific values on labels.
+* If asked to check for logs, you must always try 1-2 of the best queries you can construct to search for the logs.
+
+Loki indexes log lines using labels to help find relevant log lines.
+For example a default Kubernetes labels setup would look like that
+{namespace="prod", app="backend-api", container="api", pod="backend-api-68b7d9df9c-xyz12", stream="stdout"}

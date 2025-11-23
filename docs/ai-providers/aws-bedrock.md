@@ -2,6 +2,9 @@
 
 Configure HolmesGPT to use AWS Bedrock foundation models.
 
+!!! tip "Which Model to Use"
+    We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. See examples below for configuration.
+
 ## Setup
 
 ### Prerequisites

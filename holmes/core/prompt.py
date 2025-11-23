@@ -57,7 +57,7 @@ def build_initial_ask_messages(
     system_prompt_template = "builtin://generic_ask.jinja2"
     template_context = {
         "toolsets": tool_executor.toolsets,
-        "runbooks": runbooks or {},
+        "runbooks_enabled": True if runbooks else False,
         "system_prompt_additions": system_prompt_additions or "",
     }
     system_prompt_rendered = load_and_render_prompt(

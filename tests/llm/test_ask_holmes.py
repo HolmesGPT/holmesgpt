@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 from datetime import datetime
-
+from holmes.plugins.runbooks import load_runbook_catalog
 from rich.console import Console
 from holmes.core.models import ChatRequest
 from holmes.core.tracing import TracingFactory
@@ -29,6 +29,7 @@ from tests.llm.utils.test_case_utils import (
 
 from holmes.core.prompt import build_initial_ask_messages
 from tests.llm.utils.retry_handler import retry_on_throttle
+from tests.llm.utils.mock_dal import load_mock_dal
 
 from tests.llm.utils.property_manager import (
     set_initial_properties,
@@ -208,9 +209,6 @@ def ask_holmes(
             if test_case.runbooks is not None:
                 runbooks = test_case.runbooks
             else:
-                # Load default system runbooks
-                from holmes.plugins.runbooks import load_runbook_catalog
-
                 runbook_catalog = load_runbook_catalog()
                 runbooks = runbook_catalog.model_dump() if runbook_catalog else {}
             messages = build_initial_ask_messages(
@@ -226,11 +224,19 @@ def ask_holmes(
         if test_case.cluster_name:
             config.cluster_name = test_case.cluster_name
 
+        mock_dal = load_mock_dal(
+            Path(test_case.folder), generate_mocks=False, initialize_base=False
+        )
+        runbooks = load_runbook_catalog(mock_dal)
+        global_instructions = mock_dal.get_global_instructions_for_account()
+
         messages = build_chat_messages(
             ask=chat_request.ask,
             conversation_history=test_case.conversation_history,
             ai=ai,
             config=config,
+            global_instructions=global_instructions,
+            runbooks=runbooks,
         )
 
     # Create LLM completion trace within current context

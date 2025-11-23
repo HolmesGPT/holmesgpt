@@ -25,9 +25,35 @@ Install HolmesGPT python dependencies:
 poetry install --with=dev
 ```
 
-### Quick Start: Using run_benchmarks_local.sh
+### Quick Start: Running Your First Eval
 
-The easiest way to run benchmarks locally is using the `run_benchmarks_local.sh` script, which mirrors the exact behavior of our CI/CD workflow:
+Try running a single eval to understand how the system works. We'll use [eval 80_pvc_storage_class_mismatch](https://github.com/robusta-dev/holmesgpt/tree/master/tests/llm/fixtures/test_ask_holmes/80_pvc_storage_class_mismatch) as an example:
+
+```bash
+# Run eval #80 with Claude Sonnet 4.5 (this specific eval passes reliably with Sonnet 4.5)
+RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 \
+  CLASSIFIER_MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+
+# Compare with GPT-4o (may not pass as reliably)
+RUN_LIVE=true MODEL=gpt-4o \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+
+# Compare with GPT-4.1 (may not pass as reliably)
+RUN_LIVE=true MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+
+# Test multiple models at once to compare performance
+RUN_LIVE=true MODEL=gpt-4o,gpt-4.1,anthropic/claude-sonnet-4-20250514 \
+  CLASSIFIER_MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+```
+
+**Note:** This eval demonstrates how different models perform differently - Sonnet 4.5 passes this specific eval reliably while weaker models like GPT-4o and GPT-4.1 may struggle with this scenario.
+
+### Running Full Benchmark Suite
+
+Once you're comfortable running individual evals, you can run the full benchmark suite to test all important evals at once. The easiest way to do this locally is using the `run_benchmarks_local.sh` script, which mirrors the exact behavior of our CI/CD workflow:
 
 ```bash
 # Run with defaults (easy tests, default models, 1 iteration)
@@ -46,27 +72,42 @@ The easiest way to run benchmarks locally is using the `run_benchmarks_local.sh`
 ./run_benchmarks_local.sh 'gpt-4o' 'easy' 1 '' 6
 ```
 
-The script automatically:
-- Sets up all required environment variables
-- Runs tests with JSON report generation
-- Generates a markdown benchmark report with dashboard, costs, and timings
-- Saves a historical copy in `docs/development/evaluations/history/`
-- Shows how to commit results
+## Environment Variables
 
-### Manual Commands
+Essential variables for controlling test behavior:
 
-For more control, you can run pytest directly:
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `RUN_LIVE` | Use real tools instead of mocks | `RUN_LIVE=true` |
+| `ITERATIONS` | Run each test N times | `ITERATIONS=10` |
+| `MODEL` | LLM to test | `MODEL=gpt-4.1` |
+| `CLASSIFIER_MODEL` | LLM for scoring (needed for Anthropic) | `CLASSIFIER_MODEL=gpt-4.1` |
+
+## Advanced Usage
+
+### Selecting Which Evals to Run
+
+For more control over which evals to run, you can use pytest directly with markers (tags) or test name patterns:
 
 ```bash
-# Run all easy evals - these should always pass assuming you have a kubernetes cluster with sufficient resources and a 'good enough model' (e.g. gpt-4.1, claude-opus-4-1)
+# Run all easy evals (regression tests - should always pass)
 RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
 
-# Run a specific eval
-RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py -k "01_how_many_pods"
+# Run challenging tests
+RUN_LIVE=true poetry run pytest -m 'llm and medium' --no-cov
 
-# Run evals with a specific tag
+# Run evals with a specific tag (e.g., tests involving logs)
 RUN_LIVE=true poetry run pytest -m "llm and logs" --no-cov
+
+# Run a specific eval by name
+RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py -k "01_how_many_pods"
 ```
+
+**Available markers:** See `pyproject.toml` for all available markers. Common ones include:
+- `easy` - Regression tests that should always pass
+- `medium` - More challenging scenarios
+- `logs` - Tests involving log analysis
+- `kubernetes` - Kubernetes-specific tests
 
 ### Testing Different Models
 
@@ -138,42 +179,6 @@ RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
 Some evals support mock-data and don't need a live Kubernetes cluster to run. However, for the most accurate evaluation you should set `RUN_LIVE=true` which tests HolmesGPT with a live Kubernetes cluster not mock data.
 
 This is important because LLMs can take multiple paths to reach conclusions, and mock data only captures one path.
-
-## Environment Variables
-
-Essential variables for controlling test behavior:
-
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| `RUN_LIVE` | Use real tools instead of mocks | `RUN_LIVE=true` |
-| `ITERATIONS` | Run each test N times | `ITERATIONS=10` |
-| `MODEL` | LLM to test | `MODEL=gpt-4.1` |
-| `CLASSIFIER_MODEL` | LLM for scoring (needed for Anthropic) | `CLASSIFIER_MODEL=gpt-4.1` |
-| `ASK_HOLMES_TEST_TYPE` | Message building flow (`cli` or `server`) | `ASK_HOLMES_TEST_TYPE=server` |
-
-### ASK_HOLMES_TEST_TYPE Details
-
-The `ASK_HOLMES_TEST_TYPE` environment variable controls how messages are built in ask_holmes tests:
-
-- **`cli` (default)**: Uses `build_initial_ask_messages` like the CLI ask() command. This mode:
-  - Simulates the CLI interface behavior
-  - Does not support conversation history tests (will skip them)
-  - Includes runbook loading and system prompts as done in the CLI
-
-- **`server`**: Uses `build_chat_messages` with ChatRequest for server-style flow. This mode:
-  - Simulates the API/server interface behavior
-  - Supports conversation history tests
-  - Uses the ChatRequest model for message building
-
-```bash
-# Test with CLI-style message building (default)
-RUN_LIVE=true poetry run pytest -k "test_name"
-
-# Test with server-style message building
-RUN_LIVE=true ASK_HOLMES_TEST_TYPE=server poetry run pytest -k "test_name"
-```
-
-## Advanced Usage
 
 ### Parallel Execution
 
@@ -262,41 +267,3 @@ export BRAINTRUST_ORG=your-org
 # Then run any evaluation command - results will be tracked automatically
 RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-sonnet-4-20250514 pytest -m 'llm and easy'
 ```
-
-### CI/CD Benchmarking
-
-HolmesGPT includes a [GitHub Actions workflow](https://github.com/robusta-dev/holmesgpt/blob/main/.github/workflows/eval-benchmarks.yml) for automated benchmarking that runs:
-
-**Automatically:**
-Coming soon: automation to run weekly.
-
-**Manually:**
-- Navigate to Actions tab → "LLM Evaluation Benchmarks" → Run workflow
-- Customize models, markers, and iterations
-
-**Workflow Parameters:**
-- `models`: Comma-separated list (e.g., `gpt-4o,anthropic/claude-sonnet-4-20250514`)
-- `test_markers`: Pytest markers (e.g., `llm and easy`, `llm and medium`, `llm`)
-- `iterations`: Number of test iterations
-
-Benchmark results are automatically:
-- Published to `docs/development/evaluations/latest-results.md`
-- Archived with timestamps in `docs/development/evaluations/history/`
-- Posted as PR comments when tests run on pull requests
-
-## Test Markers
-
-Filter tests by functionality:
-
-```bash
-# Regression tests (should always pass)
-RUN_LIVE=true ITERATIONS=10 poetry run pytest -m "llm and easy"
-
-# Challenging tests
-RUN_LIVE=true ITERATIONS=10 poetry run pytest -m "llm and medium"
-
-# Tests involving logs
-RUN_LIVE=true poetry run pytest -m "llm and logs"
-```
-
-See `pyproject.toml` for all available markers.

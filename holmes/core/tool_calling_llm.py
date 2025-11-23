@@ -48,10 +48,11 @@ from holmes.core.truncation.input_context_window_limiter import (
     limit_input_context_window,
 )
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils import sentry_helper
 from holmes.utils.global_instructions import (
     Instructions,
-    add_global_instructions_to_user_prompt,
+    add_runbooks_to_user_prompt,
 )
 from holmes.utils.tags import format_tags_in_string, parse_messages_tags
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -1043,8 +1044,9 @@ class IssueInvestigator(ToolCallingLLM):
         post_processing_prompt: Optional[str] = None,
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
+        runbooks: Optional[RunbookCatalog] = None,
     ) -> LLMResult:
-        runbooks = self.runbook_manager.get_instructions_for_issue(issue)
+        issue_runbooks = self.runbook_manager.get_instructions_for_issue(issue)
 
         request_structured_output_from_llm = True
         response_format = None
@@ -1072,12 +1074,9 @@ class IssueInvestigator(ToolCallingLLM):
         else:
             logging.info("Structured output is disabled for this request")
 
-        if instructions is not None and instructions.instructions:
-            runbooks.extend(instructions.instructions)
-
         if console and runbooks:
             console.print(
-                f"[bold]Analyzing with {len(runbooks)} runbooks: {runbooks}[/bold]"
+                f"[bold]Analyzing with {len(issue_runbooks)} runbooks: {issue_runbooks}[/bold]"
             )
         elif console:
             console.print(
@@ -1092,29 +1091,20 @@ class IssueInvestigator(ToolCallingLLM):
                 "structured_output": request_structured_output_from_llm,
                 "toolsets": self.tool_executor.toolsets,
                 "cluster_name": self.cluster_name,
+                "runbooks_enabled": True if runbooks else False,
             },
         )
 
-        if instructions is not None and len(instructions.documents) > 0:
-            docPrompts = []
-            for document in instructions.documents:
-                docPrompts.append(
-                    f"* fetch information from this URL: {document.url}\n"
-                )
-            runbooks.extend(docPrompts)
-
         user_prompt = ""
-        if runbooks:
-            for runbook_str in runbooks:
-                user_prompt += f"* {runbook_str}\n"
 
-            user_prompt = f'My instructions to check \n"""{user_prompt}"""'
-
-        user_prompt = add_global_instructions_to_user_prompt(
-            user_prompt, global_instructions
+        user_prompt = add_runbooks_to_user_prompt(
+            user_prompt,
+            runbook_catalog=runbooks,
+            global_instructions=global_instructions,
+            issue_instructions=issue_runbooks,
+            resource_instructions=instructions,
         )
-        user_prompt = f"{user_prompt}\n This is context from the issue {issue.raw}"
-
+        user_prompt = f"{user_prompt}\n #This is context from the issue:\n{issue.raw}"
         logging.debug(
             "Rendered system prompt:\n%s", textwrap.indent(system_prompt, "    ")
         )
@@ -1128,5 +1118,5 @@ class IssueInvestigator(ToolCallingLLM):
             sections=sections,
             trace_span=trace_span,
         )
-        res.instructions = runbooks
+        res.instructions = issue_runbooks
         return res

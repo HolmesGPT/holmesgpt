@@ -4,7 +4,6 @@ Ask for multiple tool calls at the same time as it saves time for the user.
 Do not say 'based on the tool output' or explicitly refer to tools at all.
 If you output an answer and then realize you need to call more tools or there are possible next steps, you may do so by calling tools at that point in time.
 If you have a good and concrete suggestion for how the user can fix something, tell them even if not asked explicitly
-{% include '_current_date_time.jinja2' %}
 
 Use conversation history to maintain continuity when appropriate, ensuring efficiency in your responses.
 
@@ -31,3 +30,5 @@ Relevant logs:
 ```
 
 Validation error led to unhandled Java exception causing a crash.
+
+{% include '_current_date_time.jinja2' %}

@@ -114,6 +114,8 @@ serviceAccount:
 customClusterRoleRules: []
 ```
 
+For detailed information about the required Kubernetes permissions, see [Kubernetes Permissions](kubernetes-permissions.md).
+
 ### Resource Configuration
 
 ```yaml

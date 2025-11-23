@@ -1,3 +1,6 @@
+import json
+
+from holmes.common.env_vars import SSE_READ_TIMEOUT
 from holmes.core.tools import (
     ToolInvokeContext,
     Toolset,
@@ -11,23 +14,81 @@ from holmes.core.tools import (
 from typing import Dict, Any, List, Optional
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from mcp.types import Tool as MCP_Tool
-from mcp.types import CallToolResult
 
 import asyncio
-from pydantic import Field, AnyUrl, field_validator
+from contextlib import asynccontextmanager
+from pydantic import BaseModel, Field, AnyUrl, model_validator
 from typing import Tuple
 import logging
+from enum import Enum
+import threading
+
+# Lock per MCP server URL to serialize calls to the same server
+_server_locks: Dict[str, threading.Lock] = {}
+_locks_lock = threading.Lock()
+
+
+def get_server_lock(url: str) -> threading.Lock:
+    """Get or create a lock for a specific MCP server URL."""
+    with _locks_lock:
+        if url not in _server_locks:
+            _server_locks[url] = threading.Lock()
+        return _server_locks[url]
+
+
+class MCPMode(str, Enum):
+    SSE = "sse"
+    STREAMABLE_HTTP = "streamable-http"
+
+
+class MCPConfig(BaseModel):
+    url: AnyUrl
+    mode: MCPMode = MCPMode.SSE
+    headers: Optional[Dict[str, str]] = None
+
+
+@asynccontextmanager
+async def get_initialized_mcp_session(
+    url: str, headers: Optional[Dict[str, str]], mode: MCPMode
+):
+    if mode == MCPMode.SSE:
+        async with sse_client(
+            url, headers=headers, sse_read_timeout=SSE_READ_TIMEOUT
+        ) as (
+            read_stream,
+            write_stream,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                _ = await session.initialize()
+                yield session
+    else:
+        async with streamablehttp_client(
+            url, headers=headers, sse_read_timeout=SSE_READ_TIMEOUT
+        ) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                _ = await session.initialize()
+                yield session
 
 
 class RemoteMCPTool(Tool):
-    url: str
-    headers: Optional[Dict[str, str]] = None
+    toolset: "RemoteMCPToolset" = Field(exclude=True)
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
-            return asyncio.run(self._invoke_async(params))
+            # Serialize calls to the same MCP server to prevent SSE conflicts
+            # Different servers can still run in parallel
+            if not self.toolset._mcp_config:
+                raise ValueError("MCP config not initialized")
+            lock = get_server_lock(str(self.toolset._mcp_config.url))
+            with lock:
+                return asyncio.run(self._invoke_async(params))
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -36,35 +97,43 @@ class RemoteMCPTool(Tool):
                 invocation=f"MCPtool {self.name} with params {params}",
             )
 
-    async def _invoke_async(self, params: Dict) -> StructuredToolResult:
-        async with sse_client(self.url, self.headers) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
-                _ = await session.initialize()
-                tool_result: CallToolResult = await session.call_tool(self.name, params)
+    @staticmethod
+    def _is_content_error(content: str) -> bool:
+        try:  # aws mcp sometimes returns an error in content - status code != 200
+            json_content: dict = json.loads(content)
+            status_code = json_content.get("response", {}).get("status_code", 200)
+            return status_code >= 300
+        except Exception:
+            return False
 
-                merged_text = " ".join(
-                    c.text for c in tool_result.content if c.type == "text"
-                )
-                return StructuredToolResult(
-                    status=(
-                        StructuredToolResultStatus.ERROR
-                        if tool_result.isError
-                        else StructuredToolResultStatus.SUCCESS
-                    ),
-                    data=merged_text,
-                    params=params,
-                    invocation=f"MCPtool {self.name} with params {params}",
-                )
+    async def _invoke_async(self, params: Dict) -> StructuredToolResult:
+        async with self.toolset.get_initialized_session() as session:
+            tool_result = await session.call_tool(self.name, params)
+
+        merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
+        return StructuredToolResult(
+            status=(
+                StructuredToolResultStatus.ERROR
+                if (tool_result.isError or self._is_content_error(merged_text))
+                else StructuredToolResultStatus.SUCCESS
+            ),
+            data=merged_text,
+            params=params,
+            invocation=f"MCPtool {self.name} with params {params}",
+        )
 
     @classmethod
-    def create(cls, url: str, tool: MCP_Tool, headers: Optional[Dict[str, str]] = None):
+    def create(
+        cls,
+        tool: MCP_Tool,
+        toolset: "RemoteMCPToolset",
+    ):
         parameters = cls.parse_input_schema(tool.inputSchema)
         return cls(
-            url=url,
             name=tool.name,
             description=tool.description or "",
             parameters=parameters,
-            headers=headers,
+            toolset=toolset,
         )
 
     @classmethod
@@ -84,53 +153,111 @@ class RemoteMCPTool(Tool):
         return parameters
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Call MCP Server ({self.url} - {self.name})"
+        if params:
+            if params.get("cli_command"):  # Return AWS MCP cli command, if available
+                return f"{params.get('cli_command')}"
+
+        url = (
+            str(self.toolset._mcp_config.url) if self.toolset._mcp_config else "unknown"
+        )
+        return f"Call MCP Server ({url} - {self.name})"
 
 
 class RemoteMCPToolset(Toolset):
-    url: AnyUrl
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
+    _mcp_config: Optional[MCPConfig] = None
 
     def model_post_init(self, __context: Any) -> None:
-        self.prerequisites = [CallablePrerequisite(callable=self.init_server_tools)]
+        self.prerequisites = [
+            CallablePrerequisite(callable=self.prerequisites_callable)
+        ]
 
-    def get_headers(self) -> Optional[Dict[str, str]]:
-        return self.config and self.config.get("headers")
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_url_to_config(cls, values: dict[str, Any]) -> dict[str, Any]:
+        """
+        Migrates url from field parameter to config object.
+        If url is passed as a parameter, it's moved to config (or config is created if it doesn't exist).
+        """
+        if not isinstance(values, dict) or "url" not in values:
+            return values
 
-    @field_validator("url", mode="before")
-    def append_sse_if_missing(cls, v):
-        if isinstance(v, str) and not v.rstrip("/").endswith("/sse"):
-            v = v.rstrip("/") + "/sse"
-        return v
+        url_value = values.pop("url")
+        if url_value is None:
+            return values
 
-    # used as a CallablePrerequisite, config added for that case.
-    def init_server_tools(self, config: dict[str, Any]) -> Tuple[bool, str]:
+        config = values.get("config")
+        if config is None:
+            config = {}
+            values["config"] = config
+
+        toolset_name = values.get("name", "unknown")
+        if "url" in config:
+            logging.warning(
+                f"Toolset {toolset_name}: has two urls defined, remove the 'url' field from the toolset configuration and keep the 'url' in the config section."
+            )
+            return values
+
+        logging.warning(
+            f"Toolset {toolset_name}: 'url' field has been migrated to config. "
+            "Please move 'url' to the config section."
+        )
+        config["url"] = url_value
+        return values
+
+    def prerequisites_callable(self, config) -> Tuple[bool, str]:
         try:
+            if not config:
+                return (False, f"Config is required for {self.name}")
+
+            if "mode" in config:
+                mode_value = config.get("mode")
+                allowed_modes = [e.value for e in MCPMode]
+                if mode_value not in allowed_modes:
+                    return (
+                        False,
+                        f'Invalid mode "{mode_value}", allowed modes are {", ".join(allowed_modes)}',
+                    )
+
+            self._mcp_config = MCPConfig(**config)
+
+            clean_url_str = str(self._mcp_config.url).rstrip("/")
+
+            if self._mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith(
+                "/sse"
+            ):
+                self._mcp_config.url = AnyUrl(clean_url_str + "/sse")
+
             tools_result = asyncio.run(self._get_server_tools())
+
             self.tools = [
-                RemoteMCPTool.create(str(self.url), tool, self.get_headers())
-                for tool in tools_result.tools
+                RemoteMCPTool.create(tool, self) for tool in tools_result.tools
             ]
 
             if not self.tools:
                 logging.warning(f"mcp server {self.name} loaded 0 tools.")
+
             return (True, "")
         except Exception as e:
-            # using e.args, the asyncio wrapper could stack another exception this helps printing them all.
             return (
                 False,
-                f"Failed to load mcp server {self.name} {self.url} {str(e.args)}",
+                f"Failed to load mcp server {self.name} {self._mcp_config.url if self._mcp_config else 'unknown'}: {str(e)}",
             )
 
     async def _get_server_tools(self):
-        async with sse_client(str(self.url), headers=self.get_headers()) as (
-            read_stream,
-            write_stream,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                _ = await session.initialize()
-                return await session.list_tools()
+        async with self.get_initialized_session() as session:
+            return await session.list_tools()
+
+    def get_initialized_session(self):
+        return get_initialized_mcp_session(
+            str(self._mcp_config.url), self._mcp_config.headers, self._mcp_config.mode
+        )
 
     def get_example_config(self) -> Dict[str, Any]:
-        return {}
+        example_config = MCPConfig(
+            url=AnyUrl("http://example.com:8000/mcp/messages"),
+            mode=MCPMode.STREAMABLE_HTTP,
+            headers={"Authorization": "Bearer YOUR_TOKEN"},
+        )
+        return example_config.model_dump()

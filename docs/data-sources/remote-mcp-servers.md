@@ -3,35 +3,106 @@
 !!! warning
     Remote MCP servers are in **Tech Preview** stage.
 
-HolmesGPT can integrate with remote MCP servers using SSE mode.
+!!! note "Configuration Change"
+    **The MCP server configuration format has been updated.** The `url` field must now be specified inside the `config` section instead of at the top level. The old format (with `url` at the top level) is still supported for backward compatibility but will log a migration warning. Please update your configurations to use the new format.
+
+!!! warning "SSE Mode Deprecation"
+    The SSE (Server-Sent Events) transport mode for MCP is being deprecated across the MCP ecosystem.
+    **We strongly recommend using `streamable-http` mode** for new MCP server integrations.
+    SSE mode support is maintained for backward compatibility but may be removed in future versions.
+
+HolmesGPT can integrate with remote MCP servers using either **streamable-http** (recommended) or **SSE** (deprecated) transport modes.
 This capability enables HolmesGPT to access external data sources and tools in real time.
-This guide provides step-by-step instructions for configuring HolmesGPT to connect with remote MCP servers over SSE.
+This guide provides step-by-step instructions for configuring HolmesGPT to connect with remote MCP servers.
+
+## Transport Modes
+
+HolmesGPT supports two MCP transport modes:
+
+1. **`streamable-http`** (Recommended): Modern transport mode that uses HTTP POST requests with JSON responses. This is the preferred mode for new integrations.
+2. **`sse`** (Deprecated): Legacy transport mode using Server-Sent Events. Maintained for backward compatibility only.
+
+### Configuring Transport Mode
+
+The transport mode and URL are specified in the `config` section of your MCP server configuration:
+
+```yaml
+mcp_servers:
+  my_server:
+    description: "My MCP server"
+    config:
+      url: "http://example.com:8000/mcp/messages"  # Path depends on your server (could be /mcp, /mcp/messages, etc.)
+      mode: streamable-http  # Explicitly set the mode
+      headers:
+        Authorization: "Bearer token123"
+```
+
+!!! note "URL Path Variability"
+    Different MCP servers may use different endpoint paths. Common examples include:
+    - `/mcp/messages` - Used by some servers
+    - `/mcp` - Used by other servers (e.g., Azure Kubernetes MCP)
+    - Custom paths as defined by your server
+
+    The streamable-http client automatically handles the protocol regardless of the path. Consult your MCP server's documentation to determine the correct endpoint URL.
+
+If no mode is specified, the system defaults to `sse` for backward compatibility. However, **this default will be deprecated in the future**, and **you should explicitly set `mode: streamable-http` or `mode: sse`** for new and old servers.
+
+### URL Format
+
+- **Streamable-HTTP**: URL should point to the MCP server endpoint. The exact path depends on your server configuration:
+  - Some servers use `/mcp/messages` (e.g., `http://example.com:8000/mcp/messages`)
+  - Others use `/mcp` (e.g., `http://example.com:3333/mcp`)
+  - The streamable-http client automatically handles POST requests and responses at the provided URL
+  - Check your MCP server documentation for the correct endpoint path
+- **SSE**: URL should end with `/sse` (e.g., `http://example.com:8000/sse`). If the URL doesn't end with `/sse`, HolmesGPT will automatically append it.
 
 ## Example: MCP server configuration
+
+### Streamable-HTTP (Recommended)
 
 ```yaml-helm-values
 mcp_servers:
   mcp_server_1:
     # human-readable description of the mcp server (this is not seen by the AI model - its just for users)
-    description: "Remote mcp server"
-    url: "http://example.com:8000/sse"
+    description: "Remote mcp server using streamable-http"
+    config:
+      url: "http://example.com:8000/mcp/messages"  # Path may vary: /mcp, /mcp/messages, or custom path
+      mode: streamable-http  # Explicitly set the preferred mode
+      headers:
+        Authorization: "Bearer {{ env.my_mcp_server_key }}"  # You can use holmes environment variables as headers
     llm_instructions: "This server provides general data access capabilities. Use it when you need to retrieve external information or perform remote operations that aren't covered by other toolsets."
+```
+
+### SSE (Deprecated - Use Only for Legacy Servers)
+
+```yaml-helm-values
+mcp_servers:
+  mcp_server_legacy:
+    description: "Legacy MCP server using SSE (deprecated)"
+    config:
+      url: "http://example.com:8000/sse"  # Must end with /sse
+      mode: sse  # Explicitly set, though this is deprecated
+    llm_instructions: "Legacy server using deprecated SSE transport."
 
   mcp_server_2:
     description: "MCP server that runs in my cluster"
-    url: "http://<service-name>.<namespace>.svc.cluster.local:<service-port>"
-    llm_instructions: "This is a cluster-local MCP server that provides internal cluster data and operations. Use it for accessing cluster-specific information, internal services, or custom tooling deployed within the Kubernetes environment."
     config:
+      url: "http://<service-name>.<namespace>.svc.cluster.local:<service-port>/sse"  # SSE endpoint must end with /sse
+      mode: sse  # Explicitly set SSE mode (deprecated)
       headers:
-        key: "{{ env.my_mcp_server_key }}" # You can use holmes environment variables as headers for the MCP server requests.
+        key: "{{ env.my_mcp_server_key }}"  # You can use holmes environment variables as headers for the MCP server requests.
+    llm_instructions: "This is a cluster-local MCP server that provides internal cluster data and operations. Use it for accessing cluster-specific information, internal services, or custom tooling deployed within the Kubernetes environment."
 ```
 
 ## Example: Working with Stdio MCP servers
 
-MCP currently supports three transport mechanisms: stdio, Server-Sent Events (SSE), and Streamable HTTP.
-At this time, HolmesGPT is compatible only with MCP servers that use SSE.
+MCP currently supports three transport mechanisms: stdio, Server-Sent Events (SSE - deprecated), and Streamable HTTP.
+HolmesGPT supports both **streamable-http** (recommended) and **SSE** (deprecated) transport modes.
 However, many existing MCP servers—such as Dynatrace MCP—rely exclusively on the stdio transport.
-To overcome this incompatibility, tools like Supergateway can act as a bridge by converting stdio-based MCPs into SSE-compatible endpoints.
+To overcome this incompatibility, tools like Supergateway can act as a bridge by converting stdio-based MCPs into streamable-http or SSE-compatible endpoints.
+
+!!! tip "Prefer Streamable-HTTP"
+    When using Supergateway or similar tools, configure them to use `streamable-http` mode instead of SSE for better compatibility and future-proofing.
 
 For this demo we will use:
 - [Dynatrace MCP](https://github.com/dynatrace-oss/dynatrace-mcp)
@@ -149,7 +220,8 @@ Use this config according to your use case.
     mcp_servers:
       mcp_server_1:
         description: "Dynatrace observability platform. Bring real-time observability data directly into your development workflow."
-        url: "http://localhost:8003/sse"
+        config:
+          url: "http://localhost:8003/sse"
         llm_instructions: "Use Dynatrace to analyze application performance, infrastructure monitoring, and real-time observability data. Query metrics, traces, and logs to identify performance bottlenecks, errors, and system health issues in your applications and infrastructure."
     ```
 
@@ -169,7 +241,8 @@ Use this config according to your use case.
 mcp_servers:
   mcp_server_1:
     description: "Dynatrace observability platform. Bring real-time observability data directly into your development workflow."
-    url: "http://dynatrace-mcp.default.svc.cluster.local:8003"
+    config:
+      url: "http://dynatrace-mcp.default.svc.cluster.local:8003"
     llm_instructions: "Use Dynatrace to analyze application performance, infrastructure monitoring, and real-time observability data. Query metrics, traces, and logs to identify performance bottlenecks, errors, and system health issues in your applications and infrastructure."
 ```
 

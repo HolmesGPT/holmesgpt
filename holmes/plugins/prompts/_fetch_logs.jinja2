@@ -4,6 +4,7 @@
 {%- set k8s_yaml_ts = toolsets | selectattr("name", "equalto", "kubernetes/logs") | rejectattr("fetch_pod_logs", "defined") | first -%}
 {%- set opensearch_ts = toolsets | selectattr("name", "equalto", "opensearch/logs") | first -%}
 {%- set datadog_ts = toolsets | selectattr("name", "equalto", "datadog/logs") | first -%}
+{%- set openshift_ts = toolsets | selectattr("name", "equalto", "openshift/logs") | first -%}
 {%- set bash_ts = toolsets | selectattr("name", "equalto", "bash") | first -%}
 
 ## Logs
@@ -44,6 +45,17 @@ Tools to search and fetch logs from Datadog.
 * IMPORTANT: ALWAYS inform the user about the actual time period fetched (e.g., "Looking at logs from the last <X> days")
 * IMPORTANT: If a limit was applied, ALWAYS tell the user how many logs were shown vs total (e.g., "Showing latest <Y> of <Z> logs")
 * IMPORTANT: If any filters were applied, ALWAYS mention them explicitly
+{%- elif openshift_ts and openshift_ts.status == "enabled" -%}
+### openshift/logs
+#### OpenShift Logs Toolset
+Tools to search and fetch logs from OpenShift.
+* Use the tool `oc_logs` to access an application's logs.
+* Do fetch application logs yourself and DO not ask users to do so
+* If you have an alert/monitor try to figure out the time it fired
+** If there are too many logs, or not enough, narrow or widen the timestamps
+* IMPORTANT: ALWAYS inform the user about the actual time period fetched (e.g., "Looking at logs from the last <X> days")
+* IMPORTANT: If a limit was applied, ALWAYS tell the user how many logs were shown vs total (e.g., "Showing latest <Y> of <Z> logs")
+* IMPORTANT: If any filters were applied, ALWAYS mention them explicitly
 {%- elif k8s_yaml_ts and k8s_yaml_ts.status == "enabled" -%}
 ### Logs from newrelic
 * you can fetch logs from newrelic if this is toolset is enabled
@@ -67,5 +79,6 @@ DO NOT use `--tail` or `| tail` when calling `kubectl logs` because you may miss
 ** 'opensearch/logs'
 ** 'coralogix/logs'
 ** 'datadog/logs'
+** 'openshift/logs'
 ** 'newrelic'
 {%- endif -%}

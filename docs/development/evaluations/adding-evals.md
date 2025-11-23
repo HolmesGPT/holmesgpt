@@ -2,10 +2,39 @@
 
 Create test cases that measure HolmesGPT's diagnostic accuracy and help track improvements over time.
 
-## Test Types
+## Prerequisites
 
-- **Ask Holmes**: Chat-like Q&A interactions
-- **Investigation**: AlertManager event analysis
+Install HolmesGPT python dependencies:
+
+```bash
+poetry install --with=dev
+```
+
+## Quick Start: Running Your First Eval
+
+Try running an existing eval to understand how the system works. We'll use [eval 80_pvc_storage_class_mismatch](https://github.com/robusta-dev/holmesgpt/tree/master/tests/llm/fixtures/test_ask_holmes/80_pvc_storage_class_mismatch) as an example:
+
+```bash
+# Run eval #80 with Claude Sonnet 4.5 (this specific eval passes reliably with Sonnet 4.5)
+RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 \
+  CLASSIFIER_MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+
+# Compare with GPT-4o (may not pass as reliably)
+RUN_LIVE=true MODEL=gpt-4o \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+
+# Compare with GPT-4.1 (may not pass as reliably)
+RUN_LIVE=true MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+
+# Test multiple models at once to compare performance
+RUN_LIVE=true MODEL=gpt-4o,gpt-4.1,anthropic/claude-sonnet-4-20250514 \
+  CLASSIFIER_MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
+```
+
+**Note:** Eval #80 demonstrates how different models perform differently - Sonnet 4.5 passes this specific eval reliably while weaker models like GPT-4o and GPT-4.1 may struggle with this scenario.
 
 ## Quick Start
 
@@ -37,10 +66,21 @@ spec:
 
 4. Run test:
 ```bash
-poetry run pytest tests/llm/test_ask_holmes.py -k "99_your_test" -v
+# With GPT-4.1
+RUN_LIVE=true MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "99_your_test" -v
+
+# With Claude Sonnet 4.5 (must set CLASSIFIER_MODEL since Anthropic models can't be used as classifiers)
+RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 \
+  CLASSIFIER_MODEL=gpt-4.1 \
+  poetry run pytest tests/llm/test_ask_holmes.py -k "99_your_test" -v
 ```
 
-## Test Configuration
+**Note on CLASSIFIER_MODEL:** An LLM judges whether tests pass. Only OpenAI models (like `gpt-4.1`) work as classifiers. Set `CLASSIFIER_MODEL=gpt-4.1` explicitly when using Anthropic models. For OpenAI models, it defaults to `MODEL`.
+
+## test_case.yaml Configuration
+
+Configure your test by defining these fields in `test_case.yaml`:
 
 ### Required Fields
 - `user_prompt`: Question for Holmes
@@ -80,26 +120,6 @@ poetry run pytest tests/llm/test_ask_holmes.py -k "99_your_test" -v
 
 **Live evaluations (`RUN_LIVE=true`) are strongly preferred** because they're more reliable and accurate.
 
-### Why Live Evaluations Are Preferred
-
-**LLMs can take multiple paths to reach the same conclusion.** When using mock data:
-
-- The LLM might call tools in a different order than when mocks were generated
-- It might use different tool combinations to diagnose the same issue
-- It might ask for additional information not captured in the mocks
-- Mock data represents only one possible investigation path
-
-With live evaluations, the LLM can explore any path it chooses, making tests more robust and realistic.
-
-### When Mock Data Is Necessary
-
-Mock data is sometimes unavoidable:
-- CI/CD environments without Kubernetes cluster access
-- Testing specific edge cases that require controlled responses
-- Reproducing exact historical scenarios
-
-**Important**: Even when using mocks, always validate with `RUN_LIVE=true` in a real environment.
-
 ### Generating Mock Data
 
 ```bash
@@ -115,6 +135,7 @@ Mock files are named: `{tool_name}_{context}.txt`
 ### Mock Data Guidelines
 
 When creating mock data:
+
 - Never generate mock data manually - always use `--generate-mocks` with live execution
 - Mock data should match real-world responses exactly
 - Include all fields that would be present in actual responses
@@ -247,17 +268,3 @@ Some examples
 - `synthetic` - Tests that use manually generated mock data (cannot be run live)
 - `datetime` - Tests date/time handling and interpretation
 - etc.
-
-### Using Tags in Test Cases
-
-Add tags to your `test_case.yaml`:
-
-```yaml
-user_prompt: "Show me the logs for the pod `robusta-holmes` since last Thursday"
-tags:
-  - logs
-  - datetime
-expected_output:
-  - Database unavailable
-  - Memory pressure
-```

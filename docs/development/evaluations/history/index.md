@@ -1,18 +1,9 @@
 # Historical Evaluation Results
 
-## Weekly Runs
+Browse through our past benchmark runs to track performance trends over time.
 
-Weekly benchmark runs with a standard set of models.
+## Weekly Results
+Regular weekly benchmark runs that track model performance over time.
 
-See the **Weekly** section in the navigation sidebar for all weekly benchmark results.
-
-## Special Benchmark Runs
-
-One-off benchmark runs for specific purposes such as:
-
-- Comparing self-hosted models
-- Testing new model versions
-- Performance analysis for specific scenarios
-- Custom model comparisons
-
-See the **Special** section in the navigation sidebar for all special benchmark runs.
+## Extended Comparisons
+Special benchmark runs comparing multiple models and configurations.

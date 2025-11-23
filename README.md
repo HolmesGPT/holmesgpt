@@ -3,7 +3,8 @@
 
 HolmesGPT is an AI agent for investigating problems in your cloud, finding the root cause, and suggesting remediations. It has dozens of built-in integrations for cloud providers, observability tools, and on-call systems.
 
->🎉 **HolmesGPT is now a CNCF Sandbox Project!** We're thrilled to be part of the Cloud Native Computing Foundation. [Learn more about our journey](https://github.com/cncf/sandbox/issues/392#issuecomment-3380007501).
+>🎉 **HolmesGPT is now a CNCF Sandbox Project!**  
+HolmesGPT was originally created by [Robusta.Dev](https://home.robusta.dev/) and is a CNCF sandbox project.
 
 Find more about HolmesGPT's maintainers and adopters [here](./ADOPTERS.md).
 
@@ -192,7 +193,7 @@ Because HolmesGPT relies on LLMs, it relies on [a suite of pytest based evaluati
 
 
 ## License
-Distributed under the MIT License. See [LICENSE.txt](https://github.com/robusta-dev/holmesgpt/blob/master/LICENSE.txt) for more information.
+Distributed under the Apache 2.0 License. See [LICENSE](https://github.com/robusta-dev/holmesgpt/blob/master/LICENSE) for more information.
 <!-- Change License -->
 
 ## Community
@@ -213,4 +214,5 @@ Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and instructio
 
 For help, contact us on [Slack](https://bit.ly/robusta-slack) or ask [DeepWiki AI](https://deepwiki.com/robusta-dev/holmesgpt) your questions.
 
+Please make sure to follow the CNCF code of conduct - [details here](https://github.com/robusta-dev/holmesgpt/blob/master/CODE_OF_CONDUCT.md).
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/robusta-dev/holmesgpt)

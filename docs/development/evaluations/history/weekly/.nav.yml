@@ -1,5 +1,0 @@
-sort:
-  direction: desc
-nav:
-  - index.md
-  - "*"

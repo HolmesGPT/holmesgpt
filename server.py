@@ -56,7 +56,7 @@ from holmes.core.models import (
 from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.global_instructions import add_global_instructions_to_user_prompt
+from holmes.utils.global_instructions import add_runbooks_to_user_prompt
 
 
 def init_logging():
@@ -83,6 +83,11 @@ dal = config.dal
 
 
 def sync_before_server_start():
+    if not dal.enabled:
+        logging.info(
+            "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
+        )
+        return
     try:
         update_holmes_status_in_db(dal, config)
     except Exception:
@@ -145,11 +150,13 @@ if LOG_PERFORMANCE:
 @app.post("/api/investigate")
 def investigate_issues(investigate_request: InvestigateRequest):
     try:
+        runbooks = config.get_runbook_catalog()
         result = investigation.investigate_issues(
             investigate_request=investigate_request,
             dal=dal,
             config=config,
             model=investigate_request.model,
+            runbooks=runbooks,
         )
         return result
 
@@ -192,6 +199,7 @@ def stream_investigate_issues(req: InvestigateRequest):
 @app.post("/api/workload_health_check")
 def workload_health_check(request: WorkloadHealthRequest):
     try:
+        runbooks = config.get_runbook_catalog()
         resource = request.resource
         workload_alerts: list[str] = []
         if request.alert_history:
@@ -199,23 +207,21 @@ def workload_health_check(request: WorkloadHealthRequest):
                 resource, request.alert_history_since_hours
             )
 
-        instructions = request.instructions or []
+        issue_instructions = request.instructions or []
+        stored_instructions = None
         if request.stored_instrucitons:
             stored_instructions = dal.get_resource_instructions(
                 resource.get("kind", "").lower(), resource.get("name")
             )
-            if stored_instructions:
-                instructions.extend(stored_instructions.instructions)
-
-        nl = "\n"
-        if instructions:
-            request.ask = f"{request.ask}\n My instructions for the investigation '''{nl.join(instructions)}'''"
 
         global_instructions = dal.get_global_instructions_for_account()
-        request.ask = add_global_instructions_to_user_prompt(
-            request.ask, global_instructions
+        request.ask = add_runbooks_to_user_prompt(
+            user_prompt=request.ask,
+            runbook_catalog=runbooks,
+            global_instructions=global_instructions,
+            issue_instructions=issue_instructions,
+            resource_instructions=stored_instructions,
         )
-
         ai = config.create_toolcalling_llm(dal=dal, model=request.model)
 
         system_prompt = load_and_render_prompt(
@@ -225,6 +231,7 @@ def workload_health_check(request: WorkloadHealthRequest):
                 "toolsets": ai.tool_executor.toolsets,
                 "response_format": workload_health_structured_output,
                 "cluster_name": config.cluster_name,
+                "runbooks_enabled": True if runbooks else False,
             },
         )
 
@@ -240,7 +247,7 @@ def workload_health_check(request: WorkloadHealthRequest):
         return InvestigationResult(
             analysis=ai_call.result,
             tool_calls=ai_call.tool_calls,
-            instructions=instructions,
+            instructions=issue_instructions,
             metadata=ai_call.metadata,
         )
     except AuthenticationError as e:
@@ -286,6 +293,7 @@ def workload_health_conversation(
 @app.post("/api/issue_chat")
 def issue_conversation(issue_chat_request: IssueChatRequest):
     try:
+        runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=issue_chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
 
@@ -294,6 +302,7 @@ def issue_conversation(issue_chat_request: IssueChatRequest):
             ai=ai,
             config=config,
             global_instructions=global_instructions,
+            runbooks=runbooks,
         )
         llm_call = ai.messages_call(messages=messages)
 
@@ -325,6 +334,7 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
+        runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
         messages = build_chat_messages(
@@ -334,6 +344,7 @@ def chat(chat_request: ChatRequest):
             config=config,
             global_instructions=global_instructions,
             additional_system_prompt=chat_request.additional_system_prompt,
+            runbooks=runbooks,
         )
 
         follow_up_actions = []

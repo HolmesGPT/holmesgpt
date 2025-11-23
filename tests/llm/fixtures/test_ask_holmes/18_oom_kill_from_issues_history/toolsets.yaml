@@ -1,0 +1,7 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  robusta:
+    enabled: true
+  kubernetes/logs:
+    enabled: true

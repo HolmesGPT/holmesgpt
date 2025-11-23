@@ -4,7 +4,6 @@ Do not say 'based on the tool output' or explicitly refer to tools at all.
 If you output an answer and then realize you need to call more tools or there are possible next steps, you may do so by calling tools at that point in time.
 
 If the user provides you with extra instructions in a triple single quotes section, ALWAYS perform their instructions and then perform your investigation.
-{% include '_current_date_time.jinja2' %}
 
 {% include 'investigation_procedure.jinja2' %}
 
@@ -76,3 +75,5 @@ Here are issues and configuration changes that happend to this kubernetes worklo
 {{ a }}
 {% endfor %}
 {% endif %}
+
+{% include '_current_date_time.jinja2' %}

@@ -81,7 +81,7 @@ mcpAddons:
       name: "aws-api-mcp-sa"
       annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
-    image: "aws-api-mcp-server:1.0.0"
+    image: "aws-api-mcp-server:1.0.1"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/devel"
 
     resources:

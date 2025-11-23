@@ -767,6 +767,16 @@ class Toolset(BaseModel):
             context={"tool_names": tool_names, "config": self.config},
         )
 
+    def _load_llm_instructions_from_file(self, file_dir: str, filename: str) -> None:
+        """Helper method to load LLM instructions from a jinja2 template file.
+
+        Args:
+            file_dir: Directory where the template file is located (typically os.path.dirname(__file__))
+            filename: Name of the jinja2 template file (e.g., "toolset_grafana_dashboard.jinja2")
+        """
+        template_file_path = os.path.abspath(os.path.join(file_dir, filename))
+        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+
 
 class YAMLToolset(Toolset):
     tools: List[YAMLTool]  # type: ignore

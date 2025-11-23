@@ -26,7 +26,7 @@ INTERNET_TOOLSET_USER_AGENT = os.environ.get(
     "Mozilla/5.0 (X11; Linux x86_64; rv:128.0; holmesgpt;) Gecko/20100101 Firefox/128.0",
 )
 INTERNET_TOOLSET_TIMEOUT_SECONDS = int(
-    os.environ.get("INTERNET_TOOLSET_TIMEOUT_SECONDS", "60")
+    os.environ.get("INTERNET_TOOLSET_TIMEOUT_SECONDS", "5")
 )
 
 SELECTORS_TO_REMOVE = [

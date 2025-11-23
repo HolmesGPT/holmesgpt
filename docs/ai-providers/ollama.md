@@ -3,7 +3,7 @@
 Configure HolmesGPT to use local models with Ollama.
 
 !!! warning
-    Ollama support is experimental. Tool-calling capabilities are limited and may produce inconsistent results. Only [LiteLLM supported Ollama models](https://docs.litellm.ai/docs/providers/ollama#ollama-models){:target="_blank"} work with HolmesGPT.
+    Ollama support is experimental and can be tricky to configure correctly. We recommend trying HolmesGPT with a hosted model first (like Claude or OpenAI) to ensure everything works before switching to Ollama. Tool-calling capabilities are limited and may produce inconsistent results. Only [LiteLLM supported Ollama models](https://docs.litellm.ai/docs/providers/ollama#ollama-models){:target="_blank"} work with HolmesGPT.
 
 ## Setup
 
@@ -18,6 +18,24 @@ Configure HolmesGPT to use local models with Ollama.
     ```bash
     export OLLAMA_API_BASE="http://localhost:11434"
     holmes ask "what pods are failing?" --model="ollama_chat/<your-ollama-model>"
+
+    # Or use MODEL environment variable instead of --model flag
+    export MODEL="ollama_chat/<your-ollama-model>"
+    holmes ask "what pods are failing?"
+    ```
+
+    **Alternative (OpenAI-compatible gateway)**
+
+    If you hit compatibility issues with certain Ollama models via LiteLLM, you can use Ollama's OpenAI-compatible API endpoint:
+
+    ```bash
+    export OPENAI_API_BASE="http://localhost:11434/v1"
+    export OPENAI_API_KEY="dummy-key"  # Required but can be any value
+    holmes ask "what pods are failing?" --model="openai/<your-ollama-model>"
+
+    # Or use MODEL environment variable instead of --model flag
+    export MODEL="openai/<your-ollama-model>"
+    holmes ask "what pods are failing?"
     ```
 
 === "Holmes Helm Chart"
@@ -49,6 +67,29 @@ Configure HolmesGPT to use local models with Ollama.
     !!! note "Ollama Service"
         You'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
 
+    **Alternative (OpenAI-compatible gateway)**
+
+    If you hit compatibility issues with certain Ollama models via LiteLLM, you can configure an OpenAI-compatible gateway in your Helm values:
+
+    ```yaml
+    # values.yaml
+    additionalEnvVars:
+      - name: OPENAI_API_BASE
+        value: "http://ollama-service:11434/v1"
+      - name: OPENAI_API_KEY
+        value: "YOUR_BEARER_TOKEN_HERE"
+
+    modelList:
+      ollama-alt:
+        api_base: "{{ env.OPENAI_API_BASE }}"
+        api_key: "{{ env.OPENAI_API_KEY }}"
+        model: openai/OLLAMA_MODEL_NAME
+
+    # Optional
+    config:
+      model: "ollama-alt"
+    ```
+
 === "Robusta Helm Chart"
 
     **Configure Helm Values:**
@@ -79,23 +120,29 @@ Configure HolmesGPT to use local models with Ollama.
     !!! note "Ollama Service"
         You'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
 
-### Using Environment Variables
+    **Alternative (OpenAI-compatible gateway)**
 
-```bash
-export OLLAMA_API_BASE="http://localhost:11434"
-export MODEL="ollama_chat/<your-ollama-model>"
-holmes ask "what pods are failing?"
-```
+    If you hit compatibility issues with certain Ollama models via LiteLLM, you can configure an OpenAI-compatible gateway in your Robusta chart values:
 
+    ```yaml
+    # values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: OPENAI_API_BASE
+          value: "http://ollama-service:11434/v1"
+        - name: OPENAI_API_KEY
+          value: "YOUR_BEARER_TOKEN_HERE"
 
-### Using CLI Parameters
+      modelList:
+        ollama-alt:
+          api_base: "{{ env.OPENAI_API_BASE }}"
+          api_key: "{{ env.OPENAI_API_KEY }}"
+          model: openai/OLLAMA_MODEL_NAME
 
-You can also specify the model directly as a command-line parameter:
-
-```bash
-export OLLAMA_API_BASE="http://localhost:11434"
-holmes ask "what pods are failing?" --model="ollama_chat/<your-ollama-model>"
-```
+      # Optional
+      config:
+        model: "ollama-alt"
+    ```
 
 ## Additional Resources
 

@@ -125,7 +125,7 @@ The AWS MCP server is originally a stdio-based tool. To make it accessible as a 
 
 **Pre-built image available at:**
 ```
-us-central1-docker.pkg.dev/genuine-flight-317411/devel/aws-api-mcp-server:1.0.0
+us-central1-docker.pkg.dev/genuine-flight-317411/devel/aws-api-mcp-server:1.0.1
 ```
 
 **How the Docker image works:**

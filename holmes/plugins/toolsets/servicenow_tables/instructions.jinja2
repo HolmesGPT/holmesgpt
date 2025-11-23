@@ -1,0 +1,83 @@
+## ServiceNow Tables Toolset
+
+This toolset provides access to ServiceNow tables for retrieving records and data.
+
+### Available Tools
+
+1. **servicenow_get_records**: Retrieve multiple records from a ServiceNow table with filtering capabilities
+2. **servicenow_get_record**: Retrieve a single record by its sys_id
+
+**IMPORTANT**: For servicenow_get_record, you MUST have a valid sys_id value that was either:
+- Provided by the user
+- Obtained from a previous servicenow_get_records call
+- Never guess or make up sys_id values - they are unique identifiers that must come from a legitimate source
+
+### Query Syntax
+
+The `sysparm_query` parameter supports a powerful query language:
+- Use `^` for AND conditions
+- Use `^OR` for OR conditions
+- Common operators:
+  - `=` (equals) - Use for exact matches, REQUIRED for reference fields
+  - `!=` (not equals)
+  - `LIKE` (contains) - Use for partial string matches on text fields only
+  - `STARTSWITH`
+  - `ENDSWITH`
+  - `CONTAINS`
+  - `ISNOTEMPTY`
+  - `ISEMPTY`
+  - `<`, `<=`, `>`, `>=` (comparisons)
+  - `BETWEEN` (for date ranges)
+
+Example: `active=true^priority=1^short_descriptionLIKEerror`
+
+**CRITICAL**: Reference fields (fields that link to other records) MUST use the `=` operator with the exact sys_id value. Never use `LIKE` with reference fields.
+- ✅ Correct: `cmdb_ci=b0ccabf1c0a80009001f14fd151d8df0`
+- ❌ Wrong: `cmdb_ciLIKE827b692d0ad337021abb72d3737ff401`
+
+**Date Queries - Best Practice**:
+Use `>=` and `<=` operators for date ranges. When using date-only format (YYYY-MM-DD), ServiceNow includes the entire day.
+- ✅ Recommended: `sys_created_on>=2024-01-01^sys_created_on<=2024-01-31` (includes all of Jan 31)
+- With time: `sys_created_on>=2024-01-01 00:00:00^sys_created_on<=2024-01-31 23:59:59`
+- Avoid BETWEEN operator as date handling can be inconsistent
+
+### Understanding Field Types
+
+In ServiceNow, fields can be of different types:
+- **Text fields**: Store plain text (use LIKE, CONTAINS, STARTSWITH for partial matches)
+- **Reference fields**: Store links to other records via sys_id (MUST use = for exact match)
+- **Boolean fields**: Store true/false values
+- **Date/Time fields**: Store timestamps (use comparison operators)
+
+How to identify reference fields:
+- When `sysparm_display_value=all`, reference fields return an object with {display_value, link, value}
+- The 'value' property contains the sys_id
+- Common reference fields: cmdb_ci, assigned_to, caller_id, company, location
+
+### Useful Tables
+
+- **cmdb_ci** - Configuration items (applications, servers, infrastructure). Search by name to get sys_id.
+- **change_request** - Links to CIs via cmdb_ci field. Use CI's sys_id to find who requested changes, when, and completion status.
+
+{# Additional tables can be added by user #}
+
+### Discovering Tables
+
+To discover available tables in ServiceNow, you can query the system table catalog:
+
+```
+table_name: sys_db_object
+sysparm_fields: name,label,description
+sysparm_query: nameSTARTSWITHincident
+```
+
+This will return tables with names starting with "incident". You can modify the query to search for other table patterns.
+
+**Note**: ServiceNow contains many tables, so it's recommended to filter your search using `STARTSWITH`, `CONTAINS`, or `LIKE` operators to find relevant tables efficiently.
+
+### Tips for Usage
+
+1. Use `sysparm_view=mobile` to get a concise set of fields when exploring data
+2. Use `sysparm_fields` to specify exactly which fields you need to reduce response size
+3. The default limit is 100 records; increase it if you need more data
+4. Display values are returned by default (human-readable format)

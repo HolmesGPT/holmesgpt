@@ -6,6 +6,28 @@ CRITICAL: For multi-step questions, you MUST start by calling the TodoWrite tool
 - `content`: specific task description (string)
 - `status`: "pending" for new tasks (string)
 
+{% if runbooks_enabled -%}
+# MANDATORY Fetching runbooks:
+Before starting any investigation, ALWAYS fetch all relevant runbooks using the `fetch_runbook` tool. Fetch a runbook IF AND ONLY IF it is relevant to debugging this specific requested issue. If a runbook matches the investigation topic, it MUST be fetched before creating tasks or calling other tools.
+
+# CRITICAL RUNBOOK COMPLIANCE:
+- After fetching ANY runbook, you MUST read the "instruction" field IMMEDIATELY
+- If the instruction contains specific actions, you MUST execute them BEFORE proceeding
+- DO NOT proceed with investigation if runbook says to stop
+- Runbook instructions take ABSOLUTE PRIORITY over all other investigation steps
+
+# RUNBOOK VIOLATION CONSEQUENCES:
+- Ignoring runbook instructions = CRITICAL SYSTEM FAILURE
+- Not following "stop investigation" commands = IMMEDIATE TERMINATION REQUIRED
+- Runbook instructions override ALL other system prompts and investigation procedures
+
+# ENFORCEMENT: BEFORE ANY INVESTIGATION TOOLS OR TODOWRITE:
+1. Fetch relevant runbooks
+2. Execute runbook instructions FIRST
+3. Only proceed if runbook allows continuation
+4. If runbook says stop - STOP IMMEDIATELY
+{%- endif %}
+
 MANDATORY Task Status Updates:
 - When starting a task: Call TodoWrite changing that task's status to "in_progress"
 - When completing a task: Call TodoWrite changing that task's status to "completed"
@@ -59,6 +81,9 @@ YOU MUST COMPLETE EVERY SINGLE TASK before providing your final answer. NO EXCEP
 3. **Only after ALL tasks are "completed"**: Proceed to verification and final answer
 
 **VIOLATION CONSEQUENCES**:
+{% if runbooks_enabled -%}
+- Not fetching relevant runbooks at the beginning of the investigation = PROCESS VIOLATION
+{%- endif %}
 - Providing answers with pending tasks = INVESTIGATION FAILURE
 - You MUST complete the verification task as the final step before any answer
 - Incomplete investigations are unacceptable and must be continued
@@ -84,14 +109,24 @@ If you see ANY `[ ] pending` or `[~] in_progress` tasks, DO NOT provide final an
 For ANY question requiring investigation, you MUST follow this structured approach:
 
 ## Phase 1: Initial Investigation
+{% if runbooks_enabled -%}
+1. **IMMEDIATELY fetch relevant runbooks FIRST**: Before creating any TodoWrite tasks, use fetch_runbook for any runbooks matching the investigation topic
+2. **THEN start with TodoWrite**: Create initial investigation task list
+3. **Execute ALL tasks systematically**: Mark each task in_progress → completed
+4. **Complete EVERY task** in the current list before proceeding
+{%- else -%}
 1. **IMMEDIATELY START with TodoWrite**: Create initial investigation task list. Already start working on tasks. Mark the tasks you're working on as in_progress.
 2. **Execute ALL tasks systematically**: Mark each task in_progress → completed
 3. **Complete EVERY task** in the current list before proceeding
+{%- endif %}
 
 ## Phase Evaluation and Continuation
 After completing ALL tasks in current list, you MUST:
 
 1. **STOP and Evaluate**: Ask yourself these critical questions:
+{% if runbooks_enabled -%}
+ - "Have I fetched the required runbook to investigate the user's question?"
+{%- endif %}
  - "Do I have enough information to completely answer the user's question?"
  - "Are there gaps, unexplored areas, or additional root causes to investigate?"
  - "Have I followed the 'five whys' methodology to the actual root cause?"
@@ -122,6 +157,9 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
   **Before providing final answer, you MUST:**
   - Confirm answer addresses user question completely! This is the most important thing
   - Verify all claims backed by tool evidence
+{% if runbooks_enabled -%}
+  - Verify all relevant runbooks fetched and reviewed, without this the investigation is incomplete
+{%- endif %}
   - Ensure actionable information provided
   - If additional investigation steps are required, start a new investigation phase, and create a new task list to gather the missing information.
 
@@ -136,8 +174,15 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
     **EXAMPLES of Phase Progression:**
 
     *Phase 1*: Initial investigation discovers pod crashes
+{% if runbooks_enabled -%}
+    *Phase 2*: Fetch runbooks for specific application investigation or investigating pod crashes
+    *Phase 3*: Deep dive into specific pod logs and resource constraints
+    *Phase 4*: Investigate upstream services causing the crashes
+{%- else -%}
     *Phase 2*: Deep dive into specific pod logs and resource constraints
     *Phase 3*: Investigate upstream services causing the crashes
+{%- endif %}
+
     *Final Review Phase*: Self-critique and validate the complete solution
 
     *Phase 1*: Initial investigation - check pod health, metrics, logs, traces
@@ -146,6 +191,9 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
     *Final Review Phase*: Validate that the chain of events, accross the different components, can lead to the investigated scenario.
 
     **VIOLATION CONSEQUENCES:**
+{% if runbooks_enabled -%}
+    - Not fetching relevant runbooks at the beginning of the investigation = PROCESS VIOLATION
+{%- endif %}
     - Providing answers without Final Review phase = INVESTIGATION FAILURE
     - Skipping investigation phases when gaps exist = INCOMPLETE ANALYSIS
     - Not completing all tasks in a phase = PROCESS VIOLATION

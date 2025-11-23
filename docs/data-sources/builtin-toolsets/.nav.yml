@@ -13,6 +13,7 @@ nav:
   - Datetime: datetime.md
   - Docker: docker.md
   - GitHub: github.md
+  - Grafana Dashboards: grafanadashboards.md
   - Loki: grafanaloki.md
   - Tempo: grafanatempo.md
   - Helm: helm.md

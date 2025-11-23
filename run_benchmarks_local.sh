@@ -154,10 +154,10 @@ if [ -f "scripts/generate_eval_report.py" ]; then
         --models "$MODELS"
     echo "✅ Report generated: docs/development/evaluations/latest-results.md"
 
-    # Also generate timestamped version for history (always in weekly/)
-    mkdir -p docs/development/evaluations/history/weekly
+    # Also generate timestamped version for history
+    mkdir -p docs/development/evaluations/history
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    HISTORY_FILE="docs/development/evaluations/history/weekly/results_${TIMESTAMP}.md"
+    HISTORY_FILE="docs/development/evaluations/history/results_${TIMESTAMP}.md"
     poetry run python scripts/generate_eval_report.py \
         --json-file eval_results.json \
         --output-file "$HISTORY_FILE" \
