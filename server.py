@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 import os
+
 from holmes.utils.cert_utils import add_custom_certificate
 
 ADDITIONAL_CERTIFICATE: str = os.environ.get("CERTIFICATE", "")
