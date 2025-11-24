@@ -96,7 +96,9 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
                 yield session
     else:
         url = str(toolset._mcp_config.url)
-        async with streamablehttp_client(url, headers=toolset._mcp_config.headers) as (
+        async with streamablehttp_client(
+            url, headers=toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
+        ) as (
             read_stream,
             write_stream,
             _,
@@ -183,6 +185,10 @@ class RemoteMCPTool(Tool):
         return parameters
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
+        if params:
+            if params.get("cli_command"):  # Return AWS MCP cli command, if available
+                return f"{params.get('cli_command')}"
+
         if isinstance(self.toolset._mcp_config, MCPConfig):
             cmd = str(self.toolset._mcp_config.url)
         elif isinstance(self.toolset._mcp_config, StdioMCPConfig):
