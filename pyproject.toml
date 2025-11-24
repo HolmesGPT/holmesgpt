@@ -91,6 +91,7 @@ exclude = [
     "tests/llm/fixtures/.*",
     "dist/.*",
     "site/.*",
+    "experimental/.*",
 ]
 
 [tool.pytest.ini_options]
