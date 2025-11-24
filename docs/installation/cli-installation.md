@@ -2,6 +2,15 @@
 
 Run HolmesGPT from your terminal as a standalone CLI tool.
 
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden;">
+  <iframe src="https://www.youtube.com/embed/JwMqqh6LQQI" 
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" 
+          frameborder="0" 
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+          allowfullscreen>
+  </iframe>
+</div>
+
 ## Installation Options
 
 === "Homebrew (Mac/Linux)"
@@ -79,7 +88,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
 
 !!! tip "Which Model to Use"
-    We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
+We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
 === "Anthropic Claude"
 
@@ -235,13 +244,19 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 
     > **Warning:** Ollama can be tricky to configure correctly. We recommend trying HolmesGPT with a hosted model first (like Claude or OpenAI) to ensure everything works before switching to Ollama.
 
+_After running the command, HolmesGPT begins its automated investigation, as shown below._
+![image](../assets/cli-installation/cli-in-progress.png)
+
+_Once the analysis completes, HolmesGPT provides a clear root-cause summary and fix suggestions._
+![image](../assets/cli-installation/cli-analysis-result.png)
+
 ## Next Steps
 
-- **[Add Data Sources](../data-sources/index.md)** - Use built-in toolsets to connect with ArgoCD, Confluence, and monitoring tools
-- **[Connect Remote MCP Servers](../data-sources/remote-mcp-servers.md)** - Extend capabilities with external MCP servers
+-   **[Add Data Sources](../data-sources/index.md)** - We encourage you to use built-in toolsets to connect with [AWS](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/), [Prometheus](https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/), [Loki](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/), [NewRelic](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/), [DataDog](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/), [ArgoCD](https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/), [Confluence](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/), and other monitoring tools.
+-   **[Connect Remote MCP Servers](../data-sources/remote-mcp-servers.md)** - Extend capabilities with external MCP servers.
 
 ## Need Help?
 
-- **[Join our Slack](https://bit.ly/robusta-slack){:target="_blank"}** - Get help from the community
-- **[Request features on GitHub](https://github.com/robusta-dev/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
-- **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions
+-   **[Join our Slack](https://bit.ly/robusta-slack){:target="\_blank"}** - Get help from the community
+-   **[Request features on GitHub](https://github.com/robusta-dev/holmesgpt/issues){:target="\_blank"}** - Suggest improvements or report bugs.
+-   **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions.

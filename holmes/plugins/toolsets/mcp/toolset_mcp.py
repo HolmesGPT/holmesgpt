@@ -1,3 +1,6 @@
+import json
+
+from holmes.common.env_vars import SSE_READ_TIMEOUT
 from holmes.core.tools import (
     ToolInvokeContext,
     Toolset,
@@ -22,6 +25,19 @@ from pydantic import BaseModel, Field, AnyUrl, model_validator
 from typing import Tuple
 import logging
 from enum import Enum
+import threading
+
+# Lock per MCP server URL to serialize calls to the same server
+_server_locks: Dict[str, threading.Lock] = {}
+_locks_lock = threading.Lock()
+
+
+def get_server_lock(url: str) -> threading.Lock:
+    """Get or create a lock for a specific MCP server URL."""
+    with _locks_lock:
+        if url not in _server_locks:
+            _server_locks[url] = threading.Lock()
+        return _server_locks[url]
 
 
 class MCPMode(str, Enum):
@@ -35,12 +51,18 @@ class MCPConfig(BaseModel):
     mode: MCPMode = MCPMode.SSE
     headers: Optional[Dict[str, str]] = None
 
+    def get_lock_string(self) -> str:
+        return str(self.url)
+
 
 class StdioMCPConfig(BaseModel):
     mode: MCPMode = MCPMode.STDIO
     command: str
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
+
+    def get_lock_string(self) -> str:
+        return str(self.command)
 
 
 @asynccontextmanager
@@ -63,7 +85,9 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
                 yield session
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
-        async with sse_client(url, toolset._mcp_config.headers) as (
+        async with sse_client(
+            url, toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
+        ) as (
             read_stream,
             write_stream,
         ):
@@ -87,7 +111,14 @@ class RemoteMCPTool(Tool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
-            return asyncio.run(self._invoke_async(params))
+            # Serialize calls to the same MCP server to prevent SSE conflicts
+            # Different servers can still run in parallel
+            if not self.toolset._mcp_config:
+                raise ValueError("MCP config not initialized")
+
+            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
+            with lock:
+                return asyncio.run(self._invoke_async(params))
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -95,6 +126,15 @@ class RemoteMCPTool(Tool):
                 params=params,
                 invocation=f"MCPtool {self.name} with params {params}",
             )
+
+    @staticmethod
+    def _is_content_error(content: str) -> bool:
+        try:  # aws mcp sometimes returns an error in content - status code != 200
+            json_content: dict = json.loads(content)
+            status_code = json_content.get("response", {}).get("status_code", 200)
+            return status_code >= 300
+        except Exception:
+            return False
 
     async def _invoke_async(self, params: Dict) -> StructuredToolResult:
         async with get_initialized_mcp_session(self.toolset) as session:
@@ -104,7 +144,7 @@ class RemoteMCPTool(Tool):
         return StructuredToolResult(
             status=(
                 StructuredToolResultStatus.ERROR
-                if tool_result.isError
+                if (tool_result.isError or self._is_content_error(merged_text))
                 else StructuredToolResultStatus.SUCCESS
             ),
             data=merged_text,
