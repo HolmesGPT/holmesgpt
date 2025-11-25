@@ -81,9 +81,16 @@ RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-sonnet-4-20250514 \
 
 See the [latest results](./latest-results.md) for current model performance comparisons.
 
+### Benchmarking New Models
+
+Want to test a new LLM model? Follow our step-by-step guide:
+
+**[→ Guide to benchmarking new models](./benchmarking-new-models.md)**
+
 ## Resources
 
 - **[Running Evaluations](./running-evals.md)** - Complete guide to running tests
 - **[Adding New Evaluations](./adding-evals.md)** - Contribute test scenarios
+- **[Benchmarking New Models](./benchmarking-new-models.md)** - Step-by-step guide for testing new LLM models
 - **[Reporting with Braintrust](./reporting.md)** - Analyze results in detail
 - **[Historical Results](./history/index.md)** - Past benchmark data
