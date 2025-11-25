@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from typing import Dict, Optional
 from tests.llm.utils.test_case_utils import HolmesTestCase
-from tests.llm.utils.test_env_vars import is_run_live_enabled
+from tests.llm.utils.env_vars import is_run_live_enabled
 
 
 EVAL_SETUP_TIMEOUT = int(

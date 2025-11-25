@@ -29,7 +29,7 @@ from tests.llm.utils.port_forward import (
     cleanup_port_forwards_by_config,
     check_port_availability_early,
 )
-from tests.llm.utils.test_env_vars import is_run_live_enabled
+from tests.llm.utils.env_vars import is_run_live_enabled
 
 
 # Configuration constants
