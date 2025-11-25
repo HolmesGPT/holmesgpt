@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict
 from holmes.core.tools import (
     CallablePrerequisite,
     Tool,
@@ -41,7 +41,7 @@ Example: Before querying Transactions, run: `SELECT keyset() FROM Transaction SI
 
 When using **FACET** in NRQL:
 - Any **non-constant value** in the `SELECT` clause **must be aggregated**.
-- The attribute you **FACET** on must **not appear in `SELECT`** unless it’s wrapped in an aggregation.
+- The attribute you **FACET** on must **not appear in `SELECT`** unless it's wrapped in an aggregation.
 
 #### ✅ Correct
 ```nrql
@@ -87,69 +87,20 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
         query = params["query"]
         result = api.execute_nrql_query(query)
-        qtype = params.get("query_type", "").lower()
 
-        if self._toolset.format_results and qtype == "logs":
-            formatted = self._format_logs(result)
-            final_result = yaml.dump(formatted, default_flow_style=False)
-        else:
-            result_with_key = {
-                "random_key": generate_random_key(),
-                "tool_name": self.name,
-                "query": query,
-                "data": result,
-                "is_eu": self._toolset.is_eu_datacenter,
-            }
-            final_result = yaml.dump(result_with_key, default_flow_style=False)
+        result_with_key = {
+            "random_key": generate_random_key(),
+            "tool_name": self.name,
+            "query": query,
+            "data": result,
+            "is_eu": self._toolset.is_eu_datacenter,
+        }
+        final_result = yaml.dump(result_with_key, default_flow_style=False)
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
             data=final_result,
             params=params,
         )
-
-    def _format_logs(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Build a single grouped object from a list of log records.
-        """
-        if not records:
-            return []
-
-        try:
-            # Defensive, shallow copy of each record and type validation
-            copied: List[Dict[str, Any]] = []
-            for i, rec in enumerate(records):
-                if not isinstance(rec, dict):
-                    raise TypeError(
-                        f"`records[{i}]` must be a dict, got {type(rec).__name__}"
-                    )
-                copied.append(dict(rec))
-
-            # Determine common fields by walking keys
-            common_fields: Dict[str, Any] = {}
-            first = copied[0]
-            for key in first.keys():
-                value = first.get(key)
-                # The key + value must be the same in every record
-                if all(key in r and r.get(key) == value for r in copied[1:]):
-                    common_fields[key] = value
-
-            # Build per-record entries excluding any common fields
-            data_entries: List[Dict[str, Any]] = []
-            for rec in copied:
-                # Keep only fields that aren’t common (don’t mutate the original record)
-                entry = {k: v for k, v in rec.items() if k not in common_fields}
-                data_entries.append(entry)
-
-            group: Dict[str, Any] = dict(common_fields)
-            if "data" in group:
-                group["_common.data"] = group.pop("data")
-
-            group["data"] = data_entries
-
-            return [group]
-        except Exception:
-            logging.exception(f"Failed to reformat newrelic logs {records}")
-            return records
 
     def get_parameterized_one_liner(self, params) -> str:
         description = params.get("description", "")
@@ -160,14 +111,12 @@ class NewrelicConfig(BaseModel):
     nr_api_key: Optional[str] = None
     nr_account_id: Optional[str] = None
     is_eu_datacenter: Optional[bool] = False
-    format_results: Optional[bool] = False
 
 
 class NewRelicToolset(Toolset):
     nr_api_key: Optional[str] = None
     nr_account_id: Optional[str] = None
     is_eu_datacenter: bool = False
-    format_results: bool = False
 
     def __init__(self):
         super().__init__(
@@ -197,7 +146,6 @@ class NewRelicToolset(Toolset):
             self.nr_account_id = nr_config.nr_account_id
             self.nr_api_key = nr_config.nr_api_key
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
-            self.format_results = nr_config.format_results or False
 
             if not self.nr_account_id or not self.nr_api_key:
                 return False, "New Relic account ID or API key is missing"
@@ -208,4 +156,8 @@ class NewRelicToolset(Toolset):
             return False, str(e)
 
     def get_example_config(self) -> Dict[str, Any]:
-        return {}
+        return {
+            "nr_api_key": "NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX",
+            "nr_account_id": "1234567",
+            "is_eu_datacenter": False,
+        }

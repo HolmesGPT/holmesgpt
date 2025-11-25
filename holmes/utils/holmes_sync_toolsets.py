@@ -66,8 +66,6 @@ def render_default_installation_instructions_for_toolset(toolset: Toolset) -> st
     context: dict[str, Any] = {
         "env_vars": env_vars if env_vars else [],
         "toolset_name": toolset.name,
-        "is_default": toolset.is_default,
-        "enabled": toolset.enabled,
     }
 
     example_config = toolset.get_example_config()

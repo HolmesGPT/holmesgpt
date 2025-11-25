@@ -18,14 +18,20 @@ def execute_bash_command(cmd: str, timeout: int, params: dict) -> StructuredTool
         stdout = process.stdout.strip() if process.stdout else ""
         result_data = f"{cmd}\n" f"{stdout}"
 
-        status = StructuredToolResultStatus.ERROR
-        if process.returncode == 0 and stdout:
-            status = StructuredToolResultStatus.SUCCESS
-        elif not stdout:
-            status = StructuredToolResultStatus.NO_DATA
+        if process.returncode == 0:
+            status = (
+                StructuredToolResultStatus.SUCCESS
+                if stdout
+                else StructuredToolResultStatus.NO_DATA
+            )
+            error = None
+        else:
+            status = StructuredToolResultStatus.ERROR
+            error = f'Error: Command "{cmd}" returned non-zero exit status {process.returncode}'
 
         return StructuredToolResult(
             status=status,
+            error=error,
             data=result_data,
             params=params,
             invocation=cmd,

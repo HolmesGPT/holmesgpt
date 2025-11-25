@@ -39,6 +39,7 @@ from holmes.plugins.runbooks import RobustaRunbookInstruction
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
+from holmes.utils.krr_utils import calculate_krr_savings
 from postgrest._sync import request_builder as supabase_request_builder
 
 SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 3600))
@@ -253,41 +254,94 @@ class SupabaseDal:
             raise
 
     def get_resource_recommendation(
-        self, name: str, namespace: str, kind
+        self,
+        limit: int = 10,
+        sort_by: str = "cpu_total",
+        namespace: Optional[str] = None,
+        name_pattern: Optional[str] = None,
+        kind: Optional[str] = None,
+        container: Optional[str] = None,
     ) -> Optional[List[Dict]]:
+        """
+        Fetch top N resource recommendations with optional filters and sorting.
+
+        Args:
+            limit: Maximum number of recommendations to return (default: 10)
+            sort_by: Field to sort by potential savings. Options:
+                - "cpu_total": Total CPU savings (requests + limits)
+                - "memory_total": Total memory savings (requests + limits)
+                - "cpu_requests": CPU requests savings
+                - "memory_requests": Memory requests savings
+                - "cpu_limits": CPU limits savings
+                - "memory_limits": Memory limits savings
+                - "priority": Use the priority field from the scan
+            namespace: Filter by Kubernetes namespace (exact match)
+            name_pattern: Filter by workload name (supports SQL LIKE pattern, e.g., '%app%')
+            kind: Filter by Kubernetes resource kind (e.g., Deployment, StatefulSet, DaemonSet, Job)
+            container: Filter by container name (exact match)
+
+        Returns:
+            List of recommendations sorted by the specified metric
+        """
         if not self.enabled:
             return []
 
-        try:
-            scans_meta_response = (
-                self.client.table(SCANS_META_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .eq("cluster_id", self.cluster)
-                .eq("latest", True)
-                .execute()
-            )
-            if not len(scans_meta_response.data):
-                return None
-
-            scans_results_response = (
-                self.client.table(SCANS_RESULTS_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .eq("cluster_id", self.cluster)
-                .eq("scan_id", scans_meta_response.data[0]["scan_id"])
-                .eq("name", name)
-                .eq("namespace", namespace)
-                .eq("kind", kind)
-                .execute()
-            )
-            if not len(scans_results_response.data):
-                return None
-
-            return scans_results_response.data
-        except Exception:
-            logging.exception("Supabase error while retrieving efficiency data")
+        scans_meta_response = (
+            self.client.table(SCANS_META_TABLE)
+            .select("*")
+            .eq("account_id", self.account_id)
+            .eq("cluster_id", self.cluster)
+            .eq("latest", True)
+            .execute()
+        )
+        if not len(scans_meta_response.data):
+            logging.warning("No scan metadata found for latest krr scan")
             return None
+
+        scan_id = scans_meta_response.data[0]["scan_id"]
+
+        query = (
+            self.client.table(SCANS_RESULTS_TABLE)
+            .select("*")
+            .eq("account_id", self.account_id)
+            .eq("cluster_id", self.cluster)
+            .eq("scan_id", scan_id)
+        )
+
+        if namespace:
+            query = query.eq("namespace", namespace)
+        if name_pattern:
+            query = query.like("name", name_pattern)
+        if kind:
+            query = query.eq("kind", kind)
+        if container:
+            query = query.eq("container", container)
+
+        # For priority sorting, we can use the database's order
+        if sort_by == "priority":
+            query = query.order("priority", desc=True).limit(limit)
+
+        scans_results_response = query.execute()
+
+        if not len(scans_results_response.data):
+            return None
+
+        results = scans_results_response.data
+
+        if len(results) <= 1:
+            return results
+
+        # If sorting by priority, we already ordered and limited in the query
+        if sort_by == "priority":
+            return results
+
+        # Sort by calculated savings (descending)
+        results_with_savings = [
+            (result, calculate_krr_savings(result, sort_by)) for result in results
+        ]
+        results_with_savings.sort(key=lambda x: x[1], reverse=True)
+
+        return [result for result, _ in results_with_savings[:limit]]
 
     def get_issues_metadata(
         self,

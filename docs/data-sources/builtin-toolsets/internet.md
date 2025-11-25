@@ -17,6 +17,23 @@ holmes:
                 Authorization: Bearer ...
 ```
 
+### Timeout Configuration
+
+By default, the internet toolset uses a 5-second timeout for webpage requests. If you need to increase the timeout for slower websites, you can set the `INTERNET_TOOLSET_TIMEOUT_SECONDS` environment variable:
+
+```bash
+export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
+```
+
+For Kubernetes deployments, add it to your Helm chart configuration:
+
+```yaml
+holmes:
+    additionalEnvVars:
+        - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
+          value: "30"
+```
+
 ## Capabilities
 
 | Tool Name | Description |
