@@ -4,12 +4,6 @@ toolsets:
     enabled: true
   kubernetes/logs:
     enabled: true
-  kubernetes/live-metrics:
-    enabled: true
-  kubernetes/kube-prometheus-stack:
-    enabled: true
-  kubernetes/krew-extras:
-    enabled: true
   
   # Helm toolset
   helm/core:
