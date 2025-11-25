@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from postgrest.base_request_builder import QueryArgs
+import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
 from postgrest._sync.request_builder import SyncQueryRequestBuilder
@@ -112,6 +113,7 @@ class SupabaseDal:
             f"Initializing Robusta platform connection for account {self.account_id}"
         )
         options = ClientOptions(postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS)
+        sentry_sdk.set_tag("db_url", self.url)
         self.client = create_client(self.url, self.api_key, options)  # type: ignore
         self.user_id = self.sign_in()
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
