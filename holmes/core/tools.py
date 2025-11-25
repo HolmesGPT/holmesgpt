@@ -168,6 +168,8 @@ class ToolInvokeContext(BaseModel):
     user_approved: bool = False
     llm: LLM
     max_token_count: int
+    tool_call_id: str
+    tool_name: str
 
 
 class Tool(ABC, BaseModel):

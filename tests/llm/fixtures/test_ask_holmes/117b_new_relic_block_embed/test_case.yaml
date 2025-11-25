@@ -2,10 +2,11 @@ user_prompt:
 - Show me traces for do-fra1-tomer and do-fra1-shahal clusters
 
 expected_output:
-  - 'The answer should include something similar to << { "type": "traces-summary", "tool_name": "newrelic_execute_nrql_query", "random_key": "<alphanumeric_characters>" } >>. Both tool_name and random_key MUST absolutely be present and the same as mentioned here.'
+  - 'The answer should include something similar to << { "type": "traces-summary", "tool_name": "newrelic_execute_nrql_query", "tool_call_id": "<alphanumeric_characters>" } >>. Both tool_name and tool_call_id MUST absolutely be present and the same as mentioned here.'
 
 tags:
   - chain-of-causation
   - traces
   - newrelic
   - network
+  - embeds
