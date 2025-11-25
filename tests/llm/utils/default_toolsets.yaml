@@ -22,5 +22,3 @@ toolsets:
     enabled: true
   robusta:
     enabled: true
-  bash:
-    enabled: true
