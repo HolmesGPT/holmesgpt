@@ -1,0 +1,32 @@
+toolsets:
+  # Core generic Kubernetes toolsets
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
+  kubernetes/live-metrics:
+    enabled: true
+  kubernetes/kube-prometheus-stack:
+    enabled: true
+  kubernetes/krew-extras:
+    enabled: true
+  
+  # Helm toolset
+  helm/core:
+    enabled: true
+  
+  # Docker toolset
+  docker/core:
+    enabled: true
+  
+  # Core investigation and utility toolsets
+  core_investigation:
+    enabled: true
+  internet:
+    enabled: true
+  runbook:
+    enabled: true
+  robusta:
+    enabled: true
+  bash:
+    enabled: true

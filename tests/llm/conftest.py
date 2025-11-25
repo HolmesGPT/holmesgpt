@@ -1,4 +1,5 @@
 import os
+import logging
 from contextlib import contextmanager
 import pytest
 from pytest_shared_session_scope import (
@@ -431,6 +432,15 @@ def check_llm_api_with_test_call():
             provider_msg = f"Tried to use Azure for classifier (model: {classifier_model}). Check AZURE_API_BASE, AZURE_API_KEY, AZURE_API_VERSION, or unset AZURE_API_BASE to use OpenAI."
         else:
             provider_msg = f"Tried to use OpenAI for classifier (model: {classifier_model}). Check OPENAI_API_KEY or set AZURE_API_BASE to use Azure."
+
+        # Add helpful suggestion for gpt-5 models that may have parameter issues
+        if "gpt-5" in classifier_model.lower():
+            provider_msg += "\n    💡 Tip: If you're seeing parameter errors (e.g., 'max_tokens' not supported), try using: export CLASSIFIER_MODEL=gpt-4.1"
+            logging.warning(
+                f"Classifier model '{classifier_model}' contains 'gpt-5' and encountered an error. "
+                f"If the error is about unsupported parameters, try: export CLASSIFIER_MODEL=gpt-4.1"
+            )
+
         error_messages.append(f"{provider_msg}\n    Error: {str(e)}")
 
     # Report results
@@ -450,6 +460,12 @@ def check_llm_api_with_test_call():
         error_msg += f"  - ANTHROPIC_API_KEY: {'set' if os.environ.get('ANTHROPIC_API_KEY') else 'not set'}\n"
         error_msg += f"  - AZURE_API_KEY: {'set' if os.environ.get('AZURE_API_KEY') else 'not set'}\n"
         error_msg += f"  - AZURE_API_BASE: {azure_base or 'not set'}\n"
+        # Show classifier model - if CLASSIFIER_MODEL env var is unset, show the actual value being used
+        classifier_env = os.environ.get("CLASSIFIER_MODEL")
+        if classifier_env:
+            error_msg += f"  - CLASSIFIER_MODEL: {classifier_env}\n"
+        else:
+            error_msg += f"  - CLASSIFIER_MODEL: not set (using: {classifier_model})\n"
 
         return False, error_msg
 
