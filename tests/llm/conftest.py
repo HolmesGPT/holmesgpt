@@ -378,6 +378,8 @@ def check_llm_api_with_test_call():
         actual_provider = provider_info[1] if provider_info else "unknown"
 
         env_check = {"keys_in_environment": True}
+
+        # only check env vars if we're not using a model list (credentials are in config, not env vars)
         if not llm:
             env_check = litellm.validate_environment(model=model_name)
 
