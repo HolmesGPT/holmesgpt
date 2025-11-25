@@ -202,4 +202,3 @@ poetry run pytest --no-cov tests/llm/test_ask_holmes.py -s -m 'easy' -n10
 - [Adding New Evals](adding-evals.md) - How to create new evaluation tests
 - [Reporting with Braintrust](reporting.md) - Analyzing evaluation results
 - [AI Providers](../../ai-providers/index.md) - Provider-specific configuration
-

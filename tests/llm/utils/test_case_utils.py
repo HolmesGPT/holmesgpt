@@ -11,6 +11,8 @@ from pydantic import BaseModel, TypeAdapter, ValidationError, ConfigDict
 from holmes.common.env_vars import DEFAULT_MODEL
 from holmes.core.models import InvestigateRequest, WorkloadHealthRequest
 from holmes.core.prompt import append_file_to_user_prompt
+from holmes.config import Config
+from holmes.core.llm import DefaultLLM
 
 from holmes.core.tool_calling_llm import ResourceInstructions
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
@@ -32,13 +34,51 @@ class SetupFailureError(Exception):
         self.output = output
 
 
+def _model_list_exists() -> bool:
+    model_list_path = os.environ.get("MODEL_LIST_FILE_LOCATION", "").strip()
+    if not model_list_path:
+        return False
+    if not os.path.exists(model_list_path):
+        logging.warning(
+            f"MODEL_LIST_FILE_LOCATION is set to '{model_list_path}' but file does not exist. "
+            "Falling back to MODEL environment variable."
+        )
+        return False
+    return True
+
+
+def _get_models_from_model_list() -> Optional[List[str]]:
+    if not _model_list_exists():
+        return None
+    config = Config()
+    models = config.get_models_list()
+    return models or []
+
+
+def _filter_models_from_env(
+    requested_models: List[str], available_models: List[str]
+) -> List[str]:
+    missing = [m for m in requested_models if m not in available_models]
+    if missing:
+        available = ", ".join(available_models)
+        raise ValueError(
+            f"The following models from MODEL are not defined in the model list: "
+            f"{', '.join(missing)}. Available models: {available}"
+        )
+    return requested_models
+
+
 def get_models() -> List[str]:
     """Get list of models to test from MODEL env var (supports comma-separated list)."""
     models_str: str = os.environ.get("MODEL", DEFAULT_MODEL)
     # Strip whitespace from each model and filter out empty strings
     models = [m.strip() for m in models_str.split(",") if m.strip()]
 
-    # If multiple models are specified, require explicit non-empty CLASSIFIER_MODEL
+    model_list_models = _get_models_from_model_list()
+
+    if model_list_models:
+        models = _filter_models_from_env(models, model_list_models)
+
     if len(models) > 1:
         classifier_model = os.environ.get("CLASSIFIER_MODEL", "").strip()
         if not classifier_model:
@@ -507,3 +547,10 @@ def load_include_files(
             extra_prompt = append_file_to_user_prompt(extra_prompt, file_path)
 
     return extra_prompt
+
+
+def create_eval_llm(model: str, tracer=None) -> DefaultLLM:
+    if _model_list_exists():
+        config = Config()
+        return config._get_llm(model_key=model, tracer=tracer)  # type: ignore[arg-type]
+    return DefaultLLM(model, tracer=tracer)

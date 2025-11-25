@@ -30,6 +30,7 @@ from tests.llm.utils.port_forward import (
     cleanup_port_forwards_by_config,
     check_port_availability_early,
 )
+from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
 
 
 # Configuration constants
@@ -364,12 +365,21 @@ def check_llm_api_with_test_call():
     for model_name in test_models:
         model_name = model_name.strip()
 
-        # Step 1: Use LiteLLM's validate_environment to check for missing env vars
-        env_check = litellm.validate_environment(model=model_name)
+        llm = None
+        if _model_list_exists():
+            try:
+                llm = create_eval_llm(model_name)
+                model_name = llm.model
+            except Exception:
+                pass
 
         # Get provider info for better error messages
         provider_info = litellm.get_llm_provider(model_name)
         actual_provider = provider_info[1] if provider_info else "unknown"
+
+        env_check = {"keys_in_environment": True}
+        if not llm:
+            env_check = litellm.validate_environment(model=model_name)
 
         if not env_check["keys_in_environment"]:
             # Environment is missing required keys
@@ -391,12 +401,15 @@ def check_llm_api_with_test_call():
 
         # Step 2: Environment is OK, now test if the API actually works
         try:
-            resp = litellm.completion(
-                model=model_name,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=1000,
-            )
-            print(resp)
+            if llm:
+                llm.completion(messages=[{"role": "user", "content": "test"}])
+            else:
+                resp = litellm.completion(
+                    model=model_name,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=1000,
+                )
+                print(resp)
         except Exception as e:
             failed_models.append(model_name)
             error_str = str(e)
