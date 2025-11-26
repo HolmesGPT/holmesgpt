@@ -5,6 +5,7 @@ import openai
 import os
 from braintrust import Span, SpanTypeAttribute
 from holmes.common.env_vars import DEFAULT_MODEL
+from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
 
 import logging
 
@@ -19,37 +20,48 @@ api_version = os.environ.get("AZURE_API_VERSION", None)
 
 def create_llm_client():
     """Create OpenAI/Azure client with same logic used by tests"""
-    if not api_key and not azure_api_key:
-        raise ValueError("No API key found (AZURE_API_KEY or OPENAI_API_KEY)")
-
-    if base_url:
-        if not azure_api_key:
-            raise ValueError("No AZURE_API_KEY")
-        if classifier_model.startswith("azure"):
+    if _model_list_exists():
+        llm = create_eval_llm(classifier_model)
+        model_for_api = llm.model
+        client_api_key = llm.api_key
+        client_base_url = llm.api_base
+        client_api_version = llm.api_version
+    else:
+        if not api_key and not azure_api_key:
+            raise ValueError("No API key found (AZURE_API_KEY or OPENAI_API_KEY)")
+        model_for_api = classifier_model
+        client_api_key = azure_api_key if base_url else api_key
+        client_base_url = base_url
+        client_api_version = api_version
+        
+        if base_url and classifier_model.startswith("azure"):
             if len(classifier_model.split("/")) != 2:
                 raise ValueError(
                     f"Current classifier model '{classifier_model}' does not meet the pattern 'azure/<deployment-name>' when using Azure OpenAI."
                 )
-            deployment = classifier_model.split("/", 1)[1]
-        else:
-            deployment = classifier_model
-
+            model_for_api = classifier_model.split("/", 1)[1]
+        elif base_url:
+            model_for_api = classifier_model
+    
+    is_azure = model_for_api.startswith("azure/") or (client_base_url and client_api_version)
+    if is_azure:
+        deployment = model_for_api.split("/", 1)[1] if "/" in model_for_api else model_for_api
+        if not client_api_key:
+            raise ValueError("No API key found for Azure client")
+        if not client_base_url:
+            raise ValueError("No base URL found for Azure client")
         client = openai.AzureOpenAI(
-            azure_endpoint=base_url,
+            azure_endpoint=client_base_url,
             azure_deployment=deployment,
-            api_version=api_version,
-            api_key=azure_api_key,
+            api_version=client_api_version,
+            api_key=client_api_key,
         )
-        # For Azure, return the deployment name for API calls
-        model_for_api = deployment
+        return client, deployment
     else:
-        if not api_key:
-            raise ValueError("No OPENAI_API_KEY")
-        client = openai.OpenAI(api_key=api_key)
-        # For OpenAI, return the full model name
-        model_for_api = classifier_model
-
-    return client, model_for_api
+        if not client_api_key:
+            raise ValueError("No API key found for OpenAI client")
+        client = openai.OpenAI(api_key=client_api_key)
+        return client, model_for_api
 
 
 # Register client with autoevals
