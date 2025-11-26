@@ -605,13 +605,23 @@ class ToolCallingLLM:
     @staticmethod
     def _log_tool_call_result(tool_span, tool_call_result: ToolCallResult):
         tool_span.set_attributes(name=tool_call_result.tool_name)
+        if tool_call_result.result.status == StructuredToolResultStatus.ERROR:
+            error = (
+                tool_call_result.result.error
+                if tool_call_result.result.error
+                else "Unspecified error"
+            )
+        else:
+            error = None
         tool_span.log(
             input=tool_call_result.result.params,
             output=tool_call_result.result.data,
-            error=tool_call_result.result.error,
+            error=error,
             metadata={
                 "status": tool_call_result.result.status,
                 "description": tool_call_result.description,
+                "return_code": tool_call_result.result.return_code,
+                "error": tool_call_result.result.error,
             },
         )
 
