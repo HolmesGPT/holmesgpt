@@ -17,27 +17,19 @@ Create a YAML file listing all models you want to benchmark. For provider-specif
 gpt-5.1:
   api_key: "API_KEY_HERE"  # Use environment variable, not hardcoded secrets
   model: azure/gpt-5.1
-  model_type: azure
-  args:
-    api_base: https://your-resource.openai.azure.com/
-    api_version: "2025-01-01-preview"
-    temperature: 1
+  api_base: https://your-resource.openai.azure.com/
+  api_version: "2025-01-01-preview"
 
 gpt-5:
   api_key: "API_KEY_HERE"
   model: azure/gpt-5
-  model_type: azure
-  args:
-    api_base: https://your-resource.openai.azure.com/
-    api_version: "2025-01-01-preview"
-    temperature: 1
+  api_base: https://your-resource.openai.azure.com/
+  api_version: "2025-01-01-preview"
 
 gpt-4.1:
   api_key: "API_KEY_HERE"
   model: openai/gpt-4.1
-  model_type: openai
-  args:
-    temperature: 0
+
 ```
 
 Set the environment variable:
