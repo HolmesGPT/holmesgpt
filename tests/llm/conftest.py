@@ -30,6 +30,7 @@ from tests.llm.utils.port_forward import (
     cleanup_port_forwards_by_config,
     check_port_availability_early,
 )
+from tests.llm.utils.env_vars import is_run_live_enabled
 from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
 
 
@@ -60,7 +61,7 @@ def mock_generation_config(request):
     if regenerate_all_mocks:
         generate_mocks = True
 
-    run_live = os.getenv("RUN_LIVE", "False").lower() in ("true", "1", "t")
+    run_live = is_run_live_enabled()
     if generate_mocks and not run_live:
         print(
             "⚠️  WARNING: --generate-mocks is set but RUN_LIVE is not set. This will not generate mocks."
