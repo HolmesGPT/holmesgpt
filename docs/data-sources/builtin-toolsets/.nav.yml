@@ -25,6 +25,7 @@ nav:
   - Notion: notion.md
   - OpenSearch logs: opensearch-logs.md
   - OpenSearch status: opensearch-status.md
+  - OpenShift: openshift.md
   - Prometheus: prometheus.md
   - RabbitMQ: rabbitmq.md
   - Robusta: robusta.md
