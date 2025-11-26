@@ -1,13 +1,14 @@
 site_name: HolmesGPT Documentation
 site_description: AI-powered root cause analysis for DevOps and SRE teams
 site_url: https://holmesgpt.dev/
-repo_url: https://github.com/robusta-dev/holmesgpt
-repo_name: robusta-dev/holmesgpt
+repo_url: https://github.com/HolmesGPT/holmesgpt
+repo_name: HolmesGPT/holmesgpt
 edit_uri: edit/master/docs/
 exclude_docs: |
   _*
   snippets/
   README.md
+  cncf-self-assesment.md
 
 theme:
   name: material
@@ -130,7 +131,7 @@ extra_css:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/robusta-dev/holmesgpt
+      link: https://github.com/HolmesGPT/holmesgpt
     - icon: fontawesome/brands/slack
       link: https://bit.ly/robusta-slack
     - icon: fontawesome/brands/twitter

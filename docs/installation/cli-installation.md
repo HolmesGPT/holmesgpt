@@ -250,6 +250,51 @@ _After running the command, HolmesGPT begins its automated investigation, as sho
 _Once the analysis completes, HolmesGPT provides a clear root-cause summary and fix suggestions._
 ![image](../assets/cli-installation/cli-analysis-result.png)
 
+## Using Model Lists
+
+You can define multiple models in a YAML file and reference them by name in the CLI. This is useful when you have multiple model configurations with different API keys, endpoints, or parameters.
+
+**1. Create a model list file:**
+
+```yaml
+# model_list.yaml
+sonnet:
+  aws_access_key_id: 'your-access-key'
+  aws_region_name: us-east-1
+  aws_secret_access_key: 'your-secret-key'
+  model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  temperature: 1
+  thinking:
+    budget_tokens: 10000
+    type: enabled
+
+azure-5:
+  api_base: https://your-resource.openai.azure.com
+  api_key: 'your-api-key'
+  api_version: 2025-01-01-preview
+  model: azure/gpt-5
+  temperature: 0
+```
+
+**2. Set the environment variable:**
+
+```bash
+export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
+```
+
+**3. Use models by name:**
+
+```bash
+holmes ask "what pods are failing?" --model=sonnet --no-interactive
+holmes ask "analyze deployment" --model=azure-5 --no-interactive
+```
+
+When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
+
+**Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
+
+See [Environment Variables Reference](../reference/environment-variables.md#model_list_file_location) for more details.
+
 ## Next Steps
 
 -   **[Add Data Sources](../data-sources/index.md)** - We encourage you to use built-in toolsets to connect with [AWS](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/), [Prometheus](https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/), [Loki](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/), [NewRelic](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/), [DataDog](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/), [ArgoCD](https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/), [Confluence](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/), and other monitoring tools.
