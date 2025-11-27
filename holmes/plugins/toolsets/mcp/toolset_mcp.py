@@ -11,10 +11,11 @@ from holmes.core.tools import (
     CallablePrerequisite,
 )
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.stdio import stdio_client, StdioServerParameters
 
 from mcp.types import Tool as MCP_Tool
 
@@ -42,6 +43,7 @@ def get_server_lock(url: str) -> threading.Lock:
 class MCPMode(str, Enum):
     SSE = "sse"
     STREAMABLE_HTTP = "streamable-http"
+    STDIO = "stdio"
 
 
 class MCPConfig(BaseModel):
@@ -49,14 +51,42 @@ class MCPConfig(BaseModel):
     mode: MCPMode = MCPMode.SSE
     headers: Optional[Dict[str, str]] = None
 
+    def get_lock_string(self) -> str:
+        return str(self.url)
+
+
+class StdioMCPConfig(BaseModel):
+    mode: MCPMode = MCPMode.STDIO
+    command: str
+    args: Optional[List[str]] = None
+    env: Optional[Dict[str, str]] = None
+
+    def get_lock_string(self) -> str:
+        return str(self.command)
+
 
 @asynccontextmanager
-async def get_initialized_mcp_session(
-    url: str, headers: Optional[Dict[str, str]], mode: MCPMode
-):
-    if mode == MCPMode.SSE:
+async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
+    if toolset._mcp_config is None:
+        raise ValueError("MCP config is not initialized")
+
+    if isinstance(toolset._mcp_config, StdioMCPConfig):
+        server_params = StdioServerParameters(
+            command=toolset._mcp_config.command,
+            args=toolset._mcp_config.args or [],
+            env=toolset._mcp_config.env,
+        )
+        async with stdio_client(server_params) as (
+            read_stream,
+            write_stream,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                _ = await session.initialize()
+                yield session
+    elif toolset._mcp_config.mode == MCPMode.SSE:
+        url = str(toolset._mcp_config.url)
         async with sse_client(
-            url, headers=headers, sse_read_timeout=SSE_READ_TIMEOUT
+            url, toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
         ) as (
             read_stream,
             write_stream,
@@ -65,8 +95,9 @@ async def get_initialized_mcp_session(
                 _ = await session.initialize()
                 yield session
     else:
+        url = str(toolset._mcp_config.url)
         async with streamablehttp_client(
-            url, headers=headers, sse_read_timeout=SSE_READ_TIMEOUT
+            url, headers=toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
         ) as (
             read_stream,
             write_stream,
@@ -86,7 +117,8 @@ class RemoteMCPTool(Tool):
             # Different servers can still run in parallel
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
-            lock = get_server_lock(str(self.toolset._mcp_config.url))
+
+            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
             with lock:
                 return asyncio.run(self._invoke_async(params))
         except Exception as e:
@@ -107,7 +139,7 @@ class RemoteMCPTool(Tool):
             return False
 
     async def _invoke_async(self, params: Dict) -> StructuredToolResult:
-        async with self.toolset.get_initialized_session() as session:
+        async with get_initialized_mcp_session(self.toolset) as session:
             tool_result = await session.call_tool(self.name, params)
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
@@ -157,16 +189,19 @@ class RemoteMCPTool(Tool):
             if params.get("cli_command"):  # Return AWS MCP cli command, if available
                 return f"{params.get('cli_command')}"
 
-        url = (
-            str(self.toolset._mcp_config.url) if self.toolset._mcp_config else "unknown"
-        )
-        return f"Call MCP Server ({url} - {self.name})"
+        if isinstance(self.toolset._mcp_config, MCPConfig):
+            cmd = str(self.toolset._mcp_config.url)
+        elif isinstance(self.toolset._mcp_config, StdioMCPConfig):
+            cmd = self.toolset._mcp_config.command
+        else:
+            cmd = "unknown"
+        return f"Call MCP Server ({cmd} - {self.name})"
 
 
 class RemoteMCPToolset(Toolset):
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
-    _mcp_config: Optional[MCPConfig] = None
+    _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
 
     def model_post_init(self, __context: Any) -> None:
         self.prerequisites = [
@@ -211,23 +246,24 @@ class RemoteMCPToolset(Toolset):
             if not config:
                 return (False, f"Config is required for {self.name}")
 
-            if "mode" in config:
-                mode_value = config.get("mode")
-                allowed_modes = [e.value for e in MCPMode]
-                if mode_value not in allowed_modes:
-                    return (
-                        False,
-                        f'Invalid mode "{mode_value}", allowed modes are {", ".join(allowed_modes)}',
-                    )
+            mode_value = config.get("mode", MCPMode.SSE.value)
+            allowed_modes = [e.value for e in MCPMode]
+            if mode_value not in allowed_modes:
+                return (
+                    False,
+                    f'Invalid mode "{mode_value}", allowed modes are {", ".join(allowed_modes)}',
+                )
 
-            self._mcp_config = MCPConfig(**config)
+            if mode_value == MCPMode.STDIO.value:
+                self._mcp_config = StdioMCPConfig(**config)
+            else:
+                self._mcp_config = MCPConfig(**config)
+                clean_url_str = str(self._mcp_config.url).rstrip("/")
 
-            clean_url_str = str(self._mcp_config.url).rstrip("/")
-
-            if self._mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith(
-                "/sse"
-            ):
-                self._mcp_config.url = AnyUrl(clean_url_str + "/sse")
+                if self._mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith(
+                    "/sse"
+                ):
+                    self._mcp_config.url = AnyUrl(clean_url_str + "/sse")
 
             tools_result = asyncio.run(self._get_server_tools())
 
@@ -242,17 +278,12 @@ class RemoteMCPToolset(Toolset):
         except Exception as e:
             return (
                 False,
-                f"Failed to load mcp server {self.name} {self._mcp_config.url if self._mcp_config else 'unknown'}: {str(e)}",
+                f"Failed to load mcp server {self.name}: {str(e)}",
             )
 
     async def _get_server_tools(self):
-        async with self.get_initialized_session() as session:
+        async with get_initialized_mcp_session(self) as session:
             return await session.list_tools()
-
-    def get_initialized_session(self):
-        return get_initialized_mcp_session(
-            str(self._mcp_config.url), self._mcp_config.headers, self._mcp_config.mode
-        )
 
     def get_example_config(self) -> Dict[str, Any]:
         example_config = MCPConfig(
