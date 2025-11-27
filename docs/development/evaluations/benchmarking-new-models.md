@@ -14,7 +14,7 @@ Create a YAML file listing all models you want to benchmark. For provider-specif
 ```yaml
 # Example: model_list_eval.yaml
 gpt-5.1:
-  api_key: "API_KEY_HERE"  # Use environment variable, not hardcoded secrets
+  api_key: "API_KEY_HERE"
   model: azure/gpt-5.1
   api_base: https://your-resource.openai.azure.com/
   api_version: "2025-01-01-preview"
