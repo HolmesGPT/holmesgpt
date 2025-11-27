@@ -2,20 +2,23 @@ from typing import List, Optional, Union
 from autoevals import LLMClassifier, init
 from braintrust.oai import wrap_openai
 import openai
-import os
 from braintrust import Span, SpanTypeAttribute
-from holmes.common.env_vars import DEFAULT_MODEL
 from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
+from tests.llm.utils.test_env_vars import (
+    CLASSIFIER_MODEL,
+    OPENAI_API_KEY,
+    AZURE_API_KEY,
+    AZURE_API_BASE,
+    AZURE_API_VERSION,
+)
 
 import logging
 
-classifier_model = os.environ.get(
-    "CLASSIFIER_MODEL", os.environ.get("MODEL", DEFAULT_MODEL)
-)
-api_key = os.environ.get("OPENAI_API_KEY", None)
-azure_api_key = os.environ.get("AZURE_API_KEY", None)
-base_url = os.environ.get("AZURE_API_BASE", None)
-api_version = os.environ.get("AZURE_API_VERSION", None)
+classifier_model = CLASSIFIER_MODEL
+api_key = OPENAI_API_KEY
+azure_api_key = AZURE_API_KEY
+base_url = AZURE_API_BASE
+api_version = AZURE_API_VERSION
 
 
 def create_llm_client():

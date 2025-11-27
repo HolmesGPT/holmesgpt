@@ -44,7 +44,6 @@ Set required environment variables:
 
 ```bash
 export MODEL="your-model-name"  # From your model list
-export RUN_LIVE=true
 export CLASSIFIER_MODEL=gpt-4.1  # Use gpt-4.1 for consistent evaluation
 ```
 
@@ -77,8 +76,8 @@ Run the benchmark script with your new model (along with other models you have c
 
 ```bash
 unset MODEL # to be safe
-export RUN_LIVE=true
 export CLASSIFIER_MODEL=gpt-4.1  # Use gpt-4.1 for consistent evaluation
+# the default tests run are tags 'easy or medium or hard'
 ./run_benchmarks_local.sh 'your-new-model,gpt-4.1,gpt-4o,...'
 ```
 

@@ -8,7 +8,11 @@ from typing import Any, List, Literal, Optional, TypeVar, Union, cast
 
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError, ConfigDict
-from holmes.common.env_vars import DEFAULT_MODEL
+from tests.llm.utils.test_env_vars import (
+    MODEL,
+    CLASSIFIER_MODEL,
+    MODEL_LIST_FILE_LOCATION,
+)
 from holmes.core.models import InvestigateRequest, WorkloadHealthRequest
 from holmes.core.prompt import append_file_to_user_prompt
 from holmes.config import Config
@@ -35,12 +39,11 @@ class SetupFailureError(Exception):
 
 
 def _model_list_exists() -> bool:
-    model_list_path = os.environ.get("MODEL_LIST_FILE_LOCATION", "").strip()
-    if not model_list_path:
+    if not MODEL_LIST_FILE_LOCATION:
         return False
-    if not os.path.exists(model_list_path):
+    if not os.path.exists(MODEL_LIST_FILE_LOCATION):
         logging.warning(
-            f"MODEL_LIST_FILE_LOCATION is set to '{model_list_path}' but file does not exist. "
+            f"MODEL_LIST_FILE_LOCATION is set to '{MODEL_LIST_FILE_LOCATION}' but file does not exist. "
             "Falling back to MODEL environment variable."
         )
         return False
@@ -70,9 +73,8 @@ def _filter_models_from_env(
 
 def get_models() -> List[str]:
     """Get list of models to test from MODEL env var (supports comma-separated list)."""
-    models_str: str = os.environ.get("MODEL", DEFAULT_MODEL)
     # Strip whitespace from each model and filter out empty strings
-    models = [m.strip() for m in models_str.split(",") if m.strip()]
+    models = [m.strip() for m in MODEL.split(",") if m.strip()]
 
     model_list_models = _get_models_from_model_list()
 
@@ -80,8 +82,7 @@ def get_models() -> List[str]:
         models = _filter_models_from_env(models, model_list_models)
 
     if len(models) > 1:
-        classifier_model = os.environ.get("CLASSIFIER_MODEL", "").strip()
-        if not classifier_model:
+        if not CLASSIFIER_MODEL:
             raise ValueError("Multiple models require CLASSIFIER_MODEL to be set")
 
     return models
