@@ -5,8 +5,7 @@ This guide walks you through the process of benchmarking a new LLM model in Holm
 ## Prerequisites
 
 - At least 4 nodes
-- Prometheus installed in cluster
-- Prometheus port-forwarded to 9090
+- Prometheus installed in cluster - (required by a few evals)
 
 ## Step 1: Create Model List File
 
