@@ -119,7 +119,7 @@ data:
     querier:
       frontend_worker:
         frontend_address: 127.0.0.1:9095
-      max_concurrent_queries: 10
+      max_concurrent_queries: 20 # Grafana docs says the default is 20
 
     query_frontend:
       max_batch_size: 5

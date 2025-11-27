@@ -2,5 +2,5 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: http://localhost:9090
+      prometheus_url: http://localhost:11161
       query_response_size_limit: 20000

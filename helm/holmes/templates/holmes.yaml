@@ -24,11 +24,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      {{- if .Values.customServiceAccountName }}
-      serviceAccountName: {{ .Values.customServiceAccountName }}
-      {{ else }}
-      serviceAccountName: {{ .Release.Name }}-holmes-service-account
-      {{- end }}
+      serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
       {{- toYaml .Values.imagePullSecrets | nindent 6 }}

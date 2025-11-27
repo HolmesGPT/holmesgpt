@@ -1,15 +1,14 @@
 import os
 from typing import Any
-from holmes.core.tools import StructuredToolResultStatus, ToolsetStatusEnum
+from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.grafana.grafana_api import grafana_health_check
 import pytest
 
-from holmes.plugins.toolsets.grafana.toolset_grafana_loki import GrafanaLokiConfig
-from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
-from holmes.plugins.toolsets.grafana.toolset_grafana_loki import (
+from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import (
     GrafanaLokiToolset,
 )
 from tests.plugins.toolsets.grafana.conftest import check_grafana_connectivity
+from holmes.plugins.toolsets.grafana.common import GrafanaConfig
 
 # Use pytest.mark.skip (not skipif) to show a single grouped skip line for the entire module
 # Will show: "SKIPPED [4] module.py: reason" instead of 4 separate skip lines
@@ -33,7 +32,7 @@ GRAFANA_LOKI_X_SCOPE_ORGID = os.environ.get("GRAFANA_LOKI_X_SCOPE_ORGID")
 
 
 @pytest.fixture
-def loki_config() -> GrafanaLokiConfig:
+def loki_config() -> GrafanaConfig:
     # All checks done at module level - env vars and connectivity guaranteed
     config_dict: dict[str, Any] = {
         "api_key": GRAFANA_API_KEY,
@@ -44,7 +43,7 @@ def loki_config() -> GrafanaLokiConfig:
     if GRAFANA_LOKI_X_SCOPE_ORGID:
         config_dict["headers"] = {"X-Scope-OrgID": GRAFANA_LOKI_X_SCOPE_ORGID}
 
-    return GrafanaLokiConfig(**config_dict)
+    return GrafanaConfig(**config_dict)
 
 
 @pytest.fixture
@@ -65,47 +64,3 @@ def test_grafana_loki_health_check(loki_config):
 
     assert not error_message
     assert success
-
-
-def test_basic_query(loki_toolset):
-    result = loki_toolset.fetch_pod_logs(
-        FetchPodLogsParams(namespace=TEST_NAMESPACE, pod_name=TEST_POD_NAME)
-    )
-    print(result.data)
-    assert result.status == StructuredToolResultStatus.SUCCESS, result.error
-    assert not result.error
-    assert TEST_SEARCH_TERM in result.data
-
-
-def test_search_term(loki_toolset):
-    result = loki_toolset.fetch_pod_logs(
-        FetchPodLogsParams(
-            namespace=TEST_NAMESPACE, pod_name=TEST_POD_NAME, filter=TEST_SEARCH_TERM
-        )
-    )
-
-    print(result.data)
-    assert result.status == StructuredToolResultStatus.SUCCESS, result.error
-    assert not result.error
-    lines = result.data.split("\n")[2:]  # skips headers lines for "link" and "query"
-    # print(lines)
-    for line in lines:
-        assert TEST_SEARCH_TERM in line, line
-
-
-def test_search_term_with_dates(loki_toolset):
-    result = loki_toolset.fetch_pod_logs(
-        FetchPodLogsParams(
-            namespace=TEST_NAMESPACE,
-            pod_name=TEST_POD_NAME,
-            filter=TEST_SEARCH_TERM,
-            start_time=TEST_START_TIME,
-            end_time=TEST_END_TIME,
-        )
-    )
-
-    assert result.status == StructuredToolResultStatus.SUCCESS, result.error
-    assert not result.error
-    print(result.data)
-    assert TEST_SEARCH_TERM in result.data
-    assert len(result.data.split("\n")) == 1

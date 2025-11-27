@@ -24,10 +24,12 @@ class GitHubConfig(BaseModel):
     git_repo: str
     git_credentials: str
     git_branch: str = "main"
+    git_url: str = "https://api.github.com"
 
 
 class GitToolset(Toolset):
     git_repo: Optional[str] = None
+    git_url: Optional[str] = None
     git_credentials: Optional[str] = None
     git_branch: Optional[str] = None
     _created_branches: set[str] = set()  # Track branches created by the tool
@@ -79,6 +81,7 @@ class GitToolset(Toolset):
 
         try:
             self.git_repo = os.getenv("GIT_REPO") or config.get("git_repo")
+            self.git_url = os.getenv("GIT_URL") or config.get("git_url")
             self.git_credentials = os.getenv("GIT_CREDENTIALS") or config.get(
                 "git_credentials"
             )
@@ -86,7 +89,9 @@ class GitToolset(Toolset):
                 "git_branch", "main"
             )
 
-            if not all([self.git_repo, self.git_credentials, self.git_branch]):
+            if not all(
+                [self.git_repo, self.git_url, self.git_credentials, self.git_branch]
+            ):
                 logging.error("Missing one or more required Git configuration values.")
                 return False, "Missing one or more required Git configuration values."
             return True, ""
@@ -100,7 +105,7 @@ class GitToolset(Toolset):
     def list_open_prs(self) -> List[Dict[str, Any]]:
         """Helper method to list all open PRs in the repository."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/pulls?state=open"
+        url = f"{self.git_url}/repos/{self.git_repo}/pulls?state=open"
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
             raise Exception(self._sanitize_error(f"Error listing PRs: {resp.text}"))
@@ -109,9 +114,7 @@ class GitToolset(Toolset):
     def get_branch_ref(self, branch_name: str) -> Optional[str]:
         """Get the SHA of a branch reference."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = (
-            f"https://api.github.com/repos/{self.git_repo}/git/refs/heads/{branch_name}"
-        )
+        url = f"{self.git_url}/repos/{self.git_repo}/git/refs/heads/{branch_name}"
         resp = requests.get(url, headers=headers)
         if resp.status_code == 404:
             return None
@@ -124,7 +127,7 @@ class GitToolset(Toolset):
     def create_branch(self, branch_name: str, base_sha: str) -> None:
         """Create a new branch from a base SHA."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/git/refs"
+        url = f"{self.git_url}/repos/{self.git_repo}/git/refs"
         resp = requests.post(
             url,
             headers=headers,
@@ -140,7 +143,7 @@ class GitToolset(Toolset):
     def get_file_content(self, filepath: str, branch: str) -> tuple[str, str]:
         """Get file content and SHA from a specific branch."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/contents/{filepath}?ref={branch}"
+        url = f"{self.git_url}/repos/{self.git_repo}/contents/{filepath}?ref={branch}"
         resp = requests.get(url, headers=headers)
         if resp.status_code == 404:
             raise Exception(f"File not found: {filepath}")
@@ -154,7 +157,7 @@ class GitToolset(Toolset):
     ) -> None:
         """Update a file in a specific branch."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/contents/{filepath}"
+        url = f"{self.git_url}/repos/{self.git_repo}/contents/{filepath}"
         encoded_content = base64.b64encode(content.encode()).decode()
         resp = requests.put(
             url,
@@ -172,7 +175,7 @@ class GitToolset(Toolset):
     def create_pr(self, title: str, head: str, base: str, body: str) -> str:
         """Create a new pull request."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/pulls"
+        url = f"{self.git_url}/repos/{self.git_repo}/pulls"
         resp = requests.post(
             url,
             headers=headers,
@@ -192,7 +195,7 @@ class GitToolset(Toolset):
     def get_pr_details(self, pr_number: int) -> Dict[str, Any]:
         """Get details of a specific PR."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/pulls/{pr_number}"
+        url = f"{self.git_url}/repos/{self.git_repo}/pulls/{pr_number}"
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
             raise Exception(
@@ -219,7 +222,7 @@ class GitToolset(Toolset):
 
         # Update file
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/contents/{filepath}"
+        url = f"{self.git_url}/repos/{self.git_repo}/contents/{filepath}"
         encoded_content = base64.b64encode(content.encode()).decode()
         data = {
             "message": message,
@@ -261,7 +264,7 @@ class GitReadFileWithLineNumbers(Tool):
         filepath = params["filepath"]
         try:
             headers = {"Authorization": f"token {self.toolset.git_credentials}"}
-            url = f"https://api.github.com/repos/{self.toolset.git_repo}/contents/{filepath}"
+            url = f"{self.toolset.git_url}/repos/{self.toolset.git_repo}/contents/{filepath}"
             resp = requests.get(url, headers=headers)
             if resp.status_code != 200:
                 return StructuredToolResult(
@@ -308,7 +311,7 @@ class GitListFiles(Tool):
     ) -> StructuredToolResult:
         try:
             headers = {"Authorization": f"token {self.toolset.git_credentials}"}
-            url = f"https://api.github.com/repos/{self.toolset.git_repo}/git/trees/{self.toolset.git_branch}?recursive=1"
+            url = f"{self.toolset.git_url}/repos/{self.toolset.git_repo}/git/trees/{self.toolset.git_branch}?recursive=1"
             resp = requests.get(url, headers=headers)
             if resp.status_code != 200:
                 return StructuredToolResult(

@@ -1,12 +1,13 @@
-user_prompt: "How many pods are in the test-1 namespace?"
+user_prompt: "How many pods are in the app-01 namespace?"
 expected_output:
-  - There are 14 pods in the test-1 namespace
+  - There are 14 pods in the app-01 namespace
 before_test: |
   kubectl apply -f manifests.yaml
-  sleep 60
+  for i in {1..12}; do [ "$(kubectl get pods -l app=test-pod -n app-01 --no-headers 2>/dev/null | wc -l)" -eq 14 ] && kubectl wait --for=condition=ready pod -l app=test-pod -n app-01 --timeout=5s 2>/dev/null && break || sleep 5; done
 after_test: |
   kubectl delete -f manifests.yaml
 tags:
   - counting
   - easy
   - question-answer
+  - kubernetes

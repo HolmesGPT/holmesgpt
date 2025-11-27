@@ -50,6 +50,7 @@ from holmes.utils.colors import (
 )
 from holmes.utils.console.consts import agent_name
 from holmes.version import check_version_async
+import re
 
 
 class SlashCommands(Enum):
@@ -246,6 +247,13 @@ def build_modal_title(tool_call: ToolCallResult, wrap_status: str) -> str:
     return f"{tool_call.description} (exit: q, nav: ↑↓/j/k/g/G/d/u/f/b/space, wrap: w [{wrap_status}])"
 
 
+def strip_ansi_codes(text: str) -> str:
+    ansi_escape_pattern = re.compile(
+        r"\x1b\[[0-9;]*[a-zA-Z]|\033\[[0-9;]*[a-zA-Z]|\^\[\[[0-9;]*[a-zA-Z]"
+    )
+    return ansi_escape_pattern.sub("", text)
+
+
 def detect_lexer(content: str) -> Optional[PygmentsLexer]:
     """
     Detect appropriate lexer for content using Pygments' built-in detection.
@@ -327,6 +335,7 @@ def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
     try:
         # Get the full output
         output = tool_call.result.get_stringified_data()
+        output = strip_ansi_codes(output)
         title = build_modal_title(tool_call, "off")  # Word wrap starts disabled
 
         # Detect appropriate syntax highlighting

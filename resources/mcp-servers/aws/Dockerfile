@@ -6,6 +6,9 @@ FROM supercorp/supergateway:latest
 # Switch to root to install Python
 USER root
 
+# Update npm to latest version for cve handling
+RUN npm install -g npm@latest
+
 RUN apk add --no-cache python3 py3-pip
 
 # Install AWS API MCP server

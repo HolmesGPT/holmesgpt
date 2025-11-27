@@ -3,16 +3,20 @@
 
 import argparse
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, DefaultDict, Set, Optional
 from collections import defaultdict
 from urllib.parse import quote
-
-# Global Braintrust configuration
-BRAINTRUST_ORG = os.environ.get("BRAINTRUST_ORG", "robustadev")
-BRAINTRUST_PROJECT = os.environ.get("BRAINTRUST_PROJECT", "HolmesGPT")
+from tests.llm.utils.test_env_vars import (
+    CLASSIFIER_MODEL,
+    BRAINTRUST_API_KEY,
+    BRAINTRUST_ORG,
+    BRAINTRUST_PROJECT,
+    EXPERIMENT_ID,
+    GITHUB_REF_NAME,
+    BUILDKITE_BRANCH,
+)
 
 
 def get_model_sort_key(model: str) -> str:
@@ -235,14 +239,12 @@ def _get_braintrust_base_url(
     Returns:
         Tuple of (base_url, experiment_name) or None if Braintrust not configured
     """
-    if not os.environ.get("BRAINTRUST_API_KEY"):
+    if not BRAINTRUST_API_KEY:
         return None
 
     if not experiment_name:
-        branch = os.environ.get(
-            "GITHUB_REF_NAME", os.environ.get("BUILDKITE_BRANCH", "unknown")
-        )
-        experiment_name = os.environ.get("EXPERIMENT_ID", f"holmes-benchmark-{branch}")
+        branch = GITHUB_REF_NAME or BUILDKITE_BRANCH or "unknown"
+        experiment_name = EXPERIMENT_ID or f"holmes-benchmark-{branch}"
 
     encoded_experiment_name = quote(experiment_name, safe="")
     base_url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{encoded_experiment_name}"
@@ -1353,7 +1355,7 @@ def main():
         pretty_duration = f"{seconds}s"
 
     # Get classifier model from environment or default
-    classifier_model = os.environ.get("CLASSIFIER_MODEL", "gpt-4o")
+    classifier_model = CLASSIFIER_MODEL or "gpt-4o"
 
     # Calculate number of iterations
     test_case_iterations = defaultdict(set)

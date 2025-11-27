@@ -12,7 +12,6 @@ from holmes.core.models import ChatRequest
 from holmes.core.tracing import TracingFactory
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
-from holmes.core.llm import DefaultLLM
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from tests.llm.utils.commands import set_test_env_vars
@@ -25,6 +24,7 @@ from tests.llm.utils.test_case_utils import (
     AskHolmesTestCase,
     check_and_skip_test,
     get_models,
+    create_eval_llm,
 )
 
 from holmes.core.prompt import build_initial_ask_messages
@@ -194,7 +194,7 @@ def ask_holmes(
     ai = ToolCallingLLM(
         tool_executor=tool_executor,
         max_steps=40,
-        llm=DefaultLLM(model, tracer=tracer),
+        llm=create_eval_llm(model=model, tracer=tracer),
     )
 
     test_type = (
