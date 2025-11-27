@@ -32,8 +32,9 @@ class RunbookFetcher(Tool):
         toolset: "RunbookToolset",
         additional_search_paths: Optional[List[str]] = None,
         dal: Optional[SupabaseDal] = None,
+        custom_catalog_paths: Optional[List[str]] = None,
     ):
-        catalog = load_runbook_catalog(dal=dal)
+        catalog = load_runbook_catalog(dal=dal, custom_catalog_paths=custom_catalog_paths)
         available_runbooks = []
         if catalog:
             available_runbooks = catalog.list_available_runbooks()
@@ -231,13 +232,22 @@ class RunbookToolset(Toolset):
         config = {}
         if additional_search_paths:
             config["additional_search_paths"] = additional_search_paths
+        
+        # Compute custom catalog paths from additional search paths
+        custom_catalog_paths = None
+        if additional_search_paths:
+            custom_catalog_paths = [
+                os.path.join(search_path, "catalog.json")
+                for search_path in additional_search_paths
+                if os.path.isfile(os.path.join(search_path, "catalog.json"))
+            ]
 
         super().__init__(
             name="runbook",
             description="Fetch runbooks",
             icon_url="https://platform.robusta.dev/demos/runbook.svg",
             tools=[
-                RunbookFetcher(self, additional_search_paths, dal),
+                RunbookFetcher(self, additional_search_paths, dal, custom_catalog_paths),
             ],
             docs_url="https://holmesgpt.dev/data-sources/",
             tags=[
