@@ -9,10 +9,6 @@ toolsets:
   helm/core:
     enabled: true
   
-  # Docker toolset
-  docker/core:
-    enabled: true
-  
   # Core investigation and utility toolsets
   core_investigation:
     enabled: true

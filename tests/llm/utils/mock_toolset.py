@@ -657,12 +657,26 @@ class MockToolsetManager:
         config_path = os.path.join(self.test_case_folder, "toolsets.yaml")
         custom_definitions = self._load_custom_toolsets(config_path)
 
-        # If no test-specific toolsets.yaml exists, use default toolsets.yaml
-        if not custom_definitions:
-            default_config_path = os.path.join(
-                os.path.dirname(__file__), "default_toolsets.yaml"
-            )
-            custom_definitions = self._load_custom_toolsets(default_config_path)
+        # Always load default toolsets.yaml
+        default_config_path = os.path.join(
+            os.path.dirname(__file__), "default_toolsets.yaml"
+        )
+        default_definitions = self._load_custom_toolsets(default_config_path)
+
+        # If custom toolsets.yaml exists, merge with defaults (custom takes precedence)
+        # Otherwise, use defaults only
+        if custom_definitions:
+            # Merge: custom definitions override defaults for same toolset names
+            # Add default definitions for toolsets not in custom
+            custom_names = {d.name for d in custom_definitions}
+            merged_definitions = list(custom_definitions)
+            for default_def in default_definitions:
+                if default_def.name not in custom_names:
+                    merged_definitions.append(default_def)
+            custom_definitions = merged_definitions
+        else:
+            # No custom toolsets.yaml, use defaults
+            custom_definitions = default_definitions
 
         # Configure builtin toolsets with custom definitions
         self.toolsets = self._configure_toolsets(builtin_toolsets, custom_definitions)

@@ -433,6 +433,10 @@ def check_llm_api_with_test_call():
             error_msg = f"{provider_msg}\n    Error: {error_str}"
             error_messages.append(error_msg)
 
+    if _model_list_exists():
+        # If model list exists, we don't need to check classifier model since its checked in the model list
+        return True, None
+
     # Check classifier model (using the original logic for compatibility)
     try:
         client, model = create_llm_client()
