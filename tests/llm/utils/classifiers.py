@@ -1,4 +1,5 @@
 from typing import List, Optional, Union
+from dataclasses import dataclass
 from autoevals import LLMClassifier, init
 from braintrust.oai import wrap_openai
 import openai
@@ -14,56 +15,76 @@ from tests.llm.utils.test_env_vars import (
 
 import logging
 
-classifier_model = CLASSIFIER_MODEL
-api_key = OPENAI_API_KEY
-azure_api_key = AZURE_API_KEY
-base_url = AZURE_API_BASE
-api_version = AZURE_API_VERSION
+
+@dataclass
+class ClassifierModelParams:
+    model: str
+    api_key: Optional[str]
+    api_base: Optional[str]
+    api_version: Optional[str]
+
+    @property
+    def is_azure(self) -> bool:
+        return bool(self.api_base and self.api_version)
 
 
-def create_llm_client():
-    """Create OpenAI/Azure client with same logic used by tests"""
+def get_classifier_model_params() -> ClassifierModelParams:
+    """Get classifier model parameters from model list or environment variables."""
     if _model_list_exists():
-        llm = create_eval_llm(classifier_model)
+        llm = create_eval_llm(CLASSIFIER_MODEL)
         model_for_api = llm.model
         client_api_key = llm.api_key
         client_base_url = llm.api_base
         client_api_version = llm.api_version
-        is_azure = client_base_url and client_api_version
     else:
-        if not api_key and not azure_api_key:
+        if not OPENAI_API_KEY and not AZURE_API_KEY:
             raise ValueError("No API key found (AZURE_API_KEY or OPENAI_API_KEY)")
-        model_for_api = classifier_model
-        client_api_key = azure_api_key if base_url else api_key
-        client_base_url = base_url
-        client_api_version = api_version
+        model_for_api = CLASSIFIER_MODEL
+        client_api_key = AZURE_API_KEY if AZURE_API_BASE else OPENAI_API_KEY
+        client_base_url = AZURE_API_BASE
+        client_api_version = AZURE_API_VERSION
 
-        if base_url and classifier_model.startswith("azure"):
-            if len(classifier_model.split("/")) != 2:
+        if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure"):
+            if len(CLASSIFIER_MODEL.split("/")) != 2:
                 raise ValueError(
-                    f"Current classifier model '{classifier_model}' does not meet the pattern 'azure/<deployment-name>' when using Azure OpenAI."
+                    f"Current classifier model '{CLASSIFIER_MODEL}' does not meet the pattern 'azure/<deployment-name>' when using Azure OpenAI."
                 )
-            model_for_api = classifier_model.split("/", 1)[1]
-        elif base_url:
-            model_for_api = classifier_model
+            model_for_api = CLASSIFIER_MODEL.split("/", 1)[1]
+        elif AZURE_API_BASE:
+            model_for_api = CLASSIFIER_MODEL
 
-    if is_azure:
+    return ClassifierModelParams(
+        model=model_for_api,
+        api_key=client_api_key,
+        api_base=client_base_url,
+        api_version=client_api_version,
+    )
+
+
+classifier_model = CLASSIFIER_MODEL
+
+
+def create_llm_client():
+    """Create OpenAI/Azure client with same logic used by tests"""
+    params = get_classifier_model_params()
+
+    if params.is_azure:
         deployment = (
-            model_for_api.split("/", 1)[1] if "/" in model_for_api else model_for_api
+            params.model.split("/", 1)[1] if "/" in params.model else params.model
         )
-        if not client_api_key:
+        if not params.api_key:
             raise ValueError("No AZURE_API_KEY")
         client = openai.AzureOpenAI(
-            azure_endpoint=client_base_url,
+            azure_endpoint=params.api_base,
             azure_deployment=deployment,
-            api_version=client_api_version,
-            api_key=client_api_key,
+            api_version=params.api_version,
+            api_key=params.api_key,
         )
         model_for_api = deployment
     else:
-        if not client_api_key:
+        if not params.api_key:
             raise ValueError("No OPENAI_API_KEY")
-        client = openai.OpenAI(api_key=client_api_key)
+        client = openai.OpenAI(api_key=params.api_key)
 
     return client, model_for_api
 
@@ -71,14 +92,8 @@ def create_llm_client():
 # Register client with autoevals
 try:
     client, _ = create_llm_client()
-    if _model_list_exists():
-        llm = create_eval_llm(classifier_model)
-        client_base_url = llm.api_base
-        client_api_version = llm.api_version
-    else:
-        client_base_url = base_url
-        client_api_version = api_version
-    if client_base_url and client_api_version:
+    params = get_classifier_model_params()
+    if params.is_azure:
         wrapped = wrap_openai(client)
         init(wrapped)  # type: ignore
 except Exception:
@@ -150,28 +165,17 @@ Possible choices:
 - A: The OUTPUT reasonably matches the EXPECTED content
 - B: The OUTPUT does not match the EXPECTED content
 """
-    if _model_list_exists():
-        llm = create_eval_llm(classifier_model)
-        model_for_api = llm.model
-        client_api_key = llm.api_key
-        client_base_url = llm.api_base
-        client_api_version = llm.api_version
-    else:
-        model_for_api = classifier_model
-        client_api_key = api_key
-        client_base_url = base_url
-        client_api_version = api_version
-    is_azure = client_base_url and client_api_version
-    if is_azure:
+    params = get_classifier_model_params()
+    if params.is_azure:
         logger.info(
-            f"Evaluating correctness with Azure OpenAI; base_url={client_base_url}, api_version={client_api_version}, model={model_for_api}, api_key ending with: {client_api_key[-4:] if client_api_key else None}"
+            f"Evaluating correctness with Azure OpenAI; base_url={params.api_base}, api_version={params.api_version}, model={params.model}, api_key ending with: {params.api_key[-4:] if params.api_key else None}"
         )
         logger.info(
             "To use OpenAI instead, unset the environment variable AZURE_API_BASE"
         )
     else:
         logger.info(
-            f"Evaluating correctness with OpenAI; model={model_for_api}, api_key ending with: {client_api_key[-4:] if client_api_key else None}"
+            f"Evaluating correctness with OpenAI; model={params.model}, api_key ending with: {params.api_key[-4:] if params.api_key else None}"
         )
         logger.info(
             "To use Azure OpenAI instead, set the environment variables AZURE_API_BASE, AZURE_API_VERSION, and AZURE_API_KEY"
@@ -182,10 +186,10 @@ Possible choices:
         prompt_template=prompt_prefix,
         choice_scores={"A": 1, "B": 0},
         use_cot=True,
-        model=model_for_api,
-        api_key=client_api_key if not is_azure else None,
-        base_url=client_base_url if not is_azure else None,
-        api_version=client_api_version if not is_azure else None,
+        model=params.model,
+        api_key=params.api_key if not params.is_azure else None,
+        base_url=params.api_base if not params.is_azure else None,
+        api_version=params.api_version if not params.is_azure else None,
     )
     if parent_span:
         with parent_span.start_span(

@@ -3,7 +3,9 @@ from holmes.common.env_vars import DEFAULT_MODEL
 
 # Model configuration
 MODEL = os.environ.get("MODEL", DEFAULT_MODEL)
-CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", os.environ.get("MODEL", DEFAULT_MODEL))
+CLASSIFIER_MODEL = os.environ.get(
+    "CLASSIFIER_MODEL", os.environ.get("MODEL", DEFAULT_MODEL)
+)
 MODEL_LIST_FILE_LOCATION = os.environ.get("MODEL_LIST_FILE_LOCATION", "").strip()
 
 # API Keys
@@ -25,4 +27,3 @@ BRAINTRUST_PROJECT = os.environ.get("BRAINTRUST_PROJECT", "HolmesGPT")
 EXPERIMENT_ID = os.environ.get("EXPERIMENT_ID")
 GITHUB_REF_NAME = os.environ.get("GITHUB_REF_NAME")
 BUILDKITE_BRANCH = os.environ.get("BUILDKITE_BRANCH")
-

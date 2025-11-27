@@ -19,3 +19,6 @@ before_test: |
 after_test: |
   kubectl delete secret newrelickey -n nr
   kubectl delete -f ./deployment.yaml
+
+skip: true
+skip_reason: need upgraded new relic account to support
