@@ -22,7 +22,7 @@ setup_timeout: 480  # 8 minutes total (120s setup + 300s metrics + buffer)
 port_forwards:
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus
-    local_port: 9090
+    local_port: 10159
     remote_port: 9090
 
 before_test: |

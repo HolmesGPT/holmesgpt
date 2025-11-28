@@ -9,7 +9,6 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 
 from holmes.config import Config
-from holmes.core.llm import DefaultLLM
 from holmes.core.tracing import TracingFactory, SpanType
 from holmes.core.truncation.compaction import compact_conversation_history
 from tests.llm.utils.test_case_utils import (
@@ -17,6 +16,7 @@ from tests.llm.utils.test_case_utils import (
     check_and_skip_test,
     get_models,
     load_conversation_history,
+    create_eval_llm,
 )
 from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.property_manager import (
@@ -77,9 +77,9 @@ def test_compaction(
                     f"No conversation history found for test case {test_case.id}"
                 )
 
-            # Create LLM instance
+            # Create LLM instance (resolves via model list when configured)
             config = Config()
-            llm = DefaultLLM(model, tracer=tracer)
+            llm = create_eval_llm(model=model, tracer=tracer)
 
             # Print original conversation for manual review
             original_tokens = llm.count_tokens(messages=conversation_history)

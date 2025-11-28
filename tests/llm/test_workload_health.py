@@ -96,6 +96,7 @@ def test_health_check(
         test_case_folder=Path(test_case.folder),
         generate_mocks=mock_generation_config.generate_mocks,
         issue_data=test_case.issue_data,
+        issues_metadata=None,
         resource_instructions=test_case.resource_instructions,
     )
 

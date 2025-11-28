@@ -9,18 +9,20 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
-from holmes.core import investigation
-from holmes.utils.holmes_status import update_holmes_status_in_db
-import logging
-import uvicorn
-import colorlog
-import time
 import json
 from typing import List, Optional
 
 import litellm
 import sentry_sdk
 from holmes import get_version, is_official_release
+
+from holmes.core import investigation
+from holmes.utils.holmes_status import update_holmes_status_in_db
+import logging
+import uvicorn
+import colorlog
+import time
+
 from litellm.exceptions import AuthenticationError
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse

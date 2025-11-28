@@ -285,12 +285,15 @@ class Config(RobustaBaseConfig):
         dal: Optional["SupabaseDal"] = None,
         refresh_toolsets: bool = False,
         tracer=None,
+        model_name: Optional[str] = None,
     ) -> "ToolCallingLLM":
         tool_executor = self.create_console_tool_executor(dal, refresh_toolsets)
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         return ToolCallingLLM(
-            tool_executor, self.max_steps, self._get_llm(tracer=tracer)
+            tool_executor,
+            self.max_steps,
+            self._get_llm(tracer=tracer, model_key=model_name),
         )
 
     def create_agui_toolcalling_llm(
@@ -344,7 +347,7 @@ class Config(RobustaBaseConfig):
         )
 
     def create_console_issue_investigator(
-        self, dal: Optional["SupabaseDal"] = None
+        self, dal: Optional["SupabaseDal"] = None, model_name: Optional[str] = None
     ) -> "IssueInvestigator":
         all_runbooks = load_builtin_runbooks()
         for runbook_path in self.custom_runbooks:
@@ -360,7 +363,7 @@ class Config(RobustaBaseConfig):
             tool_executor=tool_executor,
             runbook_manager=runbook_manager,
             max_steps=self.max_steps,
-            llm=self._get_llm(),
+            llm=self._get_llm(model_key=model_name),
             cluster_name=self.cluster_name,
         )
 
@@ -478,7 +481,6 @@ class Config(RobustaBaseConfig):
         model_params = model_entry.model_dump(exclude_none=True)
         api_base = self.api_base
         api_version = self.api_version
-
         is_robusta_model = model_params.pop("is_robusta_model", False)
         sentry_sdk.set_tag("is_robusta_model", is_robusta_model)
         if is_robusta_model:
