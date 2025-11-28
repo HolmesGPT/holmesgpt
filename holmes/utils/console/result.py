@@ -1,3 +1,4 @@
+from unittest import result
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.rule import Rule
@@ -17,6 +18,7 @@ def handle_result(
     issue: Issue,
     show_tool_output: bool,
     add_separator: bool,
+    log_costs: bool = False,
 ):
     if destination == DestinationType.CLI:
         if show_tool_output and result.tool_calls:
@@ -30,6 +32,11 @@ def handle_result(
 
         console.print(f"[bold {AI_COLOR}]AI:[/bold {AI_COLOR}]", end=" ")
         console.print(Markdown(result.result))  # type: ignore
+
+        if log_costs and result.total_cost > 0:
+            console.print(f"\n[bold yellow]💰 Total Cost:[/bold yellow] ${result.total_cost:.6f}")
+            console.print(f"[dim]Tokens: {result.prompt_tokens:,} prompt + {result.completion_tokens:,} completion = {result.total_tokens:,} total[/dim]")
+
         if add_separator:
             console.print(Rule())
 
