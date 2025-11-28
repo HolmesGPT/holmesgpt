@@ -1,4 +1,3 @@
-from unittest import result
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.rule import Rule
