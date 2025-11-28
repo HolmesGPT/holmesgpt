@@ -142,7 +142,9 @@ def load_builtin_toolsets(
         toolsets_from_file = load_toolsets_from_file(path, strict_check=True)
         all_toolsets.extend(toolsets_from_file)
 
-    all_toolsets.extend(load_python_toolsets(dal=dal, additional_search_paths=additional_search_paths))  # type: ignore
+    all_toolsets.extend(
+        load_python_toolsets(dal=dal, additional_search_paths=additional_search_paths)
+    )  # type: ignore
 
     # disable built-in toolsets by default, and the user can enable them explicitly in config.
     for toolset in all_toolsets:

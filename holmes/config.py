@@ -227,8 +227,7 @@ class Config(RobustaBaseConfig):
 
     def get_runbook_catalog(self) -> Optional[RunbookCatalog]:
         runbook_catalog = load_runbook_catalog(
-            dal=self.dal,
-            custom_catalog_paths=self.custom_runbook_catalogs
+            dal=self.dal, custom_catalog_paths=self.custom_runbook_catalogs
         )
         return runbook_catalog
 

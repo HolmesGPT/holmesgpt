@@ -95,7 +95,7 @@ class ToolsetManager:
                 os.path.dirname(os.path.abspath(str(catalog_path)))
                 for catalog_path in self.custom_runbook_catalogs
             ]
-        
+
         builtin_toolsets = load_builtin_toolsets(dal, additional_search_paths)
         toolsets_by_name: dict[str, Toolset] = {
             toolset.name: toolset for toolset in builtin_toolsets
