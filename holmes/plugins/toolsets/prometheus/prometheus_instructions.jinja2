@@ -25,9 +25,7 @@
 * Use Prometheus to query metrics from the alert promql
 * Use prometheus to execute promql queries with the tools `execute_prometheus_instant_query` and `execute_prometheus_range_query`
 * To create queries, use 'start_timestamp' and 'end_timestamp' as graphs start and end times
-* ALWAYS embed the execution results into your answer
-* You only need to embed the partial result in your response. Include the "tool_name" and "random_key". For example: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "92jf2hf"} >>
-* Use these tools to generate charts that users can see. Here are standard metrics but you can use different ones:
+* Here are standard metrics but you can use different ones:
 ** For memory consumption: `container_memory_working_set_bytes`
 ** For CPU usage: `container_cpu_usage_seconds_total`
 ** For CPU throttling: `container_cpu_cfs_throttled_periods_total`
@@ -61,8 +59,17 @@
   - Example: `count(count by (pod) (container_cpu_usage_seconds_total{namespace="example"}))`
   - If count > 10, use topk() in your range query
 * When doing queries, always extend the time range, to 15 min before and after the alert start time
-* ALWAYS embed the execution results into your answer
-* ALWAYS embed a Prometheus graph in the response. The graph should visualize data related to the incident.
+
+## Embedding Graphs in Responses
+* You are running in a GUI and can show users graphs so they can interpret the data themselves and confirm what you are saying
+* When relevant to the user question OR if you think it can help users visually confirm what you are saying, ALWAYS embed a graph of Prometheus results into your answer so that users can see it as follows:
+* Embed a graph by inserting the following format:
+
+  << {"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "92jf2hf"} >>
+
+* ALWAYS include the "tool_name" and "random_key"
+* You may ONLY embed graphs for execute_prometheus_range_query (and NOT execute_prometheus_instant_query)
+
 * Embed at most 2 graphs
 * When embedding multiple graphs, always add line spacing between them
     For example:
@@ -72,6 +79,7 @@
     <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "IKtq"}>>
 
 {%- if config and config.additional_labels and config.additional_labels.keys()|list|length > 0 %}
+## Labels to ALWAYS add to PromQL queries
 * ALWAYS add the following additional labels to ALL PromQL queries:
 {%- for key, value in config.additional_labels.items() %}
   * {{ key }}="{{ value }}"
