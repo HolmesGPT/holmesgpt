@@ -88,13 +88,13 @@ def truncate_logs(
     llm: LLM,
     token_limit: int,
     structured_params: FetchPodLogsParams,
-    tool_call_id: str, 
-    tool_name: str
+    tool_call_id: str,
+    tool_name: str,
 ):
     original_token_count = count_tool_response_tokens(
-        llm=llm, 
+        llm=llm,
         structured_tool_result=logging_structured_tool_result,
-        tool_call_id=tool_call_id, 
+        tool_call_id=tool_call_id,
         tool_name=tool_name,
     )
     token_count = original_token_count
@@ -142,9 +142,9 @@ def truncate_logs(
             )
             logging_structured_tool_result.data = text
             token_count = count_tool_response_tokens(
-                llm=llm, 
+                llm=llm,
                 structured_tool_result=logging_structured_tool_result,
-                tool_call_id=tool_call_id, 
+                tool_call_id=tool_call_id,
                 tool_name=tool_name,
             )
     if token_count < original_token_count:

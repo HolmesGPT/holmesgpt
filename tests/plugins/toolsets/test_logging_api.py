@@ -235,9 +235,9 @@ class TestTruncateLogs:
         )  # Ensures the log line following the truncation prefix is not cut in half
 
         truncated_token_count = count_tool_response_tokens(
-            structured_tool_result=structured_result, 
+            structured_tool_result=structured_result,
             llm=llm,
-            tool_call_id=tool_call_id, 
+            tool_call_id=tool_call_id,
             tool_name=tool_name,
         )
         assert truncated_token_count < token_limit

@@ -117,7 +117,10 @@ def test_format_tool_result_data_non_error(status, error, data, expected):
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
     metadata_prefix = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
-    assert format_tool_result_data(tool_result, tool_call_id, tool_name) == metadata_prefix + expected
+    assert (
+        format_tool_result_data(tool_result, tool_call_id, tool_name)
+        == metadata_prefix + expected
+    )
 
 
 def test_format_tool_result_data_str_non_error():
@@ -135,7 +138,10 @@ def test_format_tool_result_data_base_model_non_error():
     result = StructuredToolResult(status=StructuredToolResultStatus.NO_DATA, data=dummy)
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    expected = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}' + dummy.model_dump_json(indent=2)
+    expected = (
+        f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+        + dummy.model_dump_json(indent=2)
+    )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
@@ -144,7 +150,10 @@ def test_format_tool_result_data_json_serializable_non_error():
     result = StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data=data)
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    expected = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}' + json.dumps(data, indent=2)
+    expected = (
+        f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+        + json.dumps(data, indent=2)
+    )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
@@ -153,7 +162,10 @@ def test_format_tool_result_data_unserializable_non_error():
     result = StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data=obj)
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    expected = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}' + str(obj)
+    expected = (
+        f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+        + str(obj)
+    )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
@@ -200,7 +212,9 @@ def test_as_tool_call_message_without_params():
         result=structured,
     )
     message = tcr.as_tool_call_message()
-    expected_content = 'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
+    expected_content = (
+        'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
+    )
     assert message == {
         "tool_call_id": "call1",
         "role": "tool",

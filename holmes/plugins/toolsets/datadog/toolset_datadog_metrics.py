@@ -36,6 +36,7 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
 
 from datetime import datetime
 
+
 class DatadogMetricsConfig(DatadogBaseConfig):
     default_limit: int = DEFAULT_LOG_LIMIT
 
