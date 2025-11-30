@@ -15,7 +15,7 @@ tags:
 port_forwards:
   - namespace: app-124
     service: prometheus
-    local_port: 9090
+    local_port: 10124
     remote_port: 9090
 
 before_test: |

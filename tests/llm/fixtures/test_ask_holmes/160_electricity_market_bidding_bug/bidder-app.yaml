@@ -32,7 +32,6 @@ stringData:
     import os, time, json, random, logging
     from flask import Flask, request, jsonify
     from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
-    from threading import Lock
 
     app = Flask(__name__)
 
@@ -46,7 +45,6 @@ stringData:
 
     # Bug tracking
     nordpool_counter = 0
-    nordpool_lock = Lock()
 
     # Prometheus metrics
     bid_requests = Counter(
@@ -70,28 +68,25 @@ stringData:
 
     # Track bid rates for gauge updates
     exchange_stats = {}
-    stats_lock = Lock()
 
     def update_bid_rate(exchange, decision):
-        with stats_lock:
-            if exchange not in exchange_stats:
-                exchange_stats[exchange] = {"bid": 0, "no_bid": 0}
-            exchange_stats[exchange][decision] += 1
-            total = exchange_stats[exchange]["bid"] + exchange_stats[exchange]["no_bid"]
-            if total > 0:
-                rate = exchange_stats[exchange]["bid"] / total
-                current_bid_rate.labels(exchange=exchange).set(rate)
+        if exchange not in exchange_stats:
+            exchange_stats[exchange] = {"bid": 0, "no_bid": 0}
+        exchange_stats[exchange][decision] += 1
+        total = exchange_stats[exchange]["bid"] + exchange_stats[exchange]["no_bid"]
+        if total > 0:
+            rate = exchange_stats[exchange]["bid"] / total
+            current_bid_rate.labels(exchange=exchange).set(rate)
 
     def should_bid(exchange):
         global nordpool_counter
 
         # Bug logic for NordPool
         if exchange == "NordPool":
-            with nordpool_lock:
-                nordpool_counter += 1
-                if nordpool_counter > 100:
-                    # Bug: Always bid after 100 requests
-                    return True
+            nordpool_counter += 1
+            if nordpool_counter > 100:
+                # Bug: Always bid after 100 requests
+                return True
 
         # Normal logic: 10% bid rate
         return random.random() < NORMAL_BID_RATE

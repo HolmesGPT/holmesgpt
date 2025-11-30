@@ -1,4 +1,4 @@
-import os
+import logging
 from contextlib import contextmanager
 import pytest
 from pytest_shared_session_scope import (
@@ -30,6 +30,17 @@ from tests.llm.utils.port_forward import (
     check_port_availability_early,
 )
 from tests.llm.utils.env_vars import is_run_live_enabled
+from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
+from tests.llm.utils.test_env_vars import (
+    MODEL,
+    CLASSIFIER_MODEL,
+    OPENAI_API_KEY,
+    ANTHROPIC_API_KEY,
+    AZURE_API_KEY,
+    AZURE_API_BASE,
+    ASK_HOLMES_TEST_TYPE,
+    BRAINTRUST_API_KEY,
+)
 
 
 # Configuration constants
@@ -340,21 +351,14 @@ def check_llm_api_with_test_call():
     import litellm
 
     # Get all models that will be tested
-    # TODO: Get default model from global config instead of hardcoding "gpt-4o"
-    # Should use something like: Config().model or get_default_model()
-    models_str = os.environ.get("MODEL", "gpt-4o")
-    test_models = models_str.split(",")
+    test_models = MODEL.split(",")
 
     # Also check the classifier model
-    # TODO: Get default model from global config instead of hardcoding "gpt-4o"
-    # Should use something like: Config().model or get_default_model()
-    # For API key checking, we need to handle comma-separated MODEL values
-    classifier_model = os.environ.get("CLASSIFIER_MODEL")
+    classifier_model = CLASSIFIER_MODEL
     if not classifier_model:
         # Parse MODEL to get first model for API key checking
         # Note: get_models() will enforce CLASSIFIER_MODEL requirement for multi-model tests
-        model_str = os.environ.get("MODEL", DEFAULT_MODEL)
-        models = [m.strip() for m in model_str.split(",") if m.strip()]
+        models = [m.strip() for m in MODEL.split(",") if m.strip()]
         classifier_model = models[0] if models else DEFAULT_MODEL
 
     failed_models = []
@@ -364,12 +368,23 @@ def check_llm_api_with_test_call():
     for model_name in test_models:
         model_name = model_name.strip()
 
-        # Step 1: Use LiteLLM's validate_environment to check for missing env vars
-        env_check = litellm.validate_environment(model=model_name)
+        llm = None
+        if _model_list_exists():
+            try:
+                llm = create_eval_llm(model_name)
+                model_name = llm.model
+            except Exception:
+                pass
 
         # Get provider info for better error messages
         provider_info = litellm.get_llm_provider(model_name)
         actual_provider = provider_info[1] if provider_info else "unknown"
+
+        env_check = {"keys_in_environment": True}
+
+        # only check env vars if we're not using a model list (credentials are in config, not env vars)
+        if not llm:
+            env_check = litellm.validate_environment(model=model_name)
 
         if not env_check["keys_in_environment"]:
             # Environment is missing required keys
@@ -391,12 +406,14 @@ def check_llm_api_with_test_call():
 
         # Step 2: Environment is OK, now test if the API actually works
         try:
-            resp = litellm.completion(
-                model=model_name,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=1000,
-            )
-            print(resp)
+            if llm:
+                llm.completion(messages=[{"role": "user", "content": "test"}])
+            else:
+                litellm.completion(
+                    model=model_name,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=1000,
+                )
         except Exception as e:
             failed_models.append(model_name)
             error_str = str(e)
@@ -416,6 +433,10 @@ def check_llm_api_with_test_call():
             error_msg = f"{provider_msg}\n    Error: {error_str}"
             error_messages.append(error_msg)
 
+    if _model_list_exists():
+        # If model list exists, we don't need to check classifier model since its checked in the model list
+        return True, None
+
     # Check classifier model (using the original logic for compatibility)
     try:
         client, model = create_llm_client()
@@ -427,17 +448,24 @@ def check_llm_api_with_test_call():
         # Build helpful provider-specific message for classifier
         # Note: create_llm_client() uses different logic than LiteLLM:
         # It uses Azure if AZURE_API_BASE is set, regardless of model name
-        azure_base = os.environ.get("AZURE_API_BASE")
-        if azure_base:
+        if AZURE_API_BASE:
             provider_msg = f"Tried to use Azure for classifier (model: {classifier_model}). Check AZURE_API_BASE, AZURE_API_KEY, AZURE_API_VERSION, or unset AZURE_API_BASE to use OpenAI."
         else:
             provider_msg = f"Tried to use OpenAI for classifier (model: {classifier_model}). Check OPENAI_API_KEY or set AZURE_API_BASE to use Azure."
+
+        # Add helpful suggestion for gpt-5 models that may have parameter issues
+        if "gpt-5" in classifier_model.lower():
+            provider_msg += "\n    💡 Tip: If you're seeing parameter errors (e.g., 'max_tokens' not supported), try using: export CLASSIFIER_MODEL=gpt-4.1"
+            logging.warning(
+                f"Classifier model '{classifier_model}' contains 'gpt-5' and encountered an error. "
+                f"If the error is about unsupported parameters, try: export CLASSIFIER_MODEL=gpt-4.1"
+            )
+
         error_messages.append(f"{provider_msg}\n    Error: {str(e)}")
 
     # Report results
     if failed_models:
         # Gather environment info for better error message
-        azure_base = os.environ.get("AZURE_API_BASE")
         error_msg = "Failed to validate API access for the following models:\n\n"
         # Add spacing between error messages for better readability
         formatted_errors = []
@@ -447,10 +475,17 @@ def check_llm_api_with_test_call():
             formatted_errors.append(f"  - {msg}")
         error_msg += "\n\n".join(formatted_errors)
         error_msg += "\n\nEnvironment status:\n"
-        error_msg += f"  - OPENAI_API_KEY: {'set' if os.environ.get('OPENAI_API_KEY') else 'not set'}\n"
-        error_msg += f"  - ANTHROPIC_API_KEY: {'set' if os.environ.get('ANTHROPIC_API_KEY') else 'not set'}\n"
-        error_msg += f"  - AZURE_API_KEY: {'set' if os.environ.get('AZURE_API_KEY') else 'not set'}\n"
-        error_msg += f"  - AZURE_API_BASE: {azure_base or 'not set'}\n"
+        error_msg += f"  - OPENAI_API_KEY: {'set' if OPENAI_API_KEY else 'not set'}\n"
+        error_msg += (
+            f"  - ANTHROPIC_API_KEY: {'set' if ANTHROPIC_API_KEY else 'not set'}\n"
+        )
+        error_msg += f"  - AZURE_API_KEY: {'set' if AZURE_API_KEY else 'not set'}\n"
+        error_msg += f"  - AZURE_API_BASE: {AZURE_API_BASE or 'not set'}\n"
+        # Show classifier model - if CLASSIFIER_MODEL env var is unset, show the actual value being used
+        if CLASSIFIER_MODEL:
+            error_msg += f"  - CLASSIFIER_MODEL: {CLASSIFIER_MODEL}\n"
+        else:
+            error_msg += f"  - CLASSIFIER_MODEL: not set (using: {classifier_model})\n"
 
         return False, error_msg
 
@@ -558,13 +593,12 @@ def llm_availability_check(request):
                     t for t in llm_tests if "test_ask_holmes" in t.nodeid
                 ]
                 if ask_holmes_tests:
-                    test_type = os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
+                    test_type = ASK_HOLMES_TEST_TYPE.lower()
                     print(f"ASK_HOLMES_TEST_TYPE: {test_type} (use 'cli' or 'server')")
                     print()
 
                 # Check if Braintrust is enabled
-                braintrust_api_key = os.environ.get("BRAINTRUST_API_KEY")
-                if braintrust_api_key:
+                if BRAINTRUST_API_KEY:
                     print(
                         f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"  # type: ignore[no-untyped-call]
                     )
@@ -589,8 +623,7 @@ def braintrust_eval_link(request):
     if not request.node.get_closest_marker("llm"):
         return
 
-    braintrust_api_key = os.environ.get("BRAINTRUST_API_KEY")
-    if not braintrust_api_key:
+    if not BRAINTRUST_API_KEY:
         return
 
     # Extract span IDs from user properties
@@ -883,7 +916,7 @@ def _collect_test_results_from_stats(terminalreporter):
 def _display_braintrust_experiment_link(terminalreporter):
     """Display a single Braintrust experiment link at the end of test output."""
     # Check if Braintrust is enabled
-    if not os.environ.get("BRAINTRUST_API_KEY"):
+    if not BRAINTRUST_API_KEY:
         return
 
     # Build experiment URL

@@ -397,6 +397,12 @@ class DefaultLLM(LLM):
                 "reasoning_effort"
             ]  # can be removed after next litelm version
 
+        existing_allowed = self.args.pop("allowed_openai_params", None)
+        if existing_allowed:
+            if allowed_openai_params is None:
+                allowed_openai_params = []
+            allowed_openai_params.extend(existing_allowed)
+
         self.args.setdefault("temperature", temperature)
 
         self._add_cache_control_to_last_message(messages)
