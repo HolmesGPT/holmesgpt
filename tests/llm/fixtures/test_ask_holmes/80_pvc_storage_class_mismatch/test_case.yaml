@@ -1,5 +1,5 @@
 # similar to 24b - not sure we need both
-user_prompt: "Why is the database not running in app-80?"
+user_prompt: "Why is the database not running in namespace app-80?"
 tags:
   - kubernetes
   - hard
