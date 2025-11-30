@@ -1,0 +1,7 @@
+{{ user_prompt }}
+
+{% if runbooks_enabled %}
+{% include '_runbook_instructions.jinja2' %}
+{% endif %}
+
+{% include '_current_date_time.jinja2' %}

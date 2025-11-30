@@ -11,7 +11,8 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import json
 from typing import List, Optional
-
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.core.prompt import generate_user_prompt
 import litellm
 import sentry_sdk
 from holmes import get_version, is_official_release
@@ -57,7 +58,7 @@ from holmes.core.models import (
 from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.global_instructions import add_runbooks_to_user_prompt
+# removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
@@ -216,12 +217,16 @@ def workload_health_check(request: WorkloadHealthRequest):
             )
 
         global_instructions = dal.get_global_instructions_for_account()
-        request.ask = add_runbooks_to_user_prompt(
-            user_prompt=request.ask,
+
+        runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
             issue_instructions=issue_instructions,
             resource_instructions=stored_instructions,
+        )
+        request.ask = generate_user_prompt(
+            request.ask,
+            runbooks_ctx,
         )
         ai = config.create_toolcalling_llm(dal=dal, model=request.model)
 
