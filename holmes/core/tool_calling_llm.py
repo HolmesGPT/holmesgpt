@@ -9,7 +9,8 @@ from holmes.core.models import (
     ToolCallResult,
     PendingToolApproval,
 )
-
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.core.prompt import generate_user_prompt
 import sentry_sdk
 from openai import BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
@@ -52,7 +53,6 @@ from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils import sentry_helper
 from holmes.utils.global_instructions import (
     Instructions,
-    add_runbooks_to_user_prompt,
 )
 from holmes.utils.tags import format_tags_in_string, parse_messages_tags
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -1105,16 +1105,19 @@ class IssueInvestigator(ToolCallingLLM):
             },
         )
 
-        user_prompt = ""
+        base_user = ""
+        base_user = f"{base_user}\n #This is context from the issue:\n{issue.raw}"
 
-        user_prompt = add_runbooks_to_user_prompt(
-            user_prompt,
+        runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
             issue_instructions=issue_runbooks,
             resource_instructions=instructions,
         )
-        user_prompt = f"{user_prompt}\n #This is context from the issue:\n{issue.raw}"
+        user_prompt = generate_user_prompt(
+            base_user,
+            runbooks_ctx,
+        )
         logging.debug(
             "Rendered system prompt:\n%s", textwrap.indent(system_prompt, "    ")
         )
