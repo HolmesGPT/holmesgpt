@@ -26,7 +26,7 @@ class MockSupabaseDal(SupabaseDal):
     ):
         if initialize_base:
             try:
-                self.mock_mode = True
+                self.mock_mode = False
                 super().__init__(cluster="test")
             except:  # noqa: E722
                 self.enabled = True
@@ -41,7 +41,7 @@ class MockSupabaseDal(SupabaseDal):
             # Set necessary attributes that would normally be set by SupabaseDal.__init__
             self.enabled = True
             self.cluster = "test"
-            self.mock_mode = False
+            self.mock_mode = True
 
         self._issue_data = issue_data
         self._resource_instructions = resource_instructions
