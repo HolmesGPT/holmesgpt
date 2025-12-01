@@ -1,5 +1,5 @@
 # similar to 24b - not sure we need both
-user_prompt: "Why is the database not running in namespace-80?"
+user_prompt: "Why is the database not running in namespace app-80?"
 tags:
   - kubernetes
   - hard
@@ -8,6 +8,8 @@ expected_output:
   - Output suggests changing to a different storage class that does exist
 before_test: |
   kubectl apply -f ./manifest.yaml
-  sleep 60
+  
+  # Wait for ProvisioningFailed event (check every 2s for up to 60s)
+  for i in {1..30}; do kubectl get events -n app-80 --field-selector reason=ProvisioningFailed -o name 2>/dev/null | grep -q event && break || sleep 2; done
 after_test: |
   kubectl delete -f ./manifest.yaml

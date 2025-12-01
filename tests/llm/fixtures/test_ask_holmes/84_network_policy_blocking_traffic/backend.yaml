@@ -45,46 +45,6 @@ spec:
   - port: 80
     targetPort: 80
 ---
-# Frontend deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: frontend
-  namespace: app-84
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: frontend
-  template:
-    metadata:
-      labels:
-        app: frontend
-        tier: frontend
-    spec:
-      containers:
-      - name: frontend
-        image: busybox
-        command: ["/bin/sh"]
-        args:
-        - -c
-        - |
-          while true; do
-            echo "Trying to connect to backend-service..."
-            if wget -O- http://backend-service:80 -T 5; then
-              echo "Success!"
-            else
-              echo "ERROR: Connection timeout to backend-service!"
-            fi
-            sleep 15
-          done
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "10m"
-          limits:
-            memory: "64Mi"
----
 # Network Policy that blocks frontend->backend traffic
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

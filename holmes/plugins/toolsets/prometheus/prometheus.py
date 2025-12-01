@@ -424,8 +424,14 @@ def create_structured_tool_result(
     params: dict, response: MetricsBasedResponse
 ) -> StructuredToolResult:
     status = StructuredToolResultStatus.SUCCESS
+    error = None
     if response.error_message or response.status.lower() in ("failed", "error"):
         status = StructuredToolResultStatus.ERROR
+        error = (
+            response.error_message
+            if response.error_message
+            else "Unknown Prometheus error"
+        )
     elif not response.data:
         status = StructuredToolResultStatus.NO_DATA
 
@@ -433,6 +439,7 @@ def create_structured_tool_result(
         status=status,
         data=response.model_dump_json(indent=2),
         params=params,
+        error=error,
     )
 
 
