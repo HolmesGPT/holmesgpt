@@ -65,7 +65,7 @@ plugins:
   #     enable_creation_date: true
   #     type: timeago
   # - git-committers:
-  #     repository: robusta-dev/holmesgpt
+  #     repository: HolmesGPT/holmesgpt
   #     branch: master
   #     docs_path: docs/
   # - minify:

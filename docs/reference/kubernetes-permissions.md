@@ -14,7 +14,7 @@ HolmesGPT inherits permissions for accessing Kubernetes from its environment:
 
 The complete ServiceAccount, ClusterRole, and ClusterRoleBinding definitions can be found in the Helm chart template:
 
-[**View Service Account Template**](https://raw.githubusercontent.com/robusta-dev/holmesgpt/refs/heads/master/helm/holmes/templates/holmesgpt-service-account.yaml)
+[**View Service Account Template**](https://raw.githubusercontent.com/HolmesGPT/holmesgpt/refs/heads/master/helm/holmes/templates/holmesgpt-service-account.yaml)
 
 ## Adaptive Behavior
 

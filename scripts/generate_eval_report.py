@@ -749,7 +749,7 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
     # Data rows (one per eval)
     for eval_case in sorted_evals:
         # Create absolute GitHub URL to test_case.yaml file
-        github_url = f"https://github.com/robusta-dev/holmesgpt/blob/master/tests/llm/fixtures/test_ask_holmes/{eval_case}/test_case.yaml"
+        github_url = f"https://github.com/HolmesGPT/holmesgpt/blob/master/tests/llm/fixtures/test_ask_holmes/{eval_case}/test_case.yaml"
 
         # Create link for Braintrust
         eval_filter_url = get_braintrust_eval_filter_url(eval_case, experiment_name)
@@ -858,7 +858,7 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
 
     for eval_case in sorted_evals:
         # Create absolute GitHub URL to test_case.yaml file
-        github_url = f"https://github.com/robusta-dev/holmesgpt/blob/master/tests/llm/fixtures/test_ask_holmes/{eval_case}/test_case.yaml"
+        github_url = f"https://github.com/HolmesGPT/holmesgpt/blob/master/tests/llm/fixtures/test_ask_holmes/{eval_case}/test_case.yaml"
 
         # Create link for Braintrust in detailed breakdown
         eval_filter_url = get_braintrust_eval_filter_url(eval_case, experiment_name)

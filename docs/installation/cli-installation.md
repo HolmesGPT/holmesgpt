@@ -57,7 +57,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 
     2. Install HolmesGPT:
        ```bash
-       git clone https://github.com/robusta-dev/holmesgpt.git
+       git clone https://github.com/HolmesGPT/holmesgpt.git
        cd holmesgpt
        poetry install --no-root
        ```
@@ -303,5 +303,5 @@ See [Environment Variables Reference](../reference/environment-variables.md#mode
 ## Need Help?
 
 -   **[Join our Slack](https://bit.ly/robusta-slack){:target="\_blank"}** - Get help from the community
--   **[Request features on GitHub](https://github.com/robusta-dev/holmesgpt/issues){:target="\_blank"}** - Suggest improvements or report bugs.
+-   **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="\_blank"}** - Suggest improvements or report bugs.
 -   **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions.
