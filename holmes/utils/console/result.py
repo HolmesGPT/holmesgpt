@@ -33,8 +33,12 @@ def handle_result(
         console.print(Markdown(result.result))  # type: ignore
 
         if log_costs and result.total_cost > 0:
-            console.print(f"\n[bold yellow]💰 Total Cost:[/bold yellow] ${result.total_cost:.6f}")
-            console.print(f"[dim]Tokens: {result.prompt_tokens:,} prompt + {result.completion_tokens:,} completion = {result.total_tokens:,} total[/dim]")
+            console.print(
+                f"\n[bold yellow]💰 Total Cost:[/bold yellow] ${result.total_cost:.6f}"
+            )
+            console.print(
+                f"[dim]Tokens: {result.prompt_tokens:,} prompt + {result.completion_tokens:,} completion = {result.total_tokens:,} total[/dim]"
+            )
 
         if add_separator:
             console.print(Rule())
