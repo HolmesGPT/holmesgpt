@@ -12,8 +12,9 @@ from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils.global_instructions import (
     Instructions,
-    add_runbooks_to_user_prompt,
+    generate_runbooks_args,
 )
+from holmes.core.prompt import generate_user_prompt
 
 DEFAULT_TOOL_SIZE = 10000
 
@@ -121,10 +122,13 @@ def build_issue_chat_messages(
     tools_for_investigation = issue_chat_request.investigation_result.tools
 
     if not conversation_history or len(conversation_history) == 0:
-        user_prompt = add_runbooks_to_user_prompt(
-            user_prompt=user_prompt,
+        runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
+        )
+        user_prompt = generate_user_prompt(
+            user_prompt,
+            runbooks_ctx,
         )
 
         number_of_tools_for_investigation = len(tools_for_investigation)  # type: ignore
@@ -208,10 +212,13 @@ def build_issue_chat_messages(
             },
         ]
 
-    user_prompt = add_runbooks_to_user_prompt(
-        user_prompt=user_prompt,
+    runbooks_ctx = generate_runbooks_args(
         runbook_catalog=runbooks,
         global_instructions=global_instructions,
+    )
+    user_prompt = generate_user_prompt(
+        user_prompt,
+        runbooks_ctx,
     )
 
     conversation_history.append(
@@ -385,10 +392,13 @@ def build_chat_messages(
         runbooks=runbooks,
     )
 
-    ask = add_runbooks_to_user_prompt(
-        user_prompt=ask,
+    runbooks_ctx = generate_runbooks_args(
         runbook_catalog=runbooks,
         global_instructions=global_instructions,
+    )
+    ask = generate_user_prompt(
+        ask,
+        runbooks_ctx,
     )
 
     conversation_history.append(  # type: ignore
@@ -481,10 +491,13 @@ def build_workload_health_chat_messages(
     resource = workload_health_chat_request.resource
 
     if not conversation_history or len(conversation_history) == 0:
-        user_prompt = add_runbooks_to_user_prompt(
-            user_prompt=user_prompt,
+        runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
+        )
+        user_prompt = generate_user_prompt(
+            user_prompt,
+            runbooks_ctx,
         )
 
         number_of_tools_for_workload = len(tools_for_workload)  # type: ignore
@@ -568,10 +581,13 @@ def build_workload_health_chat_messages(
             },
         ]
 
-    user_prompt = add_runbooks_to_user_prompt(
-        user_prompt=user_prompt,
+    runbooks_ctx = generate_runbooks_args(
         runbook_catalog=runbooks,
         global_instructions=global_instructions,
+    )
+    user_prompt = generate_user_prompt(
+        user_prompt,
+        runbooks_ctx,
     )
 
     conversation_history.append(

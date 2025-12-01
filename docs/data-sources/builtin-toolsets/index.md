@@ -30,6 +30,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-notion:{ .lg .middle } **Notion**](notion.md)
 -   [:simple-opensearch:{ .lg .middle } **OpenSearch logs**](opensearch-logs.md)
 -   [:simple-opensearch:{ .lg .middle } **OpenSearch status**](opensearch-status.md)
+-   [:simple-redhatopenshift:{ .lg .middle } **OpenShift**](openshift.md)
 -   [:simple-prometheus:{ .lg .middle } **Prometheus**](prometheus.md)
 -   [:simple-rabbitmq:{ .lg .middle } **RabbitMQ**](rabbitmq.md)
 -   [:material-robot:{ .lg .middle } **Robusta**](robusta.md)

@@ -259,7 +259,7 @@ spec:
       containers:
       - name: payment
         # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
-        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:2.1
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
         imagePullPolicy: IfNotPresent
         command: ["python", "/app/app.py"]
         volumeMounts:

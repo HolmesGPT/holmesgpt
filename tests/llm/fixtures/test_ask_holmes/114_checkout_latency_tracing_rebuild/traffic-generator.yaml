@@ -119,7 +119,7 @@ spec:
       containers:
       - name: traffic-generator
         # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
-        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:2.0
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
         imagePullPolicy: IfNotPresent
         command: ["/bin/bash", "-c"]
         args:

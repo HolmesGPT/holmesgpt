@@ -1,5 +1,5 @@
 # Here is an example of how you can give the LLM your own tools to use (loaded with the `-t` command line argument)
-# For more examples, refer to the builtin toolsets - https://github.com/robusta-dev/holmesgpt/blob/master/holmes/plugins/toolsets/
+# For more examples, refer to the builtin toolsets - https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/
 
 toolsets:
   # Name of the toolset (for example "mycompany/internal-tools")

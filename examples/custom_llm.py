@@ -7,6 +7,7 @@ from holmes.plugins.toolsets import load_builtin_toolsets
 from pydantic import BaseModel
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.prompt import generate_user_prompt
 
 
 class MyCustomLLM(LLM):
@@ -67,7 +68,8 @@ def ask_holmes():
     tool_executor = ToolExecutor(load_builtin_toolsets())
     ai = ToolCallingLLM(tool_executor, max_steps=40, llm=MyCustomLLM())
 
-    response = ai.prompt_call(system_prompt, prompt)
+    user_prompt = generate_user_prompt(prompt, context={})
+    response = ai.prompt_call(system_prompt, user_prompt)
 
     print(response.model_dump())
 
