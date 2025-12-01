@@ -512,9 +512,7 @@ def test_custom_runbook_catalogs_passed_to_builtin_toolsets(
     mock_load_builtin_toolsets.return_value = [builtin_toolset]
 
     # Initialize ToolsetManager with custom_runbook_catalogs
-    toolset_manager = ToolsetManager(
-        custom_runbook_catalogs=[custom_catalog_file]
-    )
+    toolset_manager = ToolsetManager(custom_runbook_catalogs=[custom_catalog_file])
 
     # Call _list_all_toolsets
     toolset_manager._list_all_toolsets(check_prerequisites=False)
@@ -531,9 +529,7 @@ def test_custom_runbook_catalogs_passed_to_builtin_toolsets(
 
 
 @patch("holmes.core.toolset_manager.load_builtin_toolsets")
-def test_custom_runbook_catalogs_multiple_paths(
-    mock_load_builtin_toolsets, tmp_path
-):
+def test_custom_runbook_catalogs_multiple_paths(mock_load_builtin_toolsets, tmp_path):
     """Test that multiple custom_runbook_catalogs paths are all passed correctly."""
     # Create multiple custom catalog files
     catalog_dirs = []
@@ -566,9 +562,7 @@ def test_custom_runbook_catalogs_multiple_paths(
     mock_load_builtin_toolsets.return_value = [builtin_toolset]
 
     # Initialize ToolsetManager with multiple custom_runbook_catalogs
-    toolset_manager = ToolsetManager(
-        custom_runbook_catalogs=catalog_files
-    )
+    toolset_manager = ToolsetManager(custom_runbook_catalogs=catalog_files)
 
     # Call _list_all_toolsets
     toolset_manager._list_all_toolsets(check_prerequisites=False)

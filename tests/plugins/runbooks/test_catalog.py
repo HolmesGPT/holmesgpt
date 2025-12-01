@@ -96,7 +96,6 @@ def test_load_runbook_catalog_with_nonexistent_custom_catalog(tmp_path):
 
 def test_load_runbook_catalog_with_invalid_json(tmp_path):
     """Test that invalid JSON in custom catalog is handled gracefully."""
-    import json
 
     invalid_catalog_file = tmp_path / "invalid.json"
     invalid_catalog_file.write_text("{ invalid json content")

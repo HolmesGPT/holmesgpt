@@ -2,7 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, Union
 
 from benedict import benedict
 from pydantic import FilePath
@@ -34,7 +34,7 @@ class ToolsetManager:
         custom_toolsets_from_cli: Optional[List[FilePath]] = None,
         toolset_status_location: Optional[FilePath] = None,
         global_fast_model: Optional[str] = None,
-        custom_runbook_catalogs: Optional[List[FilePath]] = None,
+        custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}

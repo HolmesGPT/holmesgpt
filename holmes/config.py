@@ -84,7 +84,7 @@ class Config(RobustaBaseConfig):
     opsgenie_query: Optional[str] = None
 
     custom_runbooks: List[FilePath] = []
-    custom_runbook_catalogs: List[FilePath] = []
+    custom_runbook_catalogs: List[Union[str, FilePath]] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
