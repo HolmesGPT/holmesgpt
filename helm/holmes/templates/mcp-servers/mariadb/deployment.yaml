@@ -1,0 +1,151 @@
+{{- if .Values.mcpAddons.mariadb.enabled }}
+---
+{{- if and .Values.mcpAddons.mariadb.config.username .Values.mcpAddons.mariadb.config.password }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-mariadb-mcp-secret
+  namespace: {{ .Values.mcpAddons.mariadb.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-mariadb-mcp
+    app.kubernetes.io/name: mariadb-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+type: Opaque
+data:
+  username: {{ .Values.mcpAddons.mariadb.config.username | b64enc }}
+  password: {{ .Values.mcpAddons.mariadb.config.password | b64enc }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-mariadb-mcp-server
+  namespace: {{ .Values.mcpAddons.mariadb.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-mariadb-mcp
+    app.kubernetes.io/name: mariadb-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-mariadb-mcp
+      app.kubernetes.io/name: mariadb-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-mariadb-mcp
+        app.kubernetes.io/name: mariadb-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.mariadb | toYaml | sha256sum }}
+        {{- if .Values.mcpAddons.mariadb.annotations }}
+        {{- toYaml .Values.mcpAddons.mariadb.annotations | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.mcpAddons.mariadb.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.mariadb.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.mariadb.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.mariadb.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.mariadb.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.mariadb.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: mariadb-mcp
+        image: "{{ .Values.mcpAddons.mariadb.registry }}/{{ .Values.mcpAddons.mariadb.image }}"
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: DB_HOST
+          value: {{ .Values.mcpAddons.mariadb.config.host | quote }}
+        - name: DB_PORT
+          value: {{ .Values.mcpAddons.mariadb.config.port | quote }}
+        - name: DB_NAME
+          value: {{ .Values.mcpAddons.mariadb.config.database | quote }}
+        {{- if and .Values.mcpAddons.mariadb.config.username .Values.mcpAddons.mariadb.config.password }}
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Release.Name }}-mariadb-mcp-secret
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Release.Name }}-mariadb-mcp-secret
+              key: password
+        {{- else }}
+        # If credentials are not provided in values, assume they're provided via existing secret
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-mcp-secret
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-mcp-secret
+              key: password
+        {{- end }}
+        # MCP server configuration
+        - name: MCP_READ_ONLY
+          value: {{ .Values.mcpAddons.mariadb.config.readOnlyMode | quote }}
+        - name: MCP_MAX_POOL_SIZE
+          value: {{ .Values.mcpAddons.mariadb.config.maxPoolSize | quote }}
+        # SSL configuration
+        - name: DB_SSL
+          value: {{ .Values.mcpAddons.mariadb.config.useSSL | quote }}
+        resources:
+          {{- toYaml .Values.mcpAddons.mariadb.resources | nindent 10 }}
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-mariadb-mcp-server
+  namespace: {{ .Values.mcpAddons.mariadb.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-mariadb-mcp
+    app.kubernetes.io/name: mariadb-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Release.Name }}-mariadb-mcp
+    app.kubernetes.io/name: mariadb-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- end }}
