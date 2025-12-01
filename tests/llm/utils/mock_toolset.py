@@ -370,7 +370,7 @@ class MockFileManager:
                                 f"The mock file format was updated to include structured tool output metadata. "
                                 f"Old format: Line 1 = metadata JSON, Line 2+ = raw output. "
                                 f"New format: Line 1 = metadata JSON, Line 2 = structured output JSON, Line 3+ = raw output. "
-                                f"This change was introduced in PR https://github.com/robusta-dev/holmesgpt/pull/372. "
+                                f"This change was introduced in PR https://github.com/HolmesGPT/holmesgpt/pull/372. "
                                 f"Please regenerate your mock files using --regenerate-all-mocks or manually update them to the new format."
                             )
                             raise MockDataCorruptedError(
@@ -483,7 +483,7 @@ class MockableToolWrapper(Tool):
                     f"No mock data found for tool '{self.name}' with params: {params}. "
                     f"Found {len(existing_files)} mock file(s) for this tool, but none matched the parameters. "
                     f"This could be due to mock files being in the old format (missing structured JSON on line 2). "
-                    f"See PR https://github.com/robusta-dev/holmesgpt/pull/372 for format details."
+                    f"See PR https://github.com/HolmesGPT/holmesgpt/pull/372 for format details."
                 )
             else:
                 error_msg = (

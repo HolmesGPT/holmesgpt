@@ -11,7 +11,7 @@ Please make sure to read and observe our [Governance](./GOVERNANCE.md) docs.
   - poetry `1.8.4` & up
 - A LLM API key is required to use and test HolmesGPT
   - OpenAI's `gpt4-o` is recommended.
-  - For details see [Getting an API Key](https://github.com/robusta-dev/holmesgpt?tab=readme-ov-file#getting-an-api-key).
+  - For details see [Getting an API Key](https://holmesgpt.dev/ai-providers/).
 
 ## Reporting bugs
 
