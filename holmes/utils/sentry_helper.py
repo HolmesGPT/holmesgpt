@@ -1,3 +1,5 @@
+from typing import Optional
+
 import sentry_sdk
 from holmes.core.models import ToolCallResult, TruncationMetadata
 
@@ -37,5 +39,26 @@ def capture_toolcall_contains_too_many_tokens(
 def capture_structured_output_incorrect_tool_call():
     sentry_sdk.capture_message(
         "Structured output incorrect tool call",
+        level="warning",
+    )
+
+
+def capture_sections_none(content: Optional[str]):
+    # Limit display length to avoid sending huge payloads to Sentry
+    _MAX_DISPLAY_LENGTH = 1500
+    display_content = ""
+    if content:
+        if len(content) > _MAX_DISPLAY_LENGTH * 2:
+            # Show first and last portions of content
+            display_content = f"{content[:_MAX_DISPLAY_LENGTH]}...\n\n...{content[-_MAX_DISPLAY_LENGTH:]}"
+        else:
+            display_content = content
+
+    message = (
+        f"following message could not be broken into sections\n\n'{display_content}'"
+    )
+
+    sentry_sdk.capture_message(
+        message,
         level="warning",
     )
