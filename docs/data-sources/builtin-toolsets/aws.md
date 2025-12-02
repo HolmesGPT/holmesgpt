@@ -1,4 +1,14 @@
-# AWS
+# AWS (Deprecated)
+
+!!! warning "Deprecated"
+    This toolset is deprecated. Please use the new [AWS (MCP)](aws-mcp.md) data source instead, which provides:
+
+    - Comprehensive access to all AWS services
+    - Better memory management for large queries
+    - Active CloudTrail investigation capabilities
+    - Improved error handling and pagination support
+
+    The legacy AWS toolset will be removed in a future release.
 
 ## Security
 
