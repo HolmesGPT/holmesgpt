@@ -4,7 +4,7 @@ Evaluations are automated tests that measure HolmesGPT's accuracy on real-world 
 
 They are used to both catch regressions and measure the impact of new features.
 
-[Example: pod crashloop eval](https://github.com/robusta-dev/holmesgpt/tree/master/tests/llm/fixtures/test_ask_holmes/09_crashpod).
+[Example: pod crashloop eval](https://github.com/HolmesGPT/holmesgpt/tree/master/tests/llm/fixtures/test_ask_holmes/09_crashpod).
 
 ## Eval Tags
 
@@ -27,7 +27,7 @@ poetry install --with=dev
 
 ### Quick Start: Running Your First Eval
 
-Try running a single eval to understand how the system works. We'll use [eval 80_pvc_storage_class_mismatch](https://github.com/robusta-dev/holmesgpt/tree/master/tests/llm/fixtures/test_ask_holmes/80_pvc_storage_class_mismatch) as an example:
+Try running a single eval to understand how the system works. We'll use [eval 80_pvc_storage_class_mismatch](https://github.com/HolmesGPT/holmesgpt/tree/master/tests/llm/fixtures/test_ask_holmes/80_pvc_storage_class_mismatch) as an example:
 
 ```bash
 # Run eval #80 with Claude Sonnet 4.5 (this specific eval passes reliably with Sonnet 4.5)
