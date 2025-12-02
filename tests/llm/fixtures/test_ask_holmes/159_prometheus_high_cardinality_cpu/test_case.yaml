@@ -26,6 +26,10 @@ port_forwards:
     remote_port: 9090
 
 before_test: |
+  # this test assumes Prometheus already exists in the cluster in the default namespace
+  [ "$(kubectl get svc robusta-kube-prometheus-st-prometheus -n default -o jsonpath='{.spec.ports[?(@.port==9090)].port}' 2>/dev/null)" = "9090" ] \
+  || { echo "❌ Prometheus Service missing or port 9090 not found"; exit 1; }
+  
   # Wait for prometheus to be available (should already be running)
   kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n default --timeout=60s || true
 
