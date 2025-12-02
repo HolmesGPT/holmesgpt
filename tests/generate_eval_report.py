@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Any, DefaultDict, Set, Optional
 from collections import defaultdict
 from urllib.parse import quote
-from tests.llm.utils.test_env_vars import (
+from llm.utils.test_env_vars import (
     CLASSIFIER_MODEL,
     BRAINTRUST_API_KEY,
     BRAINTRUST_ORG,

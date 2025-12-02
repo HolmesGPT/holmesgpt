@@ -146,9 +146,9 @@ echo "================================"
 # Generate benchmark report (same as workflow)
 echo ""
 echo "Generating benchmark report..."
-if [ -f "scripts/generate_eval_report.py" ]; then
+if [ -f "tests/generate_eval_report.py" ]; then
     # Generate latest results
-    poetry run python scripts/generate_eval_report.py \
+    poetry run python tests/generate_eval_report.py \
         --json-file eval_results.json \
         --output-file docs/development/evaluations/latest-results.md \
         --models "$MODELS"
@@ -158,13 +158,13 @@ if [ -f "scripts/generate_eval_report.py" ]; then
     mkdir -p docs/development/evaluations/history
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
     HISTORY_FILE="docs/development/evaluations/history/results_${TIMESTAMP}.md"
-    poetry run python scripts/generate_eval_report.py \
+    poetry run python tests/generate_eval_report.py \
         --json-file eval_results.json \
         --output-file "$HISTORY_FILE" \
         --models "$MODELS"
     echo "📁 Saved historical copy: $HISTORY_FILE"
 else
-    echo "⚠️  Report generation script not found: scripts/generate_eval_report.py"
+    echo "⚠️  Report generation script not found: tests/generate_eval_report.py"
 fi
 
 # Show generated files
