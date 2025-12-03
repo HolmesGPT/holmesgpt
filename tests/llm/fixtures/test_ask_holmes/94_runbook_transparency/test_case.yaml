@@ -15,6 +15,7 @@ runbooks:
     - description: "Database Connection Troubleshooting"
       link: "database_troubleshooting.md"
       update_date: "2025-07-01"
+      id: "database_troubleshooting"
 
 before_test: |
   kubectl create namespace app-94 || true

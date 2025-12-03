@@ -14,3 +14,4 @@ runbooks:
     - description: "AWS Lambda High Latency Troubleshooting"
       link: "lambda_performance_troubleshooting.md"
       update_date: "2025-07-01"
+      id: "lambda_performance_troubleshooting"

@@ -346,6 +346,7 @@ def ask(
         issue,
         show_tool_output,
         False,  # type: ignore
+        log_costs,
     )
 
     if trace_url:
