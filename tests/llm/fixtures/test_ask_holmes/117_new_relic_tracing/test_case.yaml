@@ -25,3 +25,4 @@ before_test: |
 
 after_test: |
   kubectl delete namespace app-117 || true
+  kubectl delete -f instrumentation.yaml -n newrelic || true
