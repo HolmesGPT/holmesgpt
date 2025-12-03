@@ -54,6 +54,7 @@ jobs:
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           MODEL: ${{ vars.MODEL }}
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           UPLOAD_DATASET: "true"
