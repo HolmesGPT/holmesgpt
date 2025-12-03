@@ -1,0 +1,78 @@
+user_prompt: "Show me the logs for the pod api-gateway in namespace app-102a"
+
+expected_output: |
+  Quotes or summarizes logs.
+  Explicitly mentions what time period logs were queried for
+
+tags:
+  - logs
+  - kubernetes
+  - loki
+
+
+before_test: |
+  # Start Loki stack
+  docker compose -p 102a_loki_logs_transparency up -d
+
+  # Wait for Loki to be ready
+  echo "Waiting for Loki to be ready..."
+  while ! curl -fs http://localhost:3100/ready >/dev/null; do sleep 1; done
+  echo "Loki is ready!"
+
+  # Deploy nginx to Kubernetes
+  kubectl create namespace app-102a --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f nginx.yaml -n app-102a
+
+  # Wait for pod to be ready
+  echo "Waiting for nginx pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=nginx -n app-102a --timeout=5s 2>/dev/null; then
+      echo "✅ Nginx pod is ready!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Pod not ready yet, waiting 3s..."
+      sleep 3
+    fi
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Pod failed to become ready after 180 seconds"
+    kubectl get pods -n app-102a
+    exit 1
+  fi
+
+  # Get the pod name
+  POD_NAME=$(kubectl get pods -n app-102a -l app=nginx -o jsonpath='{.items[0].metadata.name}')
+  echo "Found pod: $POD_NAME"
+
+  # Push logs spread over 2 hours (every 5 minutes = 24 logs)
+  LOKI_URL="http://localhost:3100/loki/api/v1/push"
+  NOW=$(date +%s)
+
+  echo "Pushing logs for pod: $POD_NAME (spread over 2 hours)"
+
+  for i in $(seq 0 23); do
+    # Go back in time: 2 hours ago + (i * 5 minutes)
+    OFFSET_SECONDS=$((7200 - i * 300))
+    TS=$(( (NOW - OFFSET_SECONDS) * 1000000000 ))
+
+    # Randomly pick log type: 80% success, 20% error
+    if [ $((RANDOM % 5)) -eq 0 ]; then
+      LOG_LINE='{"level":"ERROR","message":"HTTP request failed","method":"POST","path":"/api/v1/orders","status":500,"error":"Internal Server Error"}'
+    else
+      LOG_LINE='{"level":"INFO","message":"HTTP request completed","method":"GET","path":"/api/v1/users","status":200}'
+    fi
+
+    PAYLOAD="{\"streams\":[{\"stream\":{\"namespace\":\"app-102a\",\"pod\":\"${POD_NAME}\",\"container\":\"nginx\",\"app\":\"nginx\"},\"values\":[[\"${TS}\",\"${LOG_LINE}\"]]}]}"
+
+    curl -s -X POST "${LOKI_URL}" -H "Content-Type: application/json" -d "${PAYLOAD}"
+  done
+
+  echo "✅ Log injection complete! 24 logs pushed over 2 hours."
+
+
+after_test: |
+  kubectl delete namespace app-102a --ignore-not-found
+  docker compose -p 102a_loki_logs_transparency down
