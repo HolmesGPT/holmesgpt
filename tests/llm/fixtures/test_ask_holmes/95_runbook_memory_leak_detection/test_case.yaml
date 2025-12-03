@@ -23,6 +23,7 @@ runbooks:
     - description: "Python Application Memory Troubleshooting"
       link: "python_memory_troubleshooting.md"
       update_date: "2025-07-01"
+      id: "python_memory_troubleshooting"
 
 before_test: |
   kubectl create namespace app-95 || true
