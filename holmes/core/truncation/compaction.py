@@ -34,11 +34,10 @@ def compact_conversation_history(
 ) -> list[dict]:
     """
     The compacted conversation history contains:
-      1. Original system prompt, uncompacted
-      2. Last user prompt, uncompacted
+      1. Original system prompt, uncompacted (if present)
+      2. Last user prompt, uncompacted (if present)
       3. Compacted conversation history (role=assistant)
-      4. Last TodoWrite tool (role=tool)
-      5. Compaction message (role=system)
+      4. Compaction message (role=system)
     """
     conversation_history, system_prompt_message = strip_system_prompt(
         original_conversation_history
