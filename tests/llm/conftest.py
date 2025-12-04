@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import contextmanager
 import pytest
 from pytest_shared_session_scope import (
@@ -384,7 +385,12 @@ def check_llm_api_with_test_call():
 
         # only check env vars if we're not using a model list (credentials are in config, not env vars)
         if not llm:
-            env_check = litellm.validate_environment(model=model_name)
+            # validate_environment only checks for other keys
+            if not (
+                actual_provider == "bedrock"
+                and "AWS_BEARER_TOKEN_BEDROCK" in os.environ
+            ):
+                env_check = litellm.validate_environment(model=model_name)
 
         if not env_check["keys_in_environment"]:
             # Environment is missing required keys
@@ -398,6 +404,8 @@ def check_llm_api_with_test_call():
                 provider_msg = f"Missing environment variables for Anthropic (model: {model_name}): {missing_keys}"
             elif actual_provider == "openai":
                 provider_msg = f"Missing environment variables for OpenAI (model: {model_name}): {missing_keys}. Note: AZURE_API_BASE is set but this model uses OpenAI, not Azure."
+            elif actual_provider == "bedrock":
+                provider_msg = f"Missing environment variables for bedrock (model: {model_name}): {missing_keys}. Note: You can alternatively define AWS_BEARER_TOKEN_BEDROCK."
             else:
                 provider_msg = f"Missing environment variables for {actual_provider} (model: {model_name}): {missing_keys}"
 
