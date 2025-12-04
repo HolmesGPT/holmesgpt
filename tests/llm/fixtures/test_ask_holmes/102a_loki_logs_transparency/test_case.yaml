@@ -1,4 +1,4 @@
-user_prompt: "Show me the logs for the pod api-gateway in namespace app-102a"
+user_prompt: "Show me the logs and resource recommendations for the pod api-gateway in namespace app-102a"
 
 expected_output: |
   Quotes or summarizes logs.
@@ -11,7 +11,7 @@ tags:
 
 
 before_test: |
-  # Start Loki stack
+ # Start Loki stack
   docker compose -p 102a_loki_logs_transparency up -d
 
   # Wait for Loki to be ready
@@ -47,30 +47,37 @@ before_test: |
   POD_NAME=$(kubectl get pods -n app-102a -l app=nginx -o jsonpath='{.items[0].metadata.name}')
   echo "Found pod: $POD_NAME"
 
-  # Push logs spread over 2 hours (every 5 minutes = 24 logs)
-  LOKI_URL="http://localhost:3100/loki/api/v1/push"
-  NOW=$(date +%s)
+  echo "Pushing logs for pod: $POD_NAME "
 
-  echo "Pushing logs for pod: $POD_NAME (spread over 2 hours)"
+    # Build log entries for this pod
+    TIMESTAMP_NS=$(date +%s)000000000
+    LOG_ENTRIES=""
+    for i in $(seq 1 100); do
+        # Increment timestamp for each log
+        TS=$((TIMESTAMP_NS - (100-i) * 100000000000))
+        STATUS_CODES=(200 200 200 200 201 204)
+        STATUS=${STATUS_CODES[$((RANDOM % ${#STATUS_CODES[@]}))]}
+        ENDPOINTS=("/api/v1/users" "/api/v1/products" "/api/v1/orders" "/api/v1/inventory" "/health")
+        ENDPOINT=${ENDPOINTS[$((RANDOM % ${#ENDPOINTS[@]}))]}
+        RESPONSE_TIME=$((50 + RANDOM % 150))
 
-  for i in $(seq 0 23); do
-    # Go back in time: 2 hours ago + (i * 5 minutes)
-    OFFSET_SECONDS=$((7200 - i * 300))
-    TS=$(( (NOW - OFFSET_SECONDS) * 1000000000 ))
+        LOG_LINE="{\\\"level\\\":\\\"INFO\\\",\\\"message\\\":\\\"HTTP request completed\\\",\\\"method\\\":\\\"GET\\\",\\\"path\\\":\\\"${ENDPOINT}\\\",\\\"status\\\":${STATUS},\\\"response_time_ms\\\":${RESPONSE_TIME},\\\"client_ip\\\":\\\"10.0.$((RANDOM % 256)).$((RANDOM % 256))\\\"}"
 
-    # Randomly pick log type: 80% success, 20% error
-    if [ $((RANDOM % 5)) -eq 0 ]; then
-      LOG_LINE='{"level":"ERROR","message":"HTTP request failed","method":"POST","path":"/api/v1/orders","status":500,"error":"Internal Server Error"}'
-    else
-      LOG_LINE='{"level":"INFO","message":"HTTP request completed","method":"GET","path":"/api/v1/users","status":200}'
-    fi
+        if [ -n "$LOG_ENTRIES" ]; then
+        LOG_ENTRIES="${LOG_ENTRIES},[\"${TS}\",\"${LOG_LINE}\"]"
+        else
+        LOG_ENTRIES="[\"${TS}\",\"${LOG_LINE}\"]"
+        fi
+    done
 
-    PAYLOAD="{\"streams\":[{\"stream\":{\"namespace\":\"app-102a\",\"pod\":\"${POD_NAME}\",\"container\":\"nginx\",\"app\":\"nginx\"},\"values\":[[\"${TS}\",\"${LOG_LINE}\"]]}]}"
+    # Push logs to Loki
+    PAYLOAD="{\"streams\":[{\"stream\":{\"job\":\"nginx\",\"namespace\":\"app-102a\",\"pod\":\"${POD_NAME}\",\"app\":\"nginx\"},\"values\":[${LOG_ENTRIES}]}]}"
+    LOKI_URL="http://localhost:3100/loki/api/v1/push"
+    curl -s -X POST "${LOKI_URL}" \
+        -H "Content-Type: application/json" \
+        -d "${PAYLOAD}" && echo "✅ Pushed 100 logs for ${POD_NAME}"
 
-    curl -s -X POST "${LOKI_URL}" -H "Content-Type: application/json" -d "${PAYLOAD}"
-  done
 
-  echo "✅ Log injection complete! 24 logs pushed over 2 hours."
 
 
 after_test: |

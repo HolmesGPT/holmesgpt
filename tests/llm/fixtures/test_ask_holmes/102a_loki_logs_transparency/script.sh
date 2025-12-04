@@ -34,18 +34,14 @@
   POD_NAME=$(kubectl get pods -n app-102a -l app=nginx -o jsonpath='{.items[0].metadata.name}')
   echo "Found pod: $POD_NAME"
 
-  # Push logs spread over 2 hours (every 5 minutes = 24 logs)
-
-
-
-  echo "Pushing logs for pod: $POD_NAME (spread over 2 hours)"
+  echo "Pushing logs for pod: $POD_NAME "
 
     # Build log entries for this pod
     TIMESTAMP_NS=$(date +%s)000000000
     LOG_ENTRIES=""
-    for i in $(seq 1 50); do
+    for i in $(seq 1 100); do
         # Increment timestamp for each log
-        TS=$((TIMESTAMP_NS - i * 100000000000))
+        TS=$((TIMESTAMP_NS - (100-i) * 100000000000))
         STATUS_CODES=(200 200 200 200 201 204)
         STATUS=${STATUS_CODES[$((RANDOM % ${#STATUS_CODES[@]}))]}
         ENDPOINTS=("/api/v1/users" "/api/v1/products" "/api/v1/orders" "/api/v1/inventory" "/health")
@@ -66,7 +62,4 @@
     LOKI_URL="http://localhost:3100/loki/api/v1/push"
     curl -s -X POST "${LOKI_URL}" \
         -H "Content-Type: application/json" \
-        -d "${PAYLOAD}" && echo "✅ Pushed 50 logs for ${POD_NAME}"
-
-  echo ""
-  echo "✅ Log injection complete! 24 logs pushed over 2 hours."
+        -d "${PAYLOAD}" && echo "✅ Pushed 100 logs for ${POD_NAME}"
