@@ -1,0 +1,54 @@
+{{- if and .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.mariadb.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-mariadb-mcp-network-policy
+  namespace: {{ .Values.mcpAddons.mariadb.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-mariadb-mcp
+    app.kubernetes.io/name: mariadb-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}-mariadb-mcp
+      app.kubernetes.io/name: mariadb-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic only from Holmes pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app: holmes
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow connection to MariaDB database
+  - to:
+    - podSelector: {}
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: {{ .Values.mcpAddons.mariadb.config.port | int }}
+  # Allow HTTPS for potential external connections (if needed)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+{{- end }}
