@@ -528,10 +528,10 @@ class MockToolsetManager:
         builtin_toolsets = load_builtin_toolsets()
 
         # Check for KAITO configuration override
-        kaito_config = os.environ.get("KAITO_CONFIG_PATH", "/Users/nickthevenin/holmes-aikit-eval/super-minimal-config.yaml")
+        kaito_config = os.environ.get("KAITO_CONFIG_PATH")
         
         # Load custom toolsets from KAITO config or local YAML if present
-        if os.path.isfile(kaito_config):
+        if kaito_config and os.path.isfile(kaito_config):
             print(f"🤖 Using KAITO toolset configuration: {kaito_config}")
             custom_definitions = self._load_custom_toolsets(kaito_config)
         else:

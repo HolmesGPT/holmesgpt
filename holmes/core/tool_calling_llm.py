@@ -350,6 +350,8 @@ class ToolCallingLLM:
             tools = None if i == max_steps else tools
             tool_choice = os.environ.get("HOLMES_TOOL_CHOICE", "auto") if tools else None
             logging.debug(f"HOLMES_TOOL_CHOICE env var: {os.environ.get('HOLMES_TOOL_CHOICE', 'NOT_SET')}, using tool_choice: {tool_choice}")
+            # EDIT: Custom logging to verify we can modify Holmes code
+            logging.info(f"🔧 CUSTOM EDIT: Tool calling iteration {i}/{max_steps}, tool_choice={tool_choice}, tools_available={bool(tools)}")
 
             total_tokens = self.llm.count_tokens_for_message(messages)
             max_context_size = self.llm.get_context_window_size()
@@ -486,7 +488,61 @@ class ToolCallingLLM:
                     tool_calls.append(tool_call_result.as_tool_result_response())
                     messages.append(tool_call_result.as_tool_call_message())
 
+                    # 🔍 Debug: Log every tool result for termination analysis
+                    logging.info(f"🔍 TERMINATION DEBUG: Tool {tool_call_result.tool_name} status={tool_call_result.result.status}")
+                    if tool_call_result.result.status == ToolResultStatus.ERROR:
+                        logging.info(f"🔍 TERMINATION DEBUG: Error message: {tool_call_result.result.error}")
+
+                    # Check for intelligent termination when safeguards block calls
+                    # Skip check on first iteration (need at least one successful tool call)
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: i={i}, i>1={i > 1}")
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: status={tool_call_result.result.status}, is_error={tool_call_result.result.status == ToolResultStatus.ERROR}")
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: error_text='{tool_call_result.result.error}'")
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: contains_already_called={'already been called' in (tool_call_result.result.error or '')}")
+                    
+                    if (i > 1 and 
+                        tool_call_result.result.status == ToolResultStatus.ERROR and 
+                        "already been called" in (tool_call_result.result.error or "")):
+                        logging.info("🔍 TERMINATION DEBUG: Safeguard condition met, checking if LLM wants to stop...")
+                        if self._should_stop_investigation(messages):
+                            logging.info("🎯 Safeguard blocked + LLM wants same tool → Forcing final iteration")
+                            # Remove the duplicate/error tool message that caused confusion
+                            if messages and messages[-1]["role"] == "tool":
+                                logging.info("🧹 Removing confusing duplicate tool message from conversation")
+                                messages.pop()
+                                # Also remove the corresponding tool call from tool_calls list
+                                if tool_calls:
+                                    tool_calls.pop()
+                            # Force final iteration by setting i to max_steps - 1
+                            # This will trigger tools=None on next iteration, leading to natural final response
+                            i = max_steps - 1
+                            # Don't break - let the loop continue to the final iteration
+                        else:
+                            logging.info("🔍 TERMINATION DEBUG: LLM says continue despite safeguard")
+                    else:
+                        logging.info("🔍 TERMINATION DEBUG: Safeguard condition NOT met")
+
                     perf_timing.measure(f"tool completed {tool_call_result.tool_name}")
+
+                # Exit immediately if intelligent termination was triggered during tool execution
+                # (No longer needed since we don't break, just continue to final iteration)
+                
+                # Check for intelligent termination after tool execution
+                # Skip check on first iteration (need at least one tool call)
+                # Also skip if we're already on the final iteration
+                logging.info(f"🔍 GENERAL CHECK VARIABLES: i={i}, i>1={i > 1}, max_steps={max_steps}")
+                if i > 1 and i < max_steps - 1:  # Only check if not already on final iteration
+                    logging.info("🔍 TERMINATION DEBUG: Checking general termination condition...")
+                    if self._should_stop_investigation(messages):
+                        logging.info("🎯 Terminating early to prevent repetitive tool calls")
+                        # Force final iteration by setting i to max_steps - 1
+                        # This will trigger tools=None on next iteration, leading to natural final response
+                        i = max_steps - 1
+                        # Don't break - let the loop continue to the final iteration
+                    else:
+                        logging.info("🔍 TERMINATION DEBUG: LLM says continue")
+                else:
+                    logging.info("🔍 TERMINATION DEBUG: General condition NOT met (i<=1 or already final iteration)")
 
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
@@ -495,6 +551,7 @@ class ToolCallingLLM:
                 if tools_to_call:
                     logging.info("")
 
+        # Handle loop exit - only max_steps exception now (no early termination breaks)
         raise Exception(f"Too many LLM calls - exceeded max_steps: {i}/{max_steps}")
 
     def _invoke_tool(
@@ -824,6 +881,67 @@ class ToolCallingLLM:
         raise Exception(
             f"Too many LLM calls - exceeded max_steps: {i}/{self.max_steps}"
         )
+
+    def _should_stop_investigation(self, messages: list) -> bool:
+        """
+        Ask the LLM to determine if investigation should stop based on full conversation context.
+        Evaluates whether the problem has been solved or if repetitive tool calls are unhelpful.
+        """
+        try:
+            logging.info("🔍 TERMINATION DEBUG: Asking LLM if investigation should stop...")
+            logging.info(f"🔍 TERMINATION DEBUG: Messages structure: {[msg.get('role', 'unknown') for msg in messages]}")
+            
+            termination_prompt = '''You are being asked to terminate a Kubernetes troubleshooting scenario early because repeated tool calls are being made.
+
+Looking at this entire conversation, please determine if this is because:
+1. An appropriate tool call has been made and the problem has been solved or answered
+2. The investigation has been properly concluded with sufficient information
+3. We have successfully retrieved real data from actual pods/resources via successful tool calls
+4. OR if continuing would just repeat the same unsuccessful tool calls
+
+Given the full conversation context, has the user's question been adequately addressed? Would calling the exact same tools again provide any new valuable information?
+
+Be reasonably confident in your assessment. Stop when you have sufficient data to answer the user's question accurately, but continue if you need additional information or verification.
+
+Consider:
+- Have we already gathered the information needed to answer the user's question?
+- Are we just repeating the same tool calls that already succeeded?
+- Has the investigation reached a natural conclusion with sufficient data?
+- Have we successfully retrieved real data from actual Kubernetes resources (not generic/imaginary ones like "xyz-123")?
+- Are any recent tool calls failing because they reference non-existent resources?
+
+If the investigation should stop (problem solved AND we have sufficient data): Reply "STOP"
+If the investigation should continue (need more information OR verification required): Reply "CONTINUE"
+
+Answer:'''
+
+            # Create a fresh conversation for termination check
+            termination_messages = [
+                {"role": "system", "content": "You are a helpful assistant that evaluates whether investigations should continue."},
+                {"role": "user", "content": f"Based on this conversation history:\n\n{str(messages)}\n\n{termination_prompt}"}
+            ]
+
+            response = self.llm.completion(
+                messages=termination_messages,
+                tools=None,
+                tool_choice=None,
+                temperature=0.1,
+                drop_params=True,
+            )
+            
+            response_text = response.choices[0].message.content.upper()
+            should_stop = "STOP" in response_text
+            
+            logging.info(f"🔍 TERMINATION DEBUG: LLM response: '{response_text}' → should_stop={should_stop}")
+            
+            if should_stop:
+                logging.info(f"🎯 Intelligent termination: Investigation should stop based on conversation context")
+            
+            return should_stop
+            
+        except Exception as e:
+            logging.warning(f"Failed to check for intelligent termination: {e}")
+            return False  # Continue normally if check fails
 
 
 # TODO: consider getting rid of this entirely and moving templating into the cmds in holmes_cli.py
