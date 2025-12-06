@@ -1,0 +1,20 @@
+# gcloud MCP Server Service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gcloud-mcp-server
+  namespace: default
+  labels:
+    app: gcloud-mcp-server
+    component: mcp
+    provider: gcp
+spec:
+  type: ClusterIP
+  selector:
+    app: gcloud-mcp-server
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
