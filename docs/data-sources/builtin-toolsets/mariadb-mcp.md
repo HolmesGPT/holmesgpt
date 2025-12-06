@@ -1,59 +1,221 @@
 # MariaDB (MCP)
 
-The MariaDB MCP (Model Context Protocol) server provides read-only access to MariaDB databases for troubleshooting performance issues, analyzing slow queries, investigating deadlocks, and diagnosing application problems related to database operations.
+The MariaDB MCP server provides read-only access to MariaDB databases for troubleshooting performance issues, analyzing slow queries, investigating deadlocks, and diagnosing application problems related to database operations and much more.
 
 ## Overview
 
-The MariaDB MCP server is deployed as an add-on to the Holmes Helm chart, providing a dedicated service that Holmes can use to query and analyze MariaDB databases. It operates in read-only mode by default to ensure safety while investigating production databases.
+The MariaDB MCP server is deployed as a separate pod in your cluster when using the Holmes or Robusta Helm charts. 
+
+For CLI users, you'll need to deploy the MCP server manually and configure Holmes to connect to it. 
+
+It operates in read-only mode by default to ensure safety while investigating production databases (recommended to use a database user with read-only permissions as well).
 
 ## Configuration
 
-=== "Robusta Helm Chart"
+=== "Holmes CLI"
 
-    Add the following to your `values.yaml` file:
+    For CLI usage, you need to deploy the MariaDB MCP server first, then configure Holmes to connect to it. Below is an example on how to deploy it in your cluster.
+
+    ### Step 1: Deploy the MariaDB MCP Server
+
+    Create a file named `mariadb-mcp-deployment.yaml`:
+
+    ```yaml
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: holmes-mcp
+    ---
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: mariadb-mcp-secret
+      namespace: holmes-mcp
+    type: Opaque
+    stringData:
+      username: "holmes_readonly"  # Your MariaDB username
+      password: "your_password"     # Your MariaDB password
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: mariadb-mcp-server
+      namespace: holmes-mcp
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: mariadb-mcp-server
+      template:
+        metadata:
+          labels:
+            app: mariadb-mcp-server
+        spec:
+          containers:
+          - name: mcp-server
+            image: me-west1-docker.pkg.dev/robusta-development/development/mariadb-http-mcp-minimal:1.0.3
+            imagePullPolicy: IfNotPresent
+            ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+            env:
+            - name: DB_HOST
+              value: "mariadb.database.svc.cluster.local"  # Change to your MariaDB host
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mariadb-mcp-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mariadb-mcp-secret
+                  key: password
+            - name: DB_NAME
+              value: "production_db"  # Change to your database name
+            - name: MCP_READ_ONLY
+              value: "true"
+            - name: MCP_MAX_POOL_SIZE
+              value: "5"
+            - name: DB_SSL
+              value: "false"  # Set to "true" if using SSL
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "250m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+            livenessProbe:
+              tcpSocket:
+                port: 8000
+              initialDelaySeconds: 30
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 3
+            readinessProbe:
+              tcpSocket:
+                port: 8000
+              initialDelaySeconds: 15
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 3
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: mariadb-mcp-server
+      namespace: holmes-mcp
+    spec:
+      type: ClusterIP
+      ports:
+      - port: 8000
+        targetPort: 8000
+        protocol: TCP
+        name: http
+      selector:
+        app: mariadb-mcp-server
+    ```
+
+    Deploy it to your cluster:
+
+    ```bash
+    kubectl apply -f mariadb-mcp-deployment.yaml
+    ```
+
+    ### Step 2: Update Database Credentials
+
+    Update the secret with your actual MariaDB credentials:
+
+    ```bash
+    kubectl delete secret mariadb-mcp-secret -n holmes-mcp
+    kubectl create secret generic mariadb-mcp-secret \
+      --from-literal=username=your_db_user \
+      --from-literal=password=your_db_password \
+      -n holmes-mcp
+    ```
+
+    ### Step 3: Configure Holmes CLI
+
+    Add the MCP server configuration to **~/.holmes/config.yaml**:
+
+    ```yaml
+    mcp_servers:
+      mariadb:
+        description: "MariaDB database troubleshooting and monitoring MCP server"
+        config:
+          url: "http://mariadb-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
+          mode: streamable-http
+          headers:
+            Content-Type: "application/json"
+        llm_instructions: |
+          Use this MariaDB MCP server to troubleshoot database issues.
+
+          Sometimes, application that are working with the db can have latency, or even halt.
+          This often because of issues related to the db, like slow queries because of missing indexes or inefficient queries, load on the db, DB locks etc.
+          Checking the DB for this issue can help with finding the root cause.
+          When you do find an issue, provide as much information as possible about the issue you found.
+
+          When investigating issues, always:
+          1. Check current connections and running queries first
+          2. Look for deadlocks or lock waits if transactions are failing
+          3. Analyze slow query patterns for performance issues
+          4. Check table structures and indexes for optimization opportunities
+          5. Review error logs if available
+
+          The server provides tools for:
+          1. **Database Inspection**:
+             - List databases and tables
+             - View table schemas and indexes
+             - Check table statistics and sizes
+
+          2. **Query Analysis**:
+             - Execute read-only SQL queries for investigation
+             - Analyze slow queries from the slow query log
+             - Check current running queries with SHOW PROCESSLIST
+
+          3. **Performance Troubleshooting**:
+             - Identify deadlocks: Use "SHOW ENGINE INNODB STATUS" to see recent deadlocks
+             - Find blocking queries: Check information_schema.innodb_locks and innodb_lock_waits
+             - Analyze slow queries: Query performance_schema tables
+             - Check connection usage: Use SHOW STATUS LIKE 'Threads_connected'
+    ```
+
+    ### Step 4: Port Forwarding (Optional for Local Testing)
+
+    If running Holmes CLI locally and need to access the MCP server:
+
+    ```bash
+    kubectl port-forward -n holmes-mcp svc/mariadb-mcp-server 8000:8000
+    ```
+
+    Then update the URL in config.yaml to:
+    ```yaml
+    config:
+      url: "http://localhost:8000/mcp"
+    ```
+
+=== "Holmes Helm Chart"
+
+    Add the following minimal configuration to your `values.yaml` file:
 
     ```yaml
     mcpAddons:
       mariadb:
         enabled: true
 
-        # Image configuration (optional - defaults shown)
-        image: "mariadb-http-mcp-minimal:1.0.3"
-        registry: "me-west1-docker.pkg.dev/robusta-development/development"
-
         # Database connection configuration
         config:
           host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
-          port: "3306"                                 # MariaDB port
           database: "production_db"                    # Database name
           username: "holmes_readonly"                  # Database username
           password: "secure_password"                  # Database password
-          namespace: ""                                 # Leave empty for release namespace
-
-          # MCP server settings
-          readOnlyMode: true                           # Enforce read-only (recommended)
-          maxPoolSize: "5"                             # Connection pool size
-          useSSL: false                                # SSL for DB connection
-
-        # Resource limits (optional - defaults shown)
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-
-        # Network isolation (recommended)
-        networkPolicy:
-          enabled: true
-
-        # Pod configuration (optional)
-        annotations: {}
-        nodeSelector: {}
-        tolerations: []
-        affinity: {}
     ```
+
+    For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).
 
     Then deploy or upgrade your Holmes installation:
 
@@ -61,21 +223,34 @@ The MariaDB MCP server is deployed as an add-on to the Holmes Helm chart, provid
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Holmes CLI"
+=== "Robusta Helm Chart"
 
-    For CLI usage, configure the MCP server in **~/.holmes/config.yaml**:
+    Add the following minimal configuration to your `generated_values.yaml`:
 
     ```yaml
-    mcp_servers:
-      mariadb:
-        description: "MariaDB database troubleshooting"
-        config:
-          url: "http://your-mariadb-mcp-server:8000/mcp"
-          mode: streamable-http
-          headers:
-            Content-Type: "application/json"
-        llm_instructions: |
-          Use this server to troubleshoot database issues.
+    globalConfig:
+      # Your existing Robusta configuration
+
+    # Add the Holmes MCP addon configuration
+    holmes:
+      mcpAddons:
+        mariadb:
+          enabled: true
+
+          # Database connection configuration
+          config:
+            host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
+            database: "production_db"                    # Database name
+            username: "holmes_readonly"                  # Database username
+            password: "secure_password"                  # Database password
+    ```
+
+    For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).
+
+    Then deploy or upgrade your Robusta installation:
+
+    ```bash
+    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
 ## Database User Setup
@@ -154,235 +329,28 @@ The MariaDB MCP server enables Holmes to:
 - Review query cache effectiveness
 - Analyze temporary table usage
 
-## Common Investigation Scenarios
+## Example Usage
 
-### Application Latency
-
-When applications experience database-related latency:
+### Slow running queries
 
 ```
-"My application response time increased after 2 PM"
+"Are there any slow running queries on MariaDB?"
 ```
 
-Holmes will:
-- Check for long-running queries
-- Analyze slow query patterns
-- Look for lock contention
-- Review connection pool saturation
-- Check for missing indexes
+### Database Lock
+
+```
+"Are there any DB locks on MariaDB? What's causing it?"
+```
 
 ### Application Hangs
-
-When applications hang or become unresponsive:
 
 ```
 "The checkout service is hanging when processing orders"
 ```
 
-Holmes will:
-- Check for deadlocks
-- Identify blocking transactions
-- Review metadata locks
-- Analyze connection exhaustion
-- Look for table locks
-
 ### Database Performance Issues
-
-When overall database performance degrades:
 
 ```
 "Database queries are taking longer than usual"
-```
-
-Holmes will:
-- Analyze buffer pool efficiency
-- Check query cache hit rates
-- Review temporary table creation
-- Identify inefficient queries
-- Look for resource bottlenecks
-
-## Performance Tuning Insights
-
-The MCP server helps identify:
-
-1. **Missing Indexes**
-   - Queries performing full table scans
-   - Slow queries that could benefit from indexes
-   - Unused indexes consuming resources
-
-2. **Lock Contention**
-   - Frequent deadlocks
-   - Long lock wait times
-   - Transaction bottlenecks
-
-3. **Resource Issues**
-   - Connection pool exhaustion
-   - Memory pressure
-   - I/O bottlenecks
-
-4. **Query Problems**
-   - Inefficient JOIN operations
-   - Suboptimal query patterns
-   - N+1 query problems
-
-## Security Considerations
-
-### Network Isolation
-
-The network policy ensures:
-- Only Holmes pods can access the MCP server
-- MCP server can only connect to MariaDB
-- All other traffic is blocked
-
-### Read-Only Mode
-
-The server operates in read-only mode:
-- Prevents accidental data modifications
-- Ensures investigation safety
-- Complies with production access policies
-
-### Credential Management
-
-Best practices:
-- Use Kubernetes secrets for credentials
-- Implement credential rotation
-- Audit database access logs
-- Use SSL for external databases
-
-## Advanced Configuration
-
-### Custom LLM Instructions
-
-Override default investigation patterns:
-
-```yaml
-mcpAddons:
-  mariadb:
-    llmInstructions: |
-      Focus on transaction deadlocks and lock waits.
-      Always check for missing indexes first.
-      Prioritize queries from the orders table.
-```
-
-### High-Load Environments
-
-For high-traffic databases:
-
-```yaml
-mcpAddons:
-  mariadb:
-    config:
-      maxPoolSize: "20"  # Increase connection pool
-    resources:
-      requests:
-        memory: "512Mi"
-        cpu: "500m"
-      limits:
-        memory: "1Gi"
-        cpu: "1000m"
-```
-
-### Multi-Database Setup
-
-To monitor multiple databases, deploy multiple MCP instances with different configurations, each pointing to a different database.
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Connection Refused**
-   - Verify database host and port
-   - Check network policies
-   - Ensure database is accessible from the cluster
-
-2. **Authentication Failed**
-   - Verify username and password
-   - Check user permissions
-   - Ensure user can connect from the MCP pod's IP
-
-3. **Performance Schema Not Available**
-   - Enable performance schema in MariaDB configuration
-   - Grant SELECT permission on performance_schema
-   - Restart database if needed
-
-### Verification
-
-To verify the MCP server is working:
-
-```bash
-# Check if the pod is running
-kubectl get pods -n <namespace> | grep mariadb-mcp
-
-# Check logs
-kubectl logs -n <namespace> <mariadb-mcp-pod-name>
-
-# Test from Holmes
-holmes ask "Show me the current database connections"
-```
-
-### MariaDB Configuration
-
-Ensure these are enabled in your MariaDB configuration:
-
-```ini
-[mysqld]
-# Enable performance schema
-performance_schema = ON
-
-# Enable slow query log
-slow_query_log = 1
-slow_query_log_file = /var/log/mysql/slow.log
-long_query_time = 2
-
-# InnoDB settings for better diagnostics
-innodb_status_output = ON
-innodb_status_output_locks = ON
-```
-
-## Example Values for Common Scenarios
-
-### Internal MariaDB in Kubernetes
-
-```yaml
-mcpAddons:
-  mariadb:
-    enabled: true
-    config:
-      host: "mariadb.database.svc.cluster.local"
-      port: "3306"
-      database: "myapp"
-      username: "holmes"
-      password: "secretpass"
-```
-
-### External MariaDB with SSL
-
-```yaml
-mcpAddons:
-  mariadb:
-    enabled: true
-    config:
-      host: "mariadb.example.com"
-      port: "3306"
-      database: "production"
-      useSSL: true
-    # Use existing secret for credentials
-```
-
-### High-Availability Setup
-
-```yaml
-mcpAddons:
-  mariadb:
-    enabled: true
-    config:
-      host: "mariadb-primary.database.svc.cluster.local"
-      maxPoolSize: "10"
-    resources:
-      limits:
-        memory: "1Gi"
-    affinity:
-      podAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-        - topologyKey: kubernetes.io/hostname
 ```

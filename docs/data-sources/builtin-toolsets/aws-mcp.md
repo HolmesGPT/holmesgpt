@@ -1,16 +1,202 @@
 # AWS (MCP)
 
-The AWS MCP (Model Context Protocol) server provides comprehensive access to AWS services through a secure, read-only interface. It enables Holmes to investigate AWS infrastructure issues, analyze CloudTrail events, examine security configurations, and troubleshoot service-specific problems.
+The AWS MCP server provides comprehensive access to AWS services through a secure, read-only interface. It enables Holmes to investigate AWS infrastructure issues, analyze CloudTrail events, examine security configurations, and troubleshoot service-specific problems, answer cost related questions, analyze ELB issues and much more.
 
 ## Overview
 
-The AWS MCP server is deployed as an add-on to the Holmes Helm chart, providing a dedicated service that Holmes can use to interact with AWS APIs. It supports all AWS CLI commands and services, making it a powerful tool for comprehensive AWS investigations.
+The AWS MCP server is deployed as a separate pod in your cluster when using the Holmes or Robusta Helm charts. For CLI users, you'll need to deploy the MCP server manually and configure Holmes to connect to it.
 
 ## Configuration
 
-=== "Robusta Helm Chart"
+=== "Holmes CLI"
 
-    Add the following to your `values.yaml` file:
+    For CLI usage, you need to deploy the AWS MCP server first, then configure Holmes to connect to it. Below is an example, on how to deploy it in your cluster.
+
+    ### Step 1: Deploy the AWS MCP Server
+
+    Create a file named `aws-mcp-deployment.yaml`:
+
+    ```yaml
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: holmes-mcp
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: aws-mcp-sa
+      namespace: holmes-mcp
+      annotations:
+        # For EKS IRSA, add your role ARN:
+        # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE_NAME
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: aws-mcp-server
+      namespace: holmes-mcp
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: aws-mcp-server
+      template:
+        metadata:
+          labels:
+            app: aws-mcp-server
+        spec:
+          serviceAccountName: aws-mcp-sa
+          containers:
+          - name: aws-mcp
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/devel/aws-api-mcp-server:1.0.1
+            imagePullPolicy: Always
+            ports:
+            - containerPort: 8000
+              name: http
+            env:
+            - name: AWS_REGION
+              value: "us-east-1"  # Change to your region
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"  # Change to your region
+            - name: READ_OPERATIONS_ONLY
+              value: "true"
+            # If not using IRSA, provide credentials via environment variables:
+            # - name: AWS_ACCESS_KEY_ID
+            #   value: "your-access-key"
+            # - name: AWS_SECRET_ACCESS_KEY
+            #   value: "your-secret-key"
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "250m"
+              limits:
+                memory: "1Gi"
+                cpu: "500m"
+            readinessProbe:
+              tcpSocket:
+                port: 8000
+              initialDelaySeconds: 20
+              periodSeconds: 10
+            livenessProbe:
+              tcpSocket:
+                port: 8000
+              initialDelaySeconds: 30
+              periodSeconds: 30
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: aws-mcp-server
+      namespace: holmes-mcp
+    spec:
+      selector:
+        app: aws-mcp-server
+      ports:
+      - port: 8000
+        targetPort: 8000
+        protocol: TCP
+        name: http
+    ```
+
+    Deploy it to your cluster:
+
+    ```bash
+    kubectl apply -f aws-mcp-deployment.yaml
+    ```
+
+    ### Step 2: Configure AWS Credentials
+
+    Choose one of these methods:
+
+    **Option A: Using IRSA (Recommended for EKS)**
+    - Create an IAM role with the necessary permissions
+    - Configure the role ARN in the ServiceAccount annotation
+    - The pod will automatically assume the role
+
+    **Option B: Using Environment Variables**
+    - Uncomment the AWS credential environment variables in the deployment
+    - Or create a secret and reference it:
+
+    ```bash
+    kubectl create secret generic aws-credentials \
+      --from-literal=aws-access-key-id=YOUR_KEY \
+      --from-literal=aws-secret-access-key=YOUR_SECRET \
+      -n holmes-mcp
+    ```
+
+    Then reference it in the deployment:
+    ```yaml
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom:
+        secretKeyRef:
+          name: aws-credentials
+          key: aws-access-key-id
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aws-credentials
+          key: aws-secret-access-key
+    ```
+
+    ### Step 3: Configure Holmes CLI
+
+    Add the MCP server configuration to **~/.holmes/config.yaml**:
+
+    ```yaml
+    mcp_servers:
+      aws_api:
+        description: "AWS API MCP Server - comprehensive AWS service access. Allow executing any AWS CLI commands."
+        url: "http://aws-mcp-server.holmes-mcp.svc.cluster.local:8000"
+        llm_instructions: |
+          IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
+
+          ## Investigation Principles
+
+          **ALWAYS follow this investigation flow:**
+          1. First, gather current state and configuration using AWS APIs
+          2. Check CloudTrail for recent changes that might have caused the issue
+          3. Collect metrics and logs from CloudWatch if available
+          4. Analyze all gathered data before providing conclusions
+
+          **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
+
+          ## Core Investigation Patterns
+
+          ### For ANY connectivity or access issues:
+          1. ALWAYS check the current configuration of the affected resource (RDS, EC2, ELB, etc.)
+          2. ALWAYS examine security groups and network ACLs
+          3. ALWAYS query CloudTrail for recent configuration changes
+          4. Look for patterns in timing between when issues started and when changes were made
+
+          ### When investigating database issues (RDS):
+          - Get RDS instance status and configuration: `aws rds describe-db-instances --db-instance-identifier INSTANCE_ID`
+          - Check security groups attached to RDS: Extract VpcSecurityGroups from the above
+          - Examine security group rules: `aws ec2 describe-security-groups --group-ids SG_ID`
+          - Look for recent RDS events: `aws rds describe-events --source-identifier INSTANCE_ID --source-type db-instance`
+          - Check CloudTrail for security group modifications: `aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue=SG_ID`
+
+          Remember: Your goal is to gather evidence from AWS, not to instruct the user to gather it. Use the MCP server proactively to build a complete picture of what happened.
+    ```
+
+    ### Step 4: Port Forwarding (Optional for Local Testing)
+
+    If running Holmes CLI locally and need to access the MCP server:
+
+    ```bash
+    kubectl port-forward -n holmes-mcp svc/aws-mcp-server 8000:8000
+    ```
+
+    Then update the URL in config.yaml to:
+    ```yaml
+    url: "http://localhost:8000"
+    ```
+
+=== "Holmes Helm Chart"
+
+    The MCP server will use IRSA (IAM Roles for Service Accounts) for permissions - see the IAM Configuration section below for setup details.
+
+    Add the following configuration to your `values.yaml` file:
 
     ```yaml
     mcpAddons:
@@ -20,39 +206,16 @@ The AWS MCP server is deployed as an add-on to the Holmes Helm chart, providing 
         # Service account for IRSA (IAM Roles for Service Accounts)
         serviceAccount:
           create: true
-          name: "aws-api-mcp-sa"
           annotations:
             # Add your EKS IRSA role ARN here
             eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE_NAME"
 
-        # Image configuration (optional - defaults shown)
-        image: "aws-api-mcp-server:1.0.1"
-        registry: "us-central1-docker.pkg.dev/genuine-flight-317411/devel"
-
-        # Resource limits (optional - defaults shown)
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-
         # AWS configuration
         config:
-          region: "us-east-1"        # Your AWS region
-          readOnlyMode: true          # Keep true for safety (prevents write operations)
-          namespace: ""               # Leave empty to use release namespace
-
-        # Network isolation (recommended)
-        networkPolicy:
-          enabled: true
-
-        # Pod placement (optional)
-        nodeSelector: {}
-        tolerations: []
-        affinity: {}
+          region: "us-east-1"  # Your AWS region
     ```
+
+    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
 
     Then deploy or upgrade your Holmes installation:
 
@@ -60,25 +223,41 @@ The AWS MCP server is deployed as an add-on to the Holmes Helm chart, providing 
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Holmes CLI"
+=== "Robusta Helm Chart"
 
-    For CLI usage, you'll need to configure AWS credentials directly:
+    The MCP server will use IRSA (IAM Roles for Service Accounts) for permissions - see the IAM Configuration section below for setup details.
 
-    ```bash
-    export AWS_ACCESS_KEY_ID="<your AWS access key ID>"
-    export AWS_SECRET_ACCESS_KEY="<your AWS secret access key>"
-    export AWS_DEFAULT_REGION="us-west-2"
-    ```
-
-    Then configure the MCP server in **~/.holmes/config.yaml**:
+    Add the following configuration to your `generated_values.yaml`:
 
     ```yaml
-    mcp_servers:
-      aws_api:
-        description: "AWS API MCP Server"
-        url: "http://your-aws-mcp-server:8000"
-        llm_instructions: |
-          Use this server to investigate AWS resources and issues.
+    globalConfig:
+      # Your existing Robusta configuration
+
+
+    # Add the Holmes MCP addon configuration
+    holmes:
+      mcpAddons:
+        aws:
+          enabled: true
+
+          # Service account for IRSA (IAM Roles for Service Accounts)
+          serviceAccount:
+            create: true
+            annotations:
+              # Add your EKS IRSA role ARN here
+              eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE_NAME"
+
+          # AWS configuration
+          config:
+            region: "us-east-1"  # Your AWS region
+    ```
+
+    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
+
+    Then deploy or upgrade your Robusta installation:
+
+    ```bash
+    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
 ## IAM Configuration
@@ -91,64 +270,47 @@ For EKS clusters, use IAM Roles for Service Accounts (IRSA) for secure, fine-gra
 2. Create an IAM role and attach the policy
 3. Associate the role with the service account using the annotation in values.yaml
 
-### IAM Policy Example
+### IAM Policy
 
-Here's a comprehensive read-only IAM policy for the AWS MCP server:
+The AWS MCP server requires comprehensive read-only permissions across AWS services. We provide a complete IAM policy that covers:
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ec2:Describe*",
-        "rds:Describe*",
-        "rds:List*",
-        "elasticloadbalancing:Describe*",
-        "autoscaling:Describe*",
-        "cloudwatch:Describe*",
-        "cloudwatch:Get*",
-        "cloudwatch:List*",
-        "logs:Describe*",
-        "logs:Get*",
-        "logs:List*",
-        "logs:FilterLogEvents",
-        "cloudtrail:LookupEvents",
-        "cloudtrail:Get*",
-        "cloudtrail:Describe*",
-        "cloudtrail:List*",
-        "iam:Get*",
-        "iam:List*",
-        "iam:SimulatePrincipalPolicy",
-        "s3:List*",
-        "s3:Get*",
-        "lambda:Get*",
-        "lambda:List*",
-        "eks:Describe*",
-        "eks:List*",
-        "ecs:Describe*",
-        "ecs:List*",
-        "kms:Describe*",
-        "kms:List*",
-        "sns:Get*",
-        "sns:List*",
-        "sqs:Get*",
-        "sqs:List*",
-        "organizations:Describe*",
-        "organizations:List*",
-        "ce:Get*",
-        "ce:Describe*",
-        "ce:List*",
-        "tag:Get*"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
+- **Core Observability**: CloudWatch, Logs, Events
+- **Compute & Networking**: EC2, ELB, Auto Scaling, VPC
+- **Containers**: EKS, ECS, ECR
+- **Security**: IAM, CloudTrail, GuardDuty, Security Hub
+- **Databases**: RDS, ElastiCache, DocumentDB, Neptune
+- **Cost Management**: Cost Explorer, Budgets, Organizations
+- **Storage**: S3, EBS, EFS, Backup
+- **Serverless**: Lambda, Step Functions, API Gateway, SNS, SQS
+- **And more...**
+
+You can find the complete IAM policy in:
+
+- **GitHub**: [aws-mcp-iam-policy.json](https://github.com/robusta-dev/holmes-mcp-integrations/blob/master/servers/aws/aws-mcp-iam-policy.json)
+
+#### Quick Setup
+
+For EKS IRSA setup, we provide helper scripts to create the policy and IAM Role:
+
+- [Setup IRSA Script](https://github.com/robusta-dev/holmes-mcp-integrations/blob/master/servers/aws/setup-irsa.sh)
+- [Enable OIDC Provider Script](https://github.com/robusta-dev/holmes-mcp-integrations/blob/master/servers/aws/enable-oidc-provider.sh)
+
+To create it manually:
+
+```bash
+# Download the policy
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/aws-mcp-iam-policy.json
+
+# Create IAM policy
+aws iam create-policy \
+  --policy-name HolmesMCPReadOnly \
+  --policy-document file://aws-mcp-iam-policy.json
+
+# Attach to your role (for IRSA)
+aws iam attach-role-policy \
+  --role-name YOUR_ROLE_NAME \
+  --policy-arn arn:aws:iam::ACCOUNT_ID:policy/HolmesMCPReadOnly
 ```
-
-Save this policy to a file (e.g., `aws-mcp-policy.json`) and attach it to your IAM role.
 
 ## Capabilities
 
@@ -189,105 +351,19 @@ The AWS MCP server provides access to all AWS services through the AWS CLI. Comm
 - Analyze spending trends
 - Identify expensive resources
 
-## Best Practices
-
-### Memory Management
-
-The AWS MCP server can experience memory pressure with large queries. Follow these guidelines:
-
-- **CloudWatch Logs**: Limit to 500 items, use 1-hour time windows initially
-- **CloudTrail**: Limit to 200 items, use 2-hour time windows
-- **EC2 Describe**: Can handle up to 500 items
-- **Always use time constraints** for log queries
-- Use pagination for large result sets
-
-### Security
-
-- Always use `readOnlyMode: true` in production
-- Implement network policies to restrict access
-- Use IRSA for credential management in EKS
-- Regularly audit IAM permissions
-
-### Investigation Tips
-
-1. Let Holmes actively query AWS rather than asking for manual checks
-2. Start with current state queries before historical analysis
-3. Use CloudTrail to correlate changes with issue timing
-4. Leverage CloudWatch for metrics and logs
-5. Check security groups and network ACLs for connectivity issues
-
-## Example Investigations
+## Example Usage
 
 ### Database Connection Issues
 ```
 "My application can't connect to RDS after 3 PM yesterday"
 ```
-Holmes will:
-- Check RDS instance status and configuration
-- Review security group changes in CloudTrail
-- Identify who made the changes
-- Analyze the specific rules that were modified
-
-### EKS Pod Failures
-```
-"Pods in my EKS cluster are failing with ImagePullBackOff"
-```
-Holmes will:
-- Check ECR repository permissions
-- Review IAM roles and policies
-- Look for recent permission changes
-- Examine node group configurations
 
 ### Cost Spike Investigation
 ```
 "Our AWS costs increased 40% last week"
 ```
-Holmes will:
-- Query cost and usage reports
-- Identify services with increased spending
-- Find new or modified resources
-- Analyze usage patterns
 
-## Troubleshooting
-
-### Common Issues
-
-1. **Service Account Not Assuming Role**
-   - Verify IRSA annotation is correct
-   - Check trust relationship on IAM role
-   - Ensure OIDC provider is configured
-
-2. **Memory Issues with Large Queries**
-   - Reduce time windows for log queries
-   - Use pagination with `--max-items`
-   - Add specific filters to reduce data volume
-
-3. **Permission Denied Errors**
-   - Review IAM policy attached to role
-   - Check for explicit deny rules
-   - Verify resource-level permissions
-
-### Verification
-
-To verify the MCP server is working:
-
-```bash
-# Check if the pod is running
-kubectl get pods -n <namespace> | grep aws-mcp
-
-# Check logs
-kubectl logs -n <namespace> <aws-mcp-pod-name>
-
-# Test from Holmes
-holmes ask "What EC2 instances are running in my account?"
+### Check IAM Policy for a k8s workload
 ```
-
-## Migration from Legacy AWS Toolset
-
-If you're using the older AWS toolset, migrate to the MCP version for:
-- Better memory management
-- Comprehensive service coverage
-- Active CloudTrail investigation
-- Improved error handling
-
-The legacy toolset will be deprecated in future releases.
+""What IAM policy is the aws mcp using? What capabilities does it have?"
+```
