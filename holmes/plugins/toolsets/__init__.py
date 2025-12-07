@@ -78,7 +78,10 @@ def load_toolsets_from_file(
     return toolsets
 
 
-def load_python_toolsets(dal: Optional[SupabaseDal]) -> List[Toolset]:
+def load_python_toolsets(
+    dal: Optional[SupabaseDal],
+    additional_search_paths: Optional[List[str]] = None,
+) -> List[Toolset]:
     logging.debug("loading python toolsets")
     toolsets: list[Toolset] = [
         CoreInvestigationToolset(),  # Load first for higher priority
@@ -104,7 +107,7 @@ def load_python_toolsets(dal: Optional[SupabaseDal]) -> List[Toolset]:
         GitToolset(),
         BashExecutorToolset(),
         MongoDBAtlasToolset(),
-        RunbookToolset(dal=dal),
+        RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
     ]
@@ -120,7 +123,10 @@ def load_python_toolsets(dal: Optional[SupabaseDal]) -> List[Toolset]:
     return toolsets
 
 
-def load_builtin_toolsets(dal: Optional[SupabaseDal] = None) -> List[Toolset]:
+def load_builtin_toolsets(
+    dal: Optional[SupabaseDal] = None,
+    additional_search_paths: Optional[List[str]] = None,
+) -> List[Toolset]:
     all_toolsets: List[Toolset] = []
     logging.debug(f"loading toolsets from {THIS_DIR}")
 
@@ -136,7 +142,9 @@ def load_builtin_toolsets(dal: Optional[SupabaseDal] = None) -> List[Toolset]:
         toolsets_from_file = load_toolsets_from_file(path, strict_check=True)
         all_toolsets.extend(toolsets_from_file)
 
-    all_toolsets.extend(load_python_toolsets(dal=dal))  # type: ignore
+    all_toolsets.extend(
+        load_python_toolsets(dal=dal, additional_search_paths=additional_search_paths)
+    )  # type: ignore
 
     # disable built-in toolsets by default, and the user can enable them explicitly in config.
     for toolset in all_toolsets:

@@ -15,7 +15,7 @@ Find more about HolmesGPT's maintainers and adopters [here](./ADOPTERS.md).
     <a href="#installation"><strong>Installation</strong></a> |
     <a href="#supported-llm-providers"><strong>LLM Providers</strong></a> |
     <a href="https://www.youtube.com/watch?v=TfQfx65LsDQ"><strong>YouTube Demo</strong></a> |
-    <a href="https://deepwiki.com/robusta-dev/holmesgpt"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+    <a href="https://deepwiki.com/HolmesGPT/holmesgpt"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 </div>
 
@@ -193,7 +193,7 @@ Because HolmesGPT relies on LLMs, it relies on [a suite of pytest based evaluati
 
 
 ## License
-Distributed under the Apache 2.0 License. See [LICENSE](https://github.com/robusta-dev/holmesgpt/blob/master/LICENSE) for more information.
+Distributed under the Apache 2.0 License. See [LICENSE](https://github.com/HolmesGPT/holmesgpt/blob/master/LICENSE) for more information.
 <!-- Change License -->
 
 ## Community
@@ -212,7 +212,7 @@ If you have any questions, feel free to message us on [robustacommunity.slack.co
 
 Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and instructions.
 
-For help, contact us on [Slack](https://bit.ly/robusta-slack) or ask [DeepWiki AI](https://deepwiki.com/robusta-dev/holmesgpt) your questions.
+For help, contact us on [Slack](https://bit.ly/robusta-slack) or ask [DeepWiki AI](https://deepwiki.com/HolmesGPT/holmesgpt) your questions.
 
-Please make sure to follow the CNCF code of conduct - [details here](https://github.com/robusta-dev/holmesgpt/blob/master/CODE_OF_CONDUCT.md).
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/robusta-dev/holmesgpt)
+Please make sure to follow the CNCF code of conduct - [details here](https://github.com/HolmesGPT/holmesgpt/blob/master/CODE_OF_CONDUCT.md).
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/HolmesGPT/holmesgpt)

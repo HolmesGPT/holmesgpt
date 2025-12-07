@@ -10,7 +10,8 @@ tags:
   - hard
   - chain-of-causation
   - traces
-
+  - newrelic
+  
 setup_timeout: 600  # 10 minutes for pod scheduling
 
 
@@ -78,3 +79,6 @@ before_test: |
 
 after_test: |
   kubectl delete namespace app-123 || true
+
+skip: true
+skip_reason: need upgraded new relic account to support

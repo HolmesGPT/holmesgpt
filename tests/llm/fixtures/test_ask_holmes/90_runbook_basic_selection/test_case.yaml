@@ -16,5 +16,6 @@ runbooks:
     - description: "Troubleshooting Application Gateway Problems"
       link: "application_gateway_troubleshooting.md"
       update_date: "2025-07-01"
+      id: "application_gateway_troubleshooting"
 
 include_tool_calls: true

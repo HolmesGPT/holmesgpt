@@ -77,4 +77,4 @@ kubectl delete pod user-profile-import
 - **[Add integrations](../data-sources/index.md)** - Connect monitoring tools like Prometheus, Grafana, and DataDog
 - **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions
 - **[Join our Slack](https://bit.ly/robusta-slack){:target="_blank"}** - Get help from the community
-- **[Request features on GitHub](https://github.com/robusta-dev/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
+- **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs

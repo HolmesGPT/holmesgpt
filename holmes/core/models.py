@@ -32,7 +32,11 @@ class ToolCallResult(BaseModel):
             "tool_call_id": self.tool_call_id,
             "role": "tool",
             "name": self.tool_name,
-            "content": format_tool_result_data(self.result),
+            "content": format_tool_result_data(
+                tool_result=self.result,
+                tool_call_id=self.tool_call_id,
+                tool_name=self.tool_name,
+            ),
         }
 
     def as_tool_result_response(self):
@@ -60,20 +64,24 @@ class ToolCallResult(BaseModel):
         }
 
 
-def format_tool_result_data(tool_result: StructuredToolResult) -> str:
-    tool_response = tool_result.data
-    if isinstance(tool_result.data, str):
-        tool_response = tool_result.data
+def format_tool_result_data(
+    tool_result: StructuredToolResult, tool_call_id: str, tool_name: str
+) -> str:
+    tool_call_metadata = {"tool_name": tool_name, "tool_call_id": tool_call_id}
+    tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
+
+    if tool_result.status == StructuredToolResultStatus.ERROR:
+        tool_response += f"{tool_result.error or 'Tool execution failed'}:\n\n{tool_result.data or ''}".strip()
+    elif isinstance(tool_result.data, str):
+        tool_response += tool_result.data
     else:
         try:
             if isinstance(tool_result.data, BaseModel):
-                tool_response = tool_result.data.model_dump_json(indent=2)
+                tool_response += tool_result.data.model_dump_json(indent=2)
             else:
-                tool_response = json.dumps(tool_result.data, indent=2)
+                tool_response += json.dumps(tool_result.data, indent=2)
         except Exception:
-            tool_response = str(tool_result.data)
-    if tool_result.status == StructuredToolResultStatus.ERROR:
-        tool_response = f"{tool_result.error or 'Tool execution failed'}:\n\n{tool_result.data or ''}".strip()
+            tool_response += str(tool_result.data)
 
     if tool_result.params:
         tool_response = (

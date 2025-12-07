@@ -2,7 +2,7 @@
 
 ## 1. Truncation: Too Much Data
 
-Data overflow causes important information to be truncated. See [#437](https://github.com/robusta-dev/holmesgpt/issues/437) for summarization improvements.
+Data overflow causes important information to be truncated. See [#437](https://github.com/HolmesGPT/holmesgpt/issues/437) for summarization improvements.
 
 **Solution:**
 
@@ -78,4 +78,4 @@ See [benchmark results](../development/evaluations/latest-results.md) for detail
 
 ## Still stuck?
 
-Join our [Slack community](https://bit.ly/robusta-slack) or [open a GitHub issue](https://github.com/robusta-dev/holmesgpt/issues) for help.
+Join our [Slack community](https://bit.ly/robusta-slack) or [open a GitHub issue](https://github.com/HolmesGPT/holmesgpt/issues) for help.
