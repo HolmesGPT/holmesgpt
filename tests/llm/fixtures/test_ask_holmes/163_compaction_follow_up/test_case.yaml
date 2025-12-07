@@ -1,0 +1,29 @@
+before_test: |
+  bash setup.sh
+
+after_test: |
+  kubectl delete namespace ask-holmes-namespace-163 --wait=false || true
+
+user_prompt: "How many pods are running in total in the ask-holmes-namespace-163 namespace?"
+
+expected_output:
+  - Must mention "8" or "eight" pods
+  - Must NOT mention "3" or "three" as the total count
+  - Must NOT mention "9" or "nine" as the total count
+  - Should list or verify the actual current pod count
+
+test_env_vars:
+  # Set compaction threshold very low to force compaction to trigger
+  CONTEXT_WINDOW_COMPACTION_THRESHOLD_PCT: "1"
+  # Ensure compaction is enabled
+  ENABLE_CONVERSATION_HISTORY_COMPACTION: "true"
+
+test_type: server
+
+tags:
+  - kubernetes
+  - compaction
+  - counting
+  - easy
+
+setup_timeout: 120
