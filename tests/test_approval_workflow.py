@@ -134,6 +134,7 @@ def test_streaming_chat_approval_workflow_requires_approval(
         tool_name: str,
         tool_params: dict,
         user_approved: bool,
+        tool_call_id: str,
         tool_number: Optional[int] = None,
     ) -> StructuredToolResult:
         return StructuredToolResult(
