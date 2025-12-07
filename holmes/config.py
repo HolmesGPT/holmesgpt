@@ -84,6 +84,7 @@ class Config(RobustaBaseConfig):
     opsgenie_query: Optional[str] = None
 
     custom_runbooks: List[FilePath] = []
+    custom_runbook_catalogs: List[Union[str, FilePath]] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -114,6 +115,7 @@ class Config(RobustaBaseConfig):
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
                 global_fast_model=self.fast_model,
+                custom_runbook_catalogs=self.custom_runbook_catalogs,
             )
         return self._toolset_manager
 
@@ -224,8 +226,9 @@ class Config(RobustaBaseConfig):
         return None
 
     def get_runbook_catalog(self) -> Optional[RunbookCatalog]:
-        # TODO(mainred): besides the built-in runbooks, we need to allow the user to bring their own runbooks
-        runbook_catalog = load_runbook_catalog(dal=self.dal)
+        runbook_catalog = load_runbook_catalog(
+            dal=self.dal, custom_catalog_paths=self.custom_runbook_catalogs
+        )
         return runbook_catalog
 
     def create_console_tool_executor(
