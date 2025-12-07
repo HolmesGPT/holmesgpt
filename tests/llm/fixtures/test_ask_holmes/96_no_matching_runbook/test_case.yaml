@@ -15,7 +15,8 @@ runbooks:
     - description: "Service Connectivity Issues"
       link: "service_troubleshooting.md"
       update_date: "2025-07-01"
-
+      id: "service_troubleshooting"
+      
 before_test: |
   kubectl create namespace app-96 || true
   kubectl apply -f manifest.yaml

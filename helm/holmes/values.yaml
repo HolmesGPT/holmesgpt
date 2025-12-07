@@ -109,3 +109,41 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+  mariadb:
+    enabled: false
+
+    image: "mariadb-http-mcp-minimal:1.0.3"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+
+    config:
+      host: ""       # MariaDB host
+      port: "3306"   # MariaDB port
+      database: ""   # Database name
+      username: ""   # Username
+      password: ""   # Password
+      namespace: ""  # Kubernetes mcp server namespace
+
+      readOnlyMode: true
+      maxPoolSize: "5"
+      useSSL: true  # Use SSL for database connection
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+
+    networkPolicy:
+      enabled: true  # Network policy to restrict access to MCP server (recommended)
+
+    # Custom LLM instructions (optional). Leave empty to use default instructions
+    llmInstructions: ""
+
+    annotations: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}

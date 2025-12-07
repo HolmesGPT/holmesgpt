@@ -136,7 +136,15 @@ class MockSupabaseDal(SupabaseDal):
     def get_workload_issues(self, *args) -> list:
         return []
 
-    def get_resource_recommendation(self, *args) -> list:
+    def get_resource_recommendation(
+        self,
+        limit: int = 10,
+        sort_by: str = "cpu_total",
+        namespace: Optional[str] = None,
+        name_pattern: Optional[str] = None,
+        kind: Optional[str] = None,
+        container: Optional[str] = None,
+    ) -> list:
         return []
 
     def get_issues_metadata(
