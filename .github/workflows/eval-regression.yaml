@@ -51,7 +51,10 @@ jobs:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
-          MODEL: ${{ secrets.MODEL }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
+          MODEL: ${{ vars.MODEL }}
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           UPLOAD_DATASET: "true"
