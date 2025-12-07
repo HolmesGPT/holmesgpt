@@ -11,6 +11,11 @@ tags:
 
 include_tool_calls: true
 
+before_test: |
+  # this test assumes Prometheus already exists in the cluster in the default namespace
+  [ "$(kubectl get svc robusta-kube-prometheus-st-prometheus -n default -o jsonpath='{.spec.ports[?(@.port==9090)].port}' 2>/dev/null)" = "9090" ] \
+  || { echo "❌ Prometheus Service missing or port 9090 not found"; exit 1; }
+
 port_forwards:
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus

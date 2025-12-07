@@ -116,14 +116,14 @@ jobs:
         if: always()
         run: |
           # Generate latest results
-          poetry run python scripts/generate_eval_report.py \
+          poetry run python tests/generate_eval_report.py \
             --json-file eval_results.json \
             --output-file docs/development/evaluations/latest-results.md \
             --models "${{ steps.test-command.outputs.models }}"
 
           # Also generate timestamped version for history
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          poetry run python scripts/generate_eval_report.py \
+          poetry run python tests/generate_eval_report.py \
             --json-file eval_results.json \
             --output-file "docs/development/evaluations/history/weekly/results_${TIMESTAMP}.md" \
             --models "${{ steps.test-command.outputs.models }}"
