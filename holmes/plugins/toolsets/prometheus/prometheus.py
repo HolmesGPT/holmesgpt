@@ -38,7 +38,6 @@ from holmes.common.openshift import load_openshift_token
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
-from holmes.utils.keygen_utils import generate_random_key
 
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
 PROMETHEUS_METADATA_API_LIMIT = 100  # Default limit for Prometheus metadata APIs (series, labels, metadata) to prevent overwhelming responses
@@ -411,7 +410,6 @@ class MetricsBasedResponse(BaseModel):
     status: str
     error_message: Optional[str] = None
     data: Optional[str] = None
-    random_key: str
     tool_name: str
     description: str
     query: str
@@ -1151,7 +1149,6 @@ class ExecuteInstantQuery(BasePrometheusTool):
                 response_data = MetricsBasedResponse(
                     status=status,
                     error_message=error_message,
-                    random_key=generate_random_key(),
                     tool_name=self.name,
                     description=description,
                     query=query,
@@ -1165,8 +1162,13 @@ class ExecuteInstantQuery(BasePrometheusTool):
                     structured_tool_result = create_structured_tool_result(
                         params=params, response=response_data
                     )
+                    tool_call_id = context.tool_call_id
+                    tool_name = context.tool_name
                     token_count = count_tool_response_tokens(
-                        llm=context.llm, structured_tool_result=structured_tool_result
+                        llm=context.llm,
+                        structured_tool_result=structured_tool_result,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
                     )
 
                     token_limit = context.max_token_count
@@ -1389,7 +1391,6 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 response_data = MetricsBasedResponse(
                     status=status,
                     error_message=error_message,
-                    random_key=generate_random_key(),
                     tool_name=self.name,
                     description=description,
                     query=query,
@@ -1409,8 +1410,13 @@ class ExecuteRangeQuery(BasePrometheusTool):
                         params=params, response=response_data
                     )
 
+                    tool_call_id = context.tool_call_id
+                    tool_name = context.tool_name
                     token_count = count_tool_response_tokens(
-                        llm=context.llm, structured_tool_result=structured_tool_result
+                        llm=context.llm,
+                        structured_tool_result=structured_tool_result,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
                     )
 
                     token_limit = context.max_token_count

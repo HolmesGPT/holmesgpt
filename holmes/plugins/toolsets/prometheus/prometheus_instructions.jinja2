@@ -26,7 +26,7 @@
 * Use prometheus to execute promql queries with the tools `execute_prometheus_instant_query` and `execute_prometheus_range_query`
 * To create queries, use 'start_timestamp' and 'end_timestamp' as graphs start and end times
 * ALWAYS embed the execution results into your answer
-* You only need to embed the partial result in your response. Include the "tool_name" and "random_key". For example: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "92jf2hf"} >>
+* You only need to embed the partial result in your response. Include the "tool_name" and "tool_call_id". For example: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "92jf2hf"} >>
 * Use these tools to generate charts that users can see. Here are standard metrics but you can use different ones:
 ** For memory consumption: `container_memory_working_set_bytes`
 ** For CPU usage: `container_cpu_usage_seconds_total`
@@ -67,9 +67,9 @@
 * When embedding multiple graphs, always add line spacing between them
     For example:
 
-    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "lBaA"}>>
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "lBaA"}>>
 
-    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "IKtq"}>>
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "IKtq"}>>
 
 {%- if config and config.additional_labels and config.additional_labels.keys()|list|length > 0 %}
 * ALWAYS add the following additional labels to ALL PromQL queries:
