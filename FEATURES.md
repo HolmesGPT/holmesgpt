@@ -80,11 +80,49 @@ Show me the http request latency over time for the service customer-orders-servi
 ```
 
 
+# OLD
+
+<< {"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "ABCXYZ"} >>
+
+```json
+"tool_calls": [
+  {
+    "tool_call_id": "call_lKI7CQW6Y2n1ZQ5dlxX79TcM",
+    "tool_name": "execute_prometheus_range_query",
+    "description": "Prometheus query_range. query=rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m]), start=1739705559, end=1739791959, step=300, description=HTTP request latency for customer-orders-service",
+    "result": "{\n  \"status\": \"success\",\n  \"random_key\": \"ABCXYZ\",\n  \"tool_name\": \"execute_prometheus_range_query\",\n  \"description\": \"Average HTTP request latency for customer-orders-service\",\n  \"query\": \"rate(http_request_duration_seconds_sum{service=\\\"customer-orders-service\\\"}[5m]) / rate(http_request_duration_seconds_count{service=\\\"customer-orders-service\\\"}[5m])\",\n  \"start\": \"1739705559\",\n  \"end\": \"1739791959\",\n  \"step\": 60\n}"
+  }
+],
+```
+
+The result of this tool call contains details about the [prometheus query](https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries) to build the graph returned by HolmesGPT:
+
+```json
+
+  {
+    "tool_call_id": "call_lKI7CQW6Y2n1ZQ5dlxX79TcM",
+    "tool_name": "execute_prometheus_range_query",
+    "description": "Prometheus query_range. query=rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m]), start=1739705559, end=1739791959, step=300, description=HTTP request latency for customer-orders-service",
+    "result":{
+      "status": "success",
+      "random_key": "ABCXYZ",
+      "tool_name": "execute_prometheus_range_query",
+      "description": "Average HTTP request latency for customer-orders-service",
+      "query": "rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m])",
+      "start": "1739705559", // Can be rfc3339 or a unix timestamp
+      "end": "1739791959", // Can be rfc3339 or a unix timestamp
+      "step": 60 // Query resolution step width in seconds
+    }
+}
+
+
+# NEW
+
 HolmesGPT text response:
 ```
 Here's the average HTTP request latency over time for the `customer-orders-service`:
 
-<< {"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "9kLK"} >>
+<< {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "call_lKI7CQW6Y2n1ZQ5dlxX79TcM"} >>
 ```
 
 In addition to this text response, the returned JSON will contain one or more tool calls, including the prometheus query:
@@ -95,7 +133,7 @@ In addition to this text response, the returned JSON will contain one or more to
     "tool_call_id": "call_lKI7CQW6Y2n1ZQ5dlxX79TcM",
     "tool_name": "execute_prometheus_range_query",
     "description": "Prometheus query_range. query=rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m]), start=1739705559, end=1739791959, step=300, description=HTTP request latency for customer-orders-service",
-    "result": "{\n  \"status\": \"success\",\n  \"random_key\": \"9kLK\",\n  \"tool_name\": \"execute_prometheus_range_query\",\n  \"description\": \"Average HTTP request latency for customer-orders-service\",\n  \"query\": \"rate(http_request_duration_seconds_sum{service=\\\"customer-orders-service\\\"}[5m]) / rate(http_request_duration_seconds_count{service=\\\"customer-orders-service\\\"}[5m])\",\n  \"start\": \"1739705559\",\n  \"end\": \"1739791959\",\n  \"step\": 60\n}"
+    "result": "{\n  \"status\": \"success\",\n  \"tool_name\": \"execute_prometheus_range_query\",\n  \"description\": \"Average HTTP request latency for customer-orders-service\",\n  \"query\": \"rate(http_request_duration_seconds_sum{service=\\\"customer-orders-service\\\"}[5m]) / rate(http_request_duration_seconds_count{service=\\\"customer-orders-service\\\"}[5m])\",\n  \"start\": \"1739705559\",\n  \"end\": \"1739791959\",\n  \"step\": 60\n}"
   }
 ],
 ```
@@ -103,15 +141,20 @@ In addition to this text response, the returned JSON will contain one or more to
 The result of this tool call contains details about the [prometheus query](https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries) to build the graph returned by HolmesGPT:
 
 ```json
-{
-  "status": "success",
-  "random_key": "9kLK",
-  "tool_name": "execute_prometheus_range_query",
-  "description": "Average HTTP request latency for customer-orders-service",
-  "query": "rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m])",
-  "start": "1739705559", // Can be rfc3339 or a unix timestamp
-  "end": "1739791959", // Can be rfc3339 or a unix timestamp
-  "step": 60 // Query resolution step width in seconds
+
+  {
+    "tool_call_id": "call_lKI7CQW6Y2n1ZQ5dlxX79TcM",
+    "tool_name": "execute_prometheus_range_query",
+    "description": "Prometheus query_range. query=rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m]), start=1739705559, end=1739791959, step=300, description=HTTP request latency for customer-orders-service",
+    "result":{
+      "status": "success",
+      "tool_name": "execute_prometheus_range_query",
+      "description": "Average HTTP request latency for customer-orders-service",
+      "query": "rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m])",
+      "start": "1739705559", // Can be rfc3339 or a unix timestamp
+      "end": "1739791959", // Can be rfc3339 or a unix timestamp
+      "step": 60 // Query resolution step width in seconds
+    }
 }
 ```
 
@@ -120,13 +163,13 @@ In addition to `execute_prometheus_range_query`, HolmesGPT can generate similar 
 ```
 Here's the average HTTP request latency over time for the `customer-orders-service`:
 
-<< {"type": "promql", "tool_name": "execute_prometheus_instant_query", "random_key": "9kLK"} >>
+<< {"type": "promql", "tool_name": "execute_prometheus_instant_query", "tool_call_id": "9kLK"} >>
 ```
 
 ```json
 {
   "status": "success",
-  "random_key": "2KiL",
+  "tool_call_id": "2KiL",
   "tool_name": "execute_prometheus_instant_query",
   "description": "Average HTTP request latency for customer-orders-service",
   "query": "rate(http_request_duration_seconds_sum{service=\"customer-orders-service\"}[5m]) / rate(http_request_duration_seconds_count{service=\"customer-orders-service\"}[5m])"

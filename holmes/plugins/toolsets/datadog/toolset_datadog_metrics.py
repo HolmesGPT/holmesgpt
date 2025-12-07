@@ -36,8 +36,6 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
 
 from datetime import datetime
 
-from holmes.utils.keygen_utils import generate_random_key
-
 
 class DatadogMetricsConfig(DatadogBaseConfig):
     default_limit: int = DEFAULT_LOG_LIMIT
@@ -341,7 +339,6 @@ class QueryMetrics(BaseDatadogMetricsTool):
             response_data = {
                 "status": "success",
                 "error_message": None,
-                "random_key": generate_random_key(),
                 "tool_name": self.name,
                 "description": description,
                 "query": query,
