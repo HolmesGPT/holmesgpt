@@ -665,54 +665,64 @@ class DatadogRDSToolset(Toolset):
             name="datadog/rds",
             description="Analyze RDS database performance and identify worst performers using Datadog metrics",
             tags=[ToolsetTag.CORE],
+            prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[
                 GenerateRDSPerformanceReport(toolset=self),
                 GetTopWorstPerformingRDSInstances(toolset=self),
             ],
         )
 
-    def prerequisites_check(self, config: Dict[str, Any]) -> CallablePrerequisite:
-        def check_datadog_connectivity(config_dict: Dict[str, Any]) -> Tuple[bool, str]:
-            """Check Datadog API connectivity and permissions"""
-            try:
-                # Validate config
-                self.dd_config = DatadogRDSConfig(**config_dict)
+    def _perform_healthcheck(self, dd_config: DatadogRDSConfig) -> Tuple[bool, str]:
+        try:
+            # Test API connectivity
+            url = f"{dd_config.site_api_url}/api/v1/validate"
+            headers = get_headers(dd_config)
 
-                # Test API connectivity
-                url = f"{self.dd_config.site_api_url}/api/v1/validate"
-                headers = get_headers(self.dd_config)
-
-                response = execute_datadog_http_request(
-                    url=url,
+            response = execute_datadog_http_request(
+                url=url,
+                headers=headers,
+                payload_or_params={},
+                timeout=dd_config.request_timeout,
+                method="GET",
+            )
+            if response and response.get("valid", False):
+                # Test metrics API access
+                metrics_url = f"{dd_config.site_api_url}/api/v1/metrics"
+                execute_datadog_http_request(
+                    url=metrics_url,
                     headers=headers,
-                    payload_or_params={},
-                    timeout=self.dd_config.request_timeout,
+                    payload_or_params={"from": 0},
+                    timeout=dd_config.request_timeout,
                     method="GET",
                 )
+                return True, ""
+            else:
+                return False, "Invalid Datadog API credentials"
+        except DataDogRequestError as e:
+            if e.status_code == 403:
+                return False, "Invalid Datadog API keys or insufficient permissions"
+            else:
+                return False, f"Datadog API error: {str(e)}"
+        except Exception as e:
+            return False, f"Failed to initialize Datadog RDS toolset: {str(e)}"
 
-                if response and response.get("valid", False):
-                    # Test metrics API access
-                    metrics_url = f"{self.dd_config.site_api_url}/api/v1/metrics"
-                    execute_datadog_http_request(
-                        url=metrics_url,
-                        headers=headers,
-                        payload_or_params={"from": 0},
-                        timeout=self.dd_config.request_timeout,
-                        method="GET",
-                    )
-                    return True, ""
-                else:
-                    return False, "Invalid Datadog API credentials"
+    def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
+        if not config:
+            return (
+                False,
+                "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
+            )
 
-            except DataDogRequestError as e:
-                if e.status_code == 403:
-                    return False, "Invalid Datadog API keys or insufficient permissions"
-                else:
-                    return False, f"Datadog API error: {str(e)}"
-            except Exception as e:
-                return False, f"Failed to initialize Datadog RDS toolset: {str(e)}"
+        try:
+            dd_config = DatadogRDSConfig(**config)
+            self.dd_config = dd_config
 
-        return CallablePrerequisite(callable=check_datadog_connectivity)
+            success, error_msg = self._perform_healthcheck(dd_config)
+            return success, error_msg
+
+        except Exception as e:
+            logging.exception("Failed to set up Datadog rds toolset")
+            return (False, f"Failed to parse Datadog configuration: {str(e)}")
 
     def post_init(self, config: dict):
         """Load LLM instructions after initialization"""
