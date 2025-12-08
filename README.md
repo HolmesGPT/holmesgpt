@@ -3,6 +3,8 @@
 
 HolmesGPT is an AI agent for investigating problems in your cloud, finding the root cause, and suggesting remediations. It has dozens of built-in integrations for cloud providers, observability tools, and on-call systems.
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11586/badge)](https://www.bestpractices.dev/projects/11586)
+
 >🎉 **HolmesGPT is now a CNCF Sandbox Project!**  
 HolmesGPT was originally created by [Robusta.Dev](https://home.robusta.dev/) and is a CNCF sandbox project.
 
