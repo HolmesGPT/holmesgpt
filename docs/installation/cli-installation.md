@@ -302,6 +302,6 @@ See [Environment Variables Reference](../reference/environment-variables.md#mode
 
 ## Need Help?
 
--   **[Join our Slack](https://bit.ly/robusta-slack){:target="\_blank"}** - Get help from the community
+-   **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="\_blank"}** - Get help from the community
 -   **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="\_blank"}** - Suggest improvements or report bugs.
 -   **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions.

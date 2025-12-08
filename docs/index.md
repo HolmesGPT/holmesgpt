@@ -36,5 +36,12 @@ AI Agent for Troubleshooting Cloud-Native Environments.
 
 ## Need Help?
 
-- **[Join our Slack](https://bit.ly/robusta-slack){:target="_blank"}** - Get help from the community
+- **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
 - **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
+
+<br/>
+<br/>
+<br/>
+We are a Cloud Native Computing Foundation sandbox project. 
+
+<img src="https://www.cncf.io/wp-content/uploads/2022/07/cncf-color-bg.svg" alt="CNCF Logo" style="height:64px; margin-top: 0.5em;" />
