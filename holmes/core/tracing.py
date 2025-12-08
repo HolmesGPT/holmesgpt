@@ -236,7 +236,7 @@ class BraintrustTracer:
         else:
             logging.warning("No active span found in Braintrust context")
 
-        return f"https://www.braintrust.dev/app/robustadev/p/{self.project}/experiments/{experiment_name}"
+        return f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{self.project}/experiments/{experiment_name}"
 
     def wrap_llm(self, llm_module):
         """Wrap LiteLLM with Braintrust tracing if in active context, otherwise return unwrapped."""

@@ -156,6 +156,7 @@ class RunbookCatalog(BaseModel):
 
 def load_runbook_catalog(
     dal: Optional["SupabaseDal"] = None,
+    custom_catalog_paths: Optional[List[Union[str, Path]]] = None,
 ) -> Optional[RunbookCatalog]:  # type: ignore
     dir_path = os.path.dirname(os.path.realpath(__file__))
     catalog = None
@@ -171,6 +172,32 @@ def load_runbook_catalog(
         logging.error(
             f"Unexpected error while loading runbook catalog from {catalogPath}: {e}"
         )
+
+    # Append custom catalog files if provided
+    if custom_catalog_paths:
+        for custom_catalog_path in custom_catalog_paths:
+            try:
+                custom_catalog_path_str = str(custom_catalog_path)
+                if not os.path.isfile(custom_catalog_path_str):
+                    logging.warning(
+                        f"Custom catalog file not found: {custom_catalog_path_str}"
+                    )
+                    continue
+
+                with open(custom_catalog_path_str) as file:
+                    custom_catalog_dict = json.load(file)
+                    custom_catalog = RunbookCatalog(**custom_catalog_dict)
+
+                    if catalog:
+                        catalog.catalog.extend(custom_catalog.catalog)
+                    else:
+                        catalog = custom_catalog
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding JSON from {custom_catalog_path}: {e}")
+            except Exception as e:
+                logging.error(
+                    f"Unexpected error while loading custom catalog from {custom_catalog_path}: {e}"
+                )
 
     # Append additional runbooks from SupabaseDal if provided
     if dal:

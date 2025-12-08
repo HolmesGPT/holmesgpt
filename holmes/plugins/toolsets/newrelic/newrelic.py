@@ -14,7 +14,6 @@ from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
 import yaml
-from holmes.utils.keygen_utils import generate_random_key
 
 
 class ExecuteNRQLQuery(Tool):
@@ -89,8 +88,6 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
         result = api.execute_nrql_query(query)
 
         result_with_key = {
-            "random_key": generate_random_key(),
-            "tool_name": self.name,
             "query": query,
             "data": result,
             "is_eu": self._toolset.is_eu_datacenter,

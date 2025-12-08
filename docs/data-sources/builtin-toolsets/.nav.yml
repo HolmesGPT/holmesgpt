@@ -2,7 +2,7 @@ nav:
   - index.md
   - AKS Node Health: aks-node-health.md
   - ArgoCD: argocd.md
-  - AWS: aws.md
+  - AWS (MCP): aws-mcp.md
   - Azure Kubernetes Service: aks.md
   - Azure SQL Database: azure-sql.md
   - Bash: bash.md
@@ -20,6 +20,7 @@ nav:
   - Internet: internet.md
   - Kafka: kafka.md
   - Kubernetes: kubernetes.md
+  - MariaDB (MCP): mariadb-mcp.md
   - MongoDB Atlas: mongodb-atlas.md
   - New Relic: newrelic.md
   - Notion: notion.md

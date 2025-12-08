@@ -88,9 +88,14 @@ def truncate_logs(
     llm: LLM,
     token_limit: int,
     structured_params: FetchPodLogsParams,
+    tool_call_id: str,
+    tool_name: str,
 ):
     original_token_count = count_tool_response_tokens(
-        llm=llm, structured_tool_result=logging_structured_tool_result
+        llm=llm,
+        structured_tool_result=logging_structured_tool_result,
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
     )
     token_count = original_token_count
     text = None
@@ -137,7 +142,10 @@ def truncate_logs(
             )
             logging_structured_tool_result.data = text
             token_count = count_tool_response_tokens(
-                llm=llm, structured_tool_result=logging_structured_tool_result
+                llm=llm,
+                structured_tool_result=logging_structured_tool_result,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
             )
     if token_count < original_token_count:
         logging.info(
@@ -266,6 +274,8 @@ If you hit the log limit and see lots of repetitive INFO logs, use exclude_filte
             llm=context.llm,
             token_limit=context.max_token_count,
             structured_params=structured_params,
+            tool_call_id=context.tool_call_id,
+            tool_name=context.tool_name,
         )
 
         return result

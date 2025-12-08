@@ -100,7 +100,7 @@ def test_compaction(
                 )
 
             # Extract the summary from compacted history
-            # The compacted history should have: [optional system], [summary message], [continuation message]
+            # The compacted history should have: [optional system], [optional last user prompt], [summary message], [continuation message]
             summary_content = None
             for msg in compacted_history:
                 if msg.get("role") == "assistant":

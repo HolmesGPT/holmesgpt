@@ -512,6 +512,7 @@ class ToolCallingLLM:
         tool_name: str,
         tool_params: dict,
         user_approved: bool,
+        tool_call_id: str,
         tool_number: Optional[int] = None,
     ) -> StructuredToolResult:
         tool = self.tool_executor.get_tool_by_name(tool_name)
@@ -531,6 +532,8 @@ class ToolCallingLLM:
                 user_approved=user_approved,
                 llm=self.llm,
                 max_token_count=self.llm.get_max_token_count_for_single_tool(),
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
         except Exception as e:
@@ -575,6 +578,7 @@ class ToolCallingLLM:
                 tool_params=tool_params,
                 user_approved=user_approved,
                 tool_number=tool_number,
+                tool_call_id=tool_call_id,
             )
 
         if not isinstance(tool_response, StructuredToolResult):
@@ -722,6 +726,7 @@ class ToolCallingLLM:
                     tool_params=tool_call_result.result.params or {},
                     user_approved=True,
                     tool_number=tool_number,
+                    tool_call_id=tool_call_result.tool_call_id,
                 )
                 tool_call_result.result = new_response
             else:
