@@ -20,6 +20,7 @@ from holmes.core.investigation_structured_output import (
 )
 
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.utils import sentry_helper
 
 
 def investigate_issues(
@@ -68,6 +69,9 @@ def investigate_issues(
     )
 
     (text_response, sections) = process_response_into_sections(investigation.result)
+
+    if sections is None:
+        sentry_helper.capture_sections_none(content=investigation.result)
 
     logging.debug(f"text response: {text_response}")
     return InvestigationResult(
