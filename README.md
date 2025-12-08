@@ -206,13 +206,13 @@ Join our community to discuss the HolmesGPT roadmap and share feedback:
 
 ## Support
 
-If you have any questions, feel free to message us on [robustacommunity.slack.com](https://bit.ly/robusta-slack)
+If you have any questions, feel free to message us on [HolmesGPT Slack Channel](https://cloud-native.slack.com/archives/C0A1SPQM5PZ)
 
 ## How to Contribute
 
 Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and instructions.
 
-For help, contact us on [Slack](https://bit.ly/robusta-slack) or ask [DeepWiki AI](https://deepwiki.com/HolmesGPT/holmesgpt) your questions.
+For help, contact us on [Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ) or ask [DeepWiki AI](https://deepwiki.com/HolmesGPT/holmesgpt) your questions.
 
 Please make sure to follow the CNCF code of conduct - [details here](https://github.com/HolmesGPT/holmesgpt/blob/master/CODE_OF_CONDUCT.md).
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/HolmesGPT/holmesgpt)
