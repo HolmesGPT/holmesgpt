@@ -54,11 +54,10 @@ def capture_sections_none(content: Optional[str]):
         else:
             display_content = content
 
-    message = (
-        f"following message could not be broken into sections\n\n'{display_content}'"
-    )
-
-    sentry_sdk.capture_message(
-        message,
-        level="warning",
-    )
+    with sentry_sdk.push_scope() as scope:
+        scope.set_extra("content", display_content)
+        scope.set_extra("content_length", len(content) if content else 0)
+        sentry_sdk.capture_message(
+            "Holmes answer couldn't be parsed into sections",
+            level="warning",
+        )
