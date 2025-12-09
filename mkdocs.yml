@@ -56,6 +56,10 @@ theme:
   favicon: assets/favicon.png
   logo: assets/logo.png
 
+copyright: |
+  Copyright HolmesGPT a Series of LF Projects, LLC
+  For website terms of use, trademark policy and other project policies please see lfprojects.org/policies/.
+
 plugins:
   - awesome-nav
   - search:
@@ -133,6 +137,6 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/HolmesGPT/holmesgpt
     - icon: fontawesome/brands/slack
-      link: https://bit.ly/robusta-slack
+      link: https://cloud-native.slack.com/archives/C0A1SPQM5PZ
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/RobustaDev

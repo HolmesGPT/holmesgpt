@@ -73,7 +73,7 @@ When investigating metrics-related issues:
 
 # Handling queries results
 * ALWAYS embed the execution results into your answer
-* You only need to embed the partial result in your response. Include the "tool_name" and "random_key". For example: << {"type": "datadogql", "tool_name": "query_datadog_metrics", "random_key": "92jf2hf"} >>
+* You only need to embed the partial result in your response. Include the "tool_name" and "tool_call_id". For example: << {"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "92jf2hf"} >>
 * Post processing will parse your response, re-run the query from the tool output and create a chart visible to the user
 * You MUST ensure that the query is successful.
 * ALWAYS embed a DataDog graph in the response. The graph should visualize data related to the incident.
@@ -81,6 +81,6 @@ When investigating metrics-related issues:
 * When embedding multiple graphs, always add line spacing between them
     For example:
 
-    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "random_key": "lBaA"}>>
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "lBaA"}>>
 
-    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "random_key": "IKtq"}>>
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "IKtq"}>>

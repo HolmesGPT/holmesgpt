@@ -2,7 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, Union
 
 from benedict import benedict
 from pydantic import FilePath
@@ -34,9 +34,11 @@ class ToolsetManager:
         custom_toolsets_from_cli: Optional[List[FilePath]] = None,
         toolset_status_location: Optional[FilePath] = None,
         global_fast_model: Optional[str] = None,
+        custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
+        self.custom_runbook_catalogs = custom_runbook_catalogs
         if mcp_servers is not None:
             for _, mcp_server in mcp_servers.items():
                 mcp_server["type"] = ToolsetType.MCP.value
@@ -86,7 +88,15 @@ class ToolsetManager:
         3. custom toolset from config can override both built-in and add new custom toolsets # for backward compatibility
         """
         # Load built-in toolsets
-        builtin_toolsets = load_builtin_toolsets(dal)
+        # Extract search paths from custom catalog files
+        additional_search_paths = None
+        if self.custom_runbook_catalogs:
+            additional_search_paths = [
+                os.path.dirname(os.path.abspath(str(catalog_path)))
+                for catalog_path in self.custom_runbook_catalogs
+            ]
+
+        builtin_toolsets = load_builtin_toolsets(dal, additional_search_paths)
         toolsets_by_name: dict[str, Toolset] = {
             toolset.name: toolset for toolset in builtin_toolsets
         }

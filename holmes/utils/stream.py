@@ -10,6 +10,7 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import ModelResponse, TextCompletionResponse
 
 from holmes.core.llm import TokenCountMetadata, get_llm_usage
+from holmes.utils import sentry_helper
 
 
 class StreamEvents(str, Enum):
@@ -62,6 +63,11 @@ def stream_investigate_formatter(
                 (text_response, sections) = process_response_into_sections(  # type: ignore
                     message.data.get("content")
                 )
+
+                if sections is None:
+                    sentry_helper.capture_sections_none(
+                        content=message.data.get("content"),
+                    )
 
                 yield create_sse_message(
                     StreamEvents.ANSWER_END.value,

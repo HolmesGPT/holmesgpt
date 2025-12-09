@@ -173,6 +173,38 @@ aws bedrock list-foundation-models --region=us-east-1 | grep modelId
 ### Model Name Examples
 Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `anthropic.claude-opus-4-1-20250805-v1:0` or `anthropic.claude-sonnet-4-20250514-v1:0`
 
+## Setting Extra Headers
+You can enable various beta features in AWS Bedrock by setting custom headers. 
+
+For example, to enable 1M context windows.
+
+You can enable ``Extra Headers`` in both the CLI (via env vars) and the Helm charts options.
+
+For the CLI:
+```bash
+export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
+```
+
+Or, for Helm:
+    
+    # values.yaml
+    holmes:
+      ...
+      modelList:
+        ...
+        bedrock-claude-sonnet-4-1M-context:
+          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
+          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+          aws_region_name: eu-south-2
+          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+          temperature: 1
+          thinking:
+            budget_tokens: 10000
+            type: enabled
+          extra_headers:
+            anthropic-beta: context-1m-2025-08-07
+
+
 ## Additional Resources
 
 HolmesGPT uses the LiteLLM API to support AWS Bedrock provider. Refer to [LiteLLM Bedrock docs](https://litellm.vercel.app/docs/providers/bedrock){:target="_blank"} for more details.
