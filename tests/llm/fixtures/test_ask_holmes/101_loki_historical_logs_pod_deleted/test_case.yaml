@@ -15,6 +15,7 @@ tags:
   - logs
   - kubernetes
   - hard
+  - loki
 
 setup_timeout: 360  # Increased from 300 to handle pod deletion and Loki ingestion variability
 

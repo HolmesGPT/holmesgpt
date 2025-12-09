@@ -126,7 +126,8 @@ markers = [
     "no-cicd: Tests to skip in the GitHub action because we're missing prerequisites in the KIND cluster like a Prometheus instance",
     "compaction: Tests for conversation history compaction functionality",
     "embeds: Tests ensuring embeds are as expected",
-    "one-test: Runs only one simple eval"
+    "one-test: Runs only one simple eval",
+    "loki: Loki toolset"
 ]
 
 addopts = [
