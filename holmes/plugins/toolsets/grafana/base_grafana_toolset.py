@@ -39,11 +39,18 @@ class BaseGrafanaToolset(Toolset):
 
         try:
             self._grafana_config = self.config_class(**config)
-            return grafana_health_check(self._grafana_config)
+            return self.health_check()
 
         except Exception as e:
             logging.exception(f"Failed to set up grafana toolset {self.name}")
             return False, str(e)
+
+    def health_check(self) -> Tuple[bool, str]:
+        """
+        Base function to check if toolset is healthy.
+        :return: Raise for errors or return False, "error message" for success True, ""
+        """
+        return grafana_health_check(self._grafana_config)
 
     def get_example_config(self):
         example_config = GrafanaConfig(
