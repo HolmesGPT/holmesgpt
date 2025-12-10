@@ -24,8 +24,9 @@ class TestDatadogTracesToolset:
         """Test toolset initialization."""
         toolset = DatadogTracesToolset()
         assert toolset.name == "datadog/traces"
-        assert len(toolset.tools) == 1
+        assert len(toolset.tools) == 2
         assert toolset.tools[0].name == "fetch_datadog_spans"
+        assert toolset.tools[1].name == "aggregate_datadog_spans"
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
@@ -95,11 +96,10 @@ class TestFetchDatadogSpansByFilter:
         one_liner = self.tool.get_parameterized_one_liner(params)
         assert "Datadog: Search Spans (@http.status_code:500)" == one_liner
 
-        # Test with filters
-        params = {"service": "web-api", "operation": "GET /users"}
+        # Test without query
+        params = {}
         one_liner = self.tool.get_parameterized_one_liner(params)
-        assert "service=web-api" in one_liner
-        assert "operation=GET /users" in one_liner
+        assert "Datadog: Search Spans ()" == one_liner
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
@@ -128,31 +128,29 @@ class TestFetchDatadogSpansByFilter:
         result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
         assert result.status == StructuredToolResultStatus.SUCCESS
-        assert "Found 1 matching spans" in result.data
-        assert "Trace ID: trace1" in result.data
-        assert "GET /users (web-api)" in result.data
-        assert "status: error" in result.data
+        # The tool returns raw response data, not formatted text
+        assert result.data == mock_execute.return_value
+        assert len(result.data["data"]) == 1
+        assert result.data["data"][0]["attributes"]["trace_id"] == "trace1"
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
     )
     def test_invoke_with_tags_filter(self, mock_execute):
-        """Test invocation with tags filter."""
+        """Test invocation with tags in query."""
         mock_execute.return_value = {"data": []}
 
         params = {
-            "service": "web-api",
-            "tags": {"env": "production", "version": "1.2.3"},
+            "query": "service:web-api @env:production @version:1.2.3",
         }
 
         self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        # Check that tags are included in the query
+        # Check that the query was passed correctly
         call_args = mock_execute.call_args
         payload = call_args[1]["payload_or_params"]
         query = payload["data"]["attributes"]["filter"]["query"]
-        assert "@env:production" in query
-        assert "@version:1.2.3" in query
+        assert query == "service:web-api @env:production @version:1.2.3"
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
@@ -161,9 +159,11 @@ class TestFetchDatadogSpansByFilter:
         """Test invocation when no spans are found."""
         mock_execute.return_value = {"data": []}
 
-        params = {"service": "non-existent"}
+        params = {"query": "service:non-existent"}
 
         result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == StructuredToolResultStatus.NO_DATA
-        assert "No matching spans found" in result.data
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        # When no data is found, the tool still returns success with empty data
+        assert result.data == mock_execute.return_value
+        assert len(result.data["data"]) == 0
