@@ -1,20 +1,19 @@
 import json
 import os
-from holmes.plugins.toolsets.grafana.grafana_api import grafana_health_check
 
 import pytest
 
 from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
+from holmes.plugins.toolsets.grafana.grafana_api import grafana_health_check
 from holmes.plugins.toolsets.grafana.trace_parser import process_trace
-from tests.plugins.toolsets.grafana.conftest import check_grafana_connectivity
+from tests.plugins.toolsets.grafana.conftest import check_grafana_running
 
+GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://localhost:3000")
 GRAFANA_API_KEY = os.environ.get("GRAFANA_API_KEY", "")
-GRAFANA_URL = os.environ.get("GRAFANA_URL", "")
 GRAFANA_TEMPO_DATASOURCE_UID = os.environ.get("GRAFANA_TEMPO_DATASOURCE_UID", "")
 
-# Use pytest.mark.skip (not skipif) to show a single grouped skip line for the entire module
-# Will show: "SKIPPED [4] module.py: reason" instead of 4 separate skip lines
-skip_reason = check_grafana_connectivity()
+# Skip all tests in this module if Grafana is not running
+skip_reason = check_grafana_running()
 if skip_reason:
     pytestmark = pytest.mark.skip(reason=skip_reason)
 
