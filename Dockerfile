@@ -13,13 +13,13 @@ RUN apt-get update \
     && apt-get purge -y --auto-remove \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /
 
 # Create and activate virtual environment
-RUN python -m venv /app/venv --upgrade-deps && \
-    . /app/venv/bin/activate
+RUN python -m venv /venv --upgrade-deps && \
+    . /venv/bin/activate
 
-ENV VIRTUAL_ENV=/app/venv
+ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Needed for kubectl
@@ -68,7 +68,7 @@ RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
     && pip install poetry
 ARG POETRY_REQUESTS_TIMEOUT
 RUN poetry config virtualenvs.create false
-COPY pyproject.toml poetry.lock /app/
+COPY pyproject.toml poetry.lock /
 RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
     poetry source add --priority=primary artifactory "${PRIVATE_PACKAGE_REGISTRY}"; \
     fi \
@@ -84,7 +84,7 @@ ENV PYTHONPATH=$PYTHONPATH:.:/app/holmes
 
 WORKDIR /app
 
-COPY --from=builder /app/venv /venv
+COPY --from=builder /venv /venv
 
 # We're installing here libexpat1, to upgrade the package to include a fix to 3 high CVEs. CVE-2024-45491,CVE-2024-45490,CVE-2024-45492
 RUN apt-get update \
@@ -99,7 +99,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up kubectl
-COPY --from=builder /app/Release.key Release.key
+COPY --from=builder /Release.key Release.key
 RUN cat Release.key |  gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg \
     && echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list \
     && apt-get update
@@ -122,11 +122,11 @@ RUN VERSION_ID=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2 | cut -d '.' 
 
 
 # Set up kube lineage
-COPY --from=builder /app/kube-lineage /usr/local/bin
+COPY --from=builder /kube-lineage /usr/local/bin
 RUN kube-lineage --version
 
 # Set up ArgoCD
-COPY --from=builder /app/argocd /usr/local/bin/argocd
+COPY --from=builder /argocd /usr/local/bin/argocd
 RUN argocd --help
 
 # Set up Helm
