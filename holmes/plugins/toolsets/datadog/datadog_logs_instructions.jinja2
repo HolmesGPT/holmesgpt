@@ -44,7 +44,6 @@ Before running logs queries:
 ### Time Parameters
 - Use RFC3339 format: `2023-03-01T10:30:00Z`
 - Or relative seconds: `-3600` for 1 hour ago
-- Defaults to 1 hour window if not specified
 
 ### Common Investigation Patterns
 
@@ -52,3 +51,9 @@ Before running logs queries:
 1. User asks: "Show logs for my-workload"
 2. Use `kubectl_find_resource` → find pod "my-workload-abc123-xyz"
 3. Query Datadog for pod "my-workload-abc123-xyz" logs
+
+
+### Search Query Guidelines
+
+1. Do not use timestamp in the fetch_datadog_logs function query parameters,
+ for example  @timestamp:[2025-12-10T01:00:00.000Z TO 2025-12-10T04:00:00.000Z] use the function start_datetime and end_datetime parameters.
