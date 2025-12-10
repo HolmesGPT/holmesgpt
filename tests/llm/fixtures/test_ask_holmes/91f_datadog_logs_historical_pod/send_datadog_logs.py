@@ -56,10 +56,10 @@ def send_log(api_key, namespace, timestamp, level, message, additional_tags=""):
     # Construct the log entry
     log_entry = {
         "ddsource": "kubernetes",
-        "ddtags": f"env:production,kube_namespace:{namespace},pod_name:api-gateway-7b9f4fd5c9-xk2lm,container_name:api-gateway{additional_tags}",
+        "ddtags": f"env:production,kube_namespace:{namespace},pod_name:coral-reef-7b9f4fd5c9-xk2lm,container_name:coral-reef{additional_tags}",
         "hostname": "node-03.k8s.cluster",
         "message": message,
-        "service": "api-gateway",
+        "service": "coral-reef",
         "status": level,
         "timestamp": timestamp,
     }
@@ -110,7 +110,7 @@ def query_logs(api_key, app_key, namespace, from_timestamp, to_timestamp):
         "filter": {
             "from": str(from_timestamp),
             "to": str(to_timestamp),
-            "query": f"kube_namespace:{namespace} pod_name:api-gateway-7b9f4fd5c9-xk2lm",
+            "query": f"kube_namespace:{namespace} pod_name:coral-reef-7b9f4fd5c9-xk2lm",
             "indexes": ["*"],
         },
         "sort": "-timestamp",
@@ -211,7 +211,7 @@ def main():
     timestamps = get_recent_timestamps()
 
     print(
-        f"Sending recent logs to Datadog for pod api-gateway in namespace {namespace}..."
+        f"Sending recent logs to Datadog for pod coral-reef in namespace {namespace}..."
     )
     print(
         "Logs are from approximately 9 hours ago to ensure they are within Datadog's indexing window"
@@ -391,7 +391,7 @@ def main():
         send_log(api_key, namespace, timestamp, level, message, tags)
 
     print("\nSuccessfully sent recent logs to Datadog")
-    print(f"Pod api-gateway-7b9f4fd5c9-xk2lm in namespace {namespace}")
+    print(f"Pod coral-reef-7b9f4fd5c9-xk2lm in namespace {namespace}")
     print(
         "Logs simulate memory exhaustion and database connection pool issues from ~9 hours ago"
     )

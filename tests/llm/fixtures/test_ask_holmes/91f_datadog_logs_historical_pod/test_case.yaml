@@ -1,4 +1,4 @@
-user_prompt: "The api-gateway pod in namespace app-91f had critical issues about 9 hours ago. What happened?"
+user_prompt: "The coral-reef pod in namespace app-91f had critical issues about 9 hours ago. What happened?"
 
 description: |
   This test verifies that Holmes can analyze recent logs from Datadog when
@@ -9,7 +9,7 @@ description: |
   Note: Logs are from ~9 hours ago to ensure they are within Datadog's 18-hour indexing window.
 
 expected_output:
-  - The api-gateway pod experienced memory exhaustion and OOM kills
+  - The coral-reef pod experienced memory exhaustion and OOM kills
   - Database connection pool was exhausted leading to request failures
   - Memory usage spiked due to a memory leak in the request handler
 
