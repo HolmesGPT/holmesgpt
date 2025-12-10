@@ -2,8 +2,7 @@ import os
 from enum import Enum
 import json
 import logging
-from typing import Any, Dict, Tuple
-from urllib.parse import urlencode
+from typing import Any, Dict, Tuple, Optional
 from holmes.core.tools import (
     CallablePrerequisite,
     ToolsetTag,
@@ -11,16 +10,14 @@ from holmes.core.tools import (
     Tool,
     ToolParameter,
 )
-from pydantic import BaseModel, Field
+from pydantic import Field
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.datadog_api import (
     DatadogBaseConfig,
     DataDogRequestError,
     execute_datadog_http_request,
-    execute_paginated_datadog_http_request,
     get_headers,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
-    preprocess_time_fields,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
@@ -35,13 +32,6 @@ from holmes.plugins.toolsets.utils import (
     toolset_name_for_one_liner,
     standard_start_datetime_tool_param_description,
 )
-
-from holmes.plugins.toolsets.utils import process_timestamps_to_rfc3339
-
-
-class DataDogLabelsMapping(BaseModel):
-    pod: str = "pod_name"
-    namespace: str = "kube_namespace"
 
 
 class DataDogStorageTier(str, Enum):
@@ -59,7 +49,6 @@ class DatadogLogsConfig(DatadogBaseConfig):
     storage_tiers: list[DataDogStorageTier] = Field(
         default=DEFAULT_STORAGE_TIERS, min_length=1
     )
-    labels: DataDogLabelsMapping = DataDogLabelsMapping()
     page_size: int = 300
     default_limit: int = DEFAULT_LOG_LIMIT
 
@@ -74,71 +63,6 @@ def calculate_page_size(
         max_logs_count = params.limit
 
     return min(dd_config.page_size, max(0, max_logs_count - logs_count))
-
-
-def fetch_paginated_logs(
-    params: FetchPodLogsParams,
-    dd_config: DatadogLogsConfig,
-    storage_tier: DataDogStorageTier,
-) -> list[dict]:
-    limit = params.limit or dd_config.default_limit
-
-    (from_time, to_time) = process_timestamps_to_rfc3339(
-        start_timestamp=params.start_time,
-        end_timestamp=params.end_time,
-        default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
-    )
-
-    url = f"{dd_config.site_api_url}/api/v2/logs/events/search"
-    headers = get_headers(dd_config)
-
-    query = f"{dd_config.labels.namespace}:{params.namespace}"
-    query += f" {dd_config.labels.pod}:{params.pod_name}"
-    if params.filter:
-        filter = params.filter.replace('"', '\\"')
-        query += f' "{filter}"'
-
-    payload: Dict[str, Any] = {
-        "filter": {
-            "from": from_time,
-            "to": to_time,
-            "query": query,
-            "indexes": dd_config.indexes,
-            "storage_tier": storage_tier.value,
-        },
-        "sort": "-timestamp",
-        "page": {"limit": calculate_page_size(params, dd_config, [])},
-    }
-
-    # Preprocess time fields to ensure correct format
-    processed_payload = preprocess_time_fields(payload, "/api/v2/logs/events/search")
-
-    logs, cursor = execute_paginated_datadog_http_request(
-        url=url,
-        headers=headers,
-        payload_or_params=processed_payload,
-        timeout=dd_config.request_timeout,
-    )
-
-    while cursor and len(logs) < limit:
-        processed_payload["page"]["cursor"] = cursor
-        processed_payload["page"]["limit"] = calculate_page_size(
-            params, dd_config, logs
-        )
-        new_logs, cursor = execute_paginated_datadog_http_request(
-            url=url,
-            headers=headers,
-            payload_or_params=processed_payload,
-            timeout=dd_config.request_timeout,
-        )
-        logs += new_logs
-
-    # logs are fetched descending order. Unified logging API follows the pattern of kubectl logs where oldest logs are first
-    logs.reverse()
-
-    if len(logs) > limit:
-        logs = logs[-limit:]
-    return logs
 
 
 def format_logs(raw_logs: list[dict]) -> str:
@@ -165,57 +89,10 @@ def format_logs(raw_logs: list[dict]) -> str:
     return "\n".join(logs)
 
 
-def generate_datadog_logs_url(
-    dd_config: DatadogLogsConfig,
-    params: FetchPodLogsParams,
-    storage_tier: DataDogStorageTier,
-) -> str:
-    """Generate a Datadog web UI URL for the logs query."""
-    from holmes.plugins.toolsets.utils import process_timestamps_to_int
-    from holmes.plugins.toolsets.datadog.datadog_api import convert_api_url_to_app_url
-
-    # Convert API URL to app URL using the shared helper
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
-
-    # Build the query string
-    query = f"{dd_config.labels.namespace}:{params.namespace}"
-    query += f" {dd_config.labels.pod}:{params.pod_name}"
-    if params.filter:
-        filter = params.filter.replace('"', '\\"')
-        query += f' "{filter}"'
-
-    # Process timestamps - get Unix timestamps in seconds
-    (from_time_seconds, to_time_seconds) = process_timestamps_to_int(
-        start=params.start_time,
-        end=params.end_time,
-        default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
-    )
-
-    # Convert to milliseconds for Datadog web UI
-    from_time_ms = from_time_seconds * 1000
-    to_time_ms = to_time_seconds * 1000
-
-    # Build URL parameters matching Datadog's web UI format
-    url_params = {
-        "query": query,
-        "from_ts": str(from_time_ms),
-        "to_ts": str(to_time_ms),
-        "live": "true",
-        "storage": storage_tier.value,
-    }
-
-    # Add indexes if not default
-    if dd_config.indexes != ["*"]:
-        url_params["index"] = ",".join(dd_config.indexes)
-
-    # Construct the full URL
-    return f"{base_url}/logs?{urlencode(url_params)}"
-
-
 class DatadogLogsToolset(Toolset):
     """Toolset for working with Datadog logs data."""
 
-    dd_config: DatadogLogsConfig
+    dd_config: Optional[DatadogLogsConfig] = None
 
     def __init__(self):
         super().__init__(
@@ -228,11 +105,13 @@ class DatadogLogsToolset(Toolset):
             tags=[ToolsetTag.CORE],
         )
         # Now that parent is initialized and self.name exists, create the tool
-        self.tools = [GetLogs(self)]
+        self.tools = [GetLogs(toolset=self)]
         self._reload_instructions()
 
     def _perform_healthcheck(self) -> Tuple[bool, str]:
         """Perform health check on Datadog logs API."""
+        if not self.dd_config:
+            return False, "Datadog configuration not initialized"
         try:
             logging.info("Performing Datadog logs configuration healthcheck...")
             headers = get_headers(self.dd_config)
@@ -307,50 +186,46 @@ class DatadogLogsToolset(Toolset):
 
 
 class GetLogs(Tool):
-    toolset: "DatadogLogsToolset"
-    """Tool to search for spans with specific filters."""
+    """Tool to search for logs with specific search query."""
 
-    def __init__(self, toolset: "DatadogLogsToolset"):
-        toolset = toolset
-        super().__init__(
-            name="fetch_datadog_logs",
-            description="Search for logs in Datadog using search query syntax"
-            "Uses the DataDog api endpoint: POST /api/v2/logs/events/search with 'query' parameter. (e.g., 'service:web-app @http.status_code:500')",
-            parameters={
-                "query": ToolParameter(
-                    description="The search query - following the logs search syntax. default: *",
-                    type="string",
-                    required=False,
-                ),
-                "start_datetime": ToolParameter(
-                    description=standard_start_datetime_tool_param_description(
-                        DEFAULT_TIME_SPAN_SECONDS
-                    ),
-                    type="string",
-                    required=False,
-                ),
-                "end_datetime": ToolParameter(
-                    description=STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
-                    type="string",
-                    required=False,
-                ),
-                "cursor": ToolParameter(
-                    description="The returned paging point to use to get the next results.",
-                    type="string",
-                    required=False,
-                ),
-                "limit": ToolParameter(
-                    description=f"Maximum number of spans to return. default: {DEFAULT_LOG_LIMIT}",
-                    type="integer",
-                    required=False,
-                ),
-                "sort_desc": ToolParameter(
-                    description="Get the results in descending order. default: true",
-                    type="boolean",
-                    required=False,
-                ),
-            },
-        )
+    toolset: "DatadogLogsToolset"
+    name: str = "fetch_datadog_logs"
+    description: str = "Search for logs in Datadog using search query syntax"
+    "Uses the DataDog api endpoint: POST /api/v2/logs/events/search with 'query' parameter. (e.g., 'service:web-app @http.status_code:500')"
+    parameters: Dict[str, ToolParameter] = {
+        "query": ToolParameter(
+            description="The search query - following the logs search syntax. default: *",
+            type="string",
+            required=False,
+        ),
+        "start_datetime": ToolParameter(
+            description=standard_start_datetime_tool_param_description(
+                DEFAULT_TIME_SPAN_SECONDS
+            ),
+            type="string",
+            required=False,
+        ),
+        "end_datetime": ToolParameter(
+            description=STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
+            type="string",
+            required=False,
+        ),
+        "cursor": ToolParameter(
+            description="The returned paging point to use to get the next results.",
+            type="string",
+            required=False,
+        ),
+        "limit": ToolParameter(
+            description=f"Maximum number of spans to return. default: {DEFAULT_LOG_LIMIT}",
+            type="integer",
+            required=False,
+        ),
+        "sort_desc": ToolParameter(
+            description="Get the results in descending order. default: true",
+            type="boolean",
+            required=False,
+        ),
+    }
 
     def get_parameterized_one_liner(self, params: dict) -> str:
         """Get a one-liner description of the tool invocation."""
@@ -358,6 +233,12 @@ class GetLogs(Tool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         """Execute the tool to search logs."""
+        if not self.toolset.dd_config:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="Datadog configuration not initialized",
+                params=params,
+            )
         url = None
         payload = None
         try:
