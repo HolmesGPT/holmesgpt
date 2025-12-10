@@ -68,7 +68,7 @@ class LokiQuery(Tool):
             required=False,
         ),
         "limit": ToolParameter(
-            description="Maximum number of entries to return (default: 100)",
+            description=f"Maximum number of entries to return (default: {DEFAULT_LOG_LIMIT})",
             type="integer",
             required=False,
         ),
