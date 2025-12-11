@@ -8,7 +8,7 @@ nav:
   - Bash: bash.md
   - Cilium: cilium.md
   - Confluence: confluence.md
-  - Coralogix logs: coralogix-logs.md
+  - Coralogix: coralogix-logs.md
   - DataDog: datadog.md
   - Datetime: datetime.md
   - Docker: docker.md

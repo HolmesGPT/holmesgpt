@@ -127,7 +127,8 @@ markers = [
     "compaction: Tests for conversation history compaction functionality",
     "embeds: Tests ensuring embeds are as expected",
     "one-test: Runs only one simple eval",
-    "loki: Loki toolset"
+    "loki: Loki toolset",
+    "coralogix: Runs coralogix evals"
 ]
 
 addopts = [
