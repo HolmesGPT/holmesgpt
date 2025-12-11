@@ -139,6 +139,11 @@ RUN_LIVE=true MODEL=anthropic/claude-3.5-sonnet-20241022 CLASSIFIER_MODEL=gpt-4o
 **Environment Variables**:
 - `MODEL`: LLM model to use (e.g., `gpt-4o`, `anthropic/claude-3-5-sonnet-20241022`)
 - `CLASSIFIER_MODEL`: Model for scoring answers (defaults to MODEL)
+- `HOLMES_TOOL_CHOICE`: Controls tool calling behavior (default: `auto`)
+  - `auto`: Let the model decide when to use tools
+  - `required`: Force the model to use tools when available  
+  - `none`: Disable tool calling entirely
+  - Used during LLM completion calls when tools are available
 - `RUN_LIVE=true`: Execute real commands (recommended for all tests)
 - `ITERATIONS=<number>`: Run each test multiple times
 - `UPLOAD_DATASET=true`: Sync dataset to Braintrust
