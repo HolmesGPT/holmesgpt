@@ -41,7 +41,7 @@ class DataDogStorageTier(str, Enum):
 
 
 DEFAULT_STORAGE_TIERS = [DataDogStorageTier.INDEXES]
-DEFAULT_LOG_LIMIT = 70
+DEFAULT_LOG_LIMIT = 150
 
 
 class DatadogLogsConfig(DatadogBaseConfig):
@@ -51,6 +51,7 @@ class DatadogLogsConfig(DatadogBaseConfig):
         default=DEFAULT_STORAGE_TIERS, min_length=1
     )
     page_size: int = 300
+    compact_logs: bool = True
     default_limit: int = DEFAULT_LOG_LIMIT
 
 
@@ -67,25 +68,23 @@ def calculate_page_size(
 
 
 def format_logs(raw_logs: list[dict]) -> str:
+    # Use similar structure to Datadog Log Explorer
     logs = []
 
     for raw_log_item in raw_logs:
-        # Extract timestamp - Datadog returns it in ISO format
-        timestamp = raw_log_item.get("attributes", {}).get("timestamp", "")
-        if not timestamp:
-            # Fallback to @timestamp if timestamp is not in attributes
-            timestamp = raw_log_item.get("attributes", {}).get("@timestamp", "")
+        attrs = raw_log_item.get("attributes", {})
 
-        # Extract message
-        message = raw_log_item.get("attributes", {}).get(
-            "message", json.dumps(raw_log_item)
-        )
+        timestamp = attrs.get("timestamp") or attrs.get("@timestamp", "")
+        host = attrs.get("host", "")
+        service = attrs.get("service", "")
+        status = attrs.get("attributes", {}).get("status") or attrs.get("status", "")
+        message = attrs.get("message", json.dumps(raw_log_item))
+        tags = attrs.get("tags", [])
 
-        # Format as: [timestamp] message
-        if timestamp:
-            logs.append(f"[{timestamp}] {message}")
-        else:
-            logs.append(message)
+        pod_name_tag = next((t for t in tags if t.startswith("pod_")), "")
+
+        log_line = f"{timestamp} {host} {pod_name_tag} {service} {status} {message}"
+        logs.append(log_line)
 
     return "\n".join(logs)
 
@@ -163,7 +162,6 @@ class DatadogLogsToolset(Toolset):
             dd_config = DatadogLogsConfig(**config)
             self.dd_config = dd_config
 
-            # Perform healthcheck
             success, error_msg = self._perform_healthcheck()
             return success, error_msg
 
@@ -284,6 +282,9 @@ class GetLogs(Tool):
                 timeout=self.toolset.dd_config.request_timeout,
                 method="POST",
             )
+
+            if self.toolset.dd_config.compact_logs and response.get("data"):
+                response["data"] = format_logs(response["data"])
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,

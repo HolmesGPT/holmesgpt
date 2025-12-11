@@ -217,9 +217,9 @@ toolsets:
 
       # Optional: Log search configuration
       indexes: ["*"]  # Log indexes to search (default: ["*"])
+      compact_logs: True # Reduces log metadata and tags to save LLM context space.
       storage_tiers: ["indexes"]  # Options: indexes, online-archives, flex
-      page_size: 300  # Results per page (default: 300)
-      default_limit: 1000  # Max logs to retrieve (default: 1000)
+      default_limit: 150  # Max logs to retrieve in a query.
 
 
 ```
@@ -228,7 +228,7 @@ toolsets:
 
 | Tool | Description |
 |------|-------------|
-| `fetch_pod_logs` | Retrieve logs for specific pods with time range and filter support |
+| `fetch_datadog_logs` | Retrieve logs with time range and search query |
 
 **Example Usage**
 
