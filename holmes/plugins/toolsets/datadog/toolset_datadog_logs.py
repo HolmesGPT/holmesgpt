@@ -20,8 +20,8 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
-    DEFAULT_TIME_SPAN_SECONDS,
     DEFAULT_LOG_LIMIT,
+    DEFAULT_TIME_SPAN_SECONDS,
     Toolset,
     FetchPodLogsParams,
 )
@@ -216,7 +216,7 @@ class GetLogs(Tool):
             required=False,
         ),
         "limit": ToolParameter(
-            description=f"Maximum number of spans to return. default: {DEFAULT_LOG_LIMIT}",
+            description=f"Maximum number of logs records to return. default: {DEFAULT_LOG_LIMIT}",
             type="integer",
             required=False,
         ),
@@ -253,22 +253,21 @@ class GetLogs(Tool):
             from_time_ms = from_time_int * 1000
             to_time_ms = to_time_int * 1000
 
-            query = params.get("query") if params.get("query") else "*"
-            limit = params.get("limit") if params.get("limit") else DEFAULT_LOG_LIMIT
-            if params.get("sort") is not None:
-                sort = "-timestamp" if params.get("sort") else True
-            else:
-                sort = "-timestamp"
+            query = params.get("query", "*")
+            config_limit = self.toolset.dd_config.default_limit
+            limit = min(params.get("limit", config_limit), config_limit)
+            sort = "timestamp" if params.get("sort", False) else "-timestamp"
 
             url = f"{self.toolset.dd_config.site_api_url}/api/v2/logs/events/search"
             headers = get_headers(self.toolset.dd_config)
 
+            storage = self.toolset.dd_config.storage_tiers[-1]
             payload = {
                 "filter": {
                     "query": query,
                     "from": str(from_time_ms),
                     "to": str(to_time_ms),
-                    "storage_tier": self.toolset.dd_config.storage_tiers[-1],
+                    "storage_tier": storage,
                     "indexes": self.toolset.dd_config.indexes,
                 },
                 "page": {
