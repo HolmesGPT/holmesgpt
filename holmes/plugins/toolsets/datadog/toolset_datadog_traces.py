@@ -1,8 +1,10 @@
 """Datadog Traces toolset for HolmesGPT."""
 
+import copy
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, Optional, Tuple
 
 from holmes.core.tools import (
@@ -32,6 +34,9 @@ from holmes.plugins.toolsets.utils import (
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
 )
+
+# Valid percentile aggregations supported by Datadog
+PERCENTILE_AGGREGATIONS = ["pc75", "pc90", "pc95", "pc98", "pc99"]
 
 
 class DatadogTracesConfig(DatadogBaseConfig):
@@ -338,17 +343,13 @@ class AggregateSpans(BaseDatadogTracesTool):
                                 enum=[
                                     "count",
                                     "cardinality",
-                                    "pc75",
-                                    "pc90",
-                                    "pc95",
-                                    "pc98",
-                                    "pc99",
                                     "sum",
                                     "min",
                                     "max",
                                     "avg",
                                     "median",
-                                ],
+                                ]
+                                + PERCENTILE_AGGREGATIONS,
                                 description="The aggregation method.",
                             ),
                             "metric": ToolParameter(
@@ -473,51 +474,25 @@ class AggregateSpans(BaseDatadogTracesTool):
     def _fix_percentile_aggregations(self, compute_params: list) -> list:
         """Fix common percentile format mistakes that the LLM makes when choosing from the enum (e.g., p95 -> pc95).
 
-        Dynamically extracts valid percentile aggregations from the enum and
-        creates mappings to fix incorrect formats.
-
         Args:
             compute_params: List of compute parameter dictionaries
 
         Returns:
             List of compute parameters with corrected aggregation values
         """
-        # Extract valid percentile aggregations from enum
-        compute_param = self.parameters.get("compute")
-        if not compute_param or not compute_param.items:
-            return compute_params
+        # Deep copy the entire compute params to avoid modifying the original
+        processed_compute = copy.deepcopy(compute_params)
 
-        items_properties = compute_param.items.properties
-        if not items_properties or "aggregation" not in items_properties:
-            return compute_params
-
-        aggregation_param = items_properties["aggregation"]
-        if not aggregation_param or not aggregation_param.enum:
-            return compute_params
-
-        aggregation_enum = aggregation_param.enum
-        pc_aggregations = [
-            agg
-            for agg in aggregation_enum
-            if agg.startswith("pc") and agg[2:].isdigit()
-        ]
-
-        # Create mapping from incorrect format (p95) to correct format (pc95)
-        percentile_mapping = {}
-        for pc_agg in pc_aggregations:
-            p_version = "p" + pc_agg[2:]  # pc95 -> p95
-            percentile_mapping[p_version] = pc_agg
-
-        # Apply replacements to compute parameters
-        processed_compute = []
-        for compute_item in compute_params:
+        # Simple replacement for each known percentile
+        for compute_item in processed_compute:
             if isinstance(compute_item, dict) and "aggregation" in compute_item:
                 agg_value = compute_item["aggregation"]
-                if agg_value in percentile_mapping:
-                    # Replace incorrect format with correct format
-                    compute_item = compute_item.copy()  # Don't modify original
-                    compute_item["aggregation"] = percentile_mapping[agg_value]
-            processed_compute.append(compute_item)
+                # Check if it matches p\d\d pattern (e.g., p95)
+                if re.match(r"^p\d{2}$", agg_value):
+                    # Convert to pc format and check if it's valid
+                    pc_version = "pc" + agg_value[1:]
+                    if pc_version in PERCENTILE_AGGREGATIONS:
+                        compute_item["aggregation"] = pc_version
 
         return processed_compute
 
