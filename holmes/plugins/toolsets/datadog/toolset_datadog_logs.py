@@ -20,7 +20,6 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
-    DEFAULT_LOG_LIMIT,
     DEFAULT_TIME_SPAN_SECONDS,
     Toolset,
     FetchPodLogsParams,
@@ -42,6 +41,7 @@ class DataDogStorageTier(str, Enum):
 
 
 DEFAULT_STORAGE_TIERS = [DataDogStorageTier.INDEXES]
+DEFAULT_LOG_LIMIT = 70
 
 
 class DatadogLogsConfig(DatadogBaseConfig):
