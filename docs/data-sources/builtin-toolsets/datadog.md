@@ -217,9 +217,9 @@ toolsets:
 
       # Optional: Log search configuration
       indexes: ["*"]  # Log indexes to search (default: ["*"])
-      compact_logs: True # Used to reduce logs row tags and metadata, saves LLM context space. 
+      compact_logs: True # Reduces log metadata and tags to save LLM context space.
       storage_tiers: ["indexes"]  # Options: indexes, online-archives, flex
-      default_limit: 150  # Max logs to retrieve
+      default_limit: 150  # Max logs to retrieve in a query.
 
 
 ```
