@@ -306,9 +306,8 @@ toolsets:
 
 | Tool | Description |
 |------|-------------|
-| `fetch_datadog_traces` | Search and fetch traces by service, operation, or tags |
-| `fetch_datadog_trace_by_id` | Get detailed information about a specific trace |
-| `fetch_datadog_spans` | Search for spans with specific filters |
+| `fetch_datadog_spans` | Search for spans using span syntax with wildcards and filters |
+| `aggregate_datadog_spans` | Aggregate spans into buckets and compute metrics and timeseries |
 
 **Example Usage**
 
