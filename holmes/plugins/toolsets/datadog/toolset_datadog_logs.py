@@ -32,6 +32,7 @@ from holmes.plugins.toolsets.utils import (
     toolset_name_for_one_liner,
     standard_start_datetime_tool_param_description,
 )
+from urllib.parse import urlencode
 
 
 class DataDogStorageTier(str, Enum):
@@ -253,9 +254,9 @@ class GetLogs(Tool):
             from_time_ms = from_time_int * 1000
             to_time_ms = to_time_int * 1000
 
-            query = params.get("query", "*")
             config_limit = self.toolset.dd_config.default_limit
             limit = min(params.get("limit", config_limit), config_limit)
+            params["limit"] = limit
             sort = "timestamp" if params.get("sort", False) else "-timestamp"
 
             url = f"{self.toolset.dd_config.site_api_url}/api/v2/logs/events/search"
@@ -264,7 +265,7 @@ class GetLogs(Tool):
             storage = self.toolset.dd_config.storage_tiers[-1]
             payload = {
                 "filter": {
-                    "query": query,
+                    "query": params.get("query", "*"),
                     "from": str(from_time_ms),
                     "to": str(to_time_ms),
                     "storage_tier": storage,
@@ -288,6 +289,7 @@ class GetLogs(Tool):
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response,
                 params=params,
+                url=generate_datadog_logs_url(self.toolset.dd_config, payload),
             )
 
         except DataDogRequestError as e:
@@ -325,3 +327,26 @@ class GetLogs(Tool):
                     else None
                 ),
             )
+
+
+def generate_datadog_logs_url(
+    dd_config: DatadogLogsConfig,
+    params: dict,
+) -> str:
+    """Generate a Datadog web UI URL for the logs query."""
+    from holmes.plugins.toolsets.datadog.datadog_api import convert_api_url_to_app_url
+
+    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    url_params = {
+        "query": params["filter"]["query"],
+        "from_ts": params["filter"]["from"],
+        "to_ts": params["filter"]["to"],
+        "live": "true",
+        "storage": params["filter"]["storage_tier"],
+    }
+
+    if dd_config.indexes != ["*"]:
+        url_params["index"] = ",".join(dd_config.indexes)
+
+    # Construct the full URL
+    return f"{base_url}/logs?{urlencode(url_params)}"
