@@ -38,6 +38,21 @@ from holmes.utils.global_instructions import (
     Instructions,
     add_global_instructions_to_user_prompt,
 )
+
+
+def get_tool_choice(tools: bool) -> Optional[str]:
+    """
+    Get the tool choice setting from environment variable with debug logging.
+    
+    Args:
+        tools: Whether tools are available in this iteration
+        
+    Returns:
+        Tool choice string if tools available, None otherwise
+    """
+    tool_choice = os.environ.get("HOLMES_TOOL_CHOICE", "auto") if tools else None
+    logging.debug(f"HOLMES_TOOL_CHOICE env var: {os.environ.get('HOLMES_TOOL_CHOICE', 'NOT_SET')}, using tool_choice: {tool_choice}")
+    return tool_choice
 from holmes.utils.tags import format_tags_in_string, parse_messages_tags
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import DummySpan
@@ -348,8 +363,7 @@ class ToolCallingLLM:
             logging.debug(f"running iteration {i}")
             # on the last step we don't allow tools - we want to force a reply, not a request to run another tool
             tools = None if i == max_steps else tools
-            tool_choice = os.environ.get("HOLMES_TOOL_CHOICE", "auto") if tools else None
-            logging.debug(f"HOLMES_TOOL_CHOICE env var: {os.environ.get('HOLMES_TOOL_CHOICE', 'NOT_SET')}, using tool_choice: {tool_choice}")
+            tool_choice = get_tool_choice(tools)
             # EDIT: Custom logging to verify we can modify Holmes code
             logging.info(f"🔧 CUSTOM EDIT: Tool calling iteration {i}/{max_steps}, tool_choice={tool_choice}, tools_available={bool(tools)}")
 
@@ -763,8 +777,7 @@ class ToolCallingLLM:
             logging.debug(f"running iteration {i}")
 
             tools = None if i == max_steps else tools
-            tool_choice = os.environ.get("HOLMES_TOOL_CHOICE", "auto") if tools else None
-            logging.debug(f"HOLMES_TOOL_CHOICE env var: {os.environ.get('HOLMES_TOOL_CHOICE', 'NOT_SET')}, using tool_choice: {tool_choice}")
+            tool_choice = get_tool_choice(tools)
 
             total_tokens = self.llm.count_tokens_for_message(messages)  # type: ignore
             max_context_size = self.llm.get_context_window_size()

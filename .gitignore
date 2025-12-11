@@ -169,3 +169,11 @@ config_toolsets.yaml
 
 **/.claude/settings.local.json
 .claude-trace/
+
+# KAITO evaluation temp files
+environment
+Set
+variables
+model
+*.log#
+run_kaito_evals.sh

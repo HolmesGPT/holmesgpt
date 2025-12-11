@@ -74,6 +74,7 @@ def build_initial_ask_messages(
         console, initial_user_prompt, file_paths
     )
 
+    # TodoWrite system disabled - causes confusion and not needed for KAITO integration
     #user_prompt_with_files += get_tasks_management_system_reminder()
     messages = [
         {"role": "system", "content": system_prompt_rendered},
