@@ -146,11 +146,12 @@ class GetSpans(BaseDatadogTracesTool):
     def __init__(self, toolset: "DatadogTracesToolset"):
         super().__init__(
             name="fetch_datadog_spans",
-            description="Search for spans in Datadog using span syntax"
-            "Uses the DataDog api endpoint: POST /api/v2/spans/events/search with 'query' parameter. (e.g., 'service:web-app @http.status_code:500')",
+            description="Search for spans in Datadog using span syntax. "
+            "Supports wildcards (*) for pattern matching: @http.route:*payment*, resource_name:*user*, service:*api*. "
+            "Uses the DataDog api endpoint: POST /api/v2/spans/events/search with 'query' parameter.",
             parameters={
                 "query": ToolParameter(
-                    description="The search query - following the span search syntax. default: *",
+                    description="The search query following span syntax. Supports wildcards (*) for pattern matching. Examples: @http.route:*payment*, resource_name:*user*, service:*api*. Default: *",
                     type="string",
                     required=False,
                 ),
@@ -177,7 +178,7 @@ class GetSpans(BaseDatadogTracesTool):
                     required=False,
                 ),
                 "limit": ToolParameter(
-                    description="Maximum number of spans to return. default: 10",
+                    description="Maximum number of spans to return. Default: 10. Warning: Using values higher than 10 may result in too much data and cause the tool call to fail.",
                     type="integer",
                     required=False,
                 ),
@@ -469,6 +470,57 @@ class AggregateSpans(BaseDatadogTracesTool):
             compute_info = f" (computing: {', '.join(aggregations)})"
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Aggregate Spans ({query}){compute_info}"
 
+    def _fix_percentile_aggregations(self, compute_params: list) -> list:
+        """Fix common percentile format mistakes that the LLM makes when choosing from the enum (e.g., p95 -> pc95).
+
+        Dynamically extracts valid percentile aggregations from the enum and
+        creates mappings to fix incorrect formats.
+
+        Args:
+            compute_params: List of compute parameter dictionaries
+
+        Returns:
+            List of compute parameters with corrected aggregation values
+        """
+        # Extract valid percentile aggregations from enum
+        compute_param = self.parameters.get("compute")
+        if not compute_param or not compute_param.items:
+            return compute_params
+
+        items_properties = compute_param.items.properties
+        if not items_properties or "aggregation" not in items_properties:
+            return compute_params
+
+        aggregation_param = items_properties["aggregation"]
+        if not aggregation_param or not aggregation_param.enum:
+            return compute_params
+
+        aggregation_enum = aggregation_param.enum
+        pc_aggregations = [
+            agg
+            for agg in aggregation_enum
+            if agg.startswith("pc") and agg[2:].isdigit()
+        ]
+
+        # Create mapping from incorrect format (p95) to correct format (pc95)
+        percentile_mapping = {}
+        for pc_agg in pc_aggregations:
+            p_version = "p" + pc_agg[2:]  # pc95 -> p95
+            percentile_mapping[p_version] = pc_agg
+
+        # Apply replacements to compute parameters
+        processed_compute = []
+        for compute_item in compute_params:
+            if isinstance(compute_item, dict) and "aggregation" in compute_item:
+                agg_value = compute_item["aggregation"]
+                if agg_value in percentile_mapping:
+                    # Replace incorrect format with correct format
+                    compute_item = compute_item.copy()  # Don't modify original
+                    compute_item["aggregation"] = percentile_mapping[agg_value]
+            processed_compute.append(compute_item)
+
+        return processed_compute
+
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         """Execute the tool to aggregate spans."""
         if not self.toolset.dd_config:
@@ -500,13 +552,17 @@ class AggregateSpans(BaseDatadogTracesTool):
             headers = get_headers(self.toolset.dd_config)
 
             # Build payload attributes first
+            # Process compute parameter to fix common p95->pc95 style mistakes
+            compute_params = params.get("compute", [])
+            processed_compute = self._fix_percentile_aggregations(compute_params)
+
             attributes: Dict[str, Any] = {
                 "filter": {
                     "query": query,
                     "from": str(from_time_ms),
                     "to": str(to_time_ms),
                 },
-                "compute": params.get("compute", []),
+                "compute": processed_compute,
             }
 
             # Add optional fields

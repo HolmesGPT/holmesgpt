@@ -10,55 +10,83 @@ Tools to search and analyze distributed traces from Datadog APM.
 
 ```python
 # Search for errors using Datadog query syntax
-fetch_datadog_spans(query="@http.status_code:500")
-fetch_datadog_spans(service="api", query="status:error")
+fetch_datadog_spans(query="@http.status_code:500", limit=5)
+fetch_datadog_spans(query="service:api status:error", limit=10)
 ```
 
-### Query Examples:
+### Query Patterns:
 
 ```python
-# Errors by service
-fetch_datadog_spans(service="payment", query="@http.status_code:5*")
+# Specific HTTP endpoint (any method)
+fetch_datadog_spans(query="@http.route:/api/orders", limit=5)
 
-# Database queries
-fetch_datadog_spans(query="service:postgres @duration:>1000000000")
+# HTTP routes containing substring (wildcard search)
+fetch_datadog_spans(query="@http.route:*payment*", limit=5)
 
-# With tags
-fetch_datadog_spans(tags={"env": "production"}, query="error:true")
+# Broad search across all span types
+fetch_datadog_spans(query="resource_name:*user*", limit=10)
+
+# Errors by service with wildcard
+fetch_datadog_spans(query="service:payment @http.status_code:5*", limit=5)
+
+# Database queries with time range (last hour)
+fetch_datadog_spans(
+    query="service:postgres @duration:>1000000000",
+    start_datetime="-3600",  # 1 hour in seconds
+    limit=10
+)
+
+# Production errors
+fetch_datadog_spans(query="env:production error:true", limit=5)
+
+# Specific endpoint pattern with custom time range
+fetch_datadog_spans(
+    query='@http.route:*/user/* @http.status_code:>=400',
+    start_datetime="-1800",  # 30 minutes in seconds
+    limit=10
+)
+
+# Combining multiple conditions with wildcards
+fetch_datadog_spans(
+    query='service:*api* @http.route:*/user/* @http.status_code:[400 TO 599]',
+    limit=10
+)
 ```
 
 ### Aggregate Examples:
 
 ```python
-# Count spans grouped by status code
+# Count spans grouped by status code (last 15 minutes)
 aggregate_datadog_spans(
-    query='resource:"POST /orders"',
+    query='resource_name:*api* @http.method:POST',
     compute=[{"aggregation": "count", "type": "total"}],
-    group_by=[{"facet": "@http.status_code", "limit": 50}]
+    group_by=[{"facet": "@http.status_code", "limit": 50}],
+    start_datetime="-900"  # 15 minutes in seconds
 )
 
-# Get average duration by service
+# Get average duration by service (last hour)
 aggregate_datadog_spans(
-    query='env:production',
+    query='service:*backend* OR service:*api*',
     compute=[{"aggregation": "avg", "metric": "@duration", "type": "total"}],
-    group_by=[{"facet": "service", "limit": 20}]
+    group_by=[{"facet": "service", "limit": 50}],
+    start_datetime="-3600"  # 1 hour in seconds
 )
 
 # Get P95 latency timeseries by service
 aggregate_datadog_spans(
-    query='@http.status_code:[200 TO 299]',
+    query='@http.route:*/api/* @http.status_code:[200 TO 299]',
     compute=[{
         "aggregation": "pc95", 
         "metric": "@duration", 
         "type": "timeseries",
         "interval": "5m"
     }],
-    group_by=[{"facet": "service", "limit": 10}]
+    group_by=[{"facet": "service", "limit": 50}]
 )
 
 # Complex aggregation with histogram
 aggregate_datadog_spans(
-    query='service:api',
+    query='resource_name:*product* OR resource_name:*catalog*',
     compute=[
         {"aggregation": "avg", "metric": "@duration", "type": "total"},
         {"aggregation": "count", "type": "total"}
@@ -66,25 +94,34 @@ aggregate_datadog_spans(
     group_by=[{
         "facet": "@duration",
         "histogram": {"interval": 100, "min": 0, "max": 1000},
-        "sort": {"aggregation": "count", "order": "desc"}
+        "limit": 50
     }]
 )
 
 # Error rate calculation by endpoint
 aggregate_datadog_spans(
-    query='service:web-app',
+    query='@http.route:* @http.status_code:[400 TO 599]',
     compute=[{"aggregation": "count", "type": "total"}],
     group_by=[
-        {"facet": "resource_name", "limit": 20},
-        {"facet": "@http.status_code", "limit": 10}
+        {"facet": "resource_name", "limit": 50},
+        {"facet": "@http.status_code", "limit": 50}
     ]
 )
 ```
 
-### Tips:
-- Duration units: ms, s, m (e.g., "500ms", "5s", "1m")
-- Time: RFC3339 format or negative seconds from now
-- Rate limit: 300 requests/hour
-- Default time range: 1 hour
+### Query Pattern Tips:
+
+| Your Goal | Use This Pattern |
+|-----------|------------------|
+| Specific HTTP endpoint, any method | `@http.route:/api/users` |
+| HTTP routes containing substring | `@http.route:*payment*` |
+| Broad search across all span types | `resource_name:*user*` |
+| Service name patterns | `service:*api*` or `service:payment-*` |
+| Multiple wildcards | `@http.route:*/user/*/profile` |
+| Error status codes | `@http.status_code:5*` or `@http.status_code:[400 TO 599]` |
+
+### General Tips:
+- Wildcards (*) can be used in most fields for flexible pattern matching
 - For aggregations: use @-prefixed attributes (e.g., @duration, @http.status_code)
-- Timeseries intervals: 1m, 5m, 10m, 15m, 30m, 1h, 2h, 1d
+- Keep fetch_datadog_spans limit low (5-10) to avoid too much data
+- aggregate_datadog_spans can handle higher limits (50+) for group_by facets
