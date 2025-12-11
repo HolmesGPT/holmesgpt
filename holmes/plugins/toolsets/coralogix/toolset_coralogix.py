@@ -112,18 +112,19 @@ class ExecuteDataPrimeQuery(Tool):
 
         result_dict = {
             "tool_name": self.name,
-            "query": params["query"],
             "data": result,
         }
+        status = StructuredToolResultStatus.SUCCESS
 
         if not result:
             results_msg = "No results found, it is possible that the query is not correct, using incorrect labels or filters."
             result_dict["results_msg"] = results_msg
+            status = StructuredToolResultStatus.NO_DATA
 
         # Return a pretty-printed JSON string for readability by the model/user.
         final_result = json.dumps(result_dict, indent=2, sort_keys=False)
         return StructuredToolResult(
-            status=StructuredToolResultStatus.SUCCESS,
+            status=status,
             data=final_result,
             params=params,
         )
