@@ -33,8 +33,10 @@ def test_config_load_from_env_includes_api_base_version(monkeypatch):
     assert config.model == "test-model"
 
 
-def test_config_get_llm_with_api_base_version():
+def test_config_get_llm_with_api_base_version(monkeypatch):
     """Test that Config._get_llm passes api_base and api_version to DefaultLLM."""
+
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
     config = Config(
         model="test-model",
         api_base="https://test.api.base",
@@ -60,8 +62,9 @@ def test_config_get_llm_with_api_base_version():
         assert result == mock_llm_instance
 
 
-def test_config_get_llm_with_azure_openai_parameters():
+def test_config_get_llm_with_azure_openai_parameters(monkeypatch):
     """Test that Config._get_llm passes api_base and api_version to DefaultLLM."""
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
     config = Config(
         model="azure/gpt-4o",
         api_key=SecretStr("test-key"),

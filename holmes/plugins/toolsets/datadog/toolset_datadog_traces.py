@@ -1,8 +1,10 @@
 """Datadog Traces toolset for HolmesGPT."""
 
+import copy
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, Optional, Tuple
 
 from holmes.core.tools import (
@@ -32,6 +34,9 @@ from holmes.plugins.toolsets.utils import (
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
 )
+
+# Valid percentile aggregations supported by Datadog
+PERCENTILE_AGGREGATIONS = ["pc75", "pc90", "pc95", "pc98", "pc99"]
 
 
 class DatadogTracesConfig(DatadogBaseConfig):
@@ -146,11 +151,12 @@ class GetSpans(BaseDatadogTracesTool):
     def __init__(self, toolset: "DatadogTracesToolset"):
         super().__init__(
             name="fetch_datadog_spans",
-            description="Search for spans in Datadog using span syntax"
-            "Uses the DataDog api endpoint: POST /api/v2/spans/events/search with 'query' parameter. (e.g., 'service:web-app @http.status_code:500')",
+            description="Search for spans in Datadog using span syntax. "
+            "Supports wildcards (*) for pattern matching: @http.route:*payment*, resource_name:*user*, service:*api*. "
+            "Uses the DataDog api endpoint: POST /api/v2/spans/events/search with 'query' parameter.",
             parameters={
                 "query": ToolParameter(
-                    description="The search query - following the span search syntax. default: *",
+                    description="The search query following span syntax. Supports wildcards (*) for pattern matching. Examples: @http.route:*payment*, resource_name:*user*, service:*api*. Default: *",
                     type="string",
                     required=False,
                 ),
@@ -177,7 +183,7 @@ class GetSpans(BaseDatadogTracesTool):
                     required=False,
                 ),
                 "limit": ToolParameter(
-                    description="Maximum number of spans to return. default: 10",
+                    description="Maximum number of spans to return. Default: 10. Warning: Using values higher than 10 may result in too much data and cause the tool call to fail.",
                     type="integer",
                     required=False,
                 ),
@@ -337,17 +343,13 @@ class AggregateSpans(BaseDatadogTracesTool):
                                 enum=[
                                     "count",
                                     "cardinality",
-                                    "pc75",
-                                    "pc90",
-                                    "pc95",
-                                    "pc98",
-                                    "pc99",
                                     "sum",
                                     "min",
                                     "max",
                                     "avg",
                                     "median",
-                                ],
+                                ]
+                                + PERCENTILE_AGGREGATIONS,
                                 description="The aggregation method.",
                             ),
                             "metric": ToolParameter(
@@ -469,6 +471,31 @@ class AggregateSpans(BaseDatadogTracesTool):
             compute_info = f" (computing: {', '.join(aggregations)})"
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Aggregate Spans ({query}){compute_info}"
 
+    def _fix_percentile_aggregations(self, compute_params: list) -> list:
+        """Fix common percentile format mistakes that the LLM makes when choosing from the enum (e.g., p95 -> pc95).
+
+        Args:
+            compute_params: List of compute parameter dictionaries
+
+        Returns:
+            List of compute parameters with corrected aggregation values
+        """
+        # Deep copy the entire compute params to avoid modifying the original
+        processed_compute = copy.deepcopy(compute_params)
+
+        # Simple replacement for each known percentile
+        for compute_item in processed_compute:
+            if isinstance(compute_item, dict) and "aggregation" in compute_item:
+                agg_value = compute_item["aggregation"]
+                # Check if it matches p\d\d pattern (e.g., p95)
+                if re.match(r"^p\d{2}$", agg_value):
+                    # Convert to pc format and check if it's valid
+                    pc_version = "pc" + agg_value[1:]
+                    if pc_version in PERCENTILE_AGGREGATIONS:
+                        compute_item["aggregation"] = pc_version
+
+        return processed_compute
+
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         """Execute the tool to aggregate spans."""
         if not self.toolset.dd_config:
@@ -500,13 +527,17 @@ class AggregateSpans(BaseDatadogTracesTool):
             headers = get_headers(self.toolset.dd_config)
 
             # Build payload attributes first
+            # Process compute parameter to fix common p95->pc95 style mistakes
+            compute_params = params.get("compute", [])
+            processed_compute = self._fix_percentile_aggregations(compute_params)
+
             attributes: Dict[str, Any] = {
                 "filter": {
                     "query": query,
                     "from": str(from_time_ms),
                     "to": str(to_time_ms),
                 },
-                "compute": params.get("compute", []),
+                "compute": processed_compute,
             }
 
             # Add optional fields

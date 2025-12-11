@@ -1,6 +1,14 @@
 
 # Prometheus/PromQL queries
 
+{%- if config and config.prometheus_url and "coralogix" in config.prometheus_url %}
+You are using Coralogix Prometheus.
+* Metrics/labels may differ; discover names with `get_metric_names` first.
+* For high-cardinality, wrap with `topk(5, <query>)`.
+* Always include explicit time ranges for range queries.
+* Example: `container_cpu_utilization{namespace="test-173"}` can fail if the label is named differently (e.g., `k8s_namespace_name`) or the metric is named differently. Do not assume names—only use labels you have seen returned or been told exist.
+{%- endif %}
+
 ## Efficient Metric Discovery (when needed)
 * When you need to discover metrics, use `get_metric_names` with filters - it's the fastest method
 * Combine multiple patterns with regex OR (|) to reduce API calls:
