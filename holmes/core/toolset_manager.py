@@ -18,6 +18,26 @@ if TYPE_CHECKING:
 
 DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status.json")
 
+# Mapping of deprecated toolset names to their new names
+DEPRECATED_TOOLSET_NAMES: dict[str, str] = {
+    "coralogix/logs": "coralogix",
+}
+
+
+def handle_deprecated_toolset_name(
+    toolset_name: str, builtin_toolset_names: list[str]
+) -> str:
+    if toolset_name in DEPRECATED_TOOLSET_NAMES:
+        new_name = DEPRECATED_TOOLSET_NAMES[toolset_name]
+        if new_name in builtin_toolset_names:
+            logging.warning(
+                f"The toolset name '{toolset_name}' is deprecated. "
+                f"Please use '{new_name}' instead. "
+                "The old name will continue to work but may be removed in a future version."
+            )
+            return new_name
+    return toolset_name
+
 
 class ToolsetManager:
     """
@@ -174,6 +194,10 @@ class ToolsetManager:
         builtin_toolsets_dict: dict[str, dict[str, Any]] = {}
         custom_toolsets_dict: dict[str, dict[str, Any]] = {}
         for toolset_name, toolset_config in toolsets.items():
+            toolset_name = handle_deprecated_toolset_name(
+                toolset_name, builtin_toolset_names
+            )
+
             if toolset_name in builtin_toolset_names:
                 # build-in types was assigned when loaded
                 builtin_toolsets_dict[toolset_name] = toolset_config
