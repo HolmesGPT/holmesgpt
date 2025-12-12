@@ -9,13 +9,16 @@ from typing import Dict, Any, Optional
 import sentry_sdk
 
 
-from holmes.common.env_vars import BASH_TOOL_UNSAFE_ALLOW_ALL
+from holmes.common.env_vars import (
+    BASH_TOOL_UNSAFE_ALLOW_ALL,
+)
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
     Tool,
+    ToolInvokeContext,
     ToolParameter,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
@@ -80,7 +83,7 @@ class KubectlRunImageCommand(BaseBashTool):
         command_str = get_param_or_raise(params, "command")
         return f"kubectl run {pod_name} --image={image} --namespace={namespace} --rm --attach --restart=Never -i -- {command_str}"
 
-    def _invoke(self, params: Dict[str, Any]) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         timeout = params.get("timeout", 60)
 
         image = get_param_or_raise(params, "image")
@@ -90,7 +93,7 @@ class KubectlRunImageCommand(BaseBashTool):
 
         if namespace and not re.match(SAFE_NAMESPACE_PATTERN, namespace):
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Error: The namespace is invalid. Valid namespaces must match the following regexp: {SAFE_NAMESPACE_PATTERN}",
                 params=params,
             )
@@ -114,7 +117,7 @@ class KubectlRunImageCommand(BaseBashTool):
                 }
             )
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=str(e),
                 params=params,
             )
@@ -160,42 +163,47 @@ class RunBashCommand(BaseBashTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Dict[str, Any]) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         command_str = params.get("command")
         timeout = params.get("timeout", 60)
 
         if not command_str:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error="The 'command' parameter is required and was not provided.",
                 params=params,
             )
 
         if not isinstance(command_str, str):
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"The 'command' parameter must be a string, got {type(command_str).__name__}.",
                 params=params,
             )
 
         command_to_execute = command_str
-        try:
-            command_to_execute = make_command_safe(command_str, self.toolset.config)
 
-        except (argparse.ArgumentError, ValueError) as e:
-            with sentry_sdk.configure_scope() as scope:
-                scope.set_extra("command", command_str)
-                scope.set_extra("error", str(e))
-                scope.set_extra("unsafe_allow_all", BASH_TOOL_UNSAFE_ALLOW_ALL)
-                sentry_sdk.capture_exception(e)
+        # Only run the safety check if user has NOT approved the command
+        if not context.user_approved:
+            try:
+                command_to_execute = make_command_safe(command_str, self.toolset.config)
 
-            if not BASH_TOOL_UNSAFE_ALLOW_ALL:
-                logging.info(f"Refusing LLM tool call {command_str}")
-                return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
-                    error=f"Refusing to execute bash command. Only some commands are supported and this is likely because requested command is unsupported. Error: {str(e)}",
-                    params=params,
-                )
+            except (argparse.ArgumentError, ValueError) as e:
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_extra("command", command_str)
+                    scope.set_extra("error", str(e))
+                    scope.set_extra("unsafe_allow_all", BASH_TOOL_UNSAFE_ALLOW_ALL)
+                    sentry_sdk.capture_exception(e)
+
+                if not BASH_TOOL_UNSAFE_ALLOW_ALL:
+                    logging.info(f"Refusing LLM tool call {command_str}")
+
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                        error=f"Refusing to execute bash command. {str(e)}",
+                        params=params,
+                        invocation=command_str,
+                    )
 
         return execute_bash_command(
             cmd=command_to_execute, timeout=timeout, params=params

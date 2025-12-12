@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "content": "What are the top 5 pods by CPU usage in the app-161 namespace?"
+  },
+  {
+    "role": "assistant",
+    "content": "Based on the CPU metrics for pods in the app-161 namespace, here are the top 5 pods by CPU usage:\n\n1. **video-encoder** - 500m CPU (highest)\n2. **ml-training** - 400m CPU\n3. **search-indexer** - 300m CPU  \n4. **api-gateway** - 200m CPU\n5. **data-processor** - 150m CPU\n\nThese pods are running various workloads including video encoding, machine learning training, search indexing, API gateway operations, and data processing. The video-encoder pod has the highest CPU request at 500m, followed by ml-training at 400m."
+  }
+]

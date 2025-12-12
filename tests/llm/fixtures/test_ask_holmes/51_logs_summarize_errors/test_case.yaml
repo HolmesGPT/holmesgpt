@@ -9,13 +9,31 @@ expected_output: |
     3. DB query issues due to a syntax error
     4. DB query issues due unicity constraint volation
 before_test: |
+  # Create namespace (or reuse existing)
   kubectl create namespace ask-holmes-namespace-51 || true
+
+  # Delete any stuck/pending pods from previous runs to force recreation
+  kubectl delete pods --all -n ask-holmes-namespace-51 --force --grace-period=0 2>/dev/null || true
+
+  # Update secret for the log generation script (apply will update if exists)
   kubectl create secret generic my-app-51-logs-script \
     --from-file=generate_logs.py=./generate_logs.py \
     -n ask-holmes-namespace-51 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Apply the deployment manifest (will update if exists)
   kubectl apply -f ./manifest.yaml
-  kubectl wait --for=condition=available deployment/my-app-51 -n ask-holmes-namespace-51 --timeout=90s
+
+  # Rollout restart to ensure fresh pods with updated config
+  kubectl rollout restart deployment/my-app-51 -n ask-holmes-namespace-51
+
+  # Wait for deployment to be available
+  kubectl rollout status deployment/my-app-51 -n ask-holmes-namespace-51 --timeout=180s
 
 after_test: |
-  kubectl delete -f ./manifest.yaml
-  kubectl delete secret my-app-51-logs-script -n ask-holmes-namespace-51 --ignore-not-found
+  # Delete resources with proper error reporting
+  echo "Cleaning up test resources..."
+  kubectl delete -f ./manifest.yaml || echo "WARNING: Failed to delete manifest resources (exit code: $?)"
+  kubectl delete secret my-app-51-logs-script -n ask-holmes-namespace-51 || echo "WARNING: Failed to delete secret (exit code: $?)"
+  # Note: namespace deletion can be slow, using --wait=false for speed
+  kubectl delete namespace ask-holmes-namespace-51 --wait=false || echo "WARNING: Failed to delete namespace (exit code: $?)"
+  echo "Cleanup completed"

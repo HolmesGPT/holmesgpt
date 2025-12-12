@@ -1,0 +1,48 @@
+name: 'Setup HolmesGPT Environment'
+description: 'Install Python, Poetry, kubectl and HolmesGPT dependencies'
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  install-kubectl:
+    description: 'Whether to install kubectl'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Python dependencies and Poetry
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip setuptools pyinstaller
+
+        # Install Poetry with specific version for consistency
+        curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+
+        # Add Poetry to PATH
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+        # Configure Poetry to not create virtualenvs (we use system Python in CI)
+        $HOME/.local/bin/poetry config virtualenvs.create false
+
+    - name: Install project dependencies
+      shell: bash
+      run: |
+        poetry install --no-root --with dev
+
+    - name: Install kubectl
+      if: inputs.install-kubectl == 'true'
+      shell: bash
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+        kubectl version --client

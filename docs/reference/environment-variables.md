@@ -32,7 +32,7 @@ This page documents all environment variables that can be used to configure Holm
 ## LLM Tool Calling Configuration
 
 ### LLMS_WITH_STRICT_TOOL_CALLS
-**Default:** `"azure/gpt-4o, openai/*"`
+**Default:** `"azure/gpt-4.1, openai/*"`
 
 Comma-separated list of model patterns that support strict tool calling. When a model matches one of these patterns, HolmesGPT will:
 - Enable the `strict` flag for function definitions
@@ -43,7 +43,7 @@ This improves reliability of tool calling for supported models by ensuring the L
 
 **Example:**
 ```bash
-export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4o,openai/*,anthropic/claude-3*"
+export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4.1,openai/*,anthropic/claude-sonnet-4*"
 ```
 
 ### TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
@@ -129,7 +129,7 @@ Override the default LLM model for testing.
 
 **Example:**
 ```bash
-export MODEL="anthropic/claude-3-5-sonnet-20241022"
+export MODEL="anthropic/claude-sonnet-4-20250514"
 ```
 
 ### CLASSIFIER_MODEL
@@ -137,7 +137,7 @@ Model to use for scoring test answers (defaults to MODEL if not set). Required w
 
 **Example:**
 ```bash
-export CLASSIFIER_MODEL="gpt-4o"
+export CLASSIFIER_MODEL="gpt-4.1"
 ```
 
 ### ITERATIONS
@@ -186,7 +186,7 @@ holmes ask "analyze cluster health" --model="gemini/gemini-1.5-pro"
 ### Testing with Strict Tool Calling
 ```bash
 # Enable strict tool calling for additional models
-export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4o,openai/*,custom/model-*"
+export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4.1,openai/*,custom/model-*"
 export RUN_LIVE=true
 export MODEL="custom/model-v2"
 

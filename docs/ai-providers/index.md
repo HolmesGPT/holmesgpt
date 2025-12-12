@@ -12,6 +12,7 @@ HolmesGPT supports multiple AI providers, giving you flexibility in choosing the
 -   [:simple-ollama:{ .lg .middle } **Ollama**](ollama.md)
 -   [:simple-openai:{ .lg .middle } **OpenAI**](openai.md)
 -   [:material-api:{ .lg .middle } **OpenAI-Compatible**](openai-compatible.md)
+-   [:material-robot:{ .lg .middle } **Robusta AI**](robusta-ai.md)
 -   [:material-layers-triple:{ .lg .middle } **Using Multiple Providers**](using-multiple-providers.md)
 
 </div>

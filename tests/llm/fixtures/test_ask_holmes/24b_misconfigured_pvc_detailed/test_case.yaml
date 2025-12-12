@@ -1,9 +1,8 @@
 # similar to eval 80 - not sure we need both
 user_prompt: "What is the issue with redis?"
 expected_output:
-  - The PersistentVolumeClaim (PVC) redis-standard-pvc cannot bind because the StorageClass "standard-v2" does not exist
-  - The Redis pod is stuck in Pending state because the PVC is unbound
-  - To fix this issue, either create the missing StorageClass "standard-v2" or update the PVC to use an existing StorageClass
+  - Redis pods are not running because their PVC cannot bind because the StorageClass "standard-v2" does not exist
+
 tags:
   - hard
   - kubernetes

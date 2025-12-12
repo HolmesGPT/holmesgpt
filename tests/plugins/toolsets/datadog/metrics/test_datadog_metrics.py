@@ -1,10 +1,11 @@
 import json
 from unittest.mock import Mock, patch
-from holmes.core.tools import ToolResultStatus
+from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
     DatadogMetricsToolset,
     DatadogMetricsConfig,
 )
+from tests.conftest import create_mock_tool_invoke_context
 
 
 class TestDatadogMetricsToolset:
@@ -37,9 +38,9 @@ class TestDatadogMetricsToolset:
 
         params = {}
         tool = self.toolset.tools[0]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert "system.cpu.user" in result.data
         assert "system.mem.used" in result.data
         assert "Metric Name" in result.data
@@ -67,9 +68,9 @@ class TestDatadogMetricsToolset:
             "from_time": "2023-01-01T00:00:00Z",
         }
         tool = self.toolset.tools[0]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
 
         call_args = mock_get.call_args
         assert call_args[1]["params"]["host"] == "test-host"
@@ -102,9 +103,9 @@ class TestDatadogMetricsToolset:
             "to_time": "2021-01-01T01:00:00Z",
         }
         tool = self.toolset.tools[1]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert "system.cpu.user" in result.data
 
         call_args = mock_get.call_args
@@ -122,9 +123,9 @@ class TestDatadogMetricsToolset:
             "query": "nonexistent.metric{*}",
         }
         tool = self.toolset.tools[1]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         assert "no data" in result.error.lower()
 
     @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
@@ -143,9 +144,9 @@ class TestDatadogMetricsToolset:
 
         params = {"metric_names": "system.cpu.user"}
         tool = self.toolset.tools[2]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         data = json.loads(result.data)
         assert "metrics_metadata" in data
         assert "system.cpu.user" in data["metrics_metadata"]
@@ -164,9 +165,9 @@ class TestDatadogMetricsToolset:
 
         params = {"metric_names": "nonexistent.metric"}
         tool = self.toolset.tools[2]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         data = json.loads(result.data)
         assert "errors" in data
         assert "nonexistent.metric" in data["errors"]
@@ -194,9 +195,9 @@ class TestDatadogMetricsToolset:
 
         params = {"metric_names": "system.cpu.user, system.mem.used"}
         tool = self.toolset.tools[2]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         data = json.loads(result.data)
         assert "metrics_metadata" in data
         assert "system.cpu.user" in data["metrics_metadata"]
@@ -214,9 +215,9 @@ class TestDatadogMetricsToolset:
 
         params = {"metric_names": "system.cpu.user, nonexistent.metric"}
         tool = self.toolset.tools[2]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         data = json.loads(result.data)
         assert "system.cpu.user" in data["metrics_metadata"]
         assert "nonexistent.metric" in data["errors"]
@@ -228,9 +229,9 @@ class TestDatadogMetricsToolset:
 
         params = {}
         tool = self.toolset.tools[0]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         assert result.error == "The toolset is missing its configuration"
 
     @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
@@ -244,9 +245,9 @@ class TestDatadogMetricsToolset:
 
         params = {}
         tool = self.toolset.tools[0]
-        result = tool._invoke(params)
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         assert "rate limit exceeded" in result.error.lower()
         assert "5 retry attempts" in result.error
 
@@ -300,7 +301,10 @@ class TestDatadogMetricsToolset:
         success, error_msg = self.toolset.prerequisites_callable(None)
 
         assert success is False
-        assert error_msg == "The toolset is missing its configuration"
+        assert (
+            error_msg
+            == "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
+        )
 
     def test_prerequisites_callable_invalid_config(self):
         config = {

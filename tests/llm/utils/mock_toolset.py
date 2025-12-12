@@ -10,10 +10,14 @@ import urllib
 import threading
 from pydantic import BaseModel
 import pytest
+from tests.llm.utils.mock_dal import load_mock_dal
+from pathlib import Path
 
 from holmes.core.tools import (
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
+    ToolInvokeContext,
     Toolset,
     ToolsetStatusEnum,
     YAMLTool,
@@ -80,6 +84,29 @@ class MockGenerationConfig:
         self.generate_mocks = generate_mocks_enabled
         self.regenerate_all_mocks = regenerate_all_enabled
         self.mode = mock_mode
+
+
+def check_for_mock_errors(request: pytest.FixtureRequest) -> None:
+    """Check if any mock errors occurred during the test and raise an exception if so."""
+    mock_errors = []
+    for prop in request.node.user_properties:
+        if isinstance(prop, tuple) and len(prop) >= 2 and prop[0] == "mock_data_error":
+            mock_errors.append(prop[1])
+
+    logging.info(f"Checking for mock errors. Found {len(mock_errors)} error(s)")
+
+    if mock_errors:
+        # Simple, clean error message for test output
+        error_message = f"Test failed due to {len(mock_errors)} mock data error(s)."
+
+        # Raise the appropriate exception type based on the first error
+        first_error_type = mock_errors[0].get("type", "MockDataError")
+        if first_error_type == "MockDataNotFoundError":
+            raise MockDataNotFoundError(error_message)
+        elif first_error_type == "MockDataCorruptedError":
+            raise MockDataCorruptedError(error_message)
+        else:
+            raise MockDataError(error_message)
 
 
 def clear_all_mocks(session) -> List[str]:
@@ -343,7 +370,7 @@ class MockFileManager:
                                 f"The mock file format was updated to include structured tool output metadata. "
                                 f"Old format: Line 1 = metadata JSON, Line 2+ = raw output. "
                                 f"New format: Line 1 = metadata JSON, Line 2 = structured output JSON, Line 3+ = raw output. "
-                                f"This change was introduced in PR https://github.com/robusta-dev/holmesgpt/pull/372. "
+                                f"This change was introduced in PR https://github.com/HolmesGPT/holmesgpt/pull/372. "
                                 f"Please regenerate your mock files using --regenerate-all-mocks or manually update them to the new format."
                             )
                             raise MockDataCorruptedError(
@@ -405,15 +432,45 @@ class MockableToolWrapper(Tool):
         self._toolset_name = toolset_name
         self._request = request
 
-    def _call_live_invoke(self, params: Dict) -> StructuredToolResult:
+    def _call_live_invoke(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> StructuredToolResult:
         """Call the tool in live mode."""
         logging.info(f"Calling live tool {self.name} with params: {params}")
-        return self._tool.invoke(params)
+        return self._tool.invoke(params, context)
 
-    def _call_mock_invoke(self, params: Dict):
+    def _call_mock_invoke(self, params: Dict, context: ToolInvokeContext):
         # Mock mode: read from mock file
         mock = self._file_manager.read_mock(self.name, params)
         if not mock:
+            # Debug logging before raising error
+            import json
+
+            logging.info(
+                f"\n=== DEBUG: No matching mock found for tool '{self.name}' ==="
+            )
+            logging.info(
+                f"Requested params: {json.dumps(params, indent=2, default=str)}"
+            )
+
+            # Check what mock files exist
+            all_mocks = self._file_manager._load_all_mocks()
+            tool_mocks = all_mocks.get(self.name, [])
+            if tool_mocks:
+                logging.info(f"Found {len(tool_mocks)} mock file(s) for this tool:")
+                for i, mock_obj in enumerate(tool_mocks, 1):
+                    logging.info(f"\n  Mock {i}:")
+                    logging.info(f"    File: {mock_obj.source_file}")
+                    if mock_obj.match_params:
+                        logging.info(
+                            f"    Match params: {json.dumps(mock_obj.match_params, indent=6, default=str)}"
+                        )
+                    else:
+                        logging.info("    No match params (will match any params)")
+            else:
+                logging.info(f"No mock files found for tool '{self.name}'")
+            logging.info("=== END DEBUG ===\n")
+
             # Check if there are any mock files for this tool that might be in old format
             pattern = os.path.join(
                 self._file_manager.test_case_folder, f"{self.name}*.txt"
@@ -426,7 +483,7 @@ class MockableToolWrapper(Tool):
                     f"No mock data found for tool '{self.name}' with params: {params}. "
                     f"Found {len(existing_files)} mock file(s) for this tool, but none matched the parameters. "
                     f"This could be due to mock files being in the old format (missing structured JSON on line 2). "
-                    f"See PR https://github.com/robusta-dev/holmesgpt/pull/372 for format details."
+                    f"See PR https://github.com/HolmesGPT/holmesgpt/pull/372 for format details."
                 )
             else:
                 error_msg = (
@@ -436,38 +493,68 @@ class MockableToolWrapper(Tool):
             raise MockDataNotFoundError(error_msg, tool_name=self.name)
         return mock.return_value
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         """Execute the tool based on the current mode."""
-        if self._mode == MockMode.GENERATE:
-            try:
-                return self._call_mock_invoke(params)
-            except MockDataNotFoundError as e:
-                logging.debug(str(e))
+        try:
+            if self._mode == MockMode.GENERATE:
+                try:
+                    return self._call_mock_invoke(params, context)
+                except MockDataNotFoundError as e:
+                    logging.debug(str(e))
 
-            result = self._call_live_invoke(params)
-            # Write mock file
-            mock_file_path = self._file_manager.write_mock(
-                tool_name=self.name,
-                toolset_name=self._toolset_name,
-                params=params,
-                result=result,
+                result = self._call_live_invoke(params, context)
+                # Write mock file
+                mock_file_path = self._file_manager.write_mock(
+                    tool_name=self.name,
+                    toolset_name=self._toolset_name,
+                    params=params,
+                    result=result,
+                )
+
+                # Track generated mock via user_properties
+                test_case = os.path.basename(self._file_manager.test_case_folder)
+                mock_info = (
+                    f"{test_case}:{self.name}:{os.path.basename(mock_file_path)}"
+                )
+                self._request.node.user_properties.append(
+                    ("generated_mock_file", mock_info)
+                )
+
+                return result
+            elif self._mode == MockMode.LIVE:
+                # Live mode: just call the real tool
+                return self._call_live_invoke(params, context)
+            elif self._mode == MockMode.MOCK:
+                return self._call_mock_invoke(params, context)
+            else:
+                raise ValueError(f"Unknown mock mode: {self._mode}")
+        except MockDataError as e:
+            # Track the mock error in pytest request context for later checking
+            # We return an error result so the LLM can continue, but we'll fail the test after
+            logging.error(f"Mock data error in tool {self.name}: {str(e)}")
+
+            # Store the error in pytest request properties for later checking
+            if self._request:
+                error_data = {
+                    "tool": self.name,
+                    "error": str(e),
+                    "type": type(e).__name__,
+                }
+                self._request.node.user_properties.append(
+                    ("mock_data_error", error_data)
+                )
+                logging.info(f"Stored mock error in user_properties: {error_data}")
+            else:
+                logging.warning(
+                    f"No request object available to store mock error for tool {self.name}"
+                )
+
+            # Return error result so LLM can continue (but test will fail later)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Mock data error: {str(e)}",
+                data=None,
             )
-
-            # Track generated mock via user_properties
-            test_case = os.path.basename(self._file_manager.test_case_folder)
-            mock_info = f"{test_case}:{self.name}:{os.path.basename(mock_file_path)}"
-            self._request.node.user_properties.append(
-                ("generated_mock_file", mock_info)
-            )
-
-            return result
-        elif self._mode == MockMode.LIVE:
-            # Live mode: just call the real tool
-            return self._call_live_invoke(params)
-        elif self._mode == MockMode.MOCK:
-            return self._call_mock_invoke(params)
-        else:
-            raise ValueError(f"Unknown mock mode: {self._mode}")
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         """Get a one-line description of the tool with parameters."""
@@ -493,28 +580,46 @@ class MockToolsetManager:
         self,
         test_case_folder: str,
         mock_generation_config: MockGenerationConfig,
-        request: pytest.FixtureRequest = None,
+        request: Optional[pytest.FixtureRequest] = None,
         mock_policy: str = "inherit",
+        mock_overrides: Optional[Dict[str, str]] = None,
+        allow_toolset_failures: bool = False,
     ):
         self.test_case_folder = test_case_folder
         self.request = request
+        self.mock_overrides = mock_overrides or {}
+        self.mock_generation_config = mock_generation_config
+        self.allow_toolset_failures = allow_toolset_failures
 
-        # Determine the effective mode based on mock_policy
-        if mock_policy == MockPolicy.ALWAYS_MOCK.value:
+        # Coerce mock_policy string to MockPolicy enum, falling back to INHERIT for unknown values
+        if isinstance(mock_policy, str):
+            try:
+                mock_policy_enum = MockPolicy(mock_policy)
+            except (ValueError, KeyError):
+                # Fall back to INHERIT for unknown/legacy values
+                mock_policy_enum = MockPolicy.INHERIT
+        elif isinstance(mock_policy, MockPolicy):
+            mock_policy_enum = mock_policy
+        else:
+            # Default to INHERIT for any other type
+            mock_policy_enum = MockPolicy.INHERIT
+
+        # Determine the default mode based on mock_policy
+        if mock_policy_enum == MockPolicy.ALWAYS_MOCK:
             if mock_generation_config.mode == MockMode.GENERATE:
                 pytest.skip(
                     "Test has fixed mocks (mock_policy='always_mock') so this test will be skipped. If you want to override mocks for this test and generate from scratch, change the mock_policy for this test temporarily."
                 )
             else:
-                self.mode = MockMode.MOCK
-        elif mock_policy == MockPolicy.NEVER_MOCK.value:
+                self.default_mode = MockMode.MOCK
+        elif mock_policy_enum == MockPolicy.NEVER_MOCK:
             if mock_generation_config.mode != MockMode.LIVE:
                 pytest.skip(
                     "Test requires live execution (mock_policy=NEVER_MOCK) but RUN_LIVE is not enabled"
                 )
-            self.mode = MockMode.LIVE
+            self.default_mode = MockMode.LIVE
         else:  # INHERIT or any other value
-            self.mode = mock_generation_config.mode
+            self.default_mode = mock_generation_config.mode
 
         # Initialize components
         self.file_manager = MockFileManager(test_case_folder)
@@ -522,10 +627,31 @@ class MockToolsetManager:
         # Load and configure toolsets
         self._initialize_toolsets()
 
+    def _get_toolset_mode(self, toolset_name: str) -> MockMode:
+        """Get the mock mode for a specific toolset, considering overrides."""
+        override = self.mock_overrides.get(toolset_name)
+
+        if override:
+            if override == MockPolicy.ALWAYS_MOCK.value:
+                if self.mock_generation_config.mode == MockMode.GENERATE:
+                    # Can't force mock when generating - use GENERATE mode
+                    return MockMode.GENERATE
+                return MockMode.MOCK
+            elif override == MockPolicy.NEVER_MOCK.value:
+                return MockMode.LIVE
+            # If override is "inherit" or unknown, use default
+
+        return self.default_mode
+
     def _initialize_toolsets(self):
         """Initialize and configure toolsets."""
+
+        mock_dal = load_mock_dal(
+            test_case_folder=Path(self.test_case_folder),
+            generate_mocks=self.mock_generation_config.generate_mocks,
+        )
         # Load builtin toolsets
-        builtin_toolsets = load_builtin_toolsets()
+        builtin_toolsets = load_builtin_toolsets(mock_dal)
 
         # Check for KAITO configuration override
         kaito_config = os.environ.get("KAITO_CONFIG_PATH")
@@ -537,6 +663,27 @@ class MockToolsetManager:
         else:
             config_path = os.path.join(self.test_case_folder, "toolsets.yaml")
             custom_definitions = self._load_custom_toolsets(config_path)
+
+        # Always load default toolsets.yaml
+        default_config_path = os.path.join(
+            os.path.dirname(__file__), "default_toolsets.yaml"
+        )
+        default_definitions = self._load_custom_toolsets(default_config_path)
+
+        # If custom toolsets.yaml exists, merge with defaults (custom takes precedence)
+        # Otherwise, use defaults only
+        if custom_definitions:
+            # Merge: custom definitions override defaults for same toolset names
+            # Add default definitions for toolsets not in custom
+            custom_names = {d.name for d in custom_definitions}
+            merged_definitions = list(custom_definitions)
+            for default_def in default_definitions:
+                if default_def.name not in custom_names:
+                    merged_definitions.append(default_def)
+            custom_definitions = merged_definitions
+        else:
+            # No custom toolsets.yaml, use defaults
+            custom_definitions = default_definitions
 
         # Configure builtin toolsets with custom definitions
         self.toolsets = self._configure_toolsets(builtin_toolsets, custom_definitions)
@@ -556,6 +703,20 @@ class MockToolsetManager:
         """Configure builtin toolsets with custom definitions."""
         configured = []
 
+        # First, validate that all custom definitions reference existing toolsets
+        builtin_names = {ts.name for ts in builtin_toolsets}
+        for definition in custom_definitions:
+            if definition.name not in builtin_names:
+                raise RuntimeError(
+                    f"Toolset '{definition.name}' referenced in toolsets.yaml does not exist. "
+                    f"Available toolsets: {', '.join(sorted(builtin_names))}"
+                )
+
+        mock_dal = load_mock_dal(
+            test_case_folder=Path(self.test_case_folder),
+            generate_mocks=self.mock_generation_config.generate_mocks,
+            initialize_base=False,
+        )
         for toolset in builtin_toolsets:
             # Replace RunbookToolset with one that has test folder search path
             if toolset.name == "runbook":
@@ -565,7 +726,7 @@ class MockToolsetManager:
 
                 # Create new RunbookToolset with test folder as additional search path
                 new_runbook_toolset = RunbookToolset(
-                    additional_search_paths=[self.test_case_folder]
+                    dal=mock_dal, additional_search_paths=[self.test_case_folder]
                 )
                 new_runbook_toolset.enabled = toolset.enabled
                 new_runbook_toolset.status = toolset.status
@@ -581,11 +742,10 @@ class MockToolsetManager:
                 yaml_toolset: YAMLToolset = toolset
 
                 # Block secret access to prevent LLM from reading code hints in secrets
-                security_check = """if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then
-                        echo "Not allowed to get kubernetes secrets"
-                        exit 1
-                      fi
-                      """
+                security_check = """# Security check (automatically added by test framework - can be ignored)
+if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not allowed to get kubernetes secrets"; exit 1; fi
+# Actual command follows:
+"""
 
                 for tool in yaml_toolset.tools:
                     if not isinstance(tool, YAMLTool):
@@ -603,17 +763,18 @@ class MockToolsetManager:
                             f"Tool '{tool.name}' in kubernetes/core has neither command nor script defined"
                         )
 
-            # Enable default toolsets
-            if toolset.is_default or isinstance(toolset, YAMLToolset):
-                toolset.enabled = True
-
             # Apply custom configuration if available
             definition = next(
                 (d for d in custom_definitions if d.name == toolset.name), None
             )
             if definition:
+                # If there's a custom definition, use it to determine enabled state
                 toolset.config = definition.config
                 toolset.enabled = definition.enabled
+            elif custom_definitions:
+                # toolsets.yaml exists (custom_definitions is non-empty) but this toolset isn't explicitly listed
+                # Disable it to ensure only explicitly enabled toolsets are loaded when toolsets.yaml is present
+                toolset.enabled = False
 
             # Add all toolsets to configured list
             configured.append(toolset)
@@ -621,40 +782,68 @@ class MockToolsetManager:
             # Check prerequisites for enabled toolsets with timeout
             # Only check prerequisites in LIVE mode - for MOCK/GENERATE modes we don't need real connections
             if toolset.enabled:
-                if self.mode == MockMode.LIVE or self.mode == MockMode.GENERATE:
+                toolset_mode = self._get_toolset_mode(toolset.name)
+                if toolset_mode == MockMode.LIVE or toolset_mode == MockMode.GENERATE:
                     try:
                         # TODO: add timeout
                         toolset.check_prerequisites()
-                    except Exception:
-                        logging.error(
-                            f"check_prerequisites failed for toolset {toolset.name}.",
-                            exc_info=True,
-                        )
+
+                        # If this toolset was explicitly enabled in the test config but failed prerequisites,
+                        # the test should fail (unless allow_toolset_failures is True)
+                        if (
+                            definition
+                            and definition.enabled
+                            and toolset.status != ToolsetStatusEnum.ENABLED
+                            and not self.allow_toolset_failures
+                        ):
+                            raise RuntimeError(
+                                f"Toolset '{toolset.name}' was explicitly enabled in toolsets.yaml "
+                                f"but failed prerequisites check: {toolset.error or 'Unknown error'}"
+                            )
+                    except Exception as e:
+                        # If this toolset was explicitly enabled in the test config, re-raise the error
+                        if definition and definition.enabled:
+                            raise RuntimeError(
+                                f"Toolset '{toolset.name}' was explicitly enabled in toolsets.yaml "
+                                f"but failed prerequisites check: {str(e)}"
+                            ) from e
+                        else:
+                            # Otherwise just log it - it was enabled by default, not explicitly
+                            logging.error(
+                                f"check_prerequisites failed for toolset {toolset.name}.",
+                                exc_info=True,
+                            )
                 else:
-                    # In MOCK/GENERATE modes, just set status to ENABLED for enabled toolsets
+                    # In MOCK mode, just set status to ENABLED for enabled toolsets
                     toolset.status = ToolsetStatusEnum.ENABLED
 
         return configured
 
     def _wrap_enabled_toolsets(self):
-        """Wrap tools with mock-aware wrappers for enabled toolsets in mock/generate modes."""
-        if self.mode == MockMode.LIVE:
-            # In live mode, no wrapping needed
-            return
-
-        # For mock/generate modes, wrap tools for enabled toolsets only
+        """Wrap tools with mock-aware wrappers for enabled toolsets based on their specific modes."""
+        # For each enabled toolset, determine its specific mode and wrap if needed
         for i, toolset in enumerate(self.toolsets):
             # Only wrap enabled toolsets
             if toolset.status == ToolsetStatusEnum.ENABLED:
                 # Never mock the runbook toolset - it needs to actually fetch runbooks
                 if toolset.name == "runbook":
                     continue
+                # Never mock the core_investigation toolset - TodoWrite and other investigation tools should always run live
+                if toolset.name == "core_investigation":
+                    continue
 
-                # Create wrapped tools
+                # Determine the mode for this specific toolset
+                toolset_mode = self._get_toolset_mode(toolset.name)
+
+                # Skip wrapping if toolset is in LIVE mode
+                if toolset_mode == MockMode.LIVE:
+                    continue
+
+                # Create wrapped tools with the toolset-specific mode
                 wrapped_tools = [
                     MockableToolWrapper(
                         tool=tool,
-                        mode=self.mode,
+                        mode=toolset_mode,
                         file_manager=self.file_manager,
                         toolset_name=toolset.name,
                         request=self.request,

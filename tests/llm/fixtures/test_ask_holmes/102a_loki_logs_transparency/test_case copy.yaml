@@ -1,0 +1,21 @@
+user_prompt: "Show me the logs for the pod ocean-explorer in namespace app-98"
+expected_output: |
+  Quotes or summarizes logs.
+  Explicitly mentions what time period logs were queried for
+
+before_test: |
+  kubectl create namespace app-98 || true
+  kubectl apply -f ./manifest.yaml
+
+after_test: |
+  kubectl delete -f ./manifest.yaml --ignore-not-found
+  kubectl delete namespace app-98 --ignore-not-found
+
+skip: true
+skip_reason: We need to test this with loki - with kubectl logs it just returns whatever is available (no time filter) which honestly is fine
+
+tags:
+  - logs
+  - transparency
+  - datetime
+  - medium

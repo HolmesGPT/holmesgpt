@@ -1,4 +1,4 @@
-{"toolset_name":"robusta","tool_name":"fetch_configuration_changes","match_params":{"start_datetime":"2025-06-12T00:00:00Z","end_datetime":"2025-06-12T23:59:59Z"}}
+{"toolset_name":"robusta","tool_name":"fetch_configuration_changes_metadata","match_params":{"start_datetime":"2025-06-12T00:00:00Z","end_datetime":"2025-06-12T23:59:59Z"}}
 {"schema_version": "robusta:v1.0.0", "status": "no_data", "error": null, "return_code": null, "url": null, "invocation": null, "params": {"start_datetime": "2025-06-12T00:00:00Z", "end_datetime": "2025-06-12T23:59:59Z"}}
 [
     {

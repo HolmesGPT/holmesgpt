@@ -1,7 +1,6 @@
-user_prompt: "What are the errors in pod robusta-holmes since June 12?"
+user_prompt: "What are the errors in pod robusta-holmes-7bfb7f85b7-2w9ck in namespace default since June 12? Use only logs to answer."
 tags:
   - logs
-  - synthetic
   - medium
 expected_output: |
   The following issues are mentioned either as direct quotes or in summarized form. It's ok if specific dates are not mentioned:
@@ -12,4 +11,4 @@ expected_output: |
 evaluation:
   correctness: 1
 
-# mock_policy: always_mock
+mock_policy: always_mock

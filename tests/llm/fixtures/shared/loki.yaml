@@ -16,6 +16,8 @@ spec:
     metadata:
       labels:
         app: loki
+      annotations:
+        admission.datadoghq.com/enabled: "false"
     spec:
       containers:
       - name: loki

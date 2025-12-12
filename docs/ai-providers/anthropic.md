@@ -8,10 +8,91 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
 ## Configuration
 
-```bash
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-holmes ask "what pods are failing?" --model="anthropic/<your-claude-model>"
-```
+=== "Holmes CLI"
+
+    ```bash
+    export ANTHROPIC_API_KEY="your-anthropic-api-key"
+    holmes ask "what pods are failing?" --model="anthropic/<your-claude-model>"
+    ```
+
+=== "Holmes Helm Chart"
+
+    **Create Kubernetes Secret:**
+    ```bash
+    kubectl create secret generic holmes-secrets \
+      --from-literal=anthropic-api-key="sk-ant-..." \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    additionalEnvVars:
+      - name: ANTHROPIC_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: holmes-secrets
+            key: anthropic-api-key
+
+    # Configure at least one model using modelList
+    modelList:
+      claude-sonnet-4:
+        api_key: "{{ env.ANTHROPIC_API_KEY }}"
+        model: claude-sonnet-4-20250514
+        temperature: 1
+        thinking:
+          budget_tokens: 10000
+          type: enabled
+
+      claude-opus-4:
+        api_key: "{{ env.ANTHROPIC_API_KEY }}"
+        model: anthropic/claude-opus-4-1-20250805
+        temperature: 1
+
+    # Optional: Set default model (use modelList key name)
+    config:
+      model: "claude-sonnet-4"  # This refers to the key name in modelList above
+    ```
+
+=== "Robusta Helm Chart"
+
+    **Create Kubernetes Secret:**
+    ```bash
+    kubectl create secret generic robusta-holmes-secret \
+      --from-literal=anthropic-api-key="sk-ant-..." \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: anthropic-api-key
+
+      # Configure at least one model using modelList
+      modelList:
+        claude-sonnet-4:
+          api_key: "{{ env.ANTHROPIC_API_KEY }}"
+          model: claude-sonnet-4-20250514
+          temperature: 1
+          thinking:
+            budget_tokens: 10000
+            type: enabled
+
+        claude-opus-4:
+          api_key: "{{ env.ANTHROPIC_API_KEY }}"
+          model: anthropic/claude-opus-4-1-20250805
+          temperature: 1
+
+      # Optional: Set default model (use modelList key name)
+      config:
+        model: "claude-sonnet-4"  # This refers to the key name in modelList above
+    ```
 
 ## Using CLI Parameters
 

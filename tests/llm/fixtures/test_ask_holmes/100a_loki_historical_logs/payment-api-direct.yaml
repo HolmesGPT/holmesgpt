@@ -1,0 +1,53 @@
+# Payment API deployment with direct Loki push (no Promtail)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api-100a
+  namespace: app-100a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-api-100a
+  template:
+    metadata:
+      labels:
+        app: payment-api-100a
+      annotations:
+        admission.datadoghq.com/enabled: "false"
+    spec:
+      containers:
+      # Main application container with direct Loki push
+      - name: payment-api
+        image: python:3.9-slim
+        command: ["python", "/app/app-direct-push.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-script
+          mountPath: /app
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: app-script
+        secret:
+          secretName: payment-api-100a-script
+          defaultMode: 0755

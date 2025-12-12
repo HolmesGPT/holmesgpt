@@ -1,0 +1,81 @@
+name: Run eval regression tests
+
+on:
+  pull_request:
+    branches: ["*"]
+  push:
+    branches: [master]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  llm_evals:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup HolmesGPT environment
+        uses: ./.github/actions/setup-holmes-env
+        with:
+          python-version: '3.12'
+          install-kubectl: 'true'
+
+      - name: Setup KIND cluster
+        uses: ./.github/actions/setup-kind-cluster
+        with:
+          cluster-name: 'kind'
+          wait-for-ready: 'true'
+
+      - name: Check if tests should run
+        id: check-tests
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]] || [[ -n "${{ secrets.AZURE_API_KEY }}" && -n "${{ secrets.BRAINTRUST_API_KEY }}" ]]; then
+            echo "should-run=true" >> $GITHUB_OUTPUT
+            echo "✅ Running tests - either not a PR or all required secrets are available"
+          else
+            echo "should-run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping tests - PR from fork without required secrets"
+          fi
+
+      - name: Run tests
+        if: steps.check-tests.outputs.should-run == 'true'
+        id: evals
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_LIVE: "true"
+          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
+          MODEL: ${{ vars.MODEL }}
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          UPLOAD_DATASET: "true"
+          EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
+          GENERATE_REGRESSIONS_FILE: "true"
+        run: |
+          poetry run pytest --no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m 'llm and easy and not no-cicd'
+      - name: Post evaluation results
+        if: always()
+        uses: ./.github/actions/post-eval-comment
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          report-file: 'evals_report.md'
+          comment-identifier: '## Results of HolmesGPT evals'
+          delete-previous: 'true'
+      - name: Check test results
+        if: always()
+        run: |
+          if [[ -f "regressions.txt" ]]; then
+            echo "⚠️ There are regressions in the evals. Please check the evals file for details."
+            cat regressions.txt
+          else
+            echo "✅ All tests passed without regressions."
+          fi

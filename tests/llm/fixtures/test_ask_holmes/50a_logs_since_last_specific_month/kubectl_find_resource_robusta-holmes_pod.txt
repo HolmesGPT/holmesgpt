@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"robusta-holmes"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep robusta-holmes", "params": {"kind": "pod", "keyword": "robusta-holmes"}}
-default                             robusta-holmes-6bbcd9f6f5-2q4jc                          1/1     Running                 6 (37m ago)        9d      10.244.1.63   kind-double-node-worker          <none>           <none>            app=holmes,pod-template-hash=7bfb7f85b7

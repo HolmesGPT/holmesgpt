@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
     DatadogMetricsToolset,
 )
+from tests.conftest import create_mock_tool_invoke_context
 
 
 @pytest.mark.skipif(
@@ -40,7 +41,9 @@ class TestDatadogMetricsLiveIntegration:
         # List metrics from the last hour
         params = {"from_time": "-3600"}  # 1 hour ago
 
-        result = list_metrics_tool._invoke(params)
+        result = list_metrics_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         assert (
             result.status.value == "success"
@@ -70,7 +73,9 @@ class TestDatadogMetricsLiveIntegration:
             "tag_filter": "kube_node_name:kind-double-node-control-plane",
         }
 
-        result = list_metrics_tool._invoke(params)
+        result = list_metrics_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         if result.status.value == "success":
             lines = result.data.split("\n")
@@ -115,7 +120,9 @@ class TestDatadogMetricsLiveIntegration:
                 "to_time": end_time.isoformat(),
             }
 
-            result = query_metrics_tool._invoke(params)
+            result = query_metrics_tool._invoke(
+                params, context=create_mock_tool_invoke_context()
+            )
 
             if result.status.value == "success":
                 data = json.loads(result.data)
@@ -164,7 +171,9 @@ class TestDatadogMetricsLiveIntegration:
             "to_time": end_time.isoformat(),
         }
 
-        result = query_metrics_tool._invoke(params)
+        result = query_metrics_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         if result.status.value == "success":
             data = json.loads(result.data)
@@ -191,7 +200,9 @@ class TestDatadogMetricsLiveIntegration:
 
         # Test single metric
         params_single = {"metric_names": "system.cpu.user"}
-        result = metadata_tool._invoke(params_single)
+        result = metadata_tool._invoke(
+            params_single, context=create_mock_tool_invoke_context()
+        )
 
         assert result.status.value == "success"
         data = json.loads(result.data)
@@ -207,7 +218,9 @@ class TestDatadogMetricsLiveIntegration:
         ]
 
         params = {"metric_names": ", ".join(metrics_to_check)}
-        result = metadata_tool._invoke(params)
+        result = metadata_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         assert result.status.value == "success"
         data = json.loads(result.data)
@@ -248,7 +261,7 @@ class TestDatadogMetricsLiveIntegration:
             "to_time": end_time.isoformat(),
         }
 
-        result = query_tool._invoke(params)
+        result = query_tool._invoke(params, context=create_mock_tool_invoke_context())
 
         # Should either return NO_DATA or SUCCESS with empty series
         assert result.status.value in ["no_data", "success"]
@@ -263,7 +276,10 @@ class TestDatadogMetricsLiveIntegration:
         metadata_tool = self.toolset.tools[2]
 
         # Test list metrics response
-        list_result = list_tool._invoke({"from_time": int(time.time() - 3600)})
+        list_result = list_tool._invoke(
+            {"from_time": int(time.time() - 3600)},
+            context=create_mock_tool_invoke_context(),
+        )
         assert hasattr(list_result, "status")
         assert hasattr(list_result, "data") or hasattr(list_result, "error")
         assert hasattr(list_result, "params")
@@ -274,13 +290,17 @@ class TestDatadogMetricsLiveIntegration:
                 "query": "avg:system.load.1{*}",
                 "from_time": "2024-01-01T00:00:00Z",
                 "to_time": "2024-01-01T01:00:00Z",
-            }
+            },
+            context=create_mock_tool_invoke_context(),
         )
         assert hasattr(query_result, "status")
         assert hasattr(query_result, "data") or hasattr(query_result, "error")
 
         # Test metadata response
-        metadata_result = metadata_tool._invoke({"metric_name": "system.cpu.idle"})
+        metadata_result = metadata_tool._invoke(
+            {"metric_name": "system.cpu.idle"},
+            context=create_mock_tool_invoke_context(),
+        )
         assert hasattr(metadata_result, "status")
         assert hasattr(metadata_result, "data") or hasattr(metadata_result, "error")
 
@@ -299,7 +319,7 @@ class TestDatadogMetricsLiveIntegration:
             "to_time": end_time.isoformat(),
         }
 
-        result = query_tool._invoke(params)
+        result = query_tool._invoke(params, context=create_mock_tool_invoke_context())
         assert result.status.value in ["success", "no_data"]
 
         # Test with relative time (negative integer)
@@ -309,12 +329,16 @@ class TestDatadogMetricsLiveIntegration:
             "to_time": end_time.isoformat(),
         }
 
-        result = query_tool._invoke(params_relative)
+        result = query_tool._invoke(
+            params_relative, context=create_mock_tool_invoke_context()
+        )
         assert result.status.value in ["success", "no_data"]
 
         # Test with missing time parameters (should use defaults)
         params_no_time = {"query": "avg:system.cpu.user{*}"}
-        result_no_time = query_tool._invoke(params_no_time)
+        result_no_time = query_tool._invoke(
+            params_no_time, context=create_mock_tool_invoke_context()
+        )
         assert result_no_time.status.value in ["success", "no_data"]
 
         if result_no_time.status.value == "success":

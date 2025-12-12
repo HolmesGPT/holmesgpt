@@ -6,6 +6,7 @@ from typing import Any, Optional, Tuple, Dict, List
 from requests import RequestException, Timeout  # type: ignore
 from holmes.core.tools import (
     Tool,
+    ToolInvokeContext,
     ToolParameter,
     Toolset,
     ToolsetTag,
@@ -15,7 +16,7 @@ from markdownify import markdownify
 from bs4 import BeautifulSoup
 
 import requests  # type: ignore
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
@@ -25,7 +26,7 @@ INTERNET_TOOLSET_USER_AGENT = os.environ.get(
     "Mozilla/5.0 (X11; Linux x86_64; rv:128.0; holmesgpt;) Gecko/20100101 Firefox/128.0",
 )
 INTERNET_TOOLSET_TIMEOUT_SECONDS = int(
-    os.environ.get("INTERNET_TOOLSET_TIMEOUT_SECONDS", "60")
+    os.environ.get("INTERNET_TOOLSET_TIMEOUT_SECONDS", "5")
 )
 
 SELECTORS_TO_REMOVE = [
@@ -186,7 +187,7 @@ class FetchWebpage(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         url: str = params["url"]
 
         additional_headers = (
@@ -197,7 +198,7 @@ class FetchWebpage(Tool):
         if not content:
             logging.error(f"Failed to retrieve content from {url}")
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to retrieve content from {url}",
                 params=params,
             )
@@ -209,7 +210,7 @@ class FetchWebpage(Tool):
             content = html_to_markdown(content)
 
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS,
+            status=StructuredToolResultStatus.SUCCESS,
             data=content,
             params=params,
         )
@@ -268,7 +269,7 @@ class InternetToolset(InternetBaseToolset):
             tools=[
                 FetchWebpage(self),
             ],
-            docs_url="https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/internet.html",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/internet/",
             tags=[
                 ToolsetTag.CORE,
             ],

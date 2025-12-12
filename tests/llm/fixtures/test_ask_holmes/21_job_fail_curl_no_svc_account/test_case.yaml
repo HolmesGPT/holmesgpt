@@ -1,6 +1,9 @@
 user_prompt: "Why get-data job failed?"
+description: |
+  The scenario here is that job is created without a service account. The job pod creation fails.
+  Then the service account is being created. The job pod creation succeeds. and fails due to invalid host name.
+  To succeed, Holmes needs to look beyond the initial misleading history of the job failing due to missing service account.
 tags:
-  - misleading-history
   - hard
 expected_output:
   - The output must state that either the exact URL http://kldsvklnsdiogjerkngernjk23432i90erfefjio.com/fsdkhjsadfjhsadfjsadu343 or the host kldsvklnsdiogjerkngernjk23432i90erfefjio.com could not be resolved to an IP address.
@@ -13,6 +16,3 @@ before_test: |
 after_test: |
   kubectl delete -f ./job-service-account-event/get-data-job.yaml
   kubectl delete -f ./job-service-account-event/get-data-service-account.yaml
-# The scenario here is that job is created without a service account. The job pod creation fails.
-# Then the service account is being created. The job pod creation succeeds. and fails due to invalid host name.
-# Currently holmes is able to answer the question correctly only around 10% of the time.

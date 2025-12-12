@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from tests.llm.utils.test_results import TestStatus, TestResult
+from holmes.common.env_vars import RECOMMENDED_OPENAI_MODEL
 
 
 class ResultType(Enum):
@@ -19,7 +20,8 @@ class ResultType(Enum):
     SKIPPED = "skipped"
     SETUP_FAILED = "setup_failed"
     MOCK_FAILED = "mock_failed"
-    VALID_RUNS = "valid_runs"  # Not skipped or setup failed
+    THROTTLED = "throttled"  # API throttling/overload
+    VALID_RUNS = "valid_runs"  # Not skipped, setup failed, or throttled
     ALL = "all"
 
 
@@ -51,22 +53,27 @@ def count_results(results: List[dict], result_type: ResultType) -> int:
     if result_type == ResultType.MOCK_FAILED:
         return sum(1 for r in results if r.get("mock_data_failure", False))
 
+    if result_type == ResultType.THROTTLED:
+        return sum(1 for r in results if r.get("failed_due_to_throttling", False))
+
     if result_type == ResultType.FAILED:
-        # Real failures (not mock or setup)
+        # Real failures (not mock, setup, or throttled)
         return sum(
             1
             for r in results
             if not TestStatus(r).passed
             and not r.get("mock_data_failure", False)
             and not r.get("is_setup_failure", False)
+            and not r.get("failed_due_to_throttling", False)
             and r.get("status") != "skipped"
         )
 
     if result_type == ResultType.VALID_RUNS:
-        # Runs that actually executed (not skipped or setup failed)
+        # Runs that actually executed (not skipped, setup failed, or throttled)
         skipped = count_results(results, ResultType.SKIPPED)
         setup_failed = count_results(results, ResultType.SETUP_FAILED)
-        return len(results) - skipped - setup_failed
+        throttled = count_results(results, ResultType.THROTTLED)
+        return len(results) - skipped - setup_failed - throttled
 
     raise ValueError(f"Unknown result type: {result_type}")
 
@@ -306,7 +313,7 @@ def _get_llm_analysis(result: TestResult) -> str:
 
     try:
         response = completion(
-            model="gpt-4o",
+            model=RECOMMENDED_OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200,
             temperature=0.1,
@@ -317,7 +324,10 @@ def _get_llm_analysis(result: TestResult) -> str:
 
 
 def _get_status_emoji(
-    pass_pct: float, setup_fail: bool = False, all_skipped: bool = False
+    pass_pct: float,
+    setup_fail: bool = False,
+    all_skipped: bool = False,
+    all_throttled: bool = False,
 ) -> str:
     """Get the appropriate emoji based on pass percentage and status.
 
@@ -325,12 +335,15 @@ def _get_status_emoji(
         pass_pct: Pass percentage (0-100)
         setup_fail: Whether all runs were setup failures
         all_skipped: Whether all runs were skipped
+        all_throttled: Whether all runs were throttled
 
     Returns:
         Emoji string representing the status
     """
+    if all_throttled:
+        return "🚫"
     if all_skipped:
-        return "⏭️"
+        return "➖"
     if setup_fail:
         return "🔧"
     if pass_pct == 100.0:
@@ -558,6 +571,7 @@ class TestStatistics:
         passed = count_results(results, ResultType.PASSED)
         skipped = count_results(results, ResultType.SKIPPED)
         setup_failures = count_results(results, ResultType.SETUP_FAILED)
+        throttled = count_results(results, ResultType.THROTTLED)
         valid_runs = count_results(results, ResultType.VALID_RUNS)
 
         times = [r.get("execution_time", 0) for r in results if r.get("execution_time")]
@@ -571,6 +585,7 @@ class TestStatistics:
             "passed": passed,
             "skipped": skipped,
             "setup_failures": setup_failures,
+            "throttled": throttled,
             "times": times,
             "avg_time": sum(times) / len(times) if times else None,
             "valid_runs": valid_runs,
@@ -641,6 +656,8 @@ class TestStatistics:
                 "passed": 0,
                 "skipped": 0,
                 "setup_failures": 0,
+                "throttled": 0,
+                "valid_runs": 0,
                 "pass_rate": 0,
                 "avg_time": None,
                 "p90_time": None,
@@ -651,19 +668,22 @@ class TestStatistics:
         total_passed = sum(s["passed"] for s in valid_summaries)
         total_skipped = sum(s["skipped"] for s in valid_summaries)
         total_setup_fail = sum(s["setup_failures"] for s in valid_summaries)
+        total_throttled = sum(s.get("throttled", 0) for s in valid_summaries)
         total_cost = sum(s.get("total_cost", 0) for s in valid_summaries)
 
         all_times = []
         for s in valid_summaries:
             all_times.extend(s["times"])
 
-        valid_runs = total_runs - total_skipped - total_setup_fail
+        valid_runs = total_runs - total_skipped - total_setup_fail - total_throttled
 
         return {
             "runs": total_runs,
             "passed": total_passed,
             "skipped": total_skipped,
             "setup_failures": total_setup_fail,
+            "throttled": total_throttled,
+            "valid_runs": valid_runs,
             "pass_rate": (total_passed / valid_runs * 100) if valid_runs > 0 else 0,
             "avg_time": sum(all_times) / len(all_times) if all_times else None,
             "p90_time": _calculate_p90(all_times) if all_times else None,
@@ -988,24 +1008,26 @@ def _print_tag_performance_table(sorted_results: List[dict], console: Console) -
     separator_row = _create_separator_row([18] + [16] * len(stats.models))
     tag_table.add_row(*separator_row, style="dim")
 
-    # Add overall row
-    overall_row = ["[bold]Overall[/bold]"]
+    # Add unique tests row (counting each test only once, regardless of tags)
+    unique_row = ["[bold]Unique Tests[/bold]"]
     for model in stats.models:
-        if overall_by_model[model]["total"] > 0:
-            overall_passed = overall_by_model[model]["passed"]
-            overall_total = overall_by_model[model]["total"]
-            overall_pct = overall_passed / overall_total * 100
+        # Get unique test counts from model summary
+        model_summary = stats.get_model_summary(model)
+        if model_summary["runs"] > 0:
+            unique_passed = model_summary["passed"]
+            unique_total = model_summary["valid_runs"]
+            unique_pct = model_summary["pass_rate"]
 
             # Choose color based on percentage
-            color = _get_pass_color(overall_pct, bold=True)
+            color = _get_pass_color(unique_pct, bold=True)
 
-            overall_row.append(
-                f"[{color}]{overall_pct:.0f}%[/{color}] ({overall_passed}/{overall_total})"
+            unique_row.append(
+                f"[{color}]{unique_pct:.0f}%[/{color}] ({unique_passed}/{unique_total})"
             )
         else:
-            overall_row.append("—")
+            unique_row.append("—")
 
-    tag_table.add_row(*overall_row)
+    tag_table.add_row(*unique_row)
 
     console.print(tag_table)
 
@@ -1025,6 +1047,23 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
     """Print a summary statistics table similar to pytest coverage reports."""
     if not sorted_results:
         return
+
+    # Check if any tests had retries
+    tests_with_retries = 0
+    total_retry_time = 0
+    for result in sorted_results:
+        if result.get("had_retries", False):
+            tests_with_retries += 1
+            total_retry_time += result.get("retry_wait_time", 0)
+
+    # Display retry warning prominently if any retries occurred
+    if tests_with_retries > 0:
+        console.print(
+            f"\n[bold yellow]⚠️  API THROTTLING DETECTED[/bold yellow]\n"
+            f"[yellow]{tests_with_retries} test(s) required retries due to API rate limiting/overload[/yellow]\n"
+            f"[yellow]Total time spent waiting for retries: {total_retry_time}s ({total_retry_time // 60}m {total_retry_time % 60}s)[/yellow]\n"
+            f"[dim]Use --no-retry-on-throttle to disable automatic retries[/dim]\n"
+        )
 
     # Group results by test name (without iteration number)
     test_groups: Dict[str, List[dict]] = defaultdict(list)
@@ -1061,6 +1100,7 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
     total_setup_fail = 0
     total_mock_fail = 0
     total_skip = 0
+    total_throttled = 0
 
     for test_name in sorted(test_groups.keys()):
         results = test_groups[test_name]
@@ -1068,6 +1108,7 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
         # Skip entirely skipped tests
         if all(r.get("status") == "skipped" for r in results):
             total_skip += len(results)
+            total_runs += len(results)  # Count skipped tests in total runs
             continue
 
         runs = count_results(results, ResultType.ALL)
@@ -1081,6 +1122,8 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
         # Determine pass percentage display
         all_skipped = all(r.get("status") == "skipped" for r in results)
         all_setup_fail = setup_failures == runs
+        throttled = count_results(results, ResultType.THROTTLED)
+        all_throttled = throttled == runs
 
         # Calculate pass percentage from valid runs
         valid_runs = count_results(results, ResultType.VALID_RUNS)
@@ -1097,9 +1140,12 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
         total_fail += other_failures
         total_setup_fail += setup_failures
         total_mock_fail += mock_failures
+        total_throttled += throttled
 
         # Format pass percentage with color (no emoji)
-        if all_skipped:
+        if all_throttled:
+            pass_pct_str = "[red]Throttled[/red]"
+        elif all_skipped:
             pass_pct_str = "[cyan]Skipped[/cyan]"
         elif all_setup_fail:
             pass_pct_str = "[magenta]Setup Fail[/magenta]"
@@ -1128,8 +1174,8 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
     summary_table.add_row(*separator_row, style="dim")
 
     # Add totals row
-    # Calculate valid runs (exclude skipped and setup-failed runs)
-    total_valid_runs = total_runs - total_skip - total_setup_fail
+    # Calculate valid runs (exclude skipped, setup-failed, and throttled runs)
+    total_valid_runs = total_runs - total_skip - total_setup_fail - total_throttled
     total_pass_pct = _calculate_pass_percentage(total_pass, total_valid_runs)
 
     # Format total pass percentage with color (no emoji)
@@ -1143,9 +1189,7 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
     # Use bold color for total row
     total_color = _get_pass_color(total_pass_pct, bold=True)
 
-    total_pass_pct_str = (
-        f"[{total_color}]{total_pass_pct:.1f}%[/{total_color}]{total_indicators}"
-    )
+    total_pass_pct_str = f"[{total_color}]{total_pass_pct:.1f}% ({total_pass}/{total_valid_runs})[/{total_color}]{total_indicators}"
 
     summary_table.add_row(
         "TOTAL",

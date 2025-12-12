@@ -59,7 +59,7 @@ holmes:
 | Tool Name | Description |
 |-----------|-------------|
 | fetch_finding_by_id | Fetches detailed metadata about a specific Robusta finding (alerts, deployment updates, etc.) including historical context |
-| fetch_configuration_changes | Retrieves all configuration changes in a given time range, optionally filtered by namespace or workload |
+| fetch_configuration_changes_metadata | Retrieves all configuration changes in a given time range, optionally filtered by namespace or workload |
 | fetch_resource_recommendation | Provides resource optimization recommendations based on actual historical usage for Deployments, StatefulSets, DaemonSets, and Jobs |
 
 ## Use Cases

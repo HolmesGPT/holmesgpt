@@ -1,4 +1,5 @@
 user_prompt: "Find 'query failed' in the logs of my-app-53"
+setup_timeout: 300
 tags:
   - logs
   - easy
@@ -12,7 +13,7 @@ before_test: |
     --from-file=generate_logs.py=./generate_logs.py \
     -n ask-holmes-namespace-53 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f ./manifest.yaml
-  kubectl wait --for=condition=available deployment/my-app-53 -n ask-holmes-namespace-53 --timeout=90s
+  kubectl wait --for=condition=available deployment/my-app-53 -n ask-holmes-namespace-53 --timeout=180s
 
 after_test: |
   kubectl delete -f ./manifest.yaml

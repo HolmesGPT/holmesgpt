@@ -1,0 +1,189 @@
+.graph-visualization {
+  margin: 1rem 0;
+  border: 1px solid #e9ecef;
+  border-radius: 0.5rem;
+  background: #fff;
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+}
+
+.graph-container {
+  padding: 1rem;
+}
+
+.graph-header {
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 0.5rem;
+}
+
+.graph-header h4 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.query {
+  display: block;
+  background: #f8f9fa;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.85rem;
+  color: #666;
+  border: 1px solid #e9ecef;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.chart-container {
+  height: 300px;
+  margin-bottom: 1rem;
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.no-data {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 2rem;
+  background: #f8f9fa;
+  border-radius: 0.25rem;
+  margin: 1rem 0;
+}
+
+.graph-metadata {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e9ecef;
+  color: #666;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* Grafana-like styling for the chart area */
+.chart-container canvas {
+  background: #fafafa;
+  border-radius: 0.25rem;
+}
+
+/* Custom scrollable legend */
+.custom-legend {
+  margin-top: 1rem;
+  border-top: 1px solid #e9ecef;
+  padding-top: 0.75rem;
+}
+
+.legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-height: 120px;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 4px;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  background: #fafafa;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Vertical legend layout for many series or long labels */
+.legend-items.vertical {
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  max-height: 200px;
+  gap: 6px;
+}
+
+.legend-items.vertical .legend-item {
+  width: 100% !important;
+  justify-content: flex-start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.legend-item:hover {
+  background: #f8f9fa;
+  border-color: #adb5bd;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-label {
+  color: #495057;
+  font-weight: 500;
+}
+
+/* Scrollbar styling for legend */
+.legend-items::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.legend-items::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.legend-items::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.legend-items::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* For Firefox */
+.legend-items {
+  scrollbar-width: thin;
+  scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+/* Responsive legend */
+@media (max-width: 768px) {
+  .legend-items {
+    max-height: 100px;
+  }
+
+  .legend-items.vertical {
+    max-height: 150px;
+  }
+
+  .legend-item {
+    font-size: 11px;
+    padding: 3px 6px;
+  }
+
+  .legend-color {
+    width: 10px;
+    height: 10px;
+  }
+}

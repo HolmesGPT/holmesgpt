@@ -1,0 +1,186 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bidder-app-v1
+  namespace: app-161
+type: Opaque
+stringData:
+  app.py: |
+    from flask import Flask, Response, jsonify, request
+    from prometheus_client import Counter, Histogram, Gauge, Info, generate_latest, CONTENT_TYPE_LATEST
+    import time
+    import random
+    import logging
+    import os
+
+    app = Flask(__name__)
+
+    # Disable logging for cleaner test
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    app.logger.disabled = True
+
+    # Version info
+    VERSION = "v1.0"
+
+    # Get metadata from environment
+    NAMESPACE = os.environ.get('NAMESPACE', 'app-161')
+    POD_NAME = os.environ.get('POD_NAME', os.environ.get('HOSTNAME', 'unknown'))
+    SERVICE = os.environ.get('SERVICE_NAME', 'bidder')
+
+    # Prometheus metrics with standard k8s labels
+    bid_requests = Counter(
+        'bid_requests_total',
+        'Total bid requests processed',
+        ['namespace', 'pod', 'service', 'exchange', 'decision']
+    )
+
+    request_duration = Histogram(
+        'bid_request_duration_seconds',
+        'Bid request processing duration',
+        ['namespace', 'pod', 'service', 'exchange'],
+        buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    )
+
+    build_info = Info('bidder_build', 'Build information')
+    build_info.info({'version': VERSION, 'commit': 'abc123', 'branch': 'main'})
+
+    @app.route('/healthz')
+    def health():
+        return 'ok'
+
+    @app.route('/bid', methods=['POST'])
+    def process_bid():
+        # v1.0 - Fast processing
+        processing_time = 0.04 + random.uniform(0, 0.02)  # 40-60ms
+        time.sleep(processing_time)
+
+        data = request.get_json() or {}
+        exchange = data.get('exchange', 'NordPool')
+
+        # 10% bid rate (realistic for energy markets)
+        decision = 'bid' if random.random() < 0.1 else 'no_bid'
+
+        bid_requests.labels(
+            namespace=NAMESPACE,
+            pod=POD_NAME,
+            service=SERVICE,
+            exchange=exchange,
+            decision=decision
+        ).inc()
+        request_duration.labels(
+            namespace=NAMESPACE,
+            pod=POD_NAME,
+            service=SERVICE,
+            exchange=exchange
+        ).observe(processing_time)
+
+        return jsonify({
+            'decision': decision,
+            'version': VERSION,
+            'processing_time': processing_time
+        })
+
+    @app.route('/metrics')
+    def metrics():
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=8080)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bidder
+  namespace: app-161
+  labels:
+    app: bidder
+    version: v1.0
+  annotations:
+    kubernetes.io/change-cause: "Initial deployment of energy bidding service v1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bidder
+  template:
+    metadata:
+      labels:
+        app: bidder
+        version: v1.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: bidder
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:2.2
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/app.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: SERVICE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['app']
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 30  # 5 + 5*30 = 155 seconds max startup time
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: app-code
+        secret:
+          secretName: bidder-app-v1
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bidder
+  namespace: app-161
+  labels:
+    app: bidder
+spec:
+  selector:
+    app: bidder
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http

@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: service-code-secret
+stringData:
+  sales_emitter.py: |
+    import os, time, random, requests
+
+    NR_METRIC_ENDPOINT = os.getenv("NR_METRIC_ENDPOINT", "https://metric-api.newrelic.com/metric/v1")
+    NEW_RELIC_LICENSE_KEY = os.getenv("NEW_RELIC_LICENSE_KEY", "undefined")
+
+    # Identity / attributes (tweak as you like)
+    APP_NAME     = os.getenv("APP_NAME", "sales-metrics")
+    SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "sales-emitter")
+    CLUSTER_NAME = os.getenv("CLUSTER_NAME", "do-fra1-tomer")
+    REGION       = os.getenv("REGION", "EMEA")
+    STORE_ID     = os.getenv("STORE_ID", "store-42")
+    CURRENCY     = os.getenv("CURRENCY", "USD")
+    METRIC_NAME  = os.getenv("METRIC_NAME", "sales.amount")
+    INTERVAL_SEC = float(os.getenv("SEND_INTERVAL_SEC", "10"))
+
+    def headers():
+      return {"Content-Type": "application/json", "Api-Key": NEW_RELIC_LICENSE_KEY}
+
+    def now_ms():
+      return int(time.time() * 1000)
+
+    def payload(ts_ms: int, amount: float):
+      return [{
+        "common": {
+          "attributes": {
+            "app": APP_NAME,
+            "service.name": SERVICE_NAME,
+            "cluster.name": CLUSTER_NAME,
+            "region": REGION,
+            "store.id": STORE_ID,
+            "currency": CURRENCY
+          }
+        },
+        "metrics": [
+          {
+            "name": METRIC_NAME,
+            "type": "gauge",
+            "value": round(amount, 2),
+            "timestamp": ts_ms,
+            "attributes": { "unit": CURRENCY }
+          }
+        ]
+      }]
+
+    def emit_forever():
+      print(f"[sales-emitter] sending {METRIC_NAME} to {NR_METRIC_ENDPOINT} (store={STORE_ID}, region={REGION})")
+      while True:
+        amt = random.uniform(100, 200)
+        body = payload(now_ms(), amt)
+        try:
+          r = requests.post(NR_METRIC_ENDPOINT, json=body, headers=headers(), timeout=8)
+          r.raise_for_status()
+        except Exception as e:
+          print(f"[WARN] metric send failed: {e}")
+        time.sleep(INTERVAL_SEC)
+
+    if __name__ == "__main__":
+      emit_forever()
+
+  requirements.txt: |
+    requests>=2.24,<3.0
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sales-metrics-tester-9x1
+  labels:
+    app: sales-metrics
+spec:
+  containers:
+    - name: sales-emitter
+      image: python:3.10
+      command: ["/bin/bash", "-c", "pip install --no-cache-dir -r /app/requirements.txt && python /app/sales_emitter.py"]
+      env:
+        - name: NEW_RELIC_LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: newrelickey
+              key: key
+
+        # Optional: tweak attributes
+        - name: CLUSTER_NAME
+          value: "do-fra1-tomer"
+        - name: REGION
+          value: "EMEA"
+        - name: STORE_ID
+          value: "store-42"
+        - name: APP_NAME
+          value: "sales-metrics"
+        - name: OTEL_SERVICE_NAME
+          value: "sales-emitter"
+        - name: CURRENCY
+          value: "USD"
+        - name: SEND_INTERVAL_SEC
+          value: "10"
+        # - name: NR_METRIC_ENDPOINT
+        #   value: "https://metric-api.eu.newrelic.com/metric/v1"  # use this for EU accounts
+
+      volumeMounts:
+        - name: service-code
+          mountPath: /app
+  volumes:
+    - name: service-code
+      secret:
+        secretName: service-code-secret

@@ -1,0 +1,13 @@
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  grafana/tempo:
+    enabled: false
+  newrelic:
+    enabled: true
+    config:
+      nr_account_id: "{{env.NEW_RELIC_ACCOUNT_ID}}"
+      nr_api_key: "{{env.NEW_RELIC_API_KEY}}"
+      is_eu_datacenter: false # set "{{env.NEW_RELIC_IS_EU}}" with true to use eu

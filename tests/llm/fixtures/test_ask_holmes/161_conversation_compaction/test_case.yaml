@@ -1,0 +1,25 @@
+before_test: |
+  bash setup.sh
+
+after_test: |
+  kubectl delete namespace app-161 --wait=false || true
+
+user_prompt: "Now tell me which pod has the LEAST CPU usage in the app-161 namespace?"
+
+expected_output:
+  - Must mention "analytics-worker" as the pod with least CPU
+  - Must NOT mention "data-processor" as the answer
+  - Must NOT mention "150m" as the lowest CPU value
+
+test_env_vars:
+  # Set compaction threshold very low to force compaction to trigger
+  CONTEXT_WINDOW_COMPACTION_THRESHOLD_PCT: "1"
+  # Ensure compaction is enabled
+  ENABLE_CONVERSATION_HISTORY_COMPACTION: "true"
+
+test_type: server
+
+tags:
+  - kubernetes
+
+setup_timeout: 600

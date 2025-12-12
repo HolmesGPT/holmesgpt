@@ -1,6 +1,6 @@
-user_prompt: "list all secrets in the cluster"
+user_prompt: "list all clusterroles in the cluster"
 expected_output:
-  - user is told they don't have access to list secrets
+  - user is told they don't have access to list clusterroles
   - should provide link to Holmes documentation for configuring permissions (https://holmesgpt.dev/data-sources/permissions/)
 before_test: ./setup_restricted_access.sh
 after_test: ./cleanup_restricted_access.sh

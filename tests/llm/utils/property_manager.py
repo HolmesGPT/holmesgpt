@@ -64,6 +64,13 @@ def set_trace_properties(request, eval_span) -> None:
             ("braintrust_root_span_id", str(eval_span.root_span_id))
         )
 
+    # Store the experiment name so we can generate correct URLs later
+    import os
+
+    experiment_name = os.environ.get("EXPERIMENT_ID")
+    if experiment_name:
+        request.node.user_properties.append(("braintrust_experiment", experiment_name))
+
 
 def update_property(request, key: str, value: Any) -> None:
     """Update an existing property value instead of appending a duplicate."""
@@ -119,9 +126,59 @@ def update_test_results(
             if isinstance(test_case.evaluation.correctness, Evaluation):
                 evaluation_type = test_case.evaluation.correctness.type
 
-        # Evaluate correctness
+        # Build evaluation output, optionally including intermediate responses and tool calls
+        evaluation_output = output or ""
+
+        # Check if we should include intermediate outputs (based on CLI flag, defaults to True)
+        include_intermediate = request.config.getoption("include_intermediate", True)
+
+        # If flag is set and we have the full result with messages, include intermediate LLM outputs
+        if (
+            include_intermediate
+            and result
+            and hasattr(result, "messages")
+            and result.messages
+        ):
+            intermediate_outputs = []
+            for msg in result.messages:
+                # Include assistant messages (LLM outputs) but skip tool messages
+                if msg.get("role") == "assistant" and msg.get("content"):
+                    # Skip if this is the final output we already have
+                    if msg["content"] != output:
+                        intermediate_outputs.append(msg["content"])
+
+            # If we have intermediate outputs, include them before the final output
+            if intermediate_outputs:
+                evaluation_output = "## Intermediate LLM Outputs:\n\n"
+                for i, intermediate in enumerate(intermediate_outputs, 1):
+                    evaluation_output += f"### Step {i}:\n{intermediate}\n\n"
+                evaluation_output += f"## Final Output:\n{output}"
+
+        # Also include tool calls if requested
+        if (
+            test_case.include_tool_calls
+            and result
+            and hasattr(result, "tool_calls")
+            and result.tool_calls
+        ):
+            # Format tool calls as a string to include in evaluation
+            tool_calls_text = "\n\n# Tool Calls\n\n"
+            for i, tc in enumerate(result.tool_calls, 1):
+                tool_calls_text += f"* Tool #{i}: {tc.description}\n"
+                if hasattr(tc, "result") and tc.result:
+                    # Don't truncate - LLM judge needs complete output for accurate evaluation
+                    output_text = str(tc.result)
+                    # Indent the output for readability
+                    indented_output = "\n".join(
+                        f"  {line}" for line in output_text.split("\n")
+                    )
+                    tool_calls_text += f"Output:\n{indented_output}\n"
+                tool_calls_text += "---\n"
+            evaluation_output = evaluation_output + tool_calls_text
+
+        # Evaluate correctness with combined output
         correctness_eval = evaluate_correctness(
-            output=output,
+            output=evaluation_output,
             expected_elements=expected,
             parent_span=eval_span,
             evaluation_type=evaluation_type,
@@ -175,12 +232,6 @@ def update_test_results(
     return scores
 
 
-def update_mock_error(request, error: Exception) -> None:
-    """Update properties when a mock error occurs."""
-    update_property(request, "actual", f"Mock data error: {str(error)}")
-    request.node.user_properties.append(("mock_data_failure", True))
-
-
 def handle_test_error(
     request,
     error: Exception,
@@ -232,11 +283,23 @@ def handle_test_error(
         if partial_output:
             request.node.user_properties.append(("partial_output", partial_output))
 
-    # Check if this is a MockDataError
-    is_mock_error = "MockDataError" in error_type or any(
-        "MockData" in base.__name__ for base in type(error).__mro__
+    # Check if this is a ThrottledError
+    is_throttled_error = "ThrottledError" in error_type or any(
+        "ThrottledError" in cls.__name__ for cls in type(error).__mro__
     )
 
+    if is_throttled_error:
+        # Mark as failed due to throttling (terminal failure after max retries)
+        request.node.user_properties.append(("failed_due_to_throttling", True))
+        request.node.user_properties.append(("throttle_reason", str(error)))
+        return  # Don't check for other error types
+
+    # Check if this is a MockDataError (check class name and inheritance)
+    is_mock_error = any("MockData" in cls.__name__ for cls in type(error).__mro__)
+
     if is_mock_error:
-        # Update properties for mock error
-        update_mock_error(request, error)
+        # Mark as mock data failure
+        request.node.user_properties.append(("mock_data_failure", True))
+        request.node.user_properties.append(("mock_error_message", str(error)))
+        # Update the actual output to indicate mock data failure
+        update_property(request, "actual", f"Mock data error: {str(error)}")

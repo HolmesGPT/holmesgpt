@@ -1,0 +1,46 @@
+tags:
+  - compaction
+  - hard
+
+expected_output: |
+  The conversation captures a complex multi-phase investigation into application errors with multiple interconnected issues.
+
+  **Phase 1: Frontend Investigation**
+  - Initial symptom: Users reporting 500 errors from web application
+  - Finding: Frontend service healthy, errors originating from API gateway timeouts
+
+  **Phase 2: API Gateway Analysis**
+  - API gateway timing out when calling auth-service
+  - Auth-service response time: 45 seconds (normal: <1s)
+  - Auth-service pods experiencing high memory usage (1.8GB / 2GB)
+
+  **Phase 3: Auth-Service Deep Dive**
+  - Memory leak identified: unclosed Redis connections accumulating
+  - Redis connection pool exhaustion after 6 hours of runtime
+  - Evidence: 2,500+ open connections to Redis (max pool: 100)
+
+  **Phase 4: Redis Investigation**
+  - Redis maxclients limit reached: 10,000 connections
+  - Multiple services affected, not just auth-service
+  - Root cause: Connection leak in shared Redis client library v2.3.1
+
+  **Phase 5: Dependency Analysis**
+  - Identified 5 services using vulnerable Redis client version: auth-service, session-service, cache-service, rate-limiter, analytics-service
+  - All showing similar connection leak patterns
+  - Library bug: Connections not released on timeout exceptions
+
+  **Phase 6: Solution Implementation**
+  - Upgraded Redis client library from v2.3.1 to v2.4.2 (contains fix)
+  - Restarted affected services to clear leaked connections
+  - Increased Redis maxclients to 20,000 as safety buffer
+  - Added monitoring for connection pool utilization
+
+  **Final Impact:**
+  - Cascading failure affecting 5 microservices
+  - Caused by shared library bug discovered in Phase 4
+  - Required coordinated deployment across multiple services
+
+description: |
+  Stress test with 100+ messages covering a complex multi-phase investigation. Tests the ability
+  to maintain coherence and preserve key findings across a very long conversation with multiple
+  phases, services, and interconnected issues.

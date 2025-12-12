@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-117
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: app-117
+type: Opaque
+stringData:
+  POSTGRES_DB: "demo"
+  POSTGRES_USER: "demo"
+  POSTGRES_PASSWORD: "demo-password"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-sql
+  namespace: app-117
+data:
+  00_init.sql: |
+    -- Minimal schema for the demo
+    CREATE TABLE IF NOT EXISTS orders (
+      order_id   UUID PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      item_id    TEXT NOT NULL,
+      qty        INTEGER NOT NULL CHECK (qty > 0),
+      amount     NUMERIC(10,2) NOT NULL CHECK (amount >= 0),
+      status     TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_orders_user_created
+      ON orders (user_id, created_at DESC);
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: app-117
+  labels:
+    app: postgres
+spec:
+  clusterIP: None            # Headless for stable pod DNS (postgres-0.postgres.app-117.svc)
+  selector:
+    app: postgres
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: app-117
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+      volumes:
+        - name: init-sql
+          configMap:
+            name: postgres-init-sql
+      containers:
+        - name: postgres
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: pg
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >
+                  pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30     # ~150s max to get fully up on cold start
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >
+                  pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >
+                  pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: postgres
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

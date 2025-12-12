@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import Optional, Dict, Any
 import requests  # type: ignore
 from functools import cache
 from pydantic import BaseModel, ConfigDict
@@ -14,18 +14,30 @@ class HolmesInfo(BaseModel):
     latest_version: Optional[str] = None
 
 
-@cache
-def fetch_robusta_models(account_id, token) -> Optional[List[str]]:
+class RobustaModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    model: str
+    holmes_args: Optional[dict[str, Any]] = None
+    is_default: bool = False
+
+
+class RobustaModelsResponse(BaseModel):
+    models: Dict[str, RobustaModel]
+
+
+def fetch_robusta_models(
+    account_id: str, token: str
+) -> Optional[RobustaModelsResponse]:
     try:
         session_request = {"session_token": token, "account_id": account_id}
         resp = requests.post(
-            f"{ROBUSTA_API_ENDPOINT}/api/llm/models",
+            f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2",
             json=session_request,
             timeout=10,
         )
         resp.raise_for_status()
         response_json = resp.json()
-        return response_json.get("models")
+        return RobustaModelsResponse(**{"models": response_json})
     except Exception:
         logging.exception("Failed to fetch robusta models")
         return None

@@ -1,0 +1,9 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:10160

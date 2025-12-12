@@ -1,15 +1,20 @@
 # KAITO Integration for HolmesGPT
 
-<div align="center">
-  <h3>Enhanced HolmesGPT with KAITO Model Support</h3>
-  
-Enhanced version of HolmesGPT with optimized support for KAITO-deployed models on Azure Kubernetes Service (AKS). This integration provides specialized prompting and behavior optimizations for running HolmesGPT investigations with KAITO-managed LLMs.
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11586/badge)](https://www.bestpractices.dev/projects/11586)
+
+>🎉 **HolmesGPT is now a CNCF Sandbox Project!**  
+HolmesGPT was originally created by [Robusta.Dev](https://home.robusta.dev/) and is a CNCF sandbox project.
+
+Find more about HolmesGPT's maintainers and adopters [here](./ADOPTERS.md).
+
+📚 **[Read the full documentation at holmesgpt.dev](https://holmesgpt.dev/)** for installation guides, tutorials, API reference, and more.
 
   <p align="center">
-    <a href="#what-is-kaito"><strong>What is KAITO</strong></a> |
-    <a href="#quick-start"><strong>Quick Start</strong></a> |
-    <a href="#supported-models"><strong>Supported Models</strong></a> |
-    <a href="#configuration"><strong>Configuration</strong></a>
+    <a href="#how-it-works"><strong>How it Works</strong></a> |
+    <a href="#installation"><strong>Installation</strong></a> |
+    <a href="#supported-llm-providers"><strong>LLM Providers</strong></a> |
+    <a href="https://www.youtube.com/watch?v=TfQfx65LsDQ"><strong>YouTube Demo</strong></a> |
+    <a href="https://deepwiki.com/HolmesGPT/holmesgpt"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 </div>
 
@@ -219,9 +224,16 @@ holmes ask "analyze this error pattern" \
 
 ### Model Selection Guidelines
 
-- **Llama 3.1 8B**: Best for focused, single-issue investigations
-- **Mistral 7B**: Recommended for complex multi-system analysis
-- **Larger Models**: Use for comprehensive cluster-wide investigations
+You can view an example config file with all available settings [here](config.example.yaml).
+
+### Tool Output Transformers
+
+HolmesGPT supports **transformers** to process large tool outputs before sending them to your primary LLM. This feature helps manage context window limits while preserving essential information.
+
+The most common transformer is `llm_summarize`, which uses a fast secondary model to summarize lengthy outputs from tools like `kubectl describe`, log queries, or metrics collection.
+
+📖 **Learn more**: [Tool Output Transformers Documentation](docs/transformers.md)
+</details>
 
 ### Resource Optimization
 
@@ -250,19 +262,16 @@ mixtral-8x7b-instruct:
 <details>
 <summary>KAITO model not responding</summary>
 
-```bash
-# Check KAITO workspace status
-kubectl get workspace
+- [Introduction to HolmesGPT's evals](https://holmesgpt.dev/development/evaluations/).
+- [Write your own evals](https://holmesgpt.dev/development/evaluations/adding-evals/).
+- [Use Braintrust to view analyze results (optional)](https://holmesgpt.dev/development/evaluations/reporting/).
 
 # Check model pod readiness
 kubectl get pods -l app=your-model-name
 
-# Test direct model access
-curl -X POST http://your-model-service/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "Hello"}], "max_tokens": 100}'
-```
-</details>
+## License
+Distributed under the Apache 2.0 License. See [LICENSE](https://github.com/HolmesGPT/holmesgpt/blob/master/LICENSE) for more information.
+<!-- Change License -->
 
 <details>
 <summary>Slow investigation performance</summary>
@@ -280,28 +289,18 @@ llm_config:
 ```
 </details>
 
-<details>
-<summary>Memory or context limitations</summary>
+Join our community to discuss the HolmesGPT roadmap and share feedback:
 
-```yaml
-llm_config:
-  kaito_mode: true
-  investigation:
-    compact_output: true  # Reduces verbose tool outputs
-    max_tools_per_turn: 3  # Limits parallel tool execution
-```
-</details>
-
-## Integration Details
-
-This enhanced version includes:
+📹 **First Community Meetup Recording:** [Watch on YouTube](https://youtu.be/slQRc6nlFQU)
+- **Topics:** Roadmap discussion, community feedback, and Q&A
+- **Resources:** [📝 Meeting Notes](https://docs.google.com/document/d/1sIHCcTivyzrF5XNvos7ZT_UcxEOqgwfawsTbb9wMJe4/edit?tab=t.0) | [📋 Community Page](https://holmesgpt.dev/community/)
 
 - **Consolidated KAITO Prompting**: Specialized templates optimized for KAITO model characteristics
 - **Automatic Model Detection**: Smart detection of KAITO environments and model types
 - **Performance Optimizations**: Reduced token usage and improved investigation efficiency
 - **Clean Architecture**: KAITO-specific code separated from core HolmesGPT functionality
 
-## Contributing
+If you have any questions, feel free to message us on [HolmesGPT Slack Channel](https://cloud-native.slack.com/archives/C0A1SPQM5PZ)
 
 Found an issue or want to add support for a new KAITO model?
 
@@ -309,8 +308,7 @@ Found an issue or want to add support for a new KAITO model?
 2. Document any model-specific quirks or limitations
 3. Submit a PR with optimizations if needed
 
-## Related Projects
+For help, contact us on [Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ) or ask [DeepWiki AI](https://deepwiki.com/HolmesGPT/holmesgpt) your questions.
 
-- [KAITO](https://github.com/Azure/kaito) - Kubernetes AI Toolkit Operator
-- [HolmesGPT](https://github.com/HolmesGPT/holmesgpt) - AI Agent for Cloud Troubleshooting  
-- [AKS](https://azure.microsoft.com/en-us/services/kubernetes-service/) - Azure Kubernetes Service
+Please make sure to follow the CNCF code of conduct - [details here](https://github.com/HolmesGPT/holmesgpt/blob/master/CODE_OF_CONDUCT.md).
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/HolmesGPT/holmesgpt)

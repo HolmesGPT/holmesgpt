@@ -1,5 +1,5 @@
 from unittest.mock import Mock, patch
-from holmes.core.tools import ToolResultStatus, ToolsetStatusEnum
+from holmes.core.tools import StructuredToolResultStatus, ToolsetStatusEnum
 from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
     DatadogLogsToolset,
     DataDogStorageTier,
@@ -17,7 +17,10 @@ class TestDatadogToolsetCheckPrerequisites:
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.FAILED
-        assert toolset.error == "The toolset is missing its configuration"
+        assert (
+            toolset.error
+            == "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
+        )
 
     def test_check_prerequisites_empty_config(self):
         """Test check_prerequisites with empty config"""
@@ -26,7 +29,10 @@ class TestDatadogToolsetCheckPrerequisites:
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.FAILED
-        assert toolset.error == "The toolset is missing its configuration"
+        assert (
+            toolset.error
+            == "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
+        )
 
     def test_check_prerequisites_missing_required_fields(self):
         """Test check_prerequisites with missing required fields"""
@@ -61,7 +67,7 @@ class TestDatadogToolsetCheckPrerequisites:
         """Test check_prerequisites with successful healthcheck"""
         # Mock successful healthcheck response
         mock_result = Mock()
-        mock_result.status = ToolResultStatus.SUCCESS
+        mock_result.status = StructuredToolResultStatus.SUCCESS
         mock_result.error = None
         mock_fetch_pod_logs.return_value = mock_result
 
@@ -97,7 +103,7 @@ class TestDatadogToolsetCheckPrerequisites:
         """Test check_prerequisites with healthcheck returning error"""
         # Mock healthcheck error response
         mock_result = Mock()
-        mock_result.status = ToolResultStatus.ERROR
+        mock_result.status = StructuredToolResultStatus.ERROR
         mock_result.error = "Authentication failed"
         mock_fetch_pod_logs.return_value = mock_result
 
@@ -117,7 +123,7 @@ class TestDatadogToolsetCheckPrerequisites:
         """Test check_prerequisites with healthcheck returning no data"""
         # Mock healthcheck no data response
         mock_result = Mock()
-        mock_result.status = ToolResultStatus.NO_DATA
+        mock_result.status = StructuredToolResultStatus.NO_DATA
         mock_result.error = None
         mock_fetch_pod_logs.return_value = mock_result
 
@@ -157,7 +163,7 @@ class TestDatadogToolsetCheckPrerequisites:
         """Test check_prerequisites with custom configuration"""
         # Mock successful healthcheck response
         mock_result = Mock()
-        mock_result.status = ToolResultStatus.SUCCESS
+        mock_result.status = StructuredToolResultStatus.SUCCESS
         mock_result.error = None
         mock_fetch_pod_logs.return_value = mock_result
 

@@ -1,10 +1,6 @@
 # ruff: noqa: E402
 import os
-from typing import List, Optional
 
-import litellm
-import sentry_sdk
-from holmes import get_version, is_official_release
 from holmes.utils.cert_utils import add_custom_certificate
 
 ADDITIONAL_CERTIFICATE: str = os.environ.get("CERTIFICATE", "")
@@ -13,6 +9,14 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
+import json
+from typing import List, Optional
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.core.prompt import generate_user_prompt
+import litellm
+import sentry_sdk
+from holmes import get_version, is_official_release
+
 from holmes.core import investigation
 from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
@@ -34,7 +38,6 @@ from holmes.common.env_vars import (
     DEVELOPMENT_MODE,
     SENTRY_TRACES_SAMPLE_RATE,
 )
-from holmes.core.supabase_dal import SupabaseDal
 from holmes.config import Config
 from holmes.core.conversations import (
     build_chat_messages,
@@ -55,7 +58,7 @@ from holmes.core.models import (
 from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.global_instructions import add_global_instructions_to_user_prompt
+# removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
@@ -78,11 +81,15 @@ def init_logging():
 
 init_logging()
 config = Config.load_from_env()
-dal = SupabaseDal(config.cluster_name)
+dal = config.dal
 
 
 def sync_before_server_start():
-    config.load_robusta_api_key(dal=dal)
+    if not dal.enabled:
+        logging.info(
+            "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
+        )
+        return
     try:
         update_holmes_status_in_db(dal, config)
     except Exception:
@@ -110,7 +117,6 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             {
                 "account_id": dal.account_id,
                 "cluster_name": config.cluster_name,
-                "model_name": config.model,
                 "version": get_version(),
                 "environment": environment,
             }
@@ -146,11 +152,13 @@ if LOG_PERFORMANCE:
 @app.post("/api/investigate")
 def investigate_issues(investigate_request: InvestigateRequest):
     try:
+        runbooks = config.get_runbook_catalog()
         result = investigation.investigate_issues(
             investigate_request=investigate_request,
             dal=dal,
             config=config,
             model=investigate_request.model,
+            runbooks=runbooks,
         )
         return result
 
@@ -192,8 +200,8 @@ def stream_investigate_issues(req: InvestigateRequest):
 
 @app.post("/api/workload_health_check")
 def workload_health_check(request: WorkloadHealthRequest):
-    config.load_robusta_api_key(dal=dal)
     try:
+        runbooks = config.get_runbook_catalog()
         resource = request.resource
         workload_alerts: list[str] = []
         if request.alert_history:
@@ -201,23 +209,25 @@ def workload_health_check(request: WorkloadHealthRequest):
                 resource, request.alert_history_since_hours
             )
 
-        instructions = request.instructions or []
+        issue_instructions = request.instructions or []
+        stored_instructions = None
         if request.stored_instrucitons:
             stored_instructions = dal.get_resource_instructions(
                 resource.get("kind", "").lower(), resource.get("name")
             )
-            if stored_instructions:
-                instructions.extend(stored_instructions.instructions)
-
-        nl = "\n"
-        if instructions:
-            request.ask = f"{request.ask}\n My instructions for the investigation '''{nl.join(instructions)}'''"
 
         global_instructions = dal.get_global_instructions_for_account()
-        request.ask = add_global_instructions_to_user_prompt(
-            request.ask, global_instructions
-        )
 
+        runbooks_ctx = generate_runbooks_args(
+            runbook_catalog=runbooks,
+            global_instructions=global_instructions,
+            issue_instructions=issue_instructions,
+            resource_instructions=stored_instructions,
+        )
+        request.ask = generate_user_prompt(
+            request.ask,
+            runbooks_ctx,
+        )
         ai = config.create_toolcalling_llm(dal=dal, model=request.model)
 
         system_prompt = load_and_render_prompt(
@@ -227,6 +237,7 @@ def workload_health_check(request: WorkloadHealthRequest):
                 "toolsets": ai.tool_executor.toolsets,
                 "response_format": workload_health_structured_output,
                 "cluster_name": config.cluster_name,
+                "runbooks_enabled": True if runbooks else False,
             },
         )
 
@@ -242,7 +253,8 @@ def workload_health_check(request: WorkloadHealthRequest):
         return InvestigationResult(
             analysis=ai_call.result,
             tool_calls=ai_call.tool_calls,
-            instructions=instructions,
+            instructions=issue_instructions,
+            metadata=ai_call.metadata,
         )
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
@@ -258,7 +270,6 @@ def workload_health_conversation(
     request: WorkloadHealthChatRequest,
 ):
     try:
-        config.load_robusta_api_key(dal=dal)
         ai = config.create_toolcalling_llm(dal=dal, model=request.model)
         global_instructions = dal.get_global_instructions_for_account()
 
@@ -274,6 +285,7 @@ def workload_health_conversation(
             analysis=llm_call.result,
             tool_calls=llm_call.tool_calls,
             conversation_history=llm_call.messages,
+            metadata=llm_call.metadata,
         )
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
@@ -287,7 +299,7 @@ def workload_health_conversation(
 @app.post("/api/issue_chat")
 def issue_conversation(issue_chat_request: IssueChatRequest):
     try:
-        config.load_robusta_api_key(dal=dal)
+        runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=issue_chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
 
@@ -296,6 +308,7 @@ def issue_conversation(issue_chat_request: IssueChatRequest):
             ai=ai,
             config=config,
             global_instructions=global_instructions,
+            runbooks=runbooks,
         )
         llm_call = ai.messages_call(messages=messages)
 
@@ -303,6 +316,7 @@ def issue_conversation(issue_chat_request: IssueChatRequest):
             analysis=llm_call.result,
             tool_calls=llm_call.tool_calls,
             conversation_history=llm_call.messages,
+            metadata=llm_call.metadata,
         )
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
@@ -326,8 +340,7 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
-        config.load_robusta_api_key(dal=dal)
-
+        runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
         messages = build_chat_messages(
@@ -336,7 +349,10 @@ def chat(chat_request: ChatRequest):
             ai=ai,
             config=config,
             global_instructions=global_instructions,
+            additional_system_prompt=chat_request.additional_system_prompt,
+            runbooks=runbooks,
         )
+
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):
             follow_up_actions = [
@@ -363,18 +379,27 @@ def chat(chat_request: ChatRequest):
         if chat_request.stream:
             return StreamingResponse(
                 stream_chat_formatter(
-                    ai.call_stream(msgs=messages),
+                    ai.call_stream(
+                        msgs=messages,
+                        enable_tool_approval=chat_request.enable_tool_approval or False,
+                        tool_decisions=chat_request.tool_decisions,
+                    ),
                     [f.model_dump() for f in follow_up_actions],
                 ),
                 media_type="text/event-stream",
             )
         else:
             llm_call = ai.messages_call(messages=messages)
+
+            # For non-streaming, we need to handle approvals differently
+            # This is a simplified version - in practice, non-streaming with approvals
+            # would require a different approach or conversion to streaming
             return ChatResponse(
                 analysis=llm_call.result,
                 tool_calls=llm_call.tool_calls,
                 conversation_history=llm_call.messages,
                 follow_up_actions=follow_up_actions,
+                metadata=llm_call.metadata,
             )
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
@@ -387,7 +412,7 @@ def chat(chat_request: ChatRequest):
 
 @app.get("/api/model")
 def get_model():
-    return {"model_name": config.get_models_list()}
+    return {"model_name": json.dumps(config.get_models_list())}
 
 
 if __name__ == "__main__":

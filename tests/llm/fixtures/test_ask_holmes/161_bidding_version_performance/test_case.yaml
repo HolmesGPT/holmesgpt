@@ -1,0 +1,65 @@
+user_prompt:
+- "Users are reporting slow response times from the energy bidding service in namespace app-161. The service was working fine earlier today. Please investigate the cause of the latency."
+
+expected_output:
+  - Must identify that the service is running version v2.0 which has degraded performance
+  - Should compare metrics showing v2.0 processes requests in ~2 seconds vs v1.0's ~50ms
+#  - Should note that the service has more pods in v2.0 compared to v1.0 (as a consequence, not the main issue)
+#  - May mention high CPU usage across all pods
+  - Should conclude the root cause is the version change, not a capacity issue
+
+tags:
+  - kubernetes
+  - prometheus
+  - medium
+
+port_forwards:
+  - namespace: app-161
+    service: prometheus
+    local_port: 10161
+    remote_port: 9090
+
+setup_timeout: 360
+
+before_test: |
+  set -e
+
+  echo "📁 Creating namespace..."
+  kubectl create namespace app-161 --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "⚙️ Setting up monitoring..."
+  kubectl apply -f prometheus-config.yaml -n app-161
+  kubectl apply -f ../../shared/prometheus.yaml -n app-161
+
+  echo "🚀 Phase 1: Deploy v1.0 (fast version)..."
+  kubectl apply -f bidder-v1.yaml -n app-161
+  kubectl apply -f hpa.yaml -n app-161
+
+  echo "⏳ Waiting for v1.0 pods..."
+  kubectl wait --for=condition=ready pod -l app=prometheus -n app-161 --timeout=60s
+  kubectl wait --for=condition=ready pod -l app=bidder -n app-161 --timeout=60s
+
+  echo "📊 Generate traffic for v1.0 (2 minutes)..."
+  kubectl apply -f k6-v1-traffic.yaml -n app-161
+  kubectl wait --for=condition=complete job/k6-v1-traffic -n app-161 --timeout=150s
+
+  echo "🔄 Phase 2: Upgrade to v2.0 (slow version)..."
+  kubectl apply -f bidder-v2.yaml -n app-161
+
+  echo "⏳ Waiting for v2.0 rollout..."
+  kubectl rollout status deployment/bidder -n app-161 --timeout=60s
+
+  echo "📊 Generate traffic for v2.0 (2 minutes)..."
+  kubectl apply -f k6-v2-traffic.yaml -n app-161
+  kubectl wait --for=condition=complete job/k6-v2-traffic -n app-161 --timeout=150s
+
+  echo "⏳ Waiting for HPA to scale up..."
+  ./wait-for-scaling.sh
+
+  echo "🧹 Cleaning up k6 jobs to prevent AI detection"
+  kubectl delete jobs -n app-161 -l app=k6 --ignore-not-found=true
+
+  echo "✅ Test setup completed"
+
+after_test: |
+  kubectl delete namespace app-161 || true

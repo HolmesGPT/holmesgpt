@@ -2,7 +2,11 @@ import logging
 from typing import Any, Dict, List, Tuple, cast
 from datetime import datetime, timezone
 
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolInvokeContext,
+)
 from holmes.plugins.toolsets.azure_sql.azure_base_toolset import (
     BaseAzureSQLTool,
     BaseAzureSQLToolset,
@@ -192,7 +196,7 @@ class AnalyzeDatabasePerformance(BaseAzureSQLTool):
 
         return "\n".join(report_sections)
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             db_config = self.toolset.database_config()
             client = self.toolset.api_client()
@@ -204,7 +208,7 @@ class AnalyzeDatabasePerformance(BaseAzureSQLTool):
             report_text = self._build_performance_report(performance_data, db_config)
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=report_text,
                 params=params,
             )
@@ -212,7 +216,7 @@ class AnalyzeDatabasePerformance(BaseAzureSQLTool):
             error_msg = f"Failed to generate performance report: {str(e)}"
             logging.error(error_msg)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )

@@ -4,9 +4,7 @@ from pathlib import Path
 try:
     import tomllib
 except ImportError:
-    import tomli
-
-    tomllib = tomli
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 # Read pytest marks from pyproject.toml dynamically

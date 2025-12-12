@@ -18,6 +18,12 @@ poetry run pre-commit install
 ```
 
 ### Testing
+
+```bash
+# Install test dependencies with Poetry
+poetry install --with dev
+```
+
 ```bash
 # Run all non-LLM tests (unit and integration tests)
 make test-without-llm
@@ -80,6 +86,11 @@ poetry run mypy
 - Each toolset is a YAML file defining available tools and their parameters
 - Tools can be Python functions or bash commands with safety validation
 - Toolsets are loaded dynamically and can be customized via config files
+- **Important**: All toolsets MUST return detailed error messages from underlying APIs to enable LLM self-correction
+  - Include the exact query/command that was executed
+  - Include time ranges, parameters, and filters used
+  - Include the full API error response (status code and message)
+  - For "no data" responses, specify what was searched and where
 
 **LLM Integration**:
 - Uses LiteLLM for multi-provider support (OpenAI, Anthropic, Azure, etc.)
@@ -115,8 +126,14 @@ poetry run mypy
 # Run all LLM tests
 RUN_LIVE=true poetry run pytest -m 'llm' --no-cov
 
-# Run specific test
+# Run specific test - IMPORTANT: Use -k flag, NOT full test path!
+# CORRECT - use -k flag with test name pattern:
 RUN_LIVE=true poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
+RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
+
+# WRONG - DO NOT specify full test path with brackets:
+# RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
+# This syntax fails when environment variables are passed!
 
 # Run regression tests (easy marker) - all should pass with ITERATIONS=10
 RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
@@ -127,7 +144,15 @@ RUN_LIVE=true poetry run pytest tests/llm/ -n 6
 
 # Test with different models
 # Note: When using Anthropic models, set CLASSIFIER_MODEL to OpenAI (Anthropic not supported as classifier)
-RUN_LIVE=true MODEL=anthropic/claude-3.5-sonnet-20241022 CLASSIFIER_MODEL=gpt-4o poetry run pytest tests/llm/test_ask_holmes.py
+RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
+
+# Setting environment variables - IMPORTANT:
+# Environment variables must be set BEFORE the poetry command, NOT as pytest arguments
+# CORRECT:
+RUN_LIVE=true EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
+
+# WRONG - this won't work:
+# poetry run pytest EVAL_SETUP_TIMEOUT=600 -m 'llm' -k "slow_test"
 ```
 
 ### Evaluation CLI Reference
@@ -137,7 +162,7 @@ RUN_LIVE=true MODEL=anthropic/claude-3.5-sonnet-20241022 CLASSIFIER_MODEL=gpt-4o
 - `--skip-cleanup`: Skip after_test commands (useful for debugging)
 
 **Environment Variables**:
-- `MODEL`: LLM model to use (e.g., `gpt-4o`, `anthropic/claude-3-5-sonnet-20241022`)
+- `MODEL`: LLM model(s) to use - supports comma-separated list (e.g., `gpt-4.1` or `gpt-4.1,anthropic/claude-sonnet-4-20250514`)
 - `CLASSIFIER_MODEL`: Model for scoring answers (defaults to MODEL)
 - `HOLMES_TOOL_CHOICE`: Controls tool calling behavior (default: `auto`)
   - `auto`: Let the model decide when to use tools
@@ -160,8 +185,8 @@ RUN_LIVE=true MODEL=anthropic/claude-3.5-sonnet-20241022 CLASSIFIER_MODEL=gpt-4o
 RUN_LIVE=true ITERATIONS=100 poetry run pytest tests/llm/test_ask_holmes.py -k "flaky_test"
 
 # Model comparison workflow
-RUN_LIVE=true EXPERIMENT_ID=gpt4o_baseline MODEL=gpt-4o poetry run pytest tests/llm/ -n 6
-RUN_LIVE=true EXPERIMENT_ID=claude35_test MODEL=anthropic/claude-3-5-sonnet-20241022 CLASSIFIER_MODEL=gpt-4o poetry run pytest tests/llm/ -n 6
+RUN_LIVE=true EXPERIMENT_ID=gpt41_baseline MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
+RUN_LIVE=true EXPERIMENT_ID=claude_opus41_test MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
 
 # Debug with verbose output
 RUN_LIVE=true poetry run pytest -vv -s tests/llm/test_ask_holmes.py -k "failing_test" --no-cov
@@ -192,7 +217,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 **Config File Location**: `~/.holmes/config.yaml`
 
 **Key Configuration Sections**:
-- `model`: LLM model to use (default: gpt-4o)
+- `model`: LLM model to use (default: gpt-4.1)
 - `api_key`: LLM API key (or use environment variables)
 - `custom_toolsets`: Override or add toolsets
 - `custom_runbooks`: Add investigation runbooks
@@ -200,7 +225,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
-- `MODEL`: Override default model
+- `MODEL`: Override default model(s) - supports comma-separated list
 - `RUN_LIVE`: Use live tools in tests (strongly recommended)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
@@ -245,6 +270,32 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - **ALWAYS use `RUN_LIVE=true`** when testing evals to ensure tests match real-world behavior
 - Use `--skip-cleanup` when troubleshooting setup issues (resources remain after test)
 - Use `--skip-setup` if you are debugging the eval itself
+- **kubectl wait race condition warning**: Never use bare `kubectl wait --for=condition=ready pod -l app=foo` immediately after creating resources. This will fail with "no matching resources found" if the pod hasn't been scheduled yet. Instead, use a retry loop:
+  ```bash
+  # WRONG - fails if pod not scheduled yet
+  kubectl apply -f deployment.yaml
+  kubectl wait --for=condition=ready pod -l app=myapp --timeout=300s  # May fail immediately!
+
+  # CORRECT - retry loop handles race condition
+  kubectl apply -f deployment.yaml
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=myapp --timeout=5s 2>/dev/null; then
+      echo "✅ Pod is ready!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Pod failed to become ready after 300 seconds"
+    kubectl get pods -l app=myapp  # Show pod status for debugging
+    exit 1
+  fi
+  ```
 - Test cases can specify custom runbooks by adding a `runbooks` field in test_case.yaml:
   - `runbooks: {}` - No runbooks available (empty catalog)
   - `runbooks: {catalog: [...]}` - Custom runbook catalog with entries pointing to .md files in the same directory

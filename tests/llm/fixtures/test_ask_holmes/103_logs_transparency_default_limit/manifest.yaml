@@ -12,8 +12,8 @@ stringData:
     def main():
         print("Pod deep-diver starting...", flush=True)
 
-        # Generate a mix of log levels - more than default limit of 100
-        for i in range(1, 251):  # Generate 250 logs to ensure truncation
+        # Generate a mix of log levels
+        for i in range(1, 3000):
             timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
             if i % 4 == 0:

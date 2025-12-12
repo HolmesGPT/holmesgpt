@@ -14,21 +14,32 @@ Before running logs queries:
 
 ### CRITICAL: Pod Name Resolution Workflow
 
-**When user provides an exact pod name** (e.g., `my-workload-5f9d8b7c4d-x2km9`):
-- FIRST query Datadog directly with that pod name using appropriate tags
+**IMPORTANT WILDCARD USAGE:**
+- **ALWAYS use wildcards** when searching for pods unless you have the COMPLETE pod name with all suffixes
+- Kubernetes pod names include deployment hash + replica ID (e.g., `nginx-ingress-7b9899-x2km9`, `frontend-5f4d3b2a1-abc123`)
+- When user says "nginx pod" or "frontend pod", search for `nginx-*` or `frontend-*` NOT just `nginx` or `frontend`
+- Datadog supports wildcards: `*` matches any characters (e.g., `nginx-*`, `*ingress*`, `*-x2km9`)
+- For partial matches, use wildcards on both sides: `*keyword*` to find logs from any pod containing "keyword"
+
+**When user provides what looks like a complete pod name** (e.g., `my-workload-5f9d8b7c4d-x2km9`):
+- Query Datadog directly with that exact pod name
 - Do NOT try to verify if the pod exists in Kubernetes first
 - This allows querying historical pods that have been deleted/replaced
 
-**When user provides a generic workload name** (e.g., "my-workload", "nginx", "telemetry-processor"):
-- First use `kubectl_find_resource` to find actual pod names
-- Example: `kubectl_find_resource` with "my-workload" → finds pods like "my-workload-8f8cdfxyz-c7zdr"
-- Then use those specific pod names in Datadog queries
-- Alternative: Use deployment-level tags when appropriate
+**When user provides a simple/generic name** (e.g., "nginx", "redis", "payment-service", "auth"):
+- **DEFAULT ACTION: Use wildcards** - Query with `pod-name-*` pattern
+- For historical queries (yesterday, last week): ALWAYS use wildcards directly in Datadog
+- For current issues: Optionally use `kubectl_find_resource` to find exact pod names, but wildcards often work better
+- Examples:
+  - User says "nginx pod" → Query Datadog with `nginx-*`
+  - User says "redis instance" → Query Datadog with `redis-*`
+  - User says "payment service" → Query Datadog with `payment-*`
 
-**Why this matters:**
+**Why wildcards are critical:**
 - Pod names in Datadog are the actual Kubernetes pod names (with random suffixes)
-- Historical pods that no longer exist in the cluster can still have logs in Datadog
-- Deployment/service names alone are NOT pod names (they need the suffix)
+- Users typically refer to pods by their deployment/service name without suffixes
+- Without wildcards, queries for "nginx" will find NOTHING when actual pods are named "nginx-7b9899-x2km9"
+- Historical pods that no longer exist can only be found via Datadog with proper wildcard usage
 
 ### Time Parameters
 - Use RFC3339 format: `2023-03-01T10:30:00Z`

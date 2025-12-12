@@ -1,4 +1,5 @@
 user_prompt: "I got an alert about topic messages in Kafka in namespace app-156 having lags. Why?"
+setup_timeout: 420
 description: |
   Test case demonstrating a chain of causation for Kafka latency:
   1. Order service produces messages to Kafka topic
@@ -12,6 +13,9 @@ tags:
   - chain-of-causation
   - hard
   - logs
+
+skip: true
+skip_reason: problems with test setup - needs fixing
 
 expected_output:
 - The Kafka high latency is caused by lag in the analytics-service consumer group.
@@ -29,11 +33,28 @@ before_test: |
   # Stage 3: Deploy consumer (depends on Kafka and OpenSearch)
   kubectl apply -f ./app/stage3-consumer.yaml
 
-  # waiting for all of them together as setup takes a lot of time
-  kubectl wait --for=condition=ready pod -l app=zookeeper -n app-156 --timeout=120s
-  kubectl wait --for=condition=ready pod -l app=opensearch -n app-156 --timeout=180s
-  kubectl wait --for=condition=ready pod -l app=kafka -n app-156 --timeout=120s
-  kubectl wait --for=condition=ready pod -l app=analytics-service -n app-156 --timeout=120s
+  # Wait for deployments to be created before waiting for pods
+  sleep 5
+
+  # Wait for pods to exist (not necessarily ready)
+  echo "Waiting for pods to be scheduled..."
+  for i in {1..30}; do
+    POD_COUNT=$(kubectl get pods -n app-156 --no-headers 2>/dev/null | wc -l)
+    if [ "$POD_COUNT" -ge 4 ]; then
+      echo "Found $POD_COUNT pods, continuing..."
+      break
+    fi
+    echo "Waiting for pods to be created... ($i/30)"
+    sleep 2
+  done
+
+  # Wait for all pods in parallel (faster than sequential)
+  echo "Waiting for all pods to be ready..."
+  kubectl wait --for=condition=ready pod -l app=zookeeper -n app-156 --timeout=180s &
+  kubectl wait --for=condition=ready pod -l app=opensearch -n app-156 --timeout=180s &
+  kubectl wait --for=condition=ready pod -l app=kafka -n app-156 --timeout=180s &
+  kubectl wait --for=condition=ready pod -l app=analytics-service -n app-156 --timeout=180s &
+  wait
 
   # deploying producer later so no lag will build up
   # Stage 4: Deploy producer (depends only on Kafka)

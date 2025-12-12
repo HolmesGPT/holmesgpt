@@ -1,0 +1,5 @@
+{"toolset_name":"prometheus/metrics","tool_name":"list_available_metrics","match_params":{"type_filter":"counter","name_filter":"container_cpu_cfs_throttled_periods_total"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "url": null, "invocation": null, "params": {"type_filter": "counter", "name_filter": "container_cpu_cfs_throttled_periods_total"}, "icon_url": null}
+Metric | Description | Type | Labels
+----------------------------------------------------------------------------------------------------
+container_cpu_cfs_throttled_periods_total | Number of throttled period intervals. | counter | container, endpoint, id, image, instance, job, metrics_path, name, namespace, node, pod, service

@@ -1,0 +1,96 @@
+name: 'Setup KIND Cluster'
+description: 'Create and configure a KIND Kubernetes cluster for testing'
+
+inputs:
+  cluster-name:
+    description: 'Name of the KIND cluster'
+    required: false
+    default: 'kind'
+  wait-for-ready:
+    description: 'Whether to wait for cluster to be ready'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install KIND
+      shell: bash
+      run: |
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
+        kind version
+
+    - name: Create KIND cluster
+      shell: bash
+      run: |
+        cat <<EOF > kind-config.yaml
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        nodes:
+        - role: control-plane
+          extraPortMappings:
+          - containerPort: 30000
+            hostPort: 30000
+            protocol: TCP
+          - containerPort: 30001
+            hostPort: 30001
+            protocol: TCP
+          kubeadmConfigPatches:
+          - |
+            kind: InitConfiguration
+            nodeRegistration:
+              kubeletExtraArgs:
+                max-pods: "200"
+          - |
+            kind: KubeProxyConfiguration
+            metricsBindAddress: "0.0.0.0:10249"
+          - |
+            kind: KubeletConfiguration
+            maxPods: 200
+        - role: worker
+          kubeadmConfigPatches:
+          - |
+            kind: JoinConfiguration
+            nodeRegistration:
+              kubeletExtraArgs:
+                max-pods: "200"
+          - |
+            kind: KubeletConfiguration
+            maxPods: 200
+        EOF
+
+        # Create cluster with resource limits appropriate for GitHub Actions (7GB RAM, 2 CPU)
+        kind create cluster --name ${{ inputs.cluster-name }} --config kind-config.yaml --wait 5m
+
+        # Configure kubectl
+        kubectl cluster-info --context kind-${{ inputs.cluster-name }}
+
+    - name: Wait for cluster to be ready
+      if: inputs.wait-for-ready == 'true'
+      shell: bash
+      run: |
+        # Wait for all nodes to be ready
+        echo "Waiting for nodes to be ready..."
+        kubectl wait --for=condition=Ready nodes --all --timeout=300s
+        kubectl get nodes
+
+        # Wait for all system pods to be ready
+        echo "Waiting for system pods to be ready..."
+        kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+
+        # Verify cluster is working by creating a test pod
+        echo "Creating test pod to verify cluster..."
+        kubectl run test-pod --image=busybox:1.35 --restart=Never -- sleep 30
+        kubectl wait --for=condition=Ready pod/test-pod --timeout=180s || echo "Warning: Test pod did not become ready in time"
+        sleep 2  # Allow time for logs to be available
+        kubectl logs test-pod || echo "No logs available yet"
+        kubectl delete pod test-pod
+
+        # Show cluster info for debugging
+        echo "=== Cluster nodes ==="
+        kubectl get nodes -o wide
+        echo "=== System pods ==="
+        kubectl get pods -n kube-system
+        echo "=== Cluster is ready for tests ==="

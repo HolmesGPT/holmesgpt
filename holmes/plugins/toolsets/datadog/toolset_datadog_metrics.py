@@ -6,8 +6,9 @@ from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
     Tool,
+    ToolInvokeContext,
     ToolParameter,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
@@ -35,8 +36,6 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
 
 from datetime import datetime
 
-from holmes.utils.keygen_utils import generate_random_key
-
 
 class DatadogMetricsConfig(DatadogBaseConfig):
     default_limit: int = DEFAULT_LOG_LIMIT
@@ -54,7 +53,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
     def __init__(self, toolset: "DatadogMetricsToolset"):
         super().__init__(
             name="list_active_datadog_metrics",
-            description=f"List active metrics from Datadog for the last {ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS} hours. This includes metrics that have actively reported data points, including from pods no longer in the cluster.",
+            description=f"[datadog/metrics toolset] List active metrics from Datadog for the last {ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS} hours. This includes metrics that have actively reported data points, including from pods no longer in the cluster.",
             parameters={
                 "from_time": ToolParameter(
                     description=f"Start time for listing metrics. Can be an RFC3339 formatted datetime (e.g. '2023-03-01T10:30:00Z') or a negative integer for relative seconds from now (e.g. -86400 for 24 hours ago). Defaults to {ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS} hours ago",
@@ -75,10 +74,10 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.dd_config:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
@@ -119,7 +118,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             metrics = data.get("metrics", [])
             if not metrics:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     data="Your filter returned no metrics. Change your filter and try again",
                     params=params,
                 )
@@ -131,7 +130,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                 output.append(metric)
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data="\n".join(output),
                 params=params,
             )
@@ -147,10 +146,30 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                     f"and 'timeseries_query' permissions. Error: {str(e)}"
                 )
             else:
-                error_msg = f"Exception while querying Datadog: {str(e)}"
+                # Include full API error details for better debugging
+                error_msg = (
+                    f"Datadog API error (status {e.status_code}): {e.response_text}"
+                )
+                if params:
+                    # ListActiveMetrics parameters: from_time, host, tag_filter
+                    if params.get("host"):
+                        error_msg += f"\nHost filter: {params.get('host')}"
+                    if params.get("tag_filter"):
+                        error_msg += f"\nTag filter: {params.get('tag_filter')}"
+
+                    from_time_param = params.get("from_time")
+                    if from_time_param:
+                        time_desc = from_time_param
+                    else:
+                        time_desc = f"default (last {ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS} hours)"
+                    error_msg += f"\nTime range: {time_desc}"
+
+                    # Note: We cannot generate a Datadog Metrics Explorer URL for ListActiveMetrics
+                    # because the Metrics Explorer requires a specific metric query,
+                    # while ListActiveMetrics just lists available metrics without querying any specific one
 
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
                 invocation=json.dumps({"url": url, "params": query_params})
@@ -163,7 +182,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                 f"Failed to query Datadog metrics for params: {params}", exc_info=True
             )
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception while querying Datadog: {str(e)}",
                 params=params,
             )
@@ -182,7 +201,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
     def __init__(self, toolset: "DatadogMetricsToolset"):
         super().__init__(
             name="query_datadog_metrics",
-            description="Query timeseries data from Datadog for a specific metric, including historical data for pods no longer in the cluster",
+            description="[datadog/metrics toolset] Query timeseries data from Datadog for a specific metric, including historical data for pods no longer in the cluster",
             parameters={
                 "query": ToolParameter(
                     description="The metric query string (e.g., 'system.cpu.user{host:myhost}')",
@@ -215,10 +234,10 @@ class QueryMetrics(BaseDatadogMetricsTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.dd_config:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
@@ -257,9 +276,29 @@ class QueryMetrics(BaseDatadogMetricsTool):
             output_type = params.get("output_type", "Plain")
 
             if not series:
+                # Include detailed context in error message
+                from_time_param = params.get("from_time")
+                to_time_param = params.get("to_time")
+
+                if from_time_param:
+                    from_desc = from_time_param
+                else:
+                    from_desc = (
+                        f"default (last {DEFAULT_TIME_SPAN_SECONDS // 86400} days)"
+                    )
+
+                to_desc = to_time_param or "now"
+
+                error_msg = (
+                    f"The query returned no data.\n"
+                    f"Query: {params.get('query', 'not specified')}\n"
+                    f"Time range: {from_desc} to {to_desc}\n"
+                    f"Please check your query syntax and ensure data exists for this time range."
+                )
+
                 return StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
-                    error="The query returned no data. Please check your query syntax and time range.",
+                    status=StructuredToolResultStatus.NO_DATA,
+                    error=error_msg,
                     params=params,
                 )
 
@@ -300,7 +339,6 @@ class QueryMetrics(BaseDatadogMetricsTool):
             response_data = {
                 "status": "success",
                 "error_message": None,
-                "random_key": generate_random_key(),
                 "tool_name": self.name,
                 "description": description,
                 "query": query,
@@ -313,7 +351,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
 
             data_str = json.dumps(response_data, indent=2)
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=data_str,
                 params=params,
             )
@@ -329,10 +367,28 @@ class QueryMetrics(BaseDatadogMetricsTool):
                     f"and 'timeseries_query' permissions. Error: {str(e)}"
                 )
             else:
-                error_msg = f"Exception while querying Datadog: {str(e)}"
+                # Include full API error details for better debugging
+                error_msg = (
+                    f"Datadog API error (status {e.status_code}): {e.response_text}"
+                )
+                if params:
+                    error_msg += f"\nQuery: {params.get('query', 'not specified')}"
+
+                    from_time_param = params.get("from_time")
+                    to_time_param = params.get("to_time")
+
+                    if from_time_param:
+                        from_desc = from_time_param
+                    else:
+                        from_desc = (
+                            f"default (last {DEFAULT_TIME_SPAN_SECONDS // 86400} days)"
+                        )
+
+                    to_desc = to_time_param or "now"
+                    error_msg += f"\nTime range: {from_desc} to {to_desc}"
 
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
                 invocation=json.dumps({"url": url, "params": query_params})
@@ -346,7 +402,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
             )
 
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception while querying Datadog: {str(e)}",
                 params=params,
             )
@@ -360,7 +416,7 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
     def __init__(self, toolset: "DatadogMetricsToolset"):
         super().__init__(
             name="get_datadog_metric_metadata",
-            description="Get metadata about one or more metrics including their type, description, unit, and other properties",
+            description="[datadog/metrics toolset] Get metadata about one or more metrics including their type, description, unit, and other properties",
             parameters={
                 "metric_names": ToolParameter(
                     description="Comma-separated list of metric names to get metadata for (e.g., 'system.cpu.user, system.mem.used')",
@@ -371,10 +427,10 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.dd_config:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
@@ -390,7 +446,7 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
 
             if not metric_names:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="metric_names cannot be empty",
                     params=params,
                 )
@@ -436,14 +492,14 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
 
             if not results and errors:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="Failed to retrieve metadata for all metrics",
                     data=json.dumps(response_data, indent=2),
                     params=params,
                 )
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=json.dumps(response_data, indent=2),
                 params=params,
             )
@@ -455,7 +511,7 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
             )
 
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception while querying Datadog: {str(e)}",
                 params=params,
             )
@@ -474,7 +530,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
     def __init__(self, toolset: "DatadogMetricsToolset"):
         super().__init__(
             name="list_datadog_metric_tags",
-            description="List all available tags and aggregations for a specific metric. This helps in building queries by showing what dimensions are available for filtering.",
+            description="[datadog/metrics toolset] List all available tags and aggregations for a specific metric. This helps in building queries by showing what dimensions are available for filtering.",
             parameters={
                 "metric_name": ToolParameter(
                     description="The name of the metric to get tags for (e.g., 'system.cpu.user', 'container.memory.usage')",
@@ -485,10 +541,10 @@ class ListMetricTags(BaseDatadogMetricsTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.dd_config:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
@@ -511,7 +567,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
             )
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=data,
                 params=params,
             )
@@ -529,10 +585,17 @@ class ListMetricTags(BaseDatadogMetricsTool):
                     f"permissions. Error: {str(e)}"
                 )
             else:
-                error_msg = f"Exception while querying Datadog: {str(e)}"
+                # Include full API error details for better debugging
+                error_msg = (
+                    f"Datadog API error (status {e.status_code}): {e.response_text}"
+                )
+                if params:
+                    error_msg += (
+                        f"\nMetric name: {params.get('metric_name', 'not specified')}"
+                    )
 
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
                 invocation=json.dumps({"url": url, "params": query_params})
@@ -546,7 +609,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
                 exc_info=True,
             )
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception while querying Datadog: {str(e)}",
                 params=params,
             )
@@ -563,7 +626,7 @@ class DatadogMetricsToolset(Toolset):
         super().__init__(
             name="datadog/metrics",
             description="Toolset for fetching metrics and metadata from Datadog, including historical data for pods no longer in the cluster",
-            docs_url="https://docs.datadoghq.com/api/latest/metrics/",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[
@@ -572,14 +635,13 @@ class DatadogMetricsToolset(Toolset):
                 QueryMetricsMetadata(toolset=self),
                 ListMetricTags(toolset=self),
             ],
-            experimental=True,
             tags=[ToolsetTag.CORE],
         )
         self._reload_instructions()
 
     def _perform_healthcheck(self, dd_config: DatadogMetricsConfig) -> Tuple[bool, str]:
         try:
-            logging.info("Performing Datadog metrics configuration healthcheck...")
+            logging.debug("Performing Datadog metrics configuration healthcheck...")
 
             url = f"{dd_config.site_api_url}/api/v1/validate"
             headers = get_headers(dd_config)
@@ -608,7 +670,7 @@ class DatadogMetricsToolset(Toolset):
         if not config:
             return (
                 False,
-                TOOLSET_CONFIG_MISSING_ERROR,
+                "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             )
 
         try:

@@ -29,11 +29,16 @@ spec:
       labels:
         app: tempo
     spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
       containers:
       - name: tempo
-        image: grafana/tempo:2.3.0
+        image: grafana/tempo:2.8.2
         args:
         - -config.file=/etc/tempo/tempo-config.yaml
+        - -target=all
         ports:
         - containerPort: 3200
           name: http
@@ -48,8 +53,8 @@ spec:
           mountPath: /var/tempo
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "50m"
+            memory: "64Mi"
+            cpu: "10m"
           limits:
             memory: "1Gi"
       volumes:
@@ -96,12 +101,6 @@ data:
             http:
               endpoint: 0.0.0.0:4318
 
-    ingester:
-      max_block_duration: 24h
-      trace_idle_period: 24h
-      max_block_bytes: 1000000000
-      complete_block_timeout: 48h
-
     compactor:
       compaction:
         block_retention: 17520h  # 2 years (730 days * 24 hours)
@@ -120,13 +119,30 @@ data:
     querier:
       frontend_worker:
         frontend_address: 127.0.0.1:9095
-      max_concurrent_queries: 10
+      max_concurrent_queries: 20 # Grafana docs says the default is 20
 
     query_frontend:
       max_batch_size: 5
+
+    metrics_generator:
+      ring:
+        kvstore:
+          store: inmemory
+      processor:
+        local_blocks:
+          filter_server_spans: false
+          flush_to_storage: true
+      storage:
+        path: /var/tempo/metrics
+      traces_storage:
+        path: /var/tempo/generator-wal
 
     overrides:
       max_traces_per_user: 10000
       ingestion_rate_limit_bytes: 15000000
       ingestion_burst_size_bytes: 20000000
       max_bytes_per_trace: 5000000
+      max_search_duration: 168h  # 1 week - maximum time range for searches
+      max_metrics_duration: 168h  # 1 week - maximum time range for metrics queries
+      metrics_generator_processors:
+        - local-blocks

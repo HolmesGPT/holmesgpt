@@ -1,0 +1,31 @@
+description: "Test if holmes pulls logs reliably"
+
+
+user_prompt:
+- give me a graph of the custom newrelic metric sales.amount and the currency
+
+expected_output:
+  - |
+   output contains something like << {"type": "newrelicql", "tool_name": "newrelic_execute_nrql_query", "tool_call_id": "..."} >>
+   the output mentions the currency is USD
+   also mentions its over 100
+
+tags:
+  - newrelic
+  - metrics
+  - embeds
+
+# Custom timeout for setup (needs 2 min sleep + setup time)
+setup_timeout: 240  # 4 minutes total
+
+# might need to run longer
+before_test: |
+  [ -n "${NEW_RELIC_ACCOUNT_ID:-}" ] && [ -n "${NEW_RELIC_API_KEY:-}" ] && [ -n "${NEW_RELIC_LICENSE_KEY:-}" ] || { for v in NEW_RELIC_ACCOUNT_ID NEW_RELIC_API_KEY NEW_RELIC_LICENSE_KEY; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+  kubectl create secret generic newrelickey --from-literal=key="${NEW_RELIC_LICENSE_KEY}"
+  kubectl apply -f ./sales.yaml
+  sleep 120
+
+
+after_test: |
+  kubectl delete secret newrelickey
+  kubectl delete -f ./sales.yaml

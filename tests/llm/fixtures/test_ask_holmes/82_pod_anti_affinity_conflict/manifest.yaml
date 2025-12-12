@@ -10,7 +10,7 @@ metadata:
   name: silver-puffin
   namespace: namespace-82
 spec:
-  replicas: 30  # Trying to schedule 30 pods (this eval assumes less than 30 nodes in cluster - otherwise the eval will be broken because scheduling can be satisfied)
+  replicas: 8  # Trying to schedule 8 pods with anti-affinity (enough to demonstrate the issue)
   selector:
     matchLabels:
       app: silver-puffin
@@ -31,8 +31,7 @@ spec:
         image: redis:alpine
         resources:
           requests:
-            memory: "64Mi"
-            cpu: "10m"
+            memory: "16Mi"
+            cpu: "5m"
           limits:
             memory: "64Mi"
-            cpu: "10m"

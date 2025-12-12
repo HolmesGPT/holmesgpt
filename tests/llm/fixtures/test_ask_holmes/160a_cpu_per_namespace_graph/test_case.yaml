@@ -1,0 +1,20 @@
+user_prompt: "Show me a graph of CPU per namespace"
+
+description: "tests holmes with a simple query, albeit one that might return too much data"
+
+expected_output:
+  - "Should execute a Prometheus query that aggregates CPU usage by namespace"
+  - "If the result turns too many data points, the tool query MUST be retried with a different variation. Answering when only getting a truncation error in unacceptable."
+
+tags:
+  - prometheus
+  - kubernetes
+
+# Port forward configuration for Prometheus
+port_forwards:
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 11160
+    remote_port: 9090
+
+include_tool_calls: true

@@ -1,0 +1,6 @@
+{
+  "id": "8fe8e24d-6b53-47a6-92a5-b389938fa823",
+  "symptom": "Kafka lag issues, consumer falling behind",
+  "title": "Kafka Topic and Application Mapping",
+  "instruction": "# Kafka Topic and Application Mapping\n\n## Topics and Data Flow\n\n### `finance` Topic\n**Purpose**: Order processing pipeline\n**Producer**: `orders-app`\n**Consumer**: `invoices-app`\n\n- **orders-app** generates customer orders\n- **invoices-app** consumes orders\n\n### `payments` Topic\n**Purpose**: Payment processing pipeline\n**Producer**: `finance-app`\n**Consumer**: `accounting-app`\n\n- **finance-app** generates payment transactions (amounts, methods, bank codes)\n- **accounting-app** consumes payment\n\n## Topic Flow\n\n```\norders-app → finance → invoices-app\nfinance-app → payments → accounting-app\n```\n\nBoth topics operate independently and handle different aspects of the business workflow.\n\nWhen investigating lag, find and identify the producer and consumer pods and check their logs."
+}

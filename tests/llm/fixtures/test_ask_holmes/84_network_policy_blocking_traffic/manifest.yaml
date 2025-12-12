@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: namespace-84
+  name: app-84
 ---
 # Backend deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: namespace-84
+  namespace: app-84
 spec:
   replicas: 1
   selector:
@@ -37,7 +37,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: backend-service
-  namespace: namespace-84
+  namespace: app-84
 spec:
   selector:
     app: backend
@@ -50,7 +50,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: namespace-84
+  namespace: app-84
 spec:
   replicas: 1
   selector:
@@ -90,7 +90,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: backend-network-policy
-  namespace: namespace-84
+  namespace: app-84
 spec:
   podSelector:
     matchLabels:

@@ -1,4 +1,4 @@
-user_prompt: "Find all PVCs that were created from backup ID b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e"
+user_prompt: "Find all PVCs that were created from backup ID b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e and cite their sizes"
 tags:
   - kubernetes
   - medium

@@ -1,5 +1,7 @@
 import datetime
+import math
 import time
+import re
 from typing import Dict, Optional, Tuple, Union
 
 from dateutil import parser
@@ -132,6 +134,92 @@ def process_timestamps_to_int(
         start, end = end, start
 
     return (start, end)  # type: ignore
+
+
+def seconds_to_duration_string(seconds: int) -> str:
+    """Convert seconds into a compact duration string like '2h30m15s'.
+    If the value is less than 1 minute, return just the number of seconds (e.g. '45').
+    """
+    if seconds < 0:
+        raise ValueError("seconds must be non-negative")
+
+    parts = []
+    weeks, seconds = divmod(seconds, 7 * 24 * 3600)
+    days, seconds = divmod(seconds, 24 * 3600)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+
+    if weeks:
+        parts.append(f"{weeks}w")
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds or not parts:
+        parts.append(f"{seconds}s")
+
+    return "".join(parts)
+
+
+def duration_string_to_seconds(duration_string: str) -> int:
+    """Convert a duration string like '2h30m15s' or '300' into total seconds.
+    A bare integer string is treated as seconds.
+    """
+    if not duration_string:
+        raise ValueError("duration_string cannot be empty")
+
+    # Pure number? Assume seconds
+    if duration_string.isdigit():
+        return int(duration_string)
+
+    pattern = re.compile(r"(?P<value>\d+)(?P<unit>[wdhms])")
+    matches = pattern.findall(duration_string)
+    if not matches:
+        raise ValueError(f"Invalid duration string: {duration_string}")
+
+    unit_multipliers = {
+        "w": 7 * 24 * 3600,
+        "d": 24 * 3600,
+        "h": 3600,
+        "m": 60,
+        "s": 1,
+    }
+
+    total_seconds = 0
+    for value, unit in matches:
+        if unit not in unit_multipliers:
+            raise ValueError(f"Unknown unit: {unit}")
+        total_seconds += int(value) * unit_multipliers[unit]
+
+    return total_seconds
+
+
+def adjust_step_for_max_points(
+    time_range_seconds: int,
+    max_points: int,
+    step: Optional[int] = None,
+) -> int:
+    """
+    Adjusts the step parameter to ensure the number of data points doesn't exceed max_points.
+
+    Args:
+        time_range_seconds: time range in seconds
+        step: The requested step duration in seconds
+        max_points: The requested maximum number of data points
+
+    Returns:
+        Adjusted step value in seconds that ensures points <= max_points
+    """
+    smallest_allowed_step = int(
+        math.ceil(float(time_range_seconds) / float(max_points))
+    )
+
+    if not step:
+        return smallest_allowed_step
+
+    return max(smallest_allowed_step, step)
 
 
 def get_param_or_raise(dict: Dict, param: str) -> str:

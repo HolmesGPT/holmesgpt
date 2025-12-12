@@ -18,11 +18,98 @@ Configure HolmesGPT to use any OpenAI-compatible API.
 
 ## Configuration
 
-```bash
-export OPENAI_API_BASE="http://localhost:8000/v1"
-export OPENAI_API_KEY="not-needed"
-holmes ask "what pods are failing?" --model="openai/<your-model>"
-```
+=== "Holmes CLI"
+
+    ```bash
+    export OPENAI_API_BASE="http://localhost:8000/v1"
+    export OPENAI_API_KEY="not-needed"
+    holmes ask "what pods are failing?" --model="openai/<your-model>"
+    ```
+
+=== "Holmes Helm Chart"
+
+    **Create Kubernetes Secret (if authentication is required):**
+    ```bash
+    kubectl create secret generic holmes-secrets \
+      --from-literal=openai-api-key="your-api-key-if-needed" \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    additionalEnvVars:
+      - name: OPENAI_API_BASE
+        value: "http://your-inference-server:8000/v1"
+      - name: OPENAI_API_KEY
+        value: "not-needed"
+        # OR if authentication is required:
+        # valueFrom:
+        #   secretKeyRef:
+        #     name: holmes-secrets
+        #     key: openai-api-key
+
+    # Configure at least one model using modelList
+    modelList:
+      local-llama:
+        api_key: "not-needed"
+        api_base: "{{ env.OPENAI_API_BASE }}"
+        model: openai/llama3
+        temperature: 1
+
+      custom-model:
+        api_key: "{{ env.OPENAI_API_KEY }}"
+        api_base: "{{ env.OPENAI_API_BASE }}"
+        model: openai/your-custom-model
+        temperature: 1
+
+    # Optional: Set default model (use modelList key name)
+    config:
+      model: "local-llama"  # This refers to the key name in modelList above
+    ```
+
+=== "Robusta Helm Chart"
+
+    **Create Kubernetes Secret (if authentication is required):**
+    ```bash
+    kubectl create secret generic robusta-holmes-secret \
+      --from-literal=openai-api-key="your-api-key-if-needed" \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: OPENAI_API_BASE
+          value: "http://your-inference-server:8000/v1"
+        - name: OPENAI_API_KEY
+          value: "not-needed"
+          # OR if authentication is required:
+          # valueFrom:
+          #   secretKeyRef:
+          #     name: robusta-holmes-secret
+          #     key: openai-api-key
+
+      # Configure at least one model using modelList
+      modelList:
+        local-llama:
+          api_key: "not-needed"
+          api_base: "{{ env.OPENAI_API_BASE }}"
+          model: openai/llama3
+          temperature: 1
+
+        custom-model:
+          api_key: "{{ env.OPENAI_API_KEY }}"
+          api_base: "{{ env.OPENAI_API_BASE }}"
+          model: openai/your-custom-model
+          temperature: 1
+
+      # Optional: Set default model (use modelList key name)
+      config:
+        model: "local-llama"  # This refers to the key name in modelList above
+    ```
 
 ## Using CLI Parameters
 

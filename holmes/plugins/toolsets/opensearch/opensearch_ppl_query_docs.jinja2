@@ -1,0 +1,1616 @@
+================
+CODE SNIPPETS
+================
+TITLE: PPL Example: Get All Documents
+DESCRIPTION: Shows a simple PPL query to retrieve all documents from the 'accounts' index by specifying it as the source.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/syntax
+
+LANGUAGE: PPL
+CODE:
+```
+search source=accounts;
+```
+
+--------------------------------
+
+TITLE: PPL Example: Filter Documents by Condition
+DESCRIPTION: Illustrates a PPL query to retrieve documents from the 'accounts' index where either 'account_number' is 1 or 'gender' is 'F'.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/syntax
+
+LANGUAGE: PPL
+CODE:
+```
+search source=accounts account_number=1 or gender="F";
+```
+
+--------------------------------
+
+TITLE: PPL Query Syntax
+DESCRIPTION: Demonstrates the basic syntax for Piped Processing Language (PPL) queries in OpenSearch. PPL uses a pipe operator to chain commands for data processing and analysis, particularly suited for observability data.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/index
+
+LANGUAGE: PPL
+CODE:
+```
+search source=<index-name> | <command_1> | <command_2> | ... | <command_n>
+```
+
+--------------------------------
+
+TITLE: Execute PPL Query
+DESCRIPTION: This snippet demonstrates a basic PPL query to select specific fields ('firstname', 'lastname') from a data source ('accounts').
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/cli
+
+LANGUAGE: ppl
+CODE:
+```
+source=accounts | fields firstname, lastname
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Query Example
+DESCRIPTION: An example of a Piped Processing Language (PPL) query used in OpenSearch Observability to count host addresses. This query demonstrates basic PPL syntax for data aggregation.
+
+SOURCE: https://docs.opensearch.org/latest/observing-your-data/event-analytics
+
+LANGUAGE: PPL
+CODE:
+```
+source = opensearch_dashboards_sample_data_logs | fields host | stats count()
+```
+
+--------------------------------
+
+TITLE: Update PPL Settings via _plugins/_query
+DESCRIPTION: Illustrates how to update PPL plugin settings using the `_plugins/_query/settings` endpoint. This allows for transient configuration of PPL features.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/settings
+
+LANGUAGE: json
+CODE:
+```
+PUT _plugins/_query/settings{"transient":{"plugins":{"ppl":{"enabled":"false"}}}}
+```
+
+--------------------------------
+
+TITLE: Run CLI with PPL
+DESCRIPTION: This snippet shows how to initiate the OpenSearch CLI with the Piped Processing Language (PPL) enabled. It specifies the query language using the '-l ppl' flag.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/cli
+
+LANGUAGE: bash
+CODE:
+```
+opensearchsql -l ppl <params>
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/optimizing-storage/knn-vector-quantization
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: PPL Example: Search Accounts Index
+DESCRIPTION: Demonstrates a PPL query to search the 'accounts' index, filter documents where age is greater than 18, and select specific fields (firstname, lastname).
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/syntax
+
+LANGUAGE: PPL
+CODE:
+```
+search source=accounts
+| where age > 18
+| fields firstname, lastname
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/vector-search-techniques/knn-score-script
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/performance-tuning-search
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/vector-search-techniques/approximate-knn
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/segment-replication/backpressure
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/tutorials/semantic-search/semantic-search-bedrock-titan
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/tutorials/semantic-search/semantic-search-sagemaker
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/vector-operations/semantic-search-byte-vectors
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/vector-operations/optimize-compression
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/filter-search-knn/efficient-knn-filtering
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/vector-search-techniques/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: Explain Advanced PPL Query (Simple Format)
+DESCRIPTION: Demonstrates using the `simple` format parameter with the Explain API for a PPL query. This provides a condensed logical plan, omitting detailed attributes.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/sql-ppl-api
+
+LANGUAGE: PPL
+CODE:
+```
+POST _plugins/_ppl/_explain?format=simple{"query":"source=state_country | where country = 'USA' OR country = 'England' | stats count() by country"}
+```
+
+LANGUAGE: JSON
+CODE:
+```
+{"calcite":{"logical":"LogicalProject\n  LogicalAggregate\n    LogicalFilter\n      CalciteLogicalIndexScan\n"}}
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/tutorials/semantic-search/semantic-search-bedrock-cohere
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/tutorials/neural-search-tutorial
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch Notebooks: PPL Code Block
+DESCRIPTION: Illustrates a PPL (Piped Processing Language) code block for OpenSearch notebooks. This example queries sample web logs and returns the first 20 records.
+
+SOURCE: https://docs.opensearch.org/latest/observing-your-data/notebooks
+
+LANGUAGE: PPL
+CODE:
+```
+%ppl
+source=opensearch_dashboards_sample_data_logs | head 20
+
+```
+
+--------------------------------
+
+TITLE: Run PPL Query in OpenSearch Workbench
+DESCRIPTION: This snippet demonstrates a PPL query to retrieve 'firstname' and 'lastname' from the 'accounts' index for users older than 18. It utilizes the 'search' and 'where' commands for data filtering and the 'fields' command to select specific attributes.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/workbench
+
+LANGUAGE: PPL
+CODE:
+```
+search source=accounts
+| where age > 18
+| fields firstname, lastname
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/model-group-apis/update-model-group
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/tutorials/semantic-search
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Query with 'relation', 'scalar', and 'exists' Subsearches
+DESCRIPTION: This PPL query identifies customers from specific country codes with above-average account balances who have not placed any orders. It demonstrates the use of 'relation', 'scalar', and correlated 'exists' subsearches.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/subsearch
+
+LANGUAGE: PPL
+CODE:
+```
+source = [
+  source = customer
+    | where substring(c_phone, 1, 2) in ('13', '31', '23', '29', '30', '18', '17')
+      and c_acctbal > [ /* scalar subsearch */
+          source = customer
+          | where c_acctbal > 0.00
+            and substring(c_phone, 1, 2) in ('13', '31', '23', '29', '30', '18', '17')
+          | stats avg(c_acctbal)
+        ]
+      and not exists [ /* correlated exists subsearch */
+          source = orders
+          | where o_custkey = c_custkey
+        ]
+    | eval cntrycode = substring(c_phone, 1, 2)
+    | fields cntrycode, c_acctbal
+  ] as custsale
+| stats count() as numcust, sum(c_acctbal) as totacctbal by cntrycode
+| sort cntrycode
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/model-group-apis/search-model-group
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: Explain Advanced PPL Query (Standard Format)
+DESCRIPTION: Shows an advanced PPL query using the Calcite engine with the Explain API. The response includes both logical and physical execution plans in the standard format.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/sql-ppl-api
+
+LANGUAGE: PPL
+CODE:
+```
+POST _plugins/_ppl/_explain{"query":"source=state_country | where country = 'USA' OR country = 'England' | stats count() by country"}
+```
+
+LANGUAGE: JSON
+CODE:
+```
+{"calcite":{"logical":"LogicalProject(count()=[$1], country=[$0])\n  LogicalAggregate(group=[{1}], count()=[COUNT()])\n    LogicalFilter(condition=[SEARCH($1, Sarg['England', 'USA':CHAR(7)]:CHAR(7))])\n      CalciteLogicalIndexScan(table=[[OpenSearch, state_country]])\n","physical":"EnumerableCalc(expr#0..1=[{inputs}], count()=[$t1], country=[$t0])\n  CalciteEnumerableIndexScan(table=[[OpenSearch, state_country]], PushDownContext=[[FILTER->SEARCH($1, Sarg['England', 'USA':CHAR(7)]:CHAR(7)), AGGREGATION->rel#53:LogicalAggregate.NONE.[](input=RelSubset#43,group={1},count()=COUNT())], OpenSearchRequestBuilder(sourceBuilder={\"from\":0,\"size\":0,\"timeout\":\"1m\",\"query\":{\"terms\":{\"country\":[\"England\",\"USA\"],\"boost\":1.0}},\"sort\":[{\"_doc\":{\"order\":\"asc\"}}],\"aggregations\":{\"composite_buckets\":{\"composite\":{\"size\":1000,\"sources\":[{\"country\":{\"terms\":{\"field\":\"country\",\"missing_bucket\":true,\"missing_order\":\"first\",\"order\":\"asc\"}}}]},\"aggregations\":{\"count()\":{\"value_count\":{\"field\":\"_index\"}}}}}}, requestedTotalSize=10000, pageSize=null, startFrom=0)])\n"}}
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/model-group-apis/get-model-group
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: PPL 'in' Subsearch Usage Examples
+DESCRIPTION: Provides practical examples of the 'in' subsearch in OpenSearch PPL, demonstrating its application in filtering data, including nested subsearches and its use as a join filter.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/subsearch
+
+LANGUAGE: PPL
+CODE:
+```
+source = outer | where a in [ source = inner | fields b ]
+source = outer | where (a) in [ source = inner | fields b ]
+source = outer | where (a,b,c) in [ source = inner | fields d,e,f ]
+source = outer | where a not in [ source = inner | fields b ]
+source = outer | where (a) not in [ source = inner | fields b ]
+source = outer | where (a,b,c) not in [ source = inner | fields d,e,f ]
+source = outer a in [ source = inner | fields b ]
+source = outer a not in [ source = inner | fields b ]
+source = outer | where a in [ source = inner1 | where b not in [ source = inner2 | fields c ] | fields b ] // nested
+source = table1 | inner join left = l right = r on l.a = r.a AND r.a in [ source = inner | fields d ] | fields l.a, r.a, b, c //as join filter
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/optimizing-storage/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/remote-index-build
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: Run PPL Query in OpenSearch Workbench
+DESCRIPTION: This snippet demonstrates a PPL query to retrieve 'firstname' and 'lastname' from the 'accounts' index for users older than 18. It utilizes the 'search' and 'where' commands for data filtering and the 'fields' command to select specific attributes.
+
+SOURCE: https://docs.opensearch.org/latest/dashboards/query-workbench
+
+LANGUAGE: PPL
+CODE:
+```
+search source=accounts
+| where age > 18
+| fields firstname, lastname
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/model-group-apis/delete-model-group
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/tutorials
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/filter-search-knn/scoring-script-filter
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/specialized-operations/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/agentic-memory-apis/update-memory
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/specialized-operations/nested-search-knn
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/memory-apis/get-message-traces
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/rule-based-autotagging/autotagging
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/llm-frameworks
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/aggregations/pipeline/percentiles-bucket
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/observing-your-data/alerting/per-cluster-metrics-monitors
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/searching-data
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/semantic-search/semantic-search-cfn-sagemaker
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: Create Application Analytics Visualization with PPL
+DESCRIPTION: This snippet demonstrates how to use PPL (Piped Processing Language) to create a time series metric for application analytics. It shows a basic query structure involving data sources, transformations, and aggregation by time spans.
+
+SOURCE: https://docs.opensearch.org/latest/observing-your-data/app-analytics
+
+LANGUAGE: PPL
+CODE:
+```
+source = <index_name> | ... | ... | stats ... by span(<timestamp_field>, 1h)
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/memory-apis/get-message
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/gpu-acceleration
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: PPL dedup example: Consecutive documents
+DESCRIPTION: Provides an example of using the 'consecutive=true' option with the 'dedup' command to remove only consecutive duplicate documents based on a field.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/functions
+
+LANGUAGE: PPL
+CODE:
+```
+search source=accounts | dedup gender consecutive=true | fields account_number, gender;
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ingesting-data
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/monitoring-your-cluster/job-scheduler/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ingesting-data/text-chunking
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/agentic-memory-apis/delete-memory-container
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/shard-indexing-settings
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/neural-sparse-with-raw-vectors
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: Register Flow Agent with PPLTool
+DESCRIPTION: Registers a flow agent designed to use the PPLTool for natural language to PPL query translation and execution. It specifies the model ID, tool description, and execution behavior.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/agents-tools/tools/ppl-tool
+
+LANGUAGE: OpenSearch API
+CODE:
+```
+POST/_plugins/_ml/agents/_register
+{"name":"Test_Agent_For_PPL","type":"flow","description":"this is a test agent","memory":{"type":"demo"},"tools":[{"type":"PPLTool","name":"TransferQuestionToPPLAndExecuteTool","description":"Use this tool to transfer natural language to generate PPL and execute PPL to query inside. Use this tool after you know the index name, otherwise, call IndexRoutingTool first. The input parameters are: {index:IndexName, question:UserQuestion}","parameters":{"model_id":"h5AUWo0BkIylWTeYT4SU","model_type":"FINETUNE","execute":true}}]}
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/semantic-search/semantic-search-sagemaker
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/point-in-time
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: Execute Flow Agent
+DESCRIPTION: Executes a registered flow agent with a specific question and index. The agent processes the question using the PPLTool and returns the PPL query and its execution results.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/agents-tools/tools/ppl-tool
+
+LANGUAGE: OpenSearch API
+CODE:
+```
+POST/_plugins/_ml/agents/9X7xWI0Bpc3sThaJdY9i/_execute
+{"parameters":{"verbose":true,"question":"what is the error rate yesterday","index":"opensearch_dashboards_sample_data_logs"}}
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/api/knn
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/filter-search-knn/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/agents-tools/tools/vector-db-tool
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/api/neural
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/point-in-time-api
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/memory-apis/create-message
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/vector-operations/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/agentic-memory-apis/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/train-predict/train-and-predict
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/semantic-search/semantic-search-cohere
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/sorting
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/semantic-highlighting-tutorial
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/concurrent-segment-search
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ai-search/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/gen-ai/model-controls/bedrock-guardrails
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/search-after
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/semantic-search
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/analyzers/tokenizers/character-group
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/explain
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/snapshots/sm-api
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/observing-your-data/forecast/api
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ai-search/conversational-search
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL: Match Query
+DESCRIPTION: Illustrates how to use the 'match' function in OpenSearch's PPL (Piped Processing Language) for full-text search. This enables users to query text data using a pipeline-based syntax, similar to other data processing tools.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/full-text
+
+LANGUAGE: PPL
+CODE:
+```
+SOURCE=my_index | WHERE match(message, "this is a test") | FIELDS message
+```
+
+LANGUAGE: PPL
+CODE:
+```
+SOURCE=my_index | WHERE match(message, "this is a test", operator='and') | FIELDS message
+```
+
+LANGUAGE: PPL
+CODE:
+```
+SOURCE=my_index | WHERE match(message, "this is a test", operator='and', zero_terms_query='all') | FIELDS message
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/replication-plugin/settings
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: PPL Search Syntax
+DESCRIPTION: Defines the basic syntax for the PPL 'search' command, specifying the source index and optional boolean expressions. The 'search' command can be omitted if it's the first command.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/syntax
+
+LANGUAGE: PPL
+CODE:
+```
+search source=<index> [boolean-expression]
+source=<index> [boolean-expression]
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/collapse
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/neural-search-tutorial
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/agents-tools/agents/conversational-flow
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/search-pipelines/score-ranker-processor
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/replication-plugin/permissions
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/search-relevance/using-search-relevance-workbench
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/reranking/reranking-cohere-bedrock
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: Create PPL Visualization in OpenSearch Dashboards
+DESCRIPTION: This snippet outlines the steps to create a visualization using Piped Processing Language (PPL) in OpenSearch Dashboards. It involves entering a PPL query, setting a time filter, selecting a visualization type, and saving the visualization.
+
+SOURCE: https://docs.opensearch.org/latest/observing-your-data/event-analytics
+
+LANGUAGE: OpenSearch Dashboards
+CODE:
+```
+source = opensearch_dashboards_sample_data_flights | stats count() by DestCountry
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/model-apis/undeploy-model
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/agents-tools/agents/plan-execute-reflect
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/memory-apis/create-memory
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/gen-ai/rag/conversational-search-claude-bedrock
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Query with 'in' and 'scalar' Subsearches
+DESCRIPTION: This PPL query finds suppliers from Canada who supply parts with names starting with 'forest' and have availability quantities greater than half of the total quantity ordered in 1994. It utilizes nested 'in' subsearches and a 'scalar' subsearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/subsearch
+
+LANGUAGE: PPL
+CODE:
+```
+source = supplier
+| join ON s_nationkey = n_nationkey nation
+| where n_name = 'CANADA'
+   and s_suppkey in [ /* in subsearch */
+     source = partsupp
+     | where ps_partkey in [ /* nested in subsearch */
+         source = part
+         | where like(p_name, 'forest%')
+         | fields p_partkey
+       ]
+       and ps_availqty > [ /* scalar subsearch */
+         source = lineitem
+         | where l_partkey = ps_partkey
+           and l_suppkey = ps_suppkey
+           and l_shipdate >= date('1994-01-01')
+           and l_shipdate < date_add(date('1994-01-01'), interval 1 year)
+         | stats sum(l_quantity) as sum_l_quantity
+         | eval half_sum_l_quantity = 0.5 * sum_l_quantity
+         | fields half_sum_l_quantity
+       ]
+     | fields ps_suppkey
+   ]
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/gen-ai/chatbots
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/security-plugin/access-control/permissions
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/monitoring-your-cluster/job-scheduler/jobs
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: PPL dedup example: Remove duplicates by gender
+DESCRIPTION: Demonstrates how to use the PPL 'dedup' command to remove documents with duplicate 'gender' values. The example shows the search query and the resulting fields.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/sql/ppl/functions
+
+LANGUAGE: PPL
+CODE:
+```
+search source=accounts | dedup gender | fields account_number, gender;
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/agent-apis/update-agent
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/vector-search/semantic-search/long-document
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/analyzers/language-analyzers/latvian
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/search-plugins/neural-sparse-search
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/agents-tools/tools/log-pattern-tool
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/remote-store/index
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/api/tasks-apis/search-task
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/agents-tools/tools/ppl-tool
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tuning-your-cluster/cluster
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/ml-commons-plugin/pretrained-models
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/tutorials/gen-ai/model-controls
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```
+
+--------------------------------
+
+TITLE: OpenSearch PPL Syntax and Commands
+DESCRIPTION: Documentation on the PPL (Piped Processing Language) syntax, including commands, subsearches, identifiers, data types, and functions used within OpenSearch.
+
+SOURCE: https://docs.opensearch.org/latest/api-reference/search-apis/point-in-time-api
+
+LANGUAGE: OpenSearch PPL
+CODE:
+```
+source=my_index | where field1 > 10 | fields field1, field2
+```

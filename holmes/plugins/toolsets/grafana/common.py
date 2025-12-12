@@ -3,12 +3,12 @@ from typing import Dict, Optional
 from pydantic import BaseModel
 import datetime
 
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
 class GrafanaConfig(BaseModel):
     """A config that represents one of the Grafana related tools like Loki or Tempo
-    If `grafana_datasource_uid` is set, then it is assume that Holmes will proxy all
+    If `grafana_datasource_uid` is set, then it is assumed that Holmes will proxy all
     requests through grafana. In this case `url` should be the grafana URL.
     If `grafana_datasource_uid` is not set, it is assumed that the `url` is the
     systems' URL
@@ -61,8 +61,20 @@ def ensure_grafana_uid_or_return_error_result(
 ) -> Optional[StructuredToolResult]:
     if not config.grafana_datasource_uid:
         return StructuredToolResult(
-            status=ToolResultStatus.ERROR,
+            status=StructuredToolResultStatus.ERROR,
             error="This tool only works when the toolset is configued ",
         )
     else:
         return None
+
+
+class GrafanaTempoLabelsConfig(BaseModel):
+    pod: str = "k8s.pod.name"
+    namespace: str = "k8s.namespace.name"
+    deployment: str = "k8s.deployment.name"
+    node: str = "k8s.node.name"
+    service: str = "service.name"
+
+
+class GrafanaTempoConfig(GrafanaConfig):
+    labels: GrafanaTempoLabelsConfig = GrafanaTempoLabelsConfig()

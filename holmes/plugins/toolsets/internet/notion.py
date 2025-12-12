@@ -4,6 +4,7 @@ import json
 from typing import Any, Dict, Tuple
 from holmes.core.tools import (
     Tool,
+    ToolInvokeContext,
     ToolParameter,
     ToolsetTag,
 )
@@ -13,7 +14,7 @@ from holmes.plugins.toolsets.internet.internet import (
 )
 from holmes.core.tools import (
     StructuredToolResult,
-    ToolResultStatus,
+    StructuredToolResultStatus,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
@@ -44,7 +45,7 @@ class FetchNotion(Tool):
             return f"https://api.notion.com/v1/blocks/{notion_id}/children"
         return url  # Return original URL if no match is found
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         url: str = params["url"]
 
         # Get headers from the toolset configuration
@@ -57,13 +58,13 @@ class FetchNotion(Tool):
         if not content:
             logging.error(f"Failed to retrieve content from {url}")
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to retrieve content from {url}",
                 params=params,
             )
 
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS,
+            status=StructuredToolResultStatus.SUCCESS,
             data=self.parse_notion_content(content),
             params=params,
         )
@@ -118,7 +119,7 @@ class NotionToolset(InternetBaseToolset):
             name="notion",
             description="Fetch notion webpages",
             icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Notion-logo.svg/2048px-Notion-logo.svg.png",
-            docs_url="https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/notion.html",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/notion/",
             tools=[
                 FetchNotion(self),
             ],

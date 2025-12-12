@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signup-service
+  namespace: app-162
+  labels:
+    app: signup-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: signup-service
+  template:
+    metadata:
+      labels:
+        app: signup-service
+    spec:
+      containers:
+      - name: signup-service
+        image: python:3.11-slim
+        ports:
+        - containerPort: 8080
+        command: ["python", "/app/signup_service.py"]
+        env:
+        - name: PAYMENTS_SERVICE_URL
+          value: "http://payments-service:8080"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: signup-secrets
+              key: database-url
+        - name: PORT
+          value: "8080"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: app-code
+        secret:
+          secretName: signup-secrets
+          items:
+          - key: signup_service.py
+            path: signup_service.py
+            mode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signup-service
+  namespace: app-162
+spec:
+  selector:
+    app: signup-service
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP

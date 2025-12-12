@@ -1,10 +1,10 @@
-user_prompt: "Why are pods in pending state for the api-server deployment in namespace-78b?"
+user_prompt: "What's wrong with the api-server deployment in namespace-78b?"
 tags:
   - kubernetes
   - medium
 expected_output:
-  - Pods are pending due to CPU quota being exceeded
-  - The deployment needs more CPU than the namespace quota allows (quota is 20m, deployment needs 10m per pod)
+  - Pods cannot be created due to CPU quota being exceeded
+  - The deployment needs more CPU than the namespace quota allows (quota is 20m, deployment needs 10m per pod and 30m total)
   - The namespace ResourceQuota prevents pod creation due to insufficient CPU requests available
 before_test: |
   kubectl apply -f ./manifest.yaml

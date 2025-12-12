@@ -1,40 +1,108 @@
-user_prompt: "How many pods in namespace test-60 have restarted fewer than 3 times?"
+user_prompt: "How many pods in namespace test-60 have never restarted?"
 expected_output:
   - either 6, 6 pods, etc.
 before_test: |
   kubectl apply -f manifests.yaml
-  # Wait for all pods to reach expected state with 90 second timeout
+
+  # Give pods time to be scheduled and start crashing
+  echo "Waiting 20 seconds for pods to be scheduled and start initial crash cycle..."
+  sleep 20
+
+  # Wait for all pods to reach expected state with 300 second timeout
   count=0
-  while [ $count -lt 45 ]; do  # 45 * 2 = 90 seconds
-    # Check if all unstable pods have at least 3 restarts
+  while [ $count -lt 145 ]; do  # 145 * 2 = 290 seconds (under 300 limit)
+    # Check if all unstable pods have at least 1 restart OR are in Error/CrashLoopBackOff state
+    # This handles the case where pods are temporarily in Error state before restarting
     r1=$(kubectl get pod batch-processor-1 -n test-60 -o jsonpath="{.status.containerStatuses[0].restartCount}" 2>/dev/null || echo 0)
     r2=$(kubectl get pod batch-processor-2 -n test-60 -o jsonpath="{.status.containerStatuses[0].restartCount}" 2>/dev/null || echo 0)
     r3=$(kubectl get pod data-analyzer-1 -n test-60 -o jsonpath="{.status.containerStatuses[0].restartCount}" 2>/dev/null || echo 0)
     r4=$(kubectl get pod data-analyzer-2 -n test-60 -o jsonpath="{.status.containerStatuses[0].restartCount}" 2>/dev/null || echo 0)
 
-    if [ "$r1" -ge 3 ] && [ "$r2" -ge 3 ] && [ "$r3" -ge 3 ] && [ "$r4" -ge 3 ]; then
-      echo "All unstable pods have 3+ restarts"
-      break
+    # Also check pod phases to handle Error state
+    s1=$(kubectl get pod batch-processor-1 -n test-60 -o jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+    s2=$(kubectl get pod batch-processor-2 -n test-60 -o jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+    s3=$(kubectl get pod data-analyzer-1 -n test-60 -o jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+    s4=$(kubectl get pod data-analyzer-2 -n test-60 -o jsonpath="{.status.phase}" 2>/dev/null || echo "Unknown")
+
+    # Check container waiting reasons for CrashLoopBackOff
+    w1=$(kubectl get pod batch-processor-1 -n test-60 -o jsonpath="{.status.containerStatuses[0].state.waiting.reason}" 2>/dev/null || echo "")
+    w2=$(kubectl get pod batch-processor-2 -n test-60 -o jsonpath="{.status.containerStatuses[0].state.waiting.reason}" 2>/dev/null || echo "")
+    w3=$(kubectl get pod data-analyzer-1 -n test-60 -o jsonpath="{.status.containerStatuses[0].state.waiting.reason}" 2>/dev/null || echo "")
+    w4=$(kubectl get pod data-analyzer-2 -n test-60 -o jsonpath="{.status.containerStatuses[0].state.waiting.reason}" 2>/dev/null || echo "")
+
+    # Check if all unstable pods have restarted at least once
+    # We consider a pod "crashed" if it has restarts OR if it's in Failed phase OR if it's in CrashLoopBackOff
+    pod1_ready=$( [ "$r1" -ge 1 ] || [ "$s1" = "Failed" ] || [ "$w1" = "CrashLoopBackOff" ] && echo "yes" || echo "no" )
+    pod2_ready=$( [ "$r2" -ge 1 ] || [ "$s2" = "Failed" ] || [ "$w2" = "CrashLoopBackOff" ] && echo "yes" || echo "no" )
+    pod3_ready=$( [ "$r3" -ge 1 ] || [ "$s3" = "Failed" ] || [ "$w3" = "CrashLoopBackOff" ] && echo "yes" || echo "no" )
+    pod4_ready=$( [ "$r4" -ge 1 ] || [ "$s4" = "Failed" ] || [ "$w4" = "CrashLoopBackOff" ] && echo "yes" || echo "no" )
+
+    if [ "$pod1_ready" = "yes" ] && [ "$pod2_ready" = "yes" ] && [ "$pod3_ready" = "yes" ] && [ "$pod4_ready" = "yes" ]; then
+      # Final check: ensure all have actual restarts (not just Error state)
+      if [ "$r1" -ge 1 ] && [ "$r2" -ge 1 ] && [ "$r3" -ge 1 ] && [ "$r4" -ge 1 ]; then
+        echo "All unstable pods have 1+ restarts"
+        break
+      fi
     fi
 
-    echo "Waiting for unstable pods to restart... ($r1, $r2, $r3, $r4)"
+    echo "Waiting for unstable pods to restart... (restarts: $r1, $r2, $r3, $r4) (phases: $s1, $s2, $s3, $s4) (waiting: $w1, $w2, $w3, $w4)"
     count=$((count + 1))
     sleep 2
   done
 
   # Check if we timed out
-  if [ $count -eq 45 ]; then
-    echo "ERROR: Timeout waiting for pods to reach expected restart counts"
+  if [ $count -eq 145 ]; then
+    echo "ERROR: Timeout waiting for unstable pods to start crashing"
+    echo "This can happen if pods are slow to schedule or if the cluster is under heavy load."
+    echo ""
+    echo "Current pod status:"
+    kubectl get pods -n test-60
+    echo ""
+    echo "Restart counts:"
+    for pod in batch-processor-1 batch-processor-2 data-analyzer-1 data-analyzer-2; do
+      restarts=$(kubectl get pod $pod -n test-60 -o jsonpath="{.status.containerStatuses[0].restartCount}" 2>/dev/null || echo "unknown")
+      echo "  $pod: $restarts restarts"
+    done
     exit 1
   fi
 
+  # Additional safety: wait a bit more to ensure pods are in stable crash loop
+  echo "Unstable pods are crashing. Waiting 10 more seconds to ensure stable state..."
+  sleep 10
+
   # Verify stable pods have 0 restarts
-  kubectl get pod stable-web-1 -n test-60 -o jsonpath='{.status.containerStatuses[0].restartCount}' | grep -E "^0$" || exit 1
-  kubectl get pod stable-web-2 -n test-60 -o jsonpath='{.status.containerStatuses[0].restartCount}' | grep -E "^0$" || exit 1
-  kubectl get pod stable-api-1 -n test-60 -o jsonpath='{.status.containerStatuses[0].restartCount}' | grep -E "^0$" || exit 1
-  kubectl get pod stable-api-2 -n test-60 -o jsonpath='{.status.containerStatuses[0].restartCount}' | grep -E "^0$" || exit 1
-  kubectl get pod stable-db-1 -n test-60 -o jsonpath='{.status.containerStatuses[0].restartCount}' | grep -E "^0$" || exit 1
-  kubectl get pod stable-worker-1 -n test-60 -o jsonpath='{.status.containerStatuses[0].restartCount}' | grep -E "^0$" || exit 1
+  echo "Verifying stable pods have 0 restarts..."
+  STABLE_PODS_OK=true
+
+  for pod in stable-web-1 stable-web-2 stable-api-1 stable-api-2 stable-db-1 stable-worker-1; do
+    restarts=$(kubectl get pod $pod -n test-60 -o jsonpath='{.status.containerStatuses[0].restartCount}' 2>/dev/null || echo "unknown")
+    if [ "$restarts" != "0" ]; then
+      echo "ERROR: Pod $pod has $restarts restarts, expected 0"
+      STABLE_PODS_OK=false
+    fi
+  done
+
+  if [ "$STABLE_PODS_OK" = false ]; then
+    echo ""
+    echo "=========================================="
+    echo "ERROR: Stable pods have unexpected restarts!"
+    echo "=========================================="
+    echo ""
+    echo "This usually happens when the test namespace already exists from a previous run."
+    echo "The stable pods may have accumulated restarts over time."
+    echo ""
+    echo "To fix this, delete the namespace before running the test:"
+    echo "  kubectl delete namespace test-60"
+    echo ""
+    echo "Current pod status:"
+    kubectl get pods -n test-60 -o wide
+    echo ""
+    echo "Pod ages:"
+    kubectl get pods -n test-60 --no-headers | awk '{print $1, $5}'
+    exit 1
+  fi
+
+  echo "✓ All stable pods have 0 restarts"
 
 after_test: |
   kubectl delete -f manifests.yaml --ignore-not-found=true

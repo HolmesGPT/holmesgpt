@@ -1,4 +1,4 @@
-user_prompt: "The order-lookup service in namespace-104c is very slow. Customers are experiencing delays when checking their orders."
+user_prompt: "The order-lookup deployment in namespace-104c is very slow. Customers are experiencing delays when checking their orders."
 expected_output:
   - Database queries slow due to missing index on orders.customer_email
   - Sequential scan on 75k orders table for email lookups
@@ -7,6 +7,9 @@ expected_output:
 tags:
   - hard
   - database
+
+skip: true
+skip_reason: setup needs fixing, the database has other issues right now that the llm correctly finds
 
 description: |
   This eval provides a minimal PostgreSQL setup focusing on basic EXPLAIN analysis.

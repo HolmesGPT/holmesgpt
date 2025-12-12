@@ -1,5 +1,0 @@
-user_prompt: "Show me a graph of the memory usage for the pod robusta-holmes over the last 30 minutes"
-expected_output:
-  - 'The answer should include something similar to << { "type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "vwJA" } >>. Both tool_name and random_key MUST absolutely be present and the same as mentioned here.'
-evaluation:
-  correctness: 1

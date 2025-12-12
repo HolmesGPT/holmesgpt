@@ -8,16 +8,16 @@ from unittest.mock import Mock, patch
 from holmes.core.tools import (
     Tool,
     StructuredToolResult,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     ToolsetStatusEnum,
 )
+from tests.conftest import create_mock_tool_invoke_context
 from tests.llm.utils.mock_toolset import (
     MockToolsetManager,
     sanitize_filename,
     MockMode,
     MockFileManager,
     MockableToolWrapper,
-    MockDataNotFoundError,
 )
 
 
@@ -157,7 +157,7 @@ class TestMockFileManager:
 
             # Create test result
             result = StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data="Test output data",
                 metadata={"key": "value"},
             )
@@ -178,7 +178,7 @@ class TestMockFileManager:
             assert mock.tool_name == "test_tool"
             assert mock.toolset_name == "test_toolset"
             assert mock.return_value.data == "Test output data"
-            assert mock.return_value.status == ToolResultStatus.SUCCESS
+            assert mock.return_value.status == StructuredToolResultStatus.SUCCESS
 
     def test_read_nonexistent_mock(self):
         """Test reading a mock that doesn't exist."""
@@ -224,7 +224,7 @@ class TestMockableToolWrapper:
         tool.user_description = None
         tool.invoke = Mock(
             return_value=StructuredToolResult(
-                status=ToolResultStatus.SUCCESS, data="Real tool output"
+                status=StructuredToolResultStatus.SUCCESS, data="Real tool output"
             )
         )
         tool.get_parameterized_one_liner = Mock(return_value="test_tool()")
@@ -245,10 +245,11 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            result = wrapper.invoke({})
+            context = create_mock_tool_invoke_context()
+            result = wrapper.invoke({}, context)
 
             # Should call real tool
-            tool.invoke.assert_called_once_with({})
+            tool.invoke.assert_called_once_with({}, context)
             assert result.data == "Real tool output"
 
     def test_mock_mode_with_existing_mock(self):
@@ -260,7 +261,7 @@ class TestMockableToolWrapper:
 
             # First, write a mock file
             mock_result = StructuredToolResult(
-                status=ToolResultStatus.SUCCESS, data="Mocked output"
+                status=StructuredToolResultStatus.SUCCESS, data="Mocked output"
             )
             file_manager.write_mock(
                 tool_name="test_tool",
@@ -278,18 +279,21 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            result = wrapper.invoke({})
+            context = create_mock_tool_invoke_context()
+            result = wrapper.invoke({}, context)
 
             # Should NOT call real tool
             tool.invoke.assert_not_called()
             assert result.data == "Mocked output"
 
     def test_mock_mode_without_mock_raises_error(self):
-        """Test that mock mode raises error when no mock exists."""
+        """Test that mock mode returns error result when no mock exists."""
+        context = create_mock_tool_invoke_context()
         with tempfile.TemporaryDirectory() as tmpdir:
             tool = self.create_mock_tool()
             file_manager = MockFileManager(tmpdir)
             mock_request = Mock()
+            mock_request.node.user_properties = []
 
             wrapper = MockableToolWrapper(
                 tool=tool,
@@ -299,11 +303,17 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            with pytest.raises(MockDataNotFoundError) as exc_info:
-                wrapper.invoke({})
+            result = wrapper.invoke({}, context)
 
-            assert "No mock data found" in str(exc_info.value)
-            assert "RUN_LIVE=true" in str(exc_info.value)
+            # Should return error result instead of raising
+            assert result.status == StructuredToolResultStatus.ERROR
+            assert "Mock data error" in result.error
+            assert "No mock data found" in result.error
+
+            # Check that error was tracked in user_properties
+            assert len(mock_request.node.user_properties) == 1
+            assert mock_request.node.user_properties[0][0] == "mock_data_error"
+            assert mock_request.node.user_properties[0][1]["tool"] == "test_tool"
 
     def test_generate_mode(self):
         """Test that generate mode calls tool and saves mock."""
@@ -321,10 +331,11 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            result = wrapper.invoke({})
+            context = create_mock_tool_invoke_context()
+            result = wrapper.invoke({}, context)
 
             # Should call real tool
-            tool.invoke.assert_called_once_with({})
+            tool.invoke.assert_called_once_with({}, context)
             assert result.data == "Real tool output"
 
             # Should save mock file
@@ -436,7 +447,7 @@ class TestMockToolsMatching:
                 file_manager = MockFileManager(tmpdir, add_params_to_filename=True)
                 params = {"field1": "1", "field2": "2"}
                 mock_result = StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data="this tool is mocked",
                     params=params,
                 )
@@ -469,7 +480,9 @@ class TestMockToolsMatching:
                 from holmes.core.tools_utils.tool_executor import ToolExecutor
 
                 tool_executor = ToolExecutor(mock_toolsets.toolsets)
-                result = tool_executor.invoke("kubectl_describe", params)
+
+                context = create_mock_tool_invoke_context()
+                result = tool_executor.invoke("kubectl_describe", params, context)
 
                 # Should return mocked data for exact match
                 assert result.data == "this tool is mocked"
@@ -492,7 +505,7 @@ class TestMockToolsMatching:
                 # Set up file-based mock WITHOUT params in filename
                 file_manager = MockFileManager(tmpdir, add_params_to_filename=False)
                 mock_result = StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data="this tool is mocked",
                     params={},  # Will be ignored when matching
                 )
@@ -525,7 +538,8 @@ class TestMockToolsMatching:
                 from holmes.core.tools_utils.tool_executor import ToolExecutor
 
                 tool_executor = ToolExecutor(mock_toolsets.toolsets)
-                result = tool_executor.invoke("kubectl_describe", params)
+                context = create_mock_tool_invoke_context()
+                result = tool_executor.invoke("kubectl_describe", params, context)
 
                 # Should return mocked data for ANY params when add_params_to_filename=False
                 assert result.data == "this tool is mocked"
@@ -542,7 +556,7 @@ class TestMockToolsMatching:
         ],
     )
     def test_mock_tools_do_not_match(self, params):
-        """Test that tools fail with MockDataNotFoundError when parameters don't match."""
+        """Test that tools return error result when parameters don't match in mock mode."""
         with patch(
             "holmes.plugins.toolsets.service_discovery.find_service_url",
             return_value="http://mock-prometheus:9090",
@@ -551,7 +565,7 @@ class TestMockToolsMatching:
                 # Set up file-based mock with specific params
                 file_manager = MockFileManager(tmpdir, add_params_to_filename=True)
                 mock_result = StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data="this tool is mocked",
                     params={"field1": "1", "field2": "2"},
                 )
@@ -586,8 +600,23 @@ class TestMockToolsMatching:
                 tool_executor = ToolExecutor(mock_toolsets.toolsets)
 
                 # In mock mode, calling with non-matching params should raise MockDataNotFoundError
-                with pytest.raises(MockDataNotFoundError):
-                    tool_executor.invoke("kubectl_describe", params)
+                context = create_mock_tool_invoke_context()
+
+                # In mock mode, calling with non-matching params should return error result
+                result = tool_executor.invoke("kubectl_describe", params, context)
+
+                # Should return error result
+                assert result.status == StructuredToolResultStatus.ERROR
+                assert "Mock data error" in result.error
+
+                # Check that error was tracked in user_properties
+                errors = [
+                    p
+                    for p in mock_request.node.user_properties
+                    if p[0] == "mock_data_error"
+                ]
+                assert len(errors) > 0
+                assert errors[0][1]["tool"] == "kubectl_describe"
 
     def test_mock_tools_generate_mode_does_not_throw(self):
         """Test that generate mode creates mocks when they don't exist."""
@@ -623,19 +652,20 @@ class TestMockToolsMatching:
                     original_invoke = kubectl_tool._tool._invoke
                     kubectl_tool._tool._invoke = Mock(
                         return_value=StructuredToolResult(
-                            status=ToolResultStatus.SUCCESS,
+                            status=StructuredToolResultStatus.SUCCESS,
                             data="Generated output from mock",
                         )
                     )
 
                     try:
                         # In generate mode, this should not throw even without existing mocks
+                        context = create_mock_tool_invoke_context()
                         result = tool_executor.invoke(
-                            "kubectl_describe", {"foo": "bar"}
+                            "kubectl_describe", {"foo": "bar"}, context
                         )
 
                         # Should have called the mocked tool and saved the result
-                        assert result.status == ToolResultStatus.SUCCESS
+                        assert result.status == StructuredToolResultStatus.SUCCESS
                         assert "Generated output" in result.data
 
                         # Verify mock was generated

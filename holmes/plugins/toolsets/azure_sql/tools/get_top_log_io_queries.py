@@ -1,7 +1,12 @@
 import logging
 from typing import Dict, List, Tuple
 
-from holmes.core.tools import StructuredToolResult, ToolParameter, ToolResultStatus
+from holmes.core.tools import (
+    StructuredToolResult,
+    ToolInvokeContext,
+    ToolParameter,
+    StructuredToolResultStatus,
+)
 from holmes.plugins.toolsets.azure_sql.azure_base_toolset import (
     BaseAzureSQLTool,
     BaseAzureSQLToolset,
@@ -107,7 +112,7 @@ class GetTopLogIOQueries(BaseAzureSQLTool):
 
         return "\n".join(report_sections)
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             top_count = params.get("top_count", 15)
             hours_back = params.get("hours_back", 2)
@@ -131,7 +136,7 @@ class GetTopLogIOQueries(BaseAzureSQLTool):
             )
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=report_text,
                 params=params,
             )
@@ -139,7 +144,7 @@ class GetTopLogIOQueries(BaseAzureSQLTool):
             error_msg = f"Failed to get top log I/O queries: {str(e)}"
             logging.error(error_msg)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )

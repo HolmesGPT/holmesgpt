@@ -24,8 +24,7 @@ spec:
         command: ["sleep", "infinity"]
         resources:
           requests:
-            cpu: "100m"
-            memory: "128Mi"
+            cpu: "1m"
+            memory: "4Mi"
           limits:
-            cpu: "200m"
-            memory: "256Mi"
+            memory: "16Mi"

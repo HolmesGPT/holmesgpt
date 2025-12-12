@@ -3,6 +3,7 @@ import pytest
 from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     DatadogTracesToolset,
 )
+from tests.conftest import create_mock_tool_invoke_context
 
 
 @pytest.mark.skipif(
@@ -45,7 +46,9 @@ class TestDatadogTracesLiveIntegration:
             "limit": 10,
         }
 
-        result = fetch_traces_tool._invoke(params)
+        result = fetch_traces_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         assert (
             result.status.value == "success"
@@ -69,7 +72,9 @@ class TestDatadogTracesLiveIntegration:
             "limit": 5,
         }
 
-        result = fetch_traces_tool._invoke(params)
+        result = fetch_traces_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         assert (
             result.status.value == "success"
@@ -87,7 +92,9 @@ class TestDatadogTracesLiveIntegration:
             "limit": 10,
         }
 
-        result = fetch_spans_tool._invoke(params)
+        result = fetch_spans_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         assert (
             result.status.value == "success"
@@ -109,7 +116,9 @@ class TestDatadogTracesLiveIntegration:
             "limit": 1,
         }
 
-        result = fetch_traces_tool._invoke(params)
+        result = fetch_traces_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         if result.status.value == "success" and "traceID=" in result.data:
             # Extract a trace ID from the result
@@ -126,7 +135,9 @@ class TestDatadogTracesLiveIntegration:
 
                 params = {"trace_id": trace_id}
 
-                result = fetch_trace_tool._invoke(params)
+                result = fetch_trace_tool._invoke(
+                    params, context=create_mock_tool_invoke_context()
+                )
 
                 assert (
                     result.status.value == "success"
@@ -144,7 +155,9 @@ class TestDatadogTracesLiveIntegration:
             "limit": 5,
         }
 
-        result = fetch_traces_tool._invoke(params)
+        result = fetch_traces_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         assert (
             result.status.value == "success"
@@ -162,7 +175,9 @@ class TestDatadogTracesLiveIntegration:
             "limit": 5,
         }
 
-        result = fetch_spans_tool._invoke(params)
+        result = fetch_spans_tool._invoke(
+            params, context=create_mock_tool_invoke_context()
+        )
 
         assert (
             result.status.value == "success"

@@ -3,12 +3,13 @@ from enum import Enum
 import json
 import logging
 from typing import Any, Optional, Dict, Tuple, Set
+from urllib.parse import urlencode
 from holmes.core.tools import (
     CallablePrerequisite,
     ToolsetTag,
 )
 from pydantic import BaseModel, Field
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
     DatadogBaseConfig,
@@ -16,6 +17,8 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     execute_paginated_datadog_http_request,
     get_headers,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
+    enhance_error_message,
+    preprocess_time_fields,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
@@ -99,23 +102,28 @@ def fetch_paginated_logs(
         "page": {"limit": calculate_page_size(params, dd_config, [])},
     }
 
+    # Preprocess time fields to ensure correct format
+    processed_payload = preprocess_time_fields(payload, "/api/v2/logs/events/search")
+
     logs, cursor = execute_paginated_datadog_http_request(
         url=url,
         headers=headers,
-        payload_or_params=payload,
+        payload_or_params=processed_payload,
         timeout=dd_config.request_timeout,
     )
 
     while cursor and len(logs) < limit:
-        payload["page"]["cursor"] = cursor
+        processed_payload["page"]["cursor"] = cursor
+        processed_payload["page"]["limit"] = calculate_page_size(
+            params, dd_config, logs
+        )
         new_logs, cursor = execute_paginated_datadog_http_request(
             url=url,
             headers=headers,
-            payload_or_params=payload,
+            payload_or_params=processed_payload,
             timeout=dd_config.request_timeout,
         )
         logs += new_logs
-        payload["page"]["limit"] = calculate_page_size(params, dd_config, logs)
 
     # logs are fetched descending order. Unified logging API follows the pattern of kubectl logs where oldest logs are first
     logs.reverse()
@@ -129,12 +137,71 @@ def format_logs(raw_logs: list[dict]) -> str:
     logs = []
 
     for raw_log_item in raw_logs:
+        # Extract timestamp - Datadog returns it in ISO format
+        timestamp = raw_log_item.get("attributes", {}).get("timestamp", "")
+        if not timestamp:
+            # Fallback to @timestamp if timestamp is not in attributes
+            timestamp = raw_log_item.get("attributes", {}).get("@timestamp", "")
+
+        # Extract message
         message = raw_log_item.get("attributes", {}).get(
             "message", json.dumps(raw_log_item)
         )
-        logs.append(message)
+
+        # Format as: [timestamp] message
+        if timestamp:
+            logs.append(f"[{timestamp}] {message}")
+        else:
+            logs.append(message)
 
     return "\n".join(logs)
+
+
+def generate_datadog_logs_url(
+    dd_config: DatadogLogsConfig,
+    params: FetchPodLogsParams,
+    storage_tier: DataDogStorageTier,
+) -> str:
+    """Generate a Datadog web UI URL for the logs query."""
+    from holmes.plugins.toolsets.utils import process_timestamps_to_int
+    from holmes.plugins.toolsets.datadog.datadog_api import convert_api_url_to_app_url
+
+    # Convert API URL to app URL using the shared helper
+    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+
+    # Build the query string
+    query = f"{dd_config.labels.namespace}:{params.namespace}"
+    query += f" {dd_config.labels.pod}:{params.pod_name}"
+    if params.filter:
+        filter = params.filter.replace('"', '\\"')
+        query += f' "{filter}"'
+
+    # Process timestamps - get Unix timestamps in seconds
+    (from_time_seconds, to_time_seconds) = process_timestamps_to_int(
+        start=params.start_time,
+        end=params.end_time,
+        default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
+    )
+
+    # Convert to milliseconds for Datadog web UI
+    from_time_ms = from_time_seconds * 1000
+    to_time_ms = to_time_seconds * 1000
+
+    # Build URL parameters matching Datadog's web UI format
+    url_params = {
+        "query": query,
+        "from_ts": str(from_time_ms),
+        "to_ts": str(to_time_ms),
+        "live": "true",
+        "storage": storage_tier.value,
+    }
+
+    # Add indexes if not default
+    if dd_config.indexes != ["*"]:
+        url_params["index"] = ",".join(dd_config.indexes)
+
+    # Construct the full URL
+    return f"{base_url}/logs?{urlencode(url_params)}"
 
 
 class DatadogLogsToolset(BasePodLoggingToolset):
@@ -151,11 +218,10 @@ class DatadogLogsToolset(BasePodLoggingToolset):
         super().__init__(
             name="datadog/logs",
             description="Toolset for fetching logs from Datadog, including historical data for pods no longer in the cluster",
-            docs_url="https://docs.datadoghq.com/api/latest/logs/",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],  # Initialize with empty tools first
-            experimental=True,
             tags=[ToolsetTag.CORE],
         )
         # Now that parent is initialized and self.name exists, create the tool
@@ -168,7 +234,7 @@ class DatadogLogsToolset(BasePodLoggingToolset):
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
         if not self.dd_config:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 data=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params.model_dump(),
             )
@@ -182,29 +248,134 @@ class DatadogLogsToolset(BasePodLoggingToolset):
 
                 if raw_logs:
                     logs_str = format_logs(raw_logs)
+                    # Generate Datadog web UI URL
+                    datadog_url = generate_datadog_logs_url(
+                        self.dd_config, params, storage_tier
+                    )
+                    logs_with_link = f"{logs_str}\n\nView in Datadog: {datadog_url}"
                     return StructuredToolResult(
-                        status=ToolResultStatus.SUCCESS,
-                        data=logs_str,
+                        status=StructuredToolResultStatus.SUCCESS,
+                        data=logs_with_link,
+                        url=datadog_url,
                         params=params.model_dump(),
                     )
 
+            # Include detailed diagnostic context
+            query = f"{self.dd_config.labels.namespace}:{params.namespace} {self.dd_config.labels.pod}:{params.pod_name}"
+            if params.filter:
+                query += f' "{params.filter}"'
+
+            # Get actual time range used
+            (from_time, to_time) = process_timestamps_to_rfc3339(
+                start_timestamp=params.start_time,
+                end_timestamp=params.end_time,
+                default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
+            )
+
+            # Generate Datadog web UI URL for the last storage tier checked
+            datadog_url = generate_datadog_logs_url(
+                self.dd_config, params, self.dd_config.storage_tiers[-1]
+            )
+
+            # Build diagnostic information
+            diagnostics: Dict[str, Any] = {
+                "query_executed": query,
+                "time_range": f"{from_time} to {to_time}",
+                "indexes_searched": self.dd_config.indexes,
+                "storage_tiers_checked": [
+                    tier.value for tier in self.dd_config.storage_tiers
+                ],
+                "field_mappings": {
+                    "namespace_field": self.dd_config.labels.namespace,
+                    "pod_field": self.dd_config.labels.pod,
+                },
+                "limit": params.limit or self.dd_config.default_limit,
+                "datadog_url": datadog_url,
+            }
+
+            # Format diagnostic info as structured text
+            error_msg = (
+                f"No logs found.\n\n"
+                f"Diagnostic Information:\n"
+                f"----------------------\n"
+                f"Query executed: {diagnostics['query_executed']}\n"
+                f"Time range: {diagnostics['time_range']}\n"
+                f"Indexes searched: {diagnostics['indexes_searched']}\n"
+                f"Storage tiers checked: {', '.join(str(tier) for tier in diagnostics.get('storage_tiers_checked', []))}\n"
+                f"Field mappings:\n"
+                f"  - Namespace field: {diagnostics.get('field_mappings', {}).get('namespace_field', 'N/A')}\n"
+                f"  - Pod field: {diagnostics.get('field_mappings', {}).get('pod_field', 'N/A')}\n"
+                f"Limit: {diagnostics['limit']}\n\n"
+                f"View in Datadog: {diagnostics['datadog_url']}"
+            )
+
             return StructuredToolResult(
-                status=ToolResultStatus.NO_DATA,
+                status=StructuredToolResultStatus.NO_DATA,
+                error=error_msg,
+                url=datadog_url,
                 params=params.model_dump(),
             )
 
         except DataDogRequestError as e:
             logging.exception(e, exc_info=True)
 
+            # Always try to generate Datadog URL for debugging
+            try:
+                datadog_url = generate_datadog_logs_url(
+                    self.dd_config, params, self.dd_config.storage_tiers[0]
+                )
+            except Exception:
+                datadog_url = None
+
             # Provide more specific error message for rate limiting failures
             if e.status_code == 429:
                 error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
+                if datadog_url:
+                    error_msg += f"\nView in Datadog: {datadog_url}"
+            elif e.status_code == 400:
+                # Use enhanced error message for validation errors
+                error_msg = enhance_error_message(
+                    e,
+                    "/api/v2/logs/events/search",
+                    "POST",
+                    str(self.dd_config.site_api_url),
+                )
+
+                # Add query context
+                query = f"{self.dd_config.labels.namespace}:{params.namespace} {self.dd_config.labels.pod}:{params.pod_name}"
+                if params.filter:
+                    query += f' "{params.filter}"'
+                error_msg += f"\n\nQuery attempted: {query}"
+
+                # Add Datadog web UI URL to error message
+                if datadog_url:
+                    error_msg += f"\nView in Datadog: {datadog_url}"
             else:
-                error_msg = f"Exception while querying Datadog: {str(e)}"
+                # Include full API error details and query context
+                error_msg = (
+                    f"Datadog API error (status {e.status_code}): {e.response_text}"
+                )
+                query = f"{self.dd_config.labels.namespace}:{params.namespace} {self.dd_config.labels.pod}:{params.pod_name}"
+                if params.filter:
+                    query += f' "{params.filter}"'
+                error_msg += f"\nQuery: {query}"
+
+                # Get actual time range used
+                (from_time, to_time) = process_timestamps_to_rfc3339(
+                    start_timestamp=params.start_time,
+                    end_timestamp=params.end_time,
+                    default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
+                )
+                error_msg += f"\nTime range: {from_time} to {to_time}"
+
+                # Add Datadog web UI URL to error message
+                if datadog_url:
+                    error_msg += f"\nView in Datadog: {datadog_url}"
 
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
+                url=datadog_url,
                 params=params.model_dump(),
                 invocation=json.dumps(e.payload),
             )
@@ -214,7 +385,7 @@ class DatadogLogsToolset(BasePodLoggingToolset):
                 f"Failed to query Datadog logs for params: {params}", exc_info=True
             )
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception while querying Datadog: {str(e)}",
                 params=params.model_dump(),
             )
@@ -225,7 +396,7 @@ class DatadogLogsToolset(BasePodLoggingToolset):
         Returns (success, error_message).
         """
         try:
-            logging.info("Performing Datadog configuration healthcheck...")
+            logging.debug("Performing Datadog configuration healthcheck...")
             healthcheck_params = FetchPodLogsParams(
                 namespace="*",
                 pod_name="*",
@@ -235,11 +406,11 @@ class DatadogLogsToolset(BasePodLoggingToolset):
 
             result = self.fetch_pod_logs(healthcheck_params)
 
-            if result.status == ToolResultStatus.ERROR:
+            if result.status == StructuredToolResultStatus.ERROR:
                 error_msg = result.error or "Unknown error during healthcheck"
                 logging.error(f"Datadog healthcheck failed: {error_msg}")
                 return False, f"Datadog healthcheck failed: {error_msg}"
-            elif result.status == ToolResultStatus.NO_DATA:
+            elif result.status == StructuredToolResultStatus.NO_DATA:
                 error_msg = "No logs were found in the last 48 hours using wildcards for pod and namespace. Is the configuration correct?"
                 logging.error(f"Datadog healthcheck failed: {error_msg}")
                 return False, f"Datadog healthcheck failed: {error_msg}"
@@ -255,7 +426,7 @@ class DatadogLogsToolset(BasePodLoggingToolset):
         if not config:
             return (
                 False,
-                TOOLSET_CONFIG_MISSING_ERROR,
+                "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             )
 
         try:

@@ -1,0 +1,5 @@
+expected_output:
+  - This must mention the date 2025-08-25
+evaluation:
+  correctness: 1
+mock_policy: always_mock

@@ -1,6 +1,6 @@
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
-from holmes.core.tools import ToolResultStatus
+from holmes.core.tools import StructuredToolResultStatus
 from unittest.mock import Mock, patch
 
 
@@ -23,7 +23,7 @@ class TestKubernetesLogsNoData:
         result = toolset.fetch_pod_logs(params)
 
         # Should return NO_DATA status when there are no logs
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         # May include metadata about the query even when no logs found
 
     @patch("subprocess.run")
@@ -47,7 +47,7 @@ class TestKubernetesLogsNoData:
         result = toolset.fetch_pod_logs(params)
 
         # Should return NO_DATA when filter matches no logs
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
 
     @patch("subprocess.run")
     def test_logs_with_time_range_no_matches_returns_no_data(self, mock_run):
@@ -70,7 +70,7 @@ class TestKubernetesLogsNoData:
         result = toolset.fetch_pod_logs(params)
 
         # Should return NO_DATA when no logs in time range
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
 
     @patch("subprocess.run")
     def test_logs_exist_returns_success_with_metadata(self, mock_run):
@@ -88,7 +88,7 @@ class TestKubernetesLogsNoData:
         result = toolset.fetch_pod_logs(params)
 
         # Should return SUCCESS when logs exist
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data is not None and len(result.data) > 0
         # Should contain the log content
         assert "Something went wrong" in result.data

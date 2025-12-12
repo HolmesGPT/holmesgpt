@@ -6,7 +6,8 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     FetchDatadogSpansByFilter,
 )
 from holmes.plugins.toolsets.datadog.datadog_api import DataDogRequestError
-from holmes.core.tools import ToolResultStatus
+from holmes.core.tools import StructuredToolResultStatus
+from tests.conftest import create_mock_tool_invoke_context
 
 
 class TestDatadogTracesToolset:
@@ -152,9 +153,9 @@ class TestFetchDatadogTracesList:
             "limit": 10,
         }
 
-        result = self.tool._invoke(params)
+        result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert "Found 1 traces" in result.data
         assert "traceID=abc123" in result.data
         assert "durationMs=50.00" in result.data  # 50ms total duration
@@ -174,18 +175,18 @@ class TestFetchDatadogTracesList:
 
         params = {"service": "non-existent-service"}
 
-        result = self.tool._invoke(params)
+        result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         assert "No matching traces found" in result.data
 
     def test_invoke_no_config(self):
         """Test invocation without configuration."""
         self.toolset.dd_config = None
 
-        result = self.tool._invoke({})
+        result = self.tool._invoke({}, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         assert "Datadog configuration not initialized" in result.error
 
     @patch(
@@ -203,7 +204,7 @@ class TestFetchDatadogTracesList:
 
         params = {"min_duration": "500ms"}
 
-        self.tool._invoke(params)
+        self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
         # Check that the query includes duration filter
         call_args = mock_execute.call_args
@@ -229,9 +230,9 @@ class TestFetchDatadogTracesList:
         self.toolset.dd_config.request_timeout = 60
         self.toolset.dd_config.indexes = ["*"]
 
-        result = self.tool._invoke({})
+        result = self.tool._invoke({}, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         assert "rate limit exceeded" in result.error
 
 
@@ -254,9 +255,9 @@ class TestFetchDatadogTraceById:
 
     def test_invoke_missing_trace_id(self):
         """Test invocation without trace_id parameter."""
-        result = self.tool._invoke({})
+        result = self.tool._invoke({}, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         assert "trace_id parameter is required" in result.error
 
     @patch(
@@ -299,9 +300,9 @@ class TestFetchDatadogTraceById:
 
         params = {"trace_id": "abc123"}
 
-        result = self.tool._invoke(params)
+        result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert "Trace ID: abc123" in result.data
         assert "GET /users (web-api)" in result.data
         assert "SELECT (database)" in result.data
@@ -317,9 +318,9 @@ class TestFetchDatadogTraceById:
 
         params = {"trace_id": "nonexistent"}
 
-        result = self.tool._invoke(params)
+        result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         assert "No trace found for trace_id: nonexistent" in result.data
 
 
@@ -371,9 +372,9 @@ class TestFetchDatadogSpansByFilter:
 
         params = {"query": "@http.status_code:500"}
 
-        result = self.tool._invoke(params)
+        result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert "Found 1 matching spans" in result.data
         assert "Trace ID: trace1" in result.data
         assert "GET /users (web-api)" in result.data
@@ -391,7 +392,7 @@ class TestFetchDatadogSpansByFilter:
             "tags": {"env": "production", "version": "1.2.3"},
         }
 
-        self.tool._invoke(params)
+        self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
         # Check that tags are included in the query
         call_args = mock_execute.call_args
@@ -409,7 +410,7 @@ class TestFetchDatadogSpansByFilter:
 
         params = {"service": "non-existent"}
 
-        result = self.tool._invoke(params)
+        result = self.tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         assert "No matching spans found" in result.data

@@ -1,0 +1,16 @@
+tags:
+  - compaction
+  - easy
+
+expected_output: |
+  The conversation history captures a system investigation where the agent diagnosed a database connectivity issue.
+  The key finding was a buried exception in the application logs: "java.sql.SQLException: Connection pool exhausted - max pool size of 10 reached".
+  This exception appeared in pod 'payment-service-7d9f8c4b-xk2p9' and indicated that the payment service was unable to obtain database connections due to pool exhaustion.
+  The investigation included checking pod status, examining pod logs, reviewing database metrics, and analyzing configuration.
+  The root cause was identified as insufficient database connection pool sizing under increased load.
+
+description: |
+  Test compaction with a realistic system investigation scenario where a critical exception
+  is buried deep within verbose application logs. The test verifies that the LLM can
+  identify and preserve information about the key exception even when it's hidden among
+  many lines of normal log output.

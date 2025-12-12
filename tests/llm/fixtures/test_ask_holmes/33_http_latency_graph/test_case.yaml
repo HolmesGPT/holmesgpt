@@ -1,9 +1,0 @@
-user_prompt: "Show me the http request latency over time for the service customer-orders-service?"
-expected_output:
-  - 'The answer should include something similar to << { "type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "<alphanumeric code>" } >>.'
-before_test: kubectl apply -f ./app/manifest.yaml
-after_test: kubectl delete -f ./app/manifest.yaml
-evaluation:
-  correctness: 1
-skip: true
-skip_reason: not sure how to test this properly - maybe with mocked prometheus data, maybe on a real cluster with prometheus

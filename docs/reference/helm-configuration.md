@@ -5,7 +5,7 @@ Configuration reference for HolmesGPT Helm chart.
 **Quick Links:**
 
 - [Installation Tutorial](../installation/kubernetes-installation.md) - Step-by-step setup guide
-- [values.yaml](https://github.com/robusta-dev/holmesgpt/blob/master/helm/holmes/values.yaml) - Complete configuration reference
+- [values.yaml](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml) - Complete configuration reference
 - [HTTP API Reference](../reference/http-api.md) - Test your deployment
 
 ## Basic Configuration
@@ -113,6 +113,8 @@ serviceAccount:
 # Custom RBAC rules
 customClusterRoleRules: []
 ```
+
+For detailed information about the required Kubernetes permissions, see [Kubernetes Permissions](kubernetes-permissions.md).
 
 ### Resource Configuration
 
@@ -255,11 +257,11 @@ additionalEnvVars:
         key: aws-secret-access-key
 
 modelList:
-  gpt-4o:
+  gpt-4.1:
     api_key: "{{ env.OPENAI_API_KEY }}"
-    model: openai/gpt-4o
+    model: openai/gpt-4.1
     temperature: 0
-  anthropic-sonnet-4:
+  claude-sonnet-4:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
     model: anthropic/claude-sonnet-4-20250514
     temperature: 1
@@ -314,4 +316,4 @@ yamllint values.yaml
 
 ## Complete Reference
 
-For the complete and up-to-date configuration reference, see the actual [`values.yaml`](https://github.com/robusta-dev/holmesgpt/blob/master/helm/holmes/values.yaml) file in the repository.
+For the complete and up-to-date configuration reference, see the actual [`values.yaml`](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml) file in the repository.

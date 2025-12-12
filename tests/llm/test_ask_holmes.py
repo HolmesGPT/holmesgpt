@@ -6,27 +6,30 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 from datetime import datetime
-
+from holmes.plugins.runbooks import load_runbook_catalog, RunbookCatalog
 from rich.console import Console
 from holmes.core.models import ChatRequest
 from holmes.core.tracing import TracingFactory
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
-from holmes.core.llm import DefaultLLM
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from tests.llm.utils.commands import set_test_env_vars
 from tests.llm.utils.mock_toolset import (
     MockToolsetManager,
     MockGenerationConfig,
+    check_for_mock_errors,
 )
 from tests.llm.utils.test_case_utils import (
     AskHolmesTestCase,
     check_and_skip_test,
     get_models,
+    create_eval_llm,
 )
 
 from holmes.core.prompt import build_initial_ask_messages
+from tests.llm.utils.retry_handler import retry_on_throttle
+from tests.llm.utils.mock_dal import load_mock_dal
 
 from tests.llm.utils.property_manager import (
     set_initial_properties,
@@ -75,37 +78,43 @@ def test_ask_holmes(
             set_trace_properties(request, eval_span)
             check_and_skip_test(test_case, request, shared_test_infrastructure)
 
-            # Mock datetime if mocked_date is provided
-            if test_case.mocked_date:
-                mocked_datetime = datetime.fromisoformat(
-                    test_case.mocked_date.replace("Z", "+00:00")
-                )
-                with patch("holmes.plugins.prompts.datetime") as mock_datetime:
-                    mock_datetime.now.return_value = mocked_datetime
+            # Use contextlib.ExitStack to handle conditional context managers
+            from contextlib import ExitStack
 
+            with ExitStack() as stack:
+                # Mock datetime if mocked_date is provided
+                if test_case.mocked_date:
+                    mocked_datetime = datetime.fromisoformat(
+                        test_case.mocked_date.replace("Z", "+00:00")
+                    )
+                    mock_datetime = stack.enter_context(
+                        patch("holmes.plugins.prompts.datetime")
+                    )
+                    mock_datetime.now.return_value = mocked_datetime
                     mock_datetime.side_effect = None
                     mock_datetime.configure_mock(
                         **{"now.return_value": mocked_datetime, "side_effect": None}
                     )
-                    with set_test_env_vars(test_case):
-                        result = ask_holmes(
-                            test_case=test_case,
-                            model=model,
-                            tracer=tracer,
-                            eval_span=eval_span,
-                            mock_generation_config=mock_generation_config,
-                            request=request,
-                        )
-            else:
-                with set_test_env_vars(test_case):
-                    result = ask_holmes(
-                        test_case=test_case,
-                        model=model,
-                        tracer=tracer,
-                        eval_span=eval_span,
-                        mock_generation_config=mock_generation_config,
-                        request=request,
-                    )
+
+                # Always apply test env vars
+                stack.enter_context(set_test_env_vars(test_case))
+
+                # Run the test with retry logic
+                retry_enabled = request.config.getoption(
+                    "retry-on-throttle", default=True
+                )
+                result = retry_on_throttle(
+                    ask_holmes,
+                    test_case,  # positional arg
+                    model,  # positional arg
+                    tracer,  # positional arg
+                    eval_span,  # positional arg
+                    mock_generation_config,  # positional arg
+                    request=request,
+                    retry_enabled=retry_enabled,
+                    test_id=test_case.id,
+                    model=model,  # Also pass for logging in retry_handler
+                )
 
     except Exception as e:
         handle_test_error(
@@ -172,6 +181,8 @@ def ask_holmes(
             mock_generation_config=mock_generation_config,
             request=request,
             mock_policy=test_case.mock_policy,
+            mock_overrides=test_case.mock_overrides,
+            allow_toolset_failures=getattr(test_case, "allow_toolset_failures", False),
         )
 
     tool_executor = ToolExecutor(toolset_manager.toolsets)
@@ -194,15 +205,18 @@ def ask_holmes(
             pytest.skip("CLI mode does not support conversation history tests")
         else:
             console = Console()
-            # Use custom runbooks from test case if provided, otherwise use default system runbooks
-            if test_case.runbooks is not None:
-                runbooks = test_case.runbooks
+            if test_case.runbooks is None:
+                runbooks = load_runbook_catalog()
+            elif test_case.runbooks == {}:
+                runbooks = None
             else:
-                # Load default system runbooks
-                from holmes.plugins.runbooks import load_runbook_catalog
-
-                runbook_catalog = load_runbook_catalog()
-                runbooks = runbook_catalog.model_dump() if runbook_catalog else {}
+                try:
+                    runbooks = RunbookCatalog(**test_case.runbooks)
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
+                        f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
+                    ) from e
             messages = build_initial_ask_messages(
                 console,
                 test_case.user_prompt,
@@ -216,11 +230,19 @@ def ask_holmes(
         if test_case.cluster_name:
             config.cluster_name = test_case.cluster_name
 
+        mock_dal = load_mock_dal(
+            Path(test_case.folder), generate_mocks=False, initialize_base=False
+        )
+        runbooks = load_runbook_catalog(mock_dal)
+        global_instructions = mock_dal.get_global_instructions_for_account()
+
         messages = build_chat_messages(
             ask=chat_request.ask,
             conversation_history=test_case.conversation_history,
             ai=ai,
             config=config,
+            global_instructions=global_instructions,
+            runbooks=runbooks,
         )
 
     # Create LLM completion trace within current context
@@ -230,4 +252,10 @@ def ask_holmes(
         holmes_duration = time.time() - start_time
         # Log duration directly to eval_span
         eval_span.log(metadata={"holmes_duration": holmes_duration})
+
+    # Check for any mock errors that occurred during tool execution
+    # This will raise an exception if any mock data errors happened
+    if request:
+        check_for_mock_errors(request)
+
     return result

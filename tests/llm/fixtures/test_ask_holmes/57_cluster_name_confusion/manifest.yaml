@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-relations-webapp
+  labels:
+    app.kubernetes.io/name: customer-relations
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: customer-relations
+  template:
+    metadata:
+      labels:
+        app: customer-relations
+        visualize: "true"
+    spec:
+      containers:
+        - name: crw-main-container
+          image: yourcompany/crw:latest
+          imagePullPolicy: Always

@@ -1,0 +1,86 @@
+name: 'Post Evaluation Comment'
+description: 'Post or update evaluation results as a PR comment'
+
+inputs:
+  github-token:
+    description: 'GitHub token for posting comments'
+    required: true
+  report-file:
+    description: 'Path to the report file to post'
+    required: false
+    default: 'evals_report.md'
+  comment-identifier:
+    description: 'String to identify bot comments for updates'
+    required: false
+    default: '## Results of HolmesGPT evals'
+  delete-previous:
+    description: 'Whether to delete previous bot comments'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Post or update PR comment
+      uses: actions/github-script@v7
+      with:
+        retries: 3
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+
+          try {
+            // Only comment on PR if the workflow is run as part of a PR
+            if (!context.issue || !context.issue.number) {
+              console.log('Not a PR context, skipping comment');
+              return;
+            }
+
+            // Read the report file
+            const reportPath = '${{ inputs.report-file }}';
+            if (!fs.existsSync(reportPath)) {
+              console.log(`Report file not found: ${reportPath}`);
+              return;
+            }
+
+            const reportContent = fs.readFileSync(reportPath, 'utf8');
+
+            // Find existing bot comments (paginate to get all comments)
+            const allComments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100
+              }
+            );
+
+            const commentIdentifier = '${{ inputs.comment-identifier }}';
+            const botComments = allComments.filter(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes(commentIdentifier)
+            );
+
+            // Post new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `<!-- ${commentIdentifier} -->\n${reportContent}`
+            });
+
+            // Delete old comments if requested
+            if ('${{ inputs.delete-previous }}' === 'true' && botComments.length > 0) {
+              for (const comment of botComments) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id
+                });
+              }
+            }
+          } catch (e) {
+            console.error('Error posting comment:', e);
+            // Don't fail the workflow if commenting fails
+          }

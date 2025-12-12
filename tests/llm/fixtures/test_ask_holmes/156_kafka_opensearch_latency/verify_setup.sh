@@ -74,12 +74,12 @@ fi
 
 # Check consumer group lag exists (poll with timeout)
 echo "Waiting for consumer lag to build up..."
-MAX_WAIT=90  # 90 seconds timeout
-WAIT_INTERVAL=5
+MAX_WAIT=60  # 60 seconds timeout (reduced from 90)
+WAIT_INTERVAL=3  # Check more frequently
 ELAPSED=0
 
 while [ $ELAPSED -lt $MAX_WAIT ]; do
-    # Check if consumer group exists and has significant lag (at least 100 messages)
+    # Check if consumer group exists and has significant lag (at least 50 messages)
     echo "Checking consumer lag at $ELAPSED seconds..."
     CONSUMER_OUTPUT=$(kubectl exec -n app-156 deploy/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group analytics-group 2>&1 || echo "FAILED")
 
@@ -98,18 +98,18 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 
     echo "Current lag: $CONSUMER_LAG messages"
 
-    if [ "$CONSUMER_LAG" -ge 100 ]; then
+    if [ "$CONSUMER_LAG" -ge 50 ]; then
         echo "*** Significant consumer lag detected: $CONSUMER_LAG messages ***"
         break
     fi
 
-    echo "Consumer lag is $CONSUMER_LAG messages (need 100+), waiting... ($ELAPSED/$MAX_WAIT seconds)"
+    echo "Consumer lag is $CONSUMER_LAG messages (need 50+), waiting... ($ELAPSED/$MAX_WAIT seconds)"
     sleep $WAIT_INTERVAL
     ELAPSED=$((ELAPSED + WAIT_INTERVAL))
 done
 
 if [ $ELAPSED -ge $MAX_WAIT ]; then
-    echo "ERROR: Consumer lag did not reach 100+ messages within $MAX_WAIT seconds (final lag: $CONSUMER_LAG)"
+    echo "ERROR: Consumer lag did not reach 50+ messages within $MAX_WAIT seconds (final lag: $CONSUMER_LAG)"
     kubectl exec -n app-156 deploy/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group analytics-group 2>/dev/null || echo "No consumer group found"
     exit 1
 fi

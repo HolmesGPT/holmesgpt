@@ -1,6 +1,5 @@
 user_prompt: "What change events happened on June 12?"
 tags:
-  - synthetic
   - medium
 expected_output:
   - Web scraping job was redeployed

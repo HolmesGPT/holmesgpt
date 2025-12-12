@@ -1,0 +1,391 @@
+# ------------------------------------------------------------------------------
+# Energy Market Bidding Service Test Environment
+#
+# This manifest sets up a test to validate that Holmes can detect when
+# a specific energy exchange (NordPool) starts accepting 100% of bids
+# instead of the normal 10% rate, combined with a traffic surge.
+#
+# Components:
+# - Namespace: app-160
+# - Bidder Service: Python/Flask app that processes bid requests
+#     * Normal behavior: 10% bid acceptance rate (realistic for energy markets)
+#     * Bug: After 100 requests from NordPool, always accepts bids from NordPool
+#     * Exports Prometheus metrics with exchange and decision labels
+# - k6 Job: Simulates traffic from 5 energy exchanges
+#     * Phase 1 (0-15s): Normal traffic distribution
+#     * Phase 2 (15s-45s): NordPool traffic increases 10x
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-160
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bidder-app
+  namespace: app-160
+type: Opaque
+stringData:
+  app.py: |
+    import os, time, json, random, logging
+    from flask import Flask, request, jsonify
+    from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+    app = Flask(__name__)
+
+    # Disable logging for cleaner test
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    app.logger.disabled = True
+
+    # Business constants
+    NORMAL_BID_RATE = 0.10  # 10% bid rate is typical for energy markets
+
+    # Bug tracking
+    nordpool_counter = 0
+
+    # Prometheus metrics
+    bid_requests = Counter(
+        "bid_requests_total",
+        "Total bid requests received",
+        ["exchange", "decision"]
+    )
+
+    request_duration = Histogram(
+        "bid_request_duration_seconds",
+        "Duration of bid request processing",
+        ["exchange"],
+        buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+    )
+
+    current_bid_rate = Gauge(
+        "bid_rate_current",
+        "Current bid acceptance rate by exchange",
+        ["exchange"]
+    )
+
+    # Track bid rates for gauge updates
+    exchange_stats = {}
+
+    def update_bid_rate(exchange, decision):
+        if exchange not in exchange_stats:
+            exchange_stats[exchange] = {"bid": 0, "no_bid": 0}
+        exchange_stats[exchange][decision] += 1
+        total = exchange_stats[exchange]["bid"] + exchange_stats[exchange]["no_bid"]
+        if total > 0:
+            rate = exchange_stats[exchange]["bid"] / total
+            current_bid_rate.labels(exchange=exchange).set(rate)
+
+    def should_bid(exchange):
+        global nordpool_counter
+
+        # Bug logic for NordPool
+        if exchange == "NordPool":
+            nordpool_counter += 1
+            if nordpool_counter > 100:
+                # Bug: Always bid after 100 requests
+                return True
+
+        # Normal logic: 10% bid rate
+        return random.random() < NORMAL_BID_RATE
+
+    @app.route("/metrics")
+    def metrics():
+        return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+
+    @app.route("/healthz")
+    def healthz():
+        return "ok", 200
+
+    @app.route("/bid", methods=["POST"])
+    def process_bid():
+        start_time = time.perf_counter()
+
+        # Extract request data
+        data = request.get_json() or {}
+        exchange = data.get("exchange", "unknown")
+        energy_id = data.get("energy_id", "")
+
+        # Validate exchange
+        valid_exchanges = ["NordPool", "EPEX_SPOT", "EEX", "OMIE", "GME"]
+        if exchange not in valid_exchanges:
+            return jsonify({"error": "Invalid exchange"}), 400
+
+        # Make bid decision
+        decision = "bid" if should_bid(exchange) else "no_bid"
+
+        # Update metrics
+        bid_requests.labels(exchange=exchange, decision=decision).inc()
+        update_bid_rate(exchange, decision)
+
+        # Simulate processing time
+        process_time = random.uniform(0.005, 0.025)
+        time.sleep(process_time)
+
+        # Record request duration
+        duration = time.perf_counter() - start_time
+        request_duration.labels(exchange=exchange).observe(duration)
+
+        # Return response
+        response = {
+            "exchange": exchange,
+            "energy_id": energy_id,
+            "decision": decision,
+            "timestamp": int(time.time() * 1000)
+        }
+
+        return jsonify(response), 200
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bidder
+  namespace: app-160
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bidder
+  template:
+    metadata:
+      labels:
+        app: bidder
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+      - name: app
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install --no-cache-dir flask prometheus_client && python /app/app.py
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: app-code
+        secret:
+          secretName: bidder-app
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bidder
+  namespace: app-160
+  labels:
+    app: bidder
+spec:
+  selector:
+    app: bidder
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k6-script
+  namespace: app-160
+type: Opaque
+stringData:
+  test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import { Rate } from 'k6/metrics';
+
+    const bidAcceptanceRate = new Rate('bid_acceptance_rate');
+
+    export const options = {
+      scenarios: {
+        // Normal traffic for first 15 seconds (enough for bug to trigger at ~6 req/s for NordPool)
+        normal_traffic: {
+          executor: 'constant-arrival-rate',
+          rate: 30,  // 30 requests per second total
+          timeUnit: '1s',
+          duration: '15s',
+          preAllocatedVUs: 30,
+          exec: 'normalTraffic',
+        },
+        // After 15 seconds, surge NordPool traffic
+        nordpool_surge: {
+          executor: 'constant-arrival-rate',
+          rate: 60,  // 60 requests per second from NordPool alone
+          timeUnit: '1s',
+          startTime: '15s',
+          duration: '30s',
+          preAllocatedVUs: 60,
+          exec: 'nordpoolSurge',
+        },
+        // Continue normal traffic for other exchanges
+        continued_normal: {
+          executor: 'constant-arrival-rate',
+          rate: 20,  // Reduced rate for other exchanges
+          timeUnit: '1s',
+          startTime: '15s',
+          duration: '30s',
+          preAllocatedVUs: 20,
+          exec: 'otherExchanges',
+        },
+      },
+      thresholds: {
+        'http_req_duration': ['p(95)<100'],
+        'http_req_failed': ['rate<0.01'],
+      },
+    };
+
+    const exchanges = ['NordPool', 'EPEX_SPOT', 'EEX', 'OMIE', 'GME'];
+    const exchangeWeights = {
+      'NordPool': 0.20,
+      'EPEX_SPOT': 0.25,
+      'EEX': 0.25,
+      'OMIE': 0.15,
+      'GME': 0.15,
+    };
+
+    function selectExchange() {
+      const rand = Math.random();
+      let cumulative = 0;
+      for (const [exchange, weight] of Object.entries(exchangeWeights)) {
+        cumulative += weight;
+        if (rand < cumulative) return exchange;
+      }
+      return 'NordPool';
+    }
+
+    function makeBidRequest(exchange) {
+      const url = 'http://bidder.app-160.svc.cluster.local/bid';
+      const payload = JSON.stringify({
+        exchange: exchange,
+        energy_id: `ENERGY_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        quantity_mwh: Math.floor(Math.random() * 100) + 10,
+        price_per_mwh: Math.floor(Math.random() * 50) + 30,
+      });
+
+      const params = {
+        headers: { 'Content-Type': 'application/json' },
+        tags: { exchange: exchange },
+      };
+
+      const res = http.post(url, payload, params);
+
+      check(res, {
+        'status is 200': (r) => r.status === 200,
+        'has decision': (r) => {
+          const body = JSON.parse(r.body);
+          return body.decision === 'bid' || body.decision === 'no_bid';
+        },
+      });
+
+      // Track bid acceptance
+      if (res.status === 200) {
+        const body = JSON.parse(res.body);
+        bidAcceptanceRate.add(body.decision === 'bid');
+      }
+
+      return res;
+    }
+
+    export function normalTraffic() {
+      const exchange = selectExchange();
+      makeBidRequest(exchange);
+      sleep(0.01);
+    }
+
+    export function nordpoolSurge() {
+      makeBidRequest('NordPool');
+      sleep(0.01);
+    }
+
+    export function otherExchanges() {
+      const otherExchanges = exchanges.filter(e => e !== 'NordPool');
+      const exchange = otherExchanges[Math.floor(Math.random() * otherExchanges.length)];
+      makeBidRequest(exchange);
+      sleep(0.01);
+    }
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-energy-market
+  namespace: app-160
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+      - name: wait-for-bidder
+        image: curlimages/curl:8.8.0
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "Waiting for bidder service to be ready..."
+            until curl -fsS http://bidder.app-160.svc.cluster.local/healthz; do
+              echo "Bidder not ready, waiting..."
+              sleep 2
+            done
+            echo "Bidder service is ready!"
+      - name: wait-for-prometheus
+        image: curlimages/curl:8.8.0
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "Waiting for Prometheus to be ready..."
+            until curl -fsS http://prometheus.app-160.svc.cluster.local:9090/-/ready; do
+              echo "Prometheus not ready, waiting..."
+              sleep 2
+            done
+            echo "Prometheus is ready!"
+      containers:
+      - name: k6
+        image: grafana/k6:0.49.0
+        args: ["run", "/scripts/test.js"]
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+      volumes:
+      - name: script
+        secret:
+          secretName: k6-script
+          items:
+          - key: test.js
+            path: test.js

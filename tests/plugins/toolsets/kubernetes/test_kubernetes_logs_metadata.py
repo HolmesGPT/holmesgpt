@@ -6,7 +6,7 @@ import pytest
 
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
-from holmes.core.tools import ToolResultStatus
+from holmes.core.tools import StructuredToolResultStatus
 
 
 class TestKubernetesLogsMetadata:
@@ -52,7 +52,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         print("\n=== SCENARIO: Logs found and filtered ===")
         print(result.data)
 
@@ -92,7 +92,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         print("\n=== SCENARIO: Hitting display limit ===")
         print(result.data)
 
@@ -126,7 +126,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         print("\n=== SCENARIO: No logs match filter ===")
         print(result.data)
 
@@ -158,7 +158,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         print("\n=== SCENARIO: No logs exist (with time range) ===")
         print(result.data)
 
@@ -185,7 +185,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         print("\n=== SCENARIO: No logs exist (no time range) ===")
         print(result.data)
 
@@ -219,7 +219,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.NO_DATA
+        assert result.status == StructuredToolResultStatus.NO_DATA
         print("\n=== SCENARIO: Regex fallback warnings ===")
         print(result.data)
 
@@ -257,7 +257,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         print("\n=== SCENARIO: Multi-container logs ===")
         print(result.data)
 
@@ -288,7 +288,7 @@ class TestKubernetesLogsMetadata:
 
         result = self.toolset.fetch_pod_logs(params)
 
-        assert result.status == ToolResultStatus.SUCCESS
+        assert result.status == StructuredToolResultStatus.SUCCESS
         print("\n=== SCENARIO: Exclude filter effectiveness ===")
         print(result.data)
 

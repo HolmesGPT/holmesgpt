@@ -2,12 +2,23 @@ user_prompt: "Why is meme-deployment not responding to http requests from within
 expected_output:
   - The `meme-deployment` is experiencing issues due to a DNS resolution error.
   - This indicates that the hostname `memcom` cannot be resolved to an IP address.
+setup_timeout: 300
 before_test: |
   kubectl create namespace app-23 || true
   kubectl apply -f ./manifests/
-  kubectl wait --for=condition=available --timeout=120s deployment/curl-deployment -n app-23
-  kubectl wait --for=condition=available --timeout=120s deployment/meme-deployment -n app-23
-  sleep 60
+  kubectl wait --for=condition=available --timeout=180s deployment/curl-deployment -n app-23
+  kubectl wait --for=condition=available --timeout=180s deployment/meme-deployment -n app-23
+
+  # Wait for curl pod to generate some error logs (replaces fixed 30s sleep)
+  echo "Waiting for curl pod to generate DNS error logs..."
+  for i in {1..30}; do
+    if kubectl logs -n app-23 -l app=curl-app --tail=5 2>/dev/null | grep -q "Failed to reach"; then
+      echo "✅ Error logs detected after $i seconds"
+      break
+    fi
+    echo "⏳ Attempt $i/30: Waiting for error logs..."
+    sleep 1
+  done
 after_test: |
   kubectl delete -f ./manifests/
 tags:

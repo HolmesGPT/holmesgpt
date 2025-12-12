@@ -1,9 +1,8 @@
 # Today is Thursday, ask for logs since last week mentioning specific day
-user_prompt: "Show me the logs for the pod `robusta-holmes` since last Thursday"
+user_prompt: "Show me the logs for the pod `robusta-holmes-7bfb7f85b7-2w9ck` since last Thursday"
 tags:
   - logs
   - datetime
-  - synthetic
   - medium  # Holmes fetches data excluding Thurday and starting Friday in 5% of cases
 expected_output:
   - 2025-06-12 The database at my.postgresql.com has become unavailable
@@ -13,5 +12,3 @@ expected_output:
   - 2025-06-19 SSL certificate expired
 
 mock_policy: always_mock
-skip: true
-skip_reason: Test is often missing mock data

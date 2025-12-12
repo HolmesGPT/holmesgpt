@@ -1,9 +1,13 @@
-user_prompt: "The user-lookup service in namespace-104b is experiencing slow response times. Why?"
+user_prompt: "The user-lookup deployment in namespace-104b is experiencing slow response times. Why?"
 expected_output:
   - Database queries are slow due to missing index on users.email column
   - Sequential scans are occurring on the users table with 100k rows
   - Each email lookup query is taking over 100ms due to full table scan
 #  - CREATE INDEX ON users(email) would resolve the performance issue
+
+skip: true
+skip_reason: setup needs fixing, the database has other issues right now that the llm correctly finds
+
 tags:
   - hard
   - database

@@ -6,12 +6,6 @@ toolsets:
   kubernetes/logs:
     enabled: true
 
-  prometheus/metrics:
-    enabled: true
-
-  grafana/dashboards:
-    enabled: true
-
   # Explicitly disable all AWS toolsets
   aws/security:
     enabled: false

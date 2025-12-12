@@ -1,15 +1,9 @@
 toolsets:
-  prometheus/metrics:
-    enabled: False
   kubernetes/kube-lineage-extras:
     enabled: true
   kubernetes/logs:
     enabled: False
-  kubernetes/core:
-    enabled: true
   datadog/logs:
     enabled: True
   datadog/metrics:
-    enabled: True
-  datadog/traces:
     enabled: True

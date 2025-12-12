@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "service", "keyword": "customer-orders-service"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "service", "keyword": "customer-orders-service"}}
-stdout:
-default          customer-orders-service                              ClusterIP   10.96.132.215   <none>        80/TCP                                                                                                    25d     app=customer-orders                                                                                                                             app=customer-orders
-
-stderr:

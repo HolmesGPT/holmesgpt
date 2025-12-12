@@ -1,16 +1,16 @@
-user_prompt: "What kubernetes events are related to the nginx pod in namespace-04?"
+user_prompt: "What kubernetes events are related to the nginx pod in app-04?"
 expected_output:
-  - "Events showing pod was scheduled to a node"
-  - "Image nginx was pulled successfully"
-  - "Container nginx was created and started"
-  - "Pod transitioned through normal startup sequence: Scheduled -> Pulling -> Pulled -> Created -> Started"
+  - "Container is failing or crashing (CrashLoopBackOff or similar restart events)"
+  - "Events showing repeated container restarts or failures"
+  - "BackOff events indicating container restart delays"
+  - "May see events about pulling image, creating container, and then container exiting with error"
 before_test: |
   kubectl apply -f manifest.yaml
+  # Wait for the pod to crash at least once to generate events
   sleep 30
 after_test: |
   kubectl delete -f manifest.yaml
 tags:
   - easy
   - kubernetes
-skip: true
-skip_reason: When running with many iterations (or on an existing setup) this test can fail because the events disappear from the cluster
+  - question-answer

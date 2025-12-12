@@ -3,9 +3,11 @@ expected_output:
   - The command `wge` is not found
   - The answer should suggets `wge` may be a typo for `wget`.
 before_test: |
-  kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/init_crashloop_backoff/create_init_crashloop_backoff.yaml
+  kubectl create namespace app-11 || true
+  kubectl apply -f manifest.yaml -n app-11
   sleep 40
 after_test: |
-  kubectl delete -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/init_crashloop_backoff/create_init_crashloop_backoff.yaml
+  kubectl delete -f manifest.yaml -n app-11
+  kubectl delete namespace app-11 || true
 tags:
   - easy

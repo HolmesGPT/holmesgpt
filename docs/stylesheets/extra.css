@@ -1,7 +1,7 @@
 .md-banner {
   background: #000;
   color: white;
-  text-align: left;
+  text-align: center;
   font-size: 0.8rem;
   padding: 0.25rem 1rem;
   position: relative;
@@ -12,6 +12,7 @@
 .md-banner__inner {
   max-width: 1200px;
   margin: 0 auto;
+  text-align: center;
 }
 
 .md-banner a {

@@ -23,11 +23,13 @@ ENV VIRTUAL_ENV=/app/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Needed for kubectl
-RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key -o Release.key
+ENV VERIFY_CHECKSUM=true \
+    VERIFY_SIGNATURES=true
+RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key -o Release.key
 
 # Set the architecture-specific kube lineage URLs
-ARG KUBE_LINEAGE_ARM_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.3/kube-lineage-macos-latest-v2.2.3
-ARG KUBE_LINEAGE_AMD_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.3/kube-lineage-ubuntu-latest-v2.2.3
+ARG KUBE_LINEAGE_ARM_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.4/kube-lineage-macos-latest-v2.2.4
+ARG KUBE_LINEAGE_AMD_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.4/kube-lineage-ubuntu-latest-v2.2.4
 # Define a build argument to identify the platform
 ARG TARGETPLATFORM
 # Conditional download based on the platform
@@ -42,10 +44,8 @@ RUN chmod 777 kube-lineage
 RUN ./kube-lineage --version
 
 # Set the architecture-specific argocd URLs
-# Freezing to argocd 2.13.5 as it has fixes CVE-2025-21613 and CVE-2025-21614.
-# The argocd release 2.14.2 (latest as 2025-02-19) unfortunately has these CVEs.
-ARG ARGOCD_ARM_URL=https://github.com/argoproj/argo-cd/releases/download/v2.13.5/argocd-linux-arm64
-ARG ARGOCD_AMD_URL=https://github.com/argoproj/argo-cd/releases/download/v2.13.5/argocd-linux-amd64
+ARG ARGOCD_ARM_URL=https://github.com/argoproj/argo-cd/releases/download/v3.2.0/argocd-linux-arm64
+ARG ARGOCD_AMD_URL=https://github.com/argoproj/argo-cd/releases/download/v3.2.0/argocd-linux-amd64
 # Conditional download based on the platform
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
     curl -L -o argocd $ARGOCD_ARM_URL; \
@@ -58,12 +58,7 @@ RUN chmod 777 argocd
 RUN ./argocd --help
 
 # Install Helm
-RUN curl https://baltocdn.com/helm/signing.asc | gpg --dearmor -o /usr/share/keyrings/helm.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" \
-    | tee /etc/apt/sources.list.d/helm-stable-debian.list \
-    && apt-get update \
-    && apt-get install -y helm \
-    && rm -rf /var/lib/apt/lists/*
+RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # Set up poetry
 ARG PRIVATE_PACKAGE_REGISTRY="none"
@@ -106,7 +101,7 @@ RUN apt-get update \
 # Set up kubectl
 COPY --from=builder /app/Release.key Release.key
 RUN cat Release.key |  gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg \
-    && echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list \
+    && echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list \
     && apt-get update
 RUN apt-get install -y kubectl
 
@@ -135,7 +130,7 @@ COPY --from=builder /app/argocd /usr/local/bin/argocd
 RUN argocd --help
 
 # Set up Helm
-COPY --from=builder /usr/bin/helm /usr/local/bin/helm
+COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
 RUN chmod 555 /usr/local/bin/helm
 RUN helm version
 
@@ -151,6 +146,7 @@ RUN git config --global core.symlinks false
 RUN rm -rf /usr/local/lib/python3.11/site-packages/setuptools-65.5.1.dist-info
 RUN rm -rf /usr/local/lib/python3.11/ensurepip/_bundled/setuptools-65.5.0-py3-none-any.whl
 
+COPY ./experimental/ag-ui/server-agui.py /app/experimental/ag-ui/server-agui.py
 COPY ./holmes /app/holmes
 COPY ./server.py /app/server.py
 COPY ./holmes_cli.py /app/holmes_cli.py

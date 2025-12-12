@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k6-v2-script
+  namespace: app-161
+type: Opaque
+stringData:
+  test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import { Rate } from 'k6/metrics';
+
+    const bidAcceptanceRate = new Rate('bid_acceptance_rate');
+
+    export const options = {
+      scenarios: {
+        constant_load: {
+          executor: 'constant-arrival-rate',
+          rate: 100,  // Same 100 requests per second
+          timeUnit: '1s',
+          duration: '2m',  // 2 minutes to trigger scaling
+          preAllocatedVUs: 150,
+        },
+      },
+      thresholds: {
+        'http_req_duration': ['p(95)<3000'],  // v2.0 is slower
+        'http_req_failed': ['rate<0.01'],
+      },
+    };
+
+    const exchanges = ['NordPool', 'EPEX_SPOT', 'EEX', 'OMIE', 'GME'];
+
+    function selectExchange() {
+      return exchanges[Math.floor(Math.random() * exchanges.length)];
+    }
+
+    export default function() {
+      const exchange = selectExchange();
+      const url = 'http://bidder.app-161.svc.cluster.local/bid';
+
+      const payload = JSON.stringify({
+        exchange: exchange,
+        amount: Math.floor(Math.random() * 1000) + 100,
+        price: Math.random() * 100 + 20,
+      });
+
+      const params = {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: '10s',  // Increased timeout for slow v2.0
+      };
+
+      const res = http.post(url, payload, params);
+
+      check(res, {
+        'status is 200': (r) => r.status === 200,
+        'has version': (r) => r.json('version') !== undefined,
+        'version is v2.0': (r) => r.json('version') === 'v2.0',
+      });
+
+      if (res.status === 200 && res.json('decision') === 'bid') {
+        bidAcceptanceRate.add(1);
+      } else {
+        bidAcceptanceRate.add(0);
+      }
+    }
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-v2-traffic
+  namespace: app-161
+  labels:
+    app: k6
+    phase: v2
+spec:
+  template:
+    metadata:
+      labels:
+        app: k6
+        phase: v2
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: k6
+        image: loadimpact/k6:0.47.0
+        args: ["run", "/scripts/test.js"]
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "500m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+      volumes:
+      - name: script
+        secret:
+          secretName: k6-v2-script

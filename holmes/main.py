@@ -1,9 +1,7 @@
 # ruff: noqa: E402
 import os
-import sys
 
 from holmes.utils.cert_utils import add_custom_certificate
-from holmes.utils.colors import USER_COLOR
 
 ADDITIONAL_CERTIFICATE: str = os.environ.get("CERTIFICATE", "")
 if add_custom_certificate(ADDITIONAL_CERTIFICATE):
@@ -11,8 +9,8 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
-
-
+import sys
+from holmes.utils.colors import USER_COLOR
 import json
 import logging
 import socket
@@ -31,7 +29,7 @@ from holmes.config import (
     SourceFactory,
     SupportedTicketSources,
 )
-from holmes.core.prompt import build_initial_ask_messages
+from holmes.core.prompt import build_initial_ask_messages, generate_user_prompt
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import SpanType, TracingFactory
@@ -76,6 +74,9 @@ opt_api_key: Optional[str] = typer.Option(
     help="API key to use for the LLM (if not given, uses environment variables OPENAI_API_KEY or AZURE_API_KEY)",
 )
 opt_model: Optional[str] = typer.Option(None, help="Model to use for the LLM")
+opt_fast_model: Optional[str] = typer.Option(
+    None, help="Optional fast model for summarization tasks"
+)
 opt_config_file: Optional[Path] = typer.Option(
     DEFAULT_CONFIG_LOCATION,  # type: ignore
     "--config",
@@ -177,6 +178,7 @@ def ask(
     # common options
     api_key: Optional[str] = opt_api_key,
     model: Optional[str] = opt_model,
+    fast_model: Optional[str] = opt_fast_model,
     config_file: Optional[Path] = opt_config_file,
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
     max_steps: Optional[int] = opt_max_steps,
@@ -244,6 +246,7 @@ def ask(
         config_file,
         api_key=api_key,
         model=model,
+        fast_model=fast_model,
         max_steps=max_steps,
         custom_toolsets_from_cli=custom_toolsets,
         slack_token=slack_token,
@@ -258,6 +261,7 @@ def ask(
         dal=None,  # type: ignore
         refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
         tracer=tracer,
+        model_name=model,
     )
 
     if prompt_file and prompt:
@@ -342,6 +346,7 @@ def ask(
         issue,
         show_tool_output,
         False,  # type: ignore
+        log_costs,
     )
 
     if trace_url:
@@ -410,7 +415,7 @@ def alertmanager(
         custom_runbooks=custom_runbooks,
     )
 
-    ai = config.create_console_issue_investigator()  # type: ignore
+    ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
 
     source = config.create_alertmanager_source()
 
@@ -539,7 +544,7 @@ def jira(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()  # type: ignore
+    ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
     source = config.create_jira_source()
     try:
         issues = source.fetch_issues()
@@ -615,6 +620,7 @@ def ticket(
         "builtin://generic_ticket.jinja2", help=system_prompt_help
     ),
     post_processing_prompt: Optional[str] = opt_post_processing_prompt,
+    model: Optional[str] = opt_model,
 ):
     """
     Fetch and print a Jira ticket from the specified source.
@@ -655,7 +661,7 @@ def ticket(
         },
     )
 
-    ai = ticket_source.config.create_console_issue_investigator()
+    ai = ticket_source.config.create_console_issue_investigator(model_name=model)
     console.print(
         f"[bold yellow]Analyzing ticket: {issue_to_investigate.name}...[/bold yellow]"
     )
@@ -664,7 +670,8 @@ def ticket(
         + f" for issue '{issue_to_investigate.name}' with description:'{issue_to_investigate.description}'"
     )
 
-    result = ai.prompt_call(system_prompt, prompt, post_processing_prompt)
+    ticket_user_prompt = generate_user_prompt(prompt, context={})
+    result = ai.prompt_call(system_prompt, ticket_user_prompt, post_processing_prompt)
 
     console.print(Rule())
     console.print(
@@ -685,14 +692,14 @@ def github(
     ),
     github_owner: Optional[str] = typer.Option(
         None,
-        help="The GitHub repository Owner, eg: if the repository url is https://github.com/robusta-dev/holmesgpt, the owner is robusta-dev",
+        help="The GitHub repository Owner, eg: if the repository url is https://github.com/HolmesGPT/holmesgpt, the owner is HolmesGPT",
     ),
     github_pat: str = typer.Option(
         None,
     ),
     github_repository: Optional[str] = typer.Option(
         None,
-        help="The GitHub repository name, eg: if the repository url is https://github.com/robusta-dev/holmesgpt, the repository name is holmesgpt",
+        help="The GitHub repository name, eg: if the repository url is https://github.com/HolmesGPT/holmesgpt, the repository name is holmesgpt",
     ),
     update: Optional[bool] = typer.Option(False, help="Update GitHub with AI results"),
     github_query: Optional[str] = typer.Option(
@@ -730,7 +737,7 @@ def github(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()
+    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_github_source()
     try:
         issues = source.fetch_issues()
@@ -814,7 +821,7 @@ def pagerduty(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()
+    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_pagerduty_source()
     try:
         issues = source.fetch_issues()
@@ -900,7 +907,7 @@ def opsgenie(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()
+    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_opsgenie_source()
     try:
         issues = source.fetch_issues()

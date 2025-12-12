@@ -1,6 +1,6 @@
 user_prompt: "How can I give you access to argo applications?"
 expected_output: |
-  - The answer MUST include the link https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/argocd.html
+  - The answer MUST include the link https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/
 tags:
   - easy
   - transparency

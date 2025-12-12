@@ -1,7 +1,7 @@
 toolsets:
   confluence:
     description: "Fetch confluence pages"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/confluence.html"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/"
     icon_url: "https://platform.robusta.dev/demos/confluence.svg"
     tags:
       - core

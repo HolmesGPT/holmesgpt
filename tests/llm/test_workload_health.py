@@ -22,6 +22,7 @@ from tests.llm.utils.test_case_utils import (
     check_and_skip_test,
     get_models,
 )
+from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.property_manager import (
     set_initial_properties,
     set_trace_properties,
@@ -57,6 +58,8 @@ class MockConfig(Config):
             test_case_folder=self._test_case.folder,
             mock_generation_config=self._mock_generation_config,
             request=self._request,
+            mock_policy=getattr(self._test_case, "mock_policy", "inherit"),
+            mock_overrides=getattr(self._test_case, "mock_overrides", None),
         )
 
         # With the new file-based mock system, mocks are loaded from disk automatically
@@ -93,6 +96,7 @@ def test_health_check(
         test_case_folder=Path(test_case.folder),
         generate_mocks=mock_generation_config.generate_mocks,
         issue_data=test_case.issue_data,
+        issues_metadata=None,
         resource_instructions=test_case.resource_instructions,
     )
 
@@ -111,9 +115,23 @@ def test_health_check(
                 # Note: Currently workload_health_check does not trace llm calls and the run includes the startup time of the tools
                 with eval_span.start_span("Holmes Run", type=SpanType.TASK.value):
                     start_time = time.time()
-                    result = workload_health_check(request=input)
+                    retry_enabled = request.config.getoption("retry_on_throttle", True)
+                    result = retry_on_throttle(
+                        workload_health_check,
+                        input,  # Pass as positional arg
+                        request=request,  # Pass pytest request fixture for user_properties
+                        retry_enabled=retry_enabled,
+                        test_id=test_case.id,
+                        model=model,
+                    )
                     holmes_duration = time.time() - start_time
                     eval_span.log(metadata={"Holmes Duration": holmes_duration})
+
+            # Check for any mock errors that occurred during tool execution
+            # This will raise an exception if any mock data errors happened
+            from tests.llm.utils.mock_toolset import check_for_mock_errors
+
+            check_for_mock_errors(request)
 
             assert result, "No result returned by workload_health_check()"
 

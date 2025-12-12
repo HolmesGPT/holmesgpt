@@ -1,6 +1,6 @@
-user_prompt: "The user-lookup service in namespace-104a is experiencing slow response times. What's causing the performance issue?"
+user_prompt: "The user-lookup deployment in namespace-104a is experiencing slow response times. What's causing the performance issue?"
 expected_output:
-  The `user-lookup` service's slow response times are due to its dependency, the `postgres` pod, being in a `CrashLoopBackOff` state.
+  The `user-lookup` deployment's slow response times are due to its dependency, the `postgres` pod, being in a `CrashLoopBackOff` state.
   The `postgres` pod is failing because it is attempting to start the PostgreSQL server as the `root` user, which is not permitted.
 
 tags:

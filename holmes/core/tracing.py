@@ -101,13 +101,18 @@ class SpanType(Enum):
 class DummySpan:
     """A no-op span implementation for when tracing is disabled."""
 
-    def start_span(self, name: str, span_type=None, **kwargs):
+    def start_span(self, name: Optional[str] = None, span_type=None, **kwargs):
         return DummySpan()
 
     def log(self, *args, **kwargs):
         pass
 
     def end(self):
+        pass
+
+    def set_attributes(
+        self, name: Optional[str] = None, type=None, span_attributes=None
+    ) -> None:
         pass
 
     def __enter__(self):
@@ -231,7 +236,7 @@ class BraintrustTracer:
         else:
             logging.warning("No active span found in Braintrust context")
 
-        return f"https://www.braintrust.dev/app/robustadev/p/{self.project}/experiments/{experiment_name}"
+        return f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{self.project}/experiments/{experiment_name}"
 
     def wrap_llm(self, llm_module):
         """Wrap LiteLLM with Braintrust tracing if in active context, otherwise return unwrapped."""

@@ -1,0 +1,12 @@
+toolsets:
+  # Keep Prometheus enabled but disable Kafka toolset
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:10151
+  kafka/admin:
+    enabled: false
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true

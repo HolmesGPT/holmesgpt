@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-profile-resources
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-profile-resources
+  template:
+    metadata:
+      labels:
+        app: user-profile-resources
+    spec:
+      containers:
+      - name: profile-getter
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            nvidia.com/gpu: 5
+            cpu: 3
+            memory: 5Gi
+          limits:
+            nvidia.com/gpu: 5
+            cpu: 3
+            memory: 5Gi

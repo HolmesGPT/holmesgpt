@@ -36,7 +36,7 @@ def find_service_url(label_selector):
         port = svc.spec.ports[0].port
         url = f"http://{name}.{namespace}.svc.{CLUSTER_DOMAIN}:{port}"
         logging.info(
-            f"discovered service with label-selector: `{label_selector}` at url: `{url}`"
+            f"Discovered service with label-selector: `{label_selector}` at url: `{url}`"
         )
         return url
     except Exception:

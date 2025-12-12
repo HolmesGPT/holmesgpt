@@ -1,0 +1,136 @@
+{{- if .Values.mcpAddons.aws.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-aws-mcp-config
+  namespace: {{ .Values.mcpAddons.aws.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-aws-mcp
+    app.kubernetes.io/name: aws-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data:
+  AWS_REGION: {{ .Values.mcpAddons.aws.config.region | quote }}
+  READ_OPERATIONS_ONLY: {{ .Values.mcpAddons.aws.config.readOnlyMode | quote }}
+---
+{{- if .Values.mcpAddons.aws.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.mcpAddons.aws.serviceAccount.name }}
+  namespace: {{ .Values.mcpAddons.aws.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-aws-mcp
+    app.kubernetes.io/name: aws-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+  {{- if .Values.mcpAddons.aws.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml .Values.mcpAddons.aws.serviceAccount.annotations | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-aws-mcp-server
+  namespace: {{ .Values.mcpAddons.aws.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-aws-mcp
+    app.kubernetes.io/name: aws-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-aws-mcp
+      app.kubernetes.io/name: aws-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-aws-mcp
+        app.kubernetes.io/name: aws-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.aws | toYaml | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.mcpAddons.aws.serviceAccount.name }}
+      {{- if .Values.mcpAddons.aws.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.aws.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.aws.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.aws.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.aws.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.aws.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: aws-mcp
+        image: "{{ .Values.mcpAddons.aws.registry }}/{{ .Values.mcpAddons.aws.image }}"
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: AWS_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-aws-mcp-config
+              key: AWS_REGION
+        - name: AWS_DEFAULT_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-aws-mcp-config
+              key: AWS_REGION
+        - name: READ_OPERATIONS_ONLY
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-aws-mcp-config
+              key: READ_OPERATIONS_ONLY
+        resources:
+          {{- toYaml .Values.mcpAddons.aws.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-aws-mcp-server
+  namespace: {{ .Values.mcpAddons.aws.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-aws-mcp
+    app.kubernetes.io/name: aws-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  selector:
+    app: {{ .Release.Name }}-aws-mcp
+    app.kubernetes.io/name: aws-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- end }}

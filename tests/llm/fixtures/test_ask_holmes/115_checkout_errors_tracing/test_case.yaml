@@ -1,0 +1,198 @@
+user_prompt:
+- "The checkout service in namespace app-115 is experiencing errors. Investigate why."
+
+expected_output:
+  - The answer must explicitly state that requests with promo codes are failing or all errors/failures occur when promo code is included.
+#  - The answer must mention or imply that there are other requests without promo codes that succeed.
+  - Including a query that mentions promo code is not sufficient.
+
+tags:
+  - kubernetes
+  - hard
+  - chain-of-causation
+  - traces
+
+setup_timeout: 900  # 15 minutes to handle pod scheduling delays in resource-constrained clusters
+
+port_forwards:
+  - namespace: app-115
+    service: tempo
+    local_port: 3115
+    remote_port: 3200
+
+before_test: |
+  echo "🚀 Setting up test 115 - Creating namespace app-115"
+  kubectl create namespace app-115 || true
+  echo "✅ Namespace app-115 created successfully!"
+
+  echo "📦 Deploying Tempo from shared config"
+  kubectl apply -f ../../shared/tempo.yaml -n app-115
+
+  echo "⏳ Waiting for Tempo pod to be ready"
+  TEMPO_POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=tempo -n app-115 --timeout=5s 2>/dev/null; then
+      echo "✅ Tempo pod is ready!"
+      TEMPO_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Tempo pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TEMPO_POD_READY" = false ]; then
+    echo "❌ Tempo pod failed to become ready after 300 seconds"
+    kubectl get pods -n app-115 -l app=tempo
+    exit 1
+  fi
+
+  echo "⏰ Waiting for Tempo to be fully ready (checking every 5s, timeout 300s)"
+  TEMPO_READY=false
+  for i in {1..60}; do
+    if kubectl exec -n app-115 deployment/tempo -- wget -q -O - http://localhost:3200/ready 2>/dev/null; then
+      echo "✅ Tempo is ready!"
+      TEMPO_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Tempo not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TEMPO_READY" = false ]; then
+    echo "❌ Tempo failed to become ready after 300 seconds"
+    exit 1
+  fi
+
+  echo "✅ Tempo deployment complete!"
+
+  echo "🛒 Deploying checkout service"
+  kubectl apply -f checkout-service.yaml -n app-115
+
+  echo "⏳ Waiting for checkout pod to exist"
+  for i in {1..60}; do
+    if kubectl get pod -l app=checkout -n app-115 2>/dev/null | grep -q checkout; then
+      echo "✅ Checkout pod exists"
+      break
+    fi
+    echo "Waiting for checkout pod to be created... ($i/60)"
+    sleep 2
+  done
+
+  echo "⏳ Waiting for checkout pod to be ready (timeout 780s to handle scheduling delays)"
+  CHECKOUT_POD_READY=false
+  for i in {1..156}; do  # 156 * 5s = 780s (13 minutes)
+    if kubectl wait --for=condition=ready pod -l app=checkout -n app-115 --timeout=5s 2>/dev/null; then
+      echo "✅ Checkout pod is ready!"
+      CHECKOUT_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/156: Checkout pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$CHECKOUT_POD_READY" = false ]; then
+    echo "❌ Checkout pod failed to become ready after 780 seconds"
+    kubectl get pods -n app-115 -l app=checkout
+    kubectl describe pod -l app=checkout -n app-115 | tail -20
+    exit 1
+  fi
+
+  echo "🔍 Checking checkout deployment status"
+  kubectl get pods -n app-115 -l app=checkout
+
+  echo "🚦 Deploying traffic generator"
+  kubectl apply -f traffic-generator.yaml -n app-115
+
+  echo "⏳ Waiting for traffic generator pod to exist"
+  for i in {1..60}; do
+    if kubectl get pod -l app=traffic-generator -n app-115 2>/dev/null | grep -q traffic-generator; then
+      echo "✅ Traffic generator pod exists"
+      break
+    fi
+    echo "Waiting for traffic generator pod to be created... ($i/60)"
+    sleep 2
+  done
+
+  echo "⏳ Waiting for traffic generator pod to be ready (timeout 780s to handle scheduling delays)"
+  TRAFFIC_POD_READY=false
+  for i in {1..156}; do  # 156 * 5s = 780s (13 minutes)
+    if kubectl wait --for=condition=ready pod -l app=traffic-generator -n app-115 --timeout=5s 2>/dev/null; then
+      echo "✅ Traffic generator pod is ready!"
+      TRAFFIC_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/156: Traffic generator pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TRAFFIC_POD_READY" = false ]; then
+    echo "❌ Traffic generator pod failed to become ready after 780 seconds"
+    kubectl get pods -n app-115 -l app=traffic-generator
+    exit 1
+  fi
+
+  echo "🔍 Checking all pods status"
+  kubectl get pods -n app-115
+
+  echo "⏰ Waiting for traffic generator to produce both types of requests and errors..."
+  TRAFFIC_READY=false
+  for i in {1..90}; do
+    WITH_PROMO=$(kubectl logs -n app-115 -l app=traffic-generator --tail=1000 2>/dev/null | grep -c "WITH promo_code" | head -1 || echo "0")
+    WITHOUT_PROMO=$(kubectl logs -n app-115 -l app=traffic-generator --tail=1000 2>/dev/null | grep -c "WITHOUT promo_code" | head -1 || echo "0")
+    CHECKOUT_LOGS=$(kubectl logs -n app-115 -l app=checkout --tail=1000 2>/dev/null | grep -c "Processing checkout request" | head -1 || echo "0")
+    # Check for errors to ensure they're being generated
+    ERROR_LOGS=$(kubectl logs -n app-115 -l app=checkout --tail=1000 2>/dev/null | grep -c "Request failed" | head -1 || echo "0")
+
+    # Need sufficient requests of both types and some errors
+    if [ "$WITH_PROMO" -gt "5" ] && [ "$WITHOUT_PROMO" -gt "5" ] && [ "$CHECKOUT_LOGS" -gt "10" ] && [ "$ERROR_LOGS" -gt "0" ]; then
+      echo "✅ Found all required logs after $i seconds:"
+      echo "   - Requests WITH promo_code: $WITH_PROMO"
+      echo "   - Requests WITHOUT promo_code: $WITHOUT_PROMO"
+      echo "   - Checkout processing logs: $CHECKOUT_LOGS"
+      echo "   - Error logs detected: $ERROR_LOGS"
+      TRAFFIC_READY=true
+      # Give a few more seconds for additional error patterns
+      sleep 10
+      break
+    fi
+
+    echo "⏳ Attempt $i/90: WITH=$WITH_PROMO, WITHOUT=$WITHOUT_PROMO, CHECKOUT=$CHECKOUT_LOGS, ERRORS=$ERROR_LOGS"
+    sleep 1
+  done
+
+  if [ "$TRAFFIC_READY" = false ]; then
+    echo "❌ Failed to generate all required traffic patterns"
+    exit 1
+  fi
+
+  echo "⏰ Polling for traces to be ingested and indexed in Tempo (up to 90 seconds)..."
+  TRACES_FOUND=false
+  for i in {1..18}; do  # 18 * 5s = 90s
+    CHECKOUT_TRACES=$(kubectl run -n app-115 tempo-query-$RANDOM --rm -i --restart=Never --image=curlimages/curl -- -s "http://tempo:3200/api/search?tags=service.name%3Dcheckout-service&limit=10" 2>/dev/null | grep -o '"traceID"' | wc -l || echo "0")
+
+    if [ "$CHECKOUT_TRACES" -gt "0" ]; then
+      echo "✅ Found $CHECKOUT_TRACES traces from checkout-service after $((i * 5))s"
+      TRACES_FOUND=true
+      break
+    else
+      echo "⏳ Attempt $i/18: No traces yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TRACES_FOUND" = false ]; then
+    echo "❌ No traces found from checkout-service after 90 seconds"
+    exit 1
+  fi
+
+  # Delete Traffic generator so the ai won't cheat
+  kubectl delete -f traffic-generator.yaml -n app-115
+
+  echo "✅ Test setup complete!"
+
+after_test: |
+  kubectl delete namespace app-115 || true

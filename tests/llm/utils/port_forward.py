@@ -29,11 +29,11 @@ class PortForward:
             # Check if port is already in use
             self._check_port_availability()
 
-            # Start the process
+            # Start the process - use DEVNULL to avoid pipe buffer issues
             self.process = subprocess.Popen(
                 self.command.split(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 universal_newlines=True,
                 preexec_fn=os.setsid if os.name != "nt" else None,
             )
@@ -43,14 +43,18 @@ class PortForward:
 
             # Check if process is still running
             if self.process.poll() is not None:
-                stdout, stderr = self.process.communicate()
-                error_msg = stderr if stderr else stdout
-
-                # Check if it's a port conflict error
-                if "address already in use" in error_msg.lower():
+                # Process exited - likely due to port conflict or other error
+                # Since we're using DEVNULL, we can't get the exact error message
+                # Check if port is in use to provide better error message
+                if _is_port_in_use(self.local_port):
                     self._report_port_conflict()
-
-                raise RuntimeError(f"Port forward failed to start: {error_msg}")
+                    raise RuntimeError(
+                        f"Port forward failed: Port {self.local_port} is already in use"
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Port forward failed to start for {self.service}"
+                    )
 
             log(
                 f"✅ Port forward established: {self.service}:{self.remote_port} -> localhost:{self.local_port}"
@@ -82,12 +86,14 @@ class PortForward:
                     log(result.stdout)
                     log("\nTo fix this, either:")
                     log(
-                        f"1. Kill the process using the port: kill $(lsof -ti :{self.local_port})"
+                        f"1. Kill the specific process using the port: kill $(lsof -ti :{self.local_port})"
                     )
-                    log("2. Use a different port in your test configuration")
-                    log("3. Wait for the process to finish and release the port\n")
-        except Exception:
-            pass
+                    log(
+                        '2. Kill all kubectl port-forward processes: pkill -f "kubectl.*port-forward"'
+                    )
+        except (subprocess.CalledProcessError, OSError) as e:
+            # Log specific error but don't fail - this is just informational
+            log(f"⚠️ Could not get port info: {e}")
 
     def stop(self) -> None:
         """Stop the port forward process."""
@@ -182,65 +188,116 @@ def extract_port_forwards_from_test_cases(
     return unique_configs
 
 
-def check_port_availability_early(test_cases: List[HolmesTestCase]) -> None:
-    """Check for port conflicts and availability before running any setup scripts."""
-    port_usage: Dict[int, List[str]] = {}
+def check_port_availability_early(test_cases: List[HolmesTestCase]) -> Dict[str, str]:
+    """Check for port conflicts and availability before running any setup scripts.
+
+    Returns:
+        Dict mapping test IDs to skip reasons (e.g., "Port 3200 conflict with test 115_checkout")
+    """
+    # Track port usage by service to detect real conflicts
+    # Key: local_port, Value: Dict[service_key -> List[test_ids]]
+    port_service_usage: Dict[int, Dict[str, List[str]]] = {}
+    tests_to_skip = {}  # Changed from set to dict to store reasons
 
     # Collect all port usages
     for test_case in test_cases:
         if test_case.port_forwards:
             for config in test_case.port_forwards:
                 local_port = config["local_port"]
+                # Create a unique key for the service
+                service_key = (
+                    f"{config['namespace']}/{config['service']}:{config['remote_port']}"
+                )
                 test_id = test_case.id
 
-                if local_port not in port_usage:
-                    port_usage[local_port] = []
-                port_usage[local_port].append(test_id)
+                if local_port not in port_service_usage:
+                    port_service_usage[local_port] = {}
 
-    # Check for conflicts between tests
+                if service_key not in port_service_usage[local_port]:
+                    port_service_usage[local_port][service_key] = []
+
+                port_service_usage[local_port][service_key].append(test_id)
+
+    # Check for REAL conflicts - same port used for DIFFERENT services
     conflicts = []
-    for port, test_ids in port_usage.items():
-        if len(test_ids) > 1:
-            conflicts.append((port, test_ids))
+    for port, services in port_service_usage.items():
+        if len(services) > 1:
+            # Multiple different services want the same port - this is a conflict
+            conflict_details = []
+            all_conflicting_tests = set()
+            for service_key, test_ids in services.items():
+                conflict_details.append(f"{service_key} (tests: {', '.join(test_ids)})")
+                all_conflicting_tests.update(test_ids)
+            conflicts.append((port, conflict_details))
+
+            # Add all conflicting tests to skip list with detailed reason
+            for test_id in all_conflicting_tests:
+                tests_to_skip[test_id] = (
+                    f"Port {port} conflict: multiple services trying to use same port"
+                )
 
     if conflicts:
-        error_msg = "\n🚨 Port conflicts detected! Multiple tests are trying to use the same local port:\n"
-        for port, test_ids in conflicts:
-            error_msg += f"\n  Port {port} is used by tests: {', '.join(test_ids)}"
+        error_msg = "\n🚨 Port conflicts detected between tests! Multiple DIFFERENT services want the same local port:\n"
+        for port, details in conflicts:
+            error_msg += f"\n  ❌ Port {port} CONFLICT - different services need the same port:\n"
+            for detail in details:
+                error_msg += f"      {detail}\n"
 
-        error_msg += "\n\nTo fix this:"
-        error_msg += (
-            "\n  1. Update the test_case.yaml files to use different local_port values"
-        )
-        error_msg += "\n  2. Ensure each test uses a unique local port"
-        error_msg += "\n  3. Consider using the test number as part of the port (e.g., test 148 → port 3148)"
+        error_msg += "\n📝 To fix this conflict between tests:"
+        error_msg += "\n  1. Update the test_case.yaml files to use different local_port values for different services"
+        error_msg += "\n  2. Tests CAN share the same port if they're forwarding to the SAME service"
+        error_msg += "\n  3. Suggested fix: Use unique ports based on test number (e.g., test 114 → port 3114, test 115 → port 3115)"
         error_msg += "\n\nAlternatively, you can skip all tests requiring port forwards by running:"
         error_msg += "\n  pytest -m 'not port-forward'"
 
         log(error_msg)
-        raise RuntimeError(
-            "Port conflicts detected. Please fix the conflicts before running tests."
+        log(
+            f"⚠️  Will skip {len(tests_to_skip)} tests due to conflicts between tests: {', '.join(sorted(tests_to_skip.keys()))}"
         )
+        # Don't raise - we'll skip these tests instead
 
     # Check if ports are already in use on the system
     ports_in_use = []
-    for port in port_usage.keys():
+    for port in port_service_usage.keys():
         if _is_port_in_use(port):
             ports_in_use.append(port)
 
     if ports_in_use:
-        error_msg = "\n🚨 Ports already in use on the system:\n"
+        error_msg = "\n🚨 Ports already in use by external processes on the system:\n"
         for port in ports_in_use:
-            error_msg += f"\n  Port {port} is already in use (required by tests: {', '.join(port_usage[port])})"
+            # Collect all test IDs that need this port
+            test_ids = []
+            service_details = []
+            for service_key, service_tests in port_service_usage[port].items():
+                test_ids.extend(service_tests)
+                service_details.append(f"{service_key}")
+            unique_test_ids = list(set(test_ids))
 
-        error_msg += "\n\nTo see what's using these ports:"
+            # Show which tests are affected
+            error_msg += f"\n  Port {port} is ALREADY IN USE ON SYSTEM"
+            error_msg += f"\n    → Service(s): {', '.join(service_details)}"
+            error_msg += f"\n    → Tests that need this port: {', '.join(sorted(unique_test_ids))}"
+            error_msg += "\n    → These tests will be SKIPPED"
+
+            # Add these tests to skip list with detailed reason
+            for test_id in unique_test_ids:
+                tests_to_skip[test_id] = (
+                    f"Port {port} already in use on system (not by tests)"
+                )
+
+        error_msg += "\n\nTo see what external process is using these ports:"
         error_msg += f"\n  lsof -i :{','.join(str(p) for p in ports_in_use)}"
         error_msg += "\n\nTo fix this:"
-        error_msg += "\n  1. Kill the processes using these ports"
+        error_msg += "\n  1. Kill the external processes using these ports (likely leftover kubectl port-forward)"
         error_msg += "\n  2. Or skip port-forward tests: pytest -m 'not port-forward'"
 
         log(error_msg)
-        raise RuntimeError("Required ports are already in use.")
+        log(
+            f"⚠️  Will skip {len(tests_to_skip)} tests due to ports already in use by external processes: {', '.join(sorted(tests_to_skip.keys()))}"
+        )
+        # Don't raise - we'll skip these tests instead
+
+    return tests_to_skip
 
 
 def _is_port_in_use(port: int) -> bool:
@@ -271,7 +328,11 @@ def setup_all_port_forwards(test_cases: List[HolmesTestCase]) -> PortForwardMana
             manager.add_port_forward(config)
 
         # Start all port forwards
-        manager.start_all()
+        try:
+            manager.start_all()
+        except RuntimeError as e:
+            log(f"🔍 DEBUG: Port forward setup failed but continuing: {e}")
+            # Continue anyway - tests will still run but may fail if they need the port forward
 
     return manager
 

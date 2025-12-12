@@ -1,0 +1,164 @@
+# Traffic Generator Deployment
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traffic-generator-app
+type: Opaque
+stringData:
+  app.py: |
+    import time
+    import random
+    import requests
+    from datetime import datetime
+    # from opentelemetry import trace
+    # from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    # from opentelemetry.sdk.trace import TracerProvider
+    # from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    # from opentelemetry.sdk.resources import Resource
+    # from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
+    # # Configure OpenTelemetry
+    # resource = Resource.create({"service.name": "traffic-generator"})
+    # provider = TracerProvider(resource=resource)
+    # trace.set_tracer_provider(provider)
+
+    # otlp_exporter = OTLPSpanExporter(
+    #     endpoint="tempo.app-115.svc.cluster.local:4317",
+    #     insecure=True
+    # )
+    # provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+
+    # # Instrument requests library
+    # RequestsInstrumentor().instrument()
+
+    # tracer = trace.get_tracer(__name__)
+
+    CHECKOUT_URL = "http://checkout.app-115.svc.cluster.local:8080/checkout"
+    ZONES = ['us-west-1', 'us-west-2', 'us-east-1', 'us-east-2']
+    PROMO_CODES = ['SAVE10', 'WELCOME20', 'HOLIDAY15', 'SPECIAL25']
+
+    def generate_traffic():
+        """Continuously generate traffic to checkout service"""
+        print("[TRAFFIC-GEN] Starting traffic generator", flush=True)
+        request_count = 0
+        ever_had_promo = False
+
+        while True:
+            request_count += 1
+
+            if request_count > 100 and not ever_had_promo:
+              include_promo = True
+            else:
+              # 1% chance to include promo code
+              include_promo = random.random() < 0.01
+            if include_promo:
+              ever_had_promo = True
+
+            # Build request data
+            data = {
+                "user_id": f"user-{random.randint(1000, 9999)}",
+                "zone_id": random.choice(ZONES),
+                "items": [
+                    {
+                        "id": f"item-{i}",
+                        "price": round(random.uniform(10, 200), 2),
+                        "weight": round(random.uniform(0.5, 5.0), 2)
+                    }
+                    for i in range(random.randint(1, 3))
+                ]
+            }
+
+            if include_promo:
+                data["promo_code"] = random.choice(PROMO_CODES)
+
+            # Log the request
+            promo_status = "WITH" if include_promo else "WITHOUT"
+            print(f"[TRAFFIC-GEN] Request #{request_count}: Sending request {promo_status} promo_code", flush=True)
+
+            # Make request with tracing
+            # with tracer.start_as_current_span("checkout_request") as span:
+            #     span.set_attribute("request.number", request_count)
+            #     span.set_attribute("has.promo_code", include_promo)
+            #     if include_promo:
+            #         span.set_attribute("promo.code", data.get("promo_code"))
+
+            try:
+                start_time = time.time()
+                response = requests.post(CHECKOUT_URL, json=data, timeout=10)
+                latency = time.time() - start_time
+
+                # span.set_attribute("http.status_code", response.status_code)
+                # span.set_attribute("response.latency", latency)
+
+                status = "success" if response.status_code == 200 else f"error({response.status_code})"
+                print(f"[TRAFFIC-GEN] Request #{request_count}: Response status={status}, latency={latency:.2f}s", flush=True)
+
+            except Exception as e:
+                # span.record_exception(e)
+                # span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                print(f"[TRAFFIC-GEN] Request #{request_count}: Error - {str(e)}", flush=True)
+
+            # Wait 10ms to 50ms second before next request
+            sleep_time = random.uniform(0.01, 0.05)
+            time.sleep(sleep_time)
+
+    if __name__ == '__main__':
+        print("[TRAFFIC-GEN] Starting...", flush=True)
+
+        # Start generating traffic
+        generate_traffic()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+    spec:
+      containers:
+      - name: traffic-generator
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          touch /tmp/ready && \
+          python /app/app.py
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        securityContext:
+          capabilities:
+            add:
+            - SYS_PTRACE
+        startupProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/ready
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 46
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: app
+        secret:
+          secretName: traffic-generator-app

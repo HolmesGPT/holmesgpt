@@ -126,9 +126,10 @@ spec:
         resources:
           requests:
             memory: "128Mi"
-            cpu: "50m"
+            cpu: "5m"
           limits:
             memory: "256Mi"
+            cpu: "50m"
       volumes:
       - name: analytics-service-script
         configMap:

@@ -1,0 +1,10 @@
+{
+  "name": "inventory",
+  "version": "1.0.1",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pino": "^9.0.0"
+  },
+  "engines": { "node": ">=18" }
+}

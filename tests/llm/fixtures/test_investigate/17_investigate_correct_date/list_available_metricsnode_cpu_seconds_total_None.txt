@@ -1,0 +1,5 @@
+{"toolset_name":"prometheus/metrics","tool_name":"list_available_metrics","match_params":{"type_filter":null,"name_filter":"node_cpu_seconds_total"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "url": null, "invocation": null, "params": {"type_filter": null, "name_filter": "node_cpu_seconds_total"}, "icon_url": null}
+Metric | Description | Type | Labels
+----------------------------------------------------------------------------------------------------
+node_cpu_seconds_total | Seconds the CPUs spent in each mode. | counter | container, cpu, endpoint, instance, job, mode, namespace, pod, service

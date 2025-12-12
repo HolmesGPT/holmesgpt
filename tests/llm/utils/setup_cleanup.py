@@ -13,36 +13,39 @@ from tests.llm.utils.commands import run_commands  # type: ignore[attr-defined]
 from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore[attr-defined]
 
 # Configuration
-MAX_ERROR_LINES = 10
-MAX_WORKERS = 30
+# Use as many workers as there are setups to run them all concurrently
+MAX_WORKERS = 999
 
 
-def log(msg):
-    """Force a log to be written even with xdist, which captures stdout. (must use -s to see this)"""
+def log(msg, error=False, dark_red=False):
+    """Force a log to be written even with xdist, which captures stdout. (must use -s to see this)
+
+    Args:
+        msg: The message to log
+        error: If True, log as error (red color) instead of info
+        dark_red: If True, use dark red instead of bright red (overrides error)
+    """
     if os.environ.get("PYTEST_XDIST_WORKER"):
         # If running under xdist, we log to stderr so it appears in the pytest output
         # This is necessary because xdist captures stdout and doesn't show it in the output
-        sys.stderr.write(msg)
+        if sys.stderr.isatty():
+            if dark_red:
+                # Use standard red (darker) for strict setup mode errors
+                sys.stderr.write(f"\033[31m{msg}\033[0m")
+            elif error:
+                # Use bright red for regular errors
+                sys.stderr.write(f"\033[91m{msg}\033[0m")
+            else:
+                sys.stderr.write(msg)
+        else:
+            sys.stderr.write(msg)
         sys.stderr.write("\n")
     else:
-        # If not running under xdist, we log to stdout
-        logging.info(msg)
-
-
-def _truncate_output(data: str, max_lines: int = 10, label: str = "lines") -> str:
-    """Truncate output to max_lines for readability."""
-    lines = data.split("\n")
-    if len(lines) > max_lines:
-        preview_lines = lines[:max_lines]
-        remaining = len(lines) - max_lines
-        preview_lines.append(f"... [TRUNCATED: {remaining} more {label} not shown]")
-        return "\n".join(preview_lines)
-    return data
-
-
-def format_error_output(error_details: str) -> str:
-    """Format error details with truncation if needed."""
-    return _truncate_output(error_details, max_lines=MAX_ERROR_LINES)
+        # If not running under xdist, use appropriate log level
+        if error or dark_red:
+            logging.error(msg)
+        else:
+            logging.info(msg)
 
 
 class Operation(StrEnum):
@@ -59,8 +62,7 @@ def run_all_test_commands(
 
     Args:
         test_cases: List of test cases to process
-        command_func: Function to call for each test case (before_test or after_test)
-        operation_name: Name of operation for logging ("Setup" or "Cleanup")
+        operation: Operation enum indicating SETUP or CLEANUP
 
     Returns:
         Dict[str, str]: Mapping of test_case.id to error message for failed setups
@@ -77,6 +79,10 @@ def run_all_test_commands(
     failed_test_cases = 0
     timed_out_test_cases = 0
     failed_setup_info = {}  # Map test_case.id to error message
+
+    # Track which tests are still pending
+    pending_test_ids = {tc.id for tc in test_cases}
+    completed_test_ids = set()
 
     with ThreadPoolExecutor(max_workers=min(len(test_cases), MAX_WORKERS)) as executor:
         if operation == Operation.SETUP:
@@ -99,29 +105,42 @@ def run_all_test_commands(
             test_case = future_to_test_case[future]
             try:
                 result = future.result()  # Single CommandResult for the test case
-                remaining_cases = (
-                    len(test_cases)
-                    - successful_test_cases
-                    - failed_test_cases
-                    - timed_out_test_cases
-                ) - 1  # Subtract 1 for the current test case
+
+                # Update pending/completed sets
+                completed_test_ids.add(test_case.id)
+                pending_test_ids.discard(test_case.id)
+
+                # Build remaining info string
+                remaining_count = len(pending_test_ids)
+                if remaining_count > 0:
+                    # Show up to 5 remaining test IDs (only first part before underscore)
+                    remaining_sample = list(sorted(pending_test_ids))[:5]
+                    # Extract only the first part (e.g., "01" from "01_how_many_pods")
+                    remaining_sample_short = [
+                        tid.split("_")[0] for tid in remaining_sample
+                    ]
+                    if remaining_count > 5:
+                        remaining_info = f"{remaining_count} ({', '.join(remaining_sample_short)}...)"
+                    else:
+                        remaining_info = (
+                            f"{remaining_count} ({', '.join(remaining_sample_short)})"
+                        )
+                else:
+                    remaining_info = "0"
+
                 if result.success:
                     successful_test_cases += 1
                     log(
-                        f"✅ {operation.value} {test_case.id}: {result.command} ({result.elapsed_time:.2f}s); {operation_plural} remaining: {remaining_cases}"
+                        f"✅ {operation.value} {test_case.id}: {result.command} ({result.elapsed_time:.2f}s); {operation_plural} remaining: {remaining_info}"
                     )
                 elif result.error_type == "timeout":
                     timed_out_test_cases += 1
                     log(
-                        f"⏰ {operation.value} {test_case.id}: TIMEOUT after {result.elapsed_time:.2f}s; {operation_plural} remaining: {remaining_cases}"
+                        f"\n⏰ {operation.value} {test_case.id}: TIMEOUT after {result.elapsed_time:.2f}s; {operation_plural} remaining: {remaining_info}"
                     )
 
-                    # Show the exact command that timed out
-                    # truncated_error = format_error_output(result.error_details)
-                    # log(textwrap.indent(truncated_error, "   "))
-                    # log(
-                    #    f"[{test_case.id}] {operation.value} timeout: {result.error_details}"
-                    # )
+                    # Display error details including pod diagnostics
+                    log(f"\n{result.error_details}\n", error=True)
 
                     # Store failure info for setup with detailed information
                     if operation == Operation.SETUP:
@@ -137,20 +156,15 @@ def run_all_test_commands(
                 else:
                     failed_test_cases += 1
                     log(
-                        f"\n❌ {operation.value} {test_case.id}: FAILED ({result.exit_info}, {result.elapsed_time:.2f}s); {operation_plural} remaining: {remaining_cases}"
+                        f"❌ {operation.value} {test_case.id}: FAILED ({result.exit_info}, {result.elapsed_time:.2f}s); {operation_plural} remaining: {remaining_info}"
                     )
 
-                    # Limit error details to 10 lines and add proper formatting
-                    # truncated_error = format_error_output(result.error_details)
-                    # log(textwrap.indent(truncated_error, "   "))
-                    # log(
-                    #    f"[{test_case.id}] {operation.value} failed: {result.error_details}"
-                    # )
+                    # Display error details including pod diagnostics
+                    log(f"\n{result.error_details}\n", error=True)
 
                     # Store failure info for setup with detailed information
                     if operation == Operation.SETUP:
                         # Store the full error details without truncation for Braintrust
-                        # This includes the script, exit code, stdout, and stderr
                         failed_setup_info[test_case.id] = result.error_details
 
                     # Emit warning to make it visible in pytest output
@@ -162,7 +176,33 @@ def run_all_test_commands(
 
             except Exception as e:
                 failed_test_cases += 1
-                log(f"❌ {operation.value} {test_case.id}: EXCEPTION - {e}")
+
+                # Update pending/completed sets
+                completed_test_ids.add(test_case.id)
+                pending_test_ids.discard(test_case.id)
+
+                # Build remaining info string
+                remaining_count = len(pending_test_ids)
+                if remaining_count > 0:
+                    # Show up to 5 remaining test IDs (only first part before underscore)
+                    remaining_sample = list(sorted(pending_test_ids))[:5]
+                    # Extract only the first part (e.g., "01" from "01_how_many_pods")
+                    remaining_sample_short = [
+                        tid.split("_")[0] for tid in remaining_sample
+                    ]
+                    if remaining_count > 5:
+                        remaining_info = f"{remaining_count} ({', '.join(remaining_sample_short)}...)"
+                    else:
+                        remaining_info = (
+                            f"{remaining_count} ({', '.join(remaining_sample_short)})"
+                        )
+                else:
+                    remaining_info = "0"
+
+                log(
+                    f"❌ {operation.value} {test_case.id}: EXCEPTION; {operation_plural} remaining: {remaining_info}"
+                )
+                log(f"\n{str(e)}", error=True)
 
                 # Store failure info for setup
                 if operation == Operation.SETUP:
@@ -224,12 +264,14 @@ def extract_llm_test_cases(session) -> List[HolmesTestCase]:
             and "test_case" in item.callspec.params
         ):
             test_case = item.callspec.params["test_case"]
+            # Use base_id if present (for parameterized tests), otherwise use id
+            dedup_id = getattr(test_case, "base_id", None) or test_case.id
             if (
                 isinstance(test_case, HolmesTestCase)
-                and test_case.id not in seen_ids
+                and dedup_id not in seen_ids
                 and not test_case.skip  # Don't include skipped tests
             ):
                 test_cases.append(test_case)
-                seen_ids.add(test_case.id)
+                seen_ids.add(dedup_id)
 
     return test_cases

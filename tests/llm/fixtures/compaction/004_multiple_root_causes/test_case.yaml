@@ -1,0 +1,27 @@
+tags:
+  - compaction
+  - medium
+
+expected_output: |
+  The conversation captures an investigation into API service degradation with TWO distinct root causes identified:
+
+  **Root Cause #1: Memory Leak**
+  - Service: api-gateway pods showing memory growth from 512MB to 1.8GB over 6 hours
+  - Evidence: Heap dump shows 1.2GB retained by unclosed HTTP client connections
+  - Impact: Pods hitting OOMKilled state every 2-3 hours, causing intermittent unavailability
+  - Specific issue: HTTPClient instances not being properly closed in error handling paths
+
+  **Root Cause #2: External API Rate Limiting**
+  - Service: payment-processor external API (stripe.com)
+  - Evidence: HTTP 429 "Rate Limit Exceeded" errors in 35% of payment processing requests
+  - Rate limit: 100 requests per second (current usage: 145 req/s during peak)
+  - Impact: Payment failures causing transaction retries, which compound the rate limit issue
+  - Started: After traffic increased 60% following marketing campaign launch
+
+  Both issues are independent and contributing to the overall service degradation. The memory leak causes periodic restarts, and the rate limiting causes payment failures during high traffic periods.
+
+description: |
+  Test compaction with multiple independent root causes that must not be merged or conflated.
+  This scenario has two distinct issues (memory leak + external API rate limiting) that both
+  contribute to service problems. The compaction must preserve both issues separately with
+  their specific evidence.

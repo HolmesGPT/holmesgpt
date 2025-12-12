@@ -2,7 +2,7 @@
 set -e
 
 # Clean up the restricted access resources
-kubectl delete secret test-secret -n 28-test --ignore-not-found
+kubectl delete clusterrole test-clusterrole-28 --ignore-not-found
 kubectl delete secret restricted-holmes-sa-token -n 28-test --ignore-not-found
 kubectl delete clusterrolebinding restricted-holmes-binding-28 --ignore-not-found
 kubectl delete clusterrole restricted-holmes-role-28 --ignore-not-found

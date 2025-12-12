@@ -1,6 +1,6 @@
+import logging
 import os
 from contextlib import contextmanager
-import traceback
 import pytest
 from pytest_shared_session_scope import (
     shared_session_scope_json,
@@ -10,6 +10,7 @@ from pytest_shared_session_scope import (
 
 from tests.llm.utils.test_results import TestResult
 from tests.llm.utils.classifiers import create_llm_client
+from holmes.common.env_vars import DEFAULT_MODEL
 from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
     MockMode,
     MockGenerationConfig,
@@ -28,6 +29,18 @@ from tests.llm.utils.port_forward import (
     extract_port_forwards_from_test_cases,
     cleanup_port_forwards_by_config,
     check_port_availability_early,
+)
+from tests.llm.utils.env_vars import is_run_live_enabled
+from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
+from tests.llm.utils.test_env_vars import (
+    MODEL,
+    CLASSIFIER_MODEL,
+    OPENAI_API_KEY,
+    ANTHROPIC_API_KEY,
+    AZURE_API_KEY,
+    AZURE_API_BASE,
+    ASK_HOLMES_TEST_TYPE,
+    BRAINTRUST_API_KEY,
 )
 
 
@@ -58,7 +71,7 @@ def mock_generation_config(request):
     if regenerate_all_mocks:
         generate_mocks = True
 
-    run_live = os.getenv("RUN_LIVE", "False").lower() in ("true", "1", "t")
+    run_live = is_run_live_enabled()
     if generate_mocks and not run_live:
         print(
             "⚠️  WARNING: --generate-mocks is set but RUN_LIVE is not set. This will not generate mocks."
@@ -116,29 +129,136 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
 
         # Run setup unless --skip-setup is set
         # Check port availability BEFORE running any setup scripts
-        # This allows us to fail fast if ports are unavailable
-        check_port_availability_early(test_cases)
+        # This returns a dict of test IDs to skip reasons
+        tests_to_skip_port_conflicts = check_port_availability_early(test_cases)
+        if tests_to_skip_port_conflicts:
+            log(
+                f"⚠️  {len(tests_to_skip_port_conflicts)} tests will be skipped due to port conflicts:"
+            )
+            for test_id, reason in tests_to_skip_port_conflicts.items():
+                log(f"     • {test_id}: {reason}")
 
-        # Check skip-setup option
+        # Filter out tests with port conflicts
+        tests_to_run = [
+            tc for tc in test_cases if tc.id not in tests_to_skip_port_conflicts
+        ]
+
+        # Check skip-setup option and only-cleanup option
         skip_setup = request.config.getoption("--skip-setup")
+        only_cleanup = request.config.getoption("--only-cleanup", False)
 
-        if test_cases and not skip_setup:
-            setup_failures = run_all_test_setup(test_cases)
+        # Skip setup if --skip-setup or --only-cleanup is set
+        if tests_to_run and not skip_setup and not only_cleanup:
+            setup_failures = run_all_test_setup(tests_to_run)
         elif skip_setup:
             log("⚙️ Skipping test setup due to --skip-setup flag")
+            setup_failures = {}
+        elif only_cleanup:
+            log("⚙️ Skipping test setup due to --only-cleanup flag")
             setup_failures = {}
         else:
             setup_failures = {}
 
+        # Check strict setup mode
+        strict_setup_mode_str = request.config.getoption("--strict-setup-mode", "false")
+        strict_setup_mode = strict_setup_mode_str.lower() == "true"
+        strict_setup_exceptions = request.config.getoption(
+            "--strict-setup-exceptions", ""
+        )
+
+        if strict_setup_mode and setup_failures:
+            # Parse exceptions list
+            allowed_failures = set(
+                [x.strip() for x in strict_setup_exceptions.split(",") if x.strip()]
+            )
+
+            # Check if any failures are not in the allowed list
+            non_allowed_failures = {
+                test_id: error
+                for test_id, error in setup_failures.items()
+                if test_id not in allowed_failures
+            }
+
+            if non_allowed_failures:
+                log("\n" + "=" * 80, dark_red=True)
+                log("❌ STRICT SETUP MODE: Setup failures detected!", dark_red=True)
+                log("=" * 80, dark_red=True)
+                log(
+                    f"\nThe following {len(non_allowed_failures)} test(s) had setup failures:",
+                    dark_red=True,
+                )
+                for test_id, error_msg in non_allowed_failures.items():
+                    log(f"\n  • {test_id}", dark_red=True)
+                    # Show first 3 lines of error for context
+                    error_lines = error_msg.split("\n")[:3]
+                    for line in error_lines:
+                        if line.strip():
+                            log(f"    {line}", dark_red=True)
+
+                if allowed_failures:
+                    allowed_with_failures = allowed_failures.intersection(
+                        setup_failures.keys()
+                    )
+                    if allowed_with_failures:
+                        log(
+                            f"\n✓ The following test(s) were allowed to fail: {', '.join(allowed_with_failures)}",
+                            error=False,
+                        )
+
+                log("\n" + "=" * 80, dark_red=True)
+                log(
+                    "Exiting pytest due to setup failures in strict mode.",
+                    dark_red=True,
+                )
+                log("To proceed anyway, either:", dark_red=True)
+                log("  1. Fix the setup issues and run again", dark_red=True)
+                log("  2. Add test IDs to --strict-setup-exceptions", dark_red=True)
+                log(
+                    "  3. Use --strict-setup-mode=false (or remove the flag)",
+                    dark_red=True,
+                )
+                log(
+                    "  4. Run script with: ./run_benchmarks_local.sh <models> <markers> <iterations> <filter> <parallel> false",
+                    dark_red=True,
+                )
+                log("=" * 80 + "\n", dark_red=True)
+
+                # Skip port forwards and cleanup - just exit immediately
+                log(
+                    "\n⚙️ Skipping port forwards and cleanup due to strict setup failure",
+                    error=False,
+                )
+
+                # Properly stop pytest execution across all workers
+                # Use pytest.exit() which works correctly with xdist
+                import pytest
+
+                pytest.exit(
+                    "Exiting due to setup failures in strict mode", returncode=1
+                )
+
+        # Check if we're in --only-setup mode
+        only_setup = request.config.getoption("--only-setup", False)
+
         # Set up port forwards AFTER namespace/resources are created
-        setup_all_port_forwards(test_cases)
+        # Skip port forwards for both --only-cleanup and --only-setup modes
+        if not only_cleanup and not only_setup:
+            setup_all_port_forwards(tests_to_run)
+        elif only_cleanup:
+            log("⚙️ Skipping port forward setup due to --only-cleanup flag")
+        elif only_setup:
+            log("⚙️ Skipping port forward setup due to --only-setup flag")
+
+        port_configs = extract_port_forwards_from_test_cases(tests_to_run)
 
         data = {
-            "test_cases_for_cleanup": [tc.id for tc in test_cases],
+            "test_cases_for_cleanup": [tc.id for tc in tests_to_run],
             "cleared_mock_directories": cleared_directories,
             "setup_failures": setup_failures,
             # Store port forward configs for cleanup (not the manager object)
-            "port_forward_configs": extract_port_forwards_from_test_cases(test_cases),
+            "port_forward_configs": port_configs,
+            # Store test IDs that should be skipped due to port conflicts
+            "tests_to_skip_port_conflicts": tests_to_skip_port_conflicts,
         }
     else:
         log(f"⚙️ Skipping before_test/after_test on worker {worker_id}")
@@ -154,19 +274,24 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         if not isinstance(test_case_ids, list):
             test_case_ids = []
 
-        # Check skip-cleanup option
+        # Check skip-cleanup option and only-cleanup/only-setup options
         skip_cleanup = request.config.getoption("--skip-cleanup")
+        only_cleanup = request.config.getoption("--only-cleanup", False)
+        only_setup = request.config.getoption("--only-setup", False)
 
-        # Always clean up port forwards regardless of skip_cleanup flag
-        port_forward_configs = data.get("port_forward_configs", [])
-        if port_forward_configs and isinstance(port_forward_configs, list):
-            try:
-                # Kill any kubectl port-forward processes that match our configs
-                cleanup_port_forwards_by_config(port_forward_configs)
-            except Exception as e:
-                log(f"⚠️ Error cleaning up port forwards: {e}")
+        # Clean up port forwards only if NOT in --only-setup or --only-cleanup mode
+        # (for --skip-cleanup and --skip-setup, we still clean up port forwards)
+        if not only_setup and not only_cleanup:
+            port_forward_configs = data.get("port_forward_configs", [])
+            if port_forward_configs and isinstance(port_forward_configs, list):
+                try:
+                    # Kill any kubectl port-forward processes that match our configs
+                    cleanup_port_forwards_by_config(port_forward_configs)
+                except Exception as e:
+                    log(f"⚠️ Error cleaning up port forwards: {e}")
 
-        if test_case_ids and not skip_cleanup:
+        # Run cleanup if --only-cleanup is set OR if (not skipping cleanup AND not --only-setup)
+        if test_case_ids and (only_cleanup or (not skip_cleanup and not only_setup)):
             # Reconstruct test cases from IDs
             from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore[attr-defined]  # type: ignore[attr-defined]
 
@@ -193,6 +318,8 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
                 )
 
                 # Only run the after_test commands, not port forward cleanup
+                if only_cleanup:
+                    log("⚙️ Running cleanup due to --only-cleanup flag")
                 run_all_test_commands(cleanup_test_cases, Operation.CLEANUP)
         elif skip_cleanup:
             log("⚙️ Skipping test cleanup due to --skip-cleanup flag")
@@ -221,45 +348,207 @@ def force_pytest_output(request):
 
 
 def check_llm_api_with_test_call():
-    """Check if LLM API is available by creating client and making test call"""
+    """Check if LLM API is available by testing ALL models that will be used"""
+    import litellm
+
+    # Get all models that will be tested
+    test_models = MODEL.split(",")
+
+    # Also check the classifier model
+    classifier_model = CLASSIFIER_MODEL
+    if not classifier_model:
+        # Parse MODEL to get first model for API key checking
+        # Note: get_models() will enforce CLASSIFIER_MODEL requirement for multi-model tests
+        models = [m.strip() for m in MODEL.split(",") if m.strip()]
+        classifier_model = models[0] if models else DEFAULT_MODEL
+
+    failed_models = []
+    error_messages = []
+
+    # Check each test model using LiteLLM's built-in functions
+    for model_name in test_models:
+        model_name = model_name.strip()
+
+        llm = None
+        if _model_list_exists():
+            try:
+                llm = create_eval_llm(model_name)
+                model_name = llm.model
+            except Exception:
+                pass
+
+        # Get provider info for better error messages
+        provider_info = litellm.get_llm_provider(model_name)
+        actual_provider = provider_info[1] if provider_info else "unknown"
+
+        env_check = {"keys_in_environment": True}
+
+        # only check env vars if we're not using a model list (credentials are in config, not env vars)
+        if not llm:
+            # validate_environment only checks for other keys
+            if not (
+                actual_provider == "bedrock"
+                and "AWS_BEARER_TOKEN_BEDROCK" in os.environ
+            ):
+                env_check = litellm.validate_environment(model=model_name)
+
+        if not env_check["keys_in_environment"]:
+            # Environment is missing required keys
+            failed_models.append(model_name)
+            missing_keys = ", ".join(env_check["missing_keys"])
+
+            # Build helpful message based on provider and what's missing
+            if actual_provider == "azure":
+                provider_msg = f"Missing environment variables for Azure (model: {model_name}): {missing_keys}"
+            elif actual_provider == "anthropic":
+                provider_msg = f"Missing environment variables for Anthropic (model: {model_name}): {missing_keys}"
+            elif actual_provider == "openai":
+                provider_msg = f"Missing environment variables for OpenAI (model: {model_name}): {missing_keys}. Note: AZURE_API_BASE is set but this model uses OpenAI, not Azure."
+            elif actual_provider == "bedrock":
+                provider_msg = f"Missing environment variables for bedrock (model: {model_name}): {missing_keys}. Note: You can alternatively define AWS_BEARER_TOKEN_BEDROCK."
+            else:
+                provider_msg = f"Missing environment variables for {actual_provider} (model: {model_name}): {missing_keys}"
+
+            error_messages.append(provider_msg)
+            continue  # Skip API test if env vars are missing
+
+        # Step 2: Environment is OK, now test if the API actually works
+        try:
+            if llm:
+                llm.completion(messages=[{"role": "user", "content": "test"}])
+            else:
+                litellm.completion(
+                    model=model_name,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=1000,
+                )
+        except Exception as e:
+            failed_models.append(model_name)
+            error_str = str(e)
+
+            # Build helpful message for API failures (env vars present but call failed)
+            if actual_provider == "azure":
+                provider_msg = f"Azure API call failed (model: {model_name}). Check AZURE_API_BASE, AZURE_API_KEY, AZURE_API_VERSION."
+            elif actual_provider == "anthropic":
+                provider_msg = f"Anthropic API call failed (model: {model_name}). Check ANTHROPIC_API_KEY."
+            elif actual_provider == "openai":
+                provider_msg = f"OpenAI API call failed (model: {model_name}). Check OPENAI_API_KEY. Note: AZURE_API_BASE is set but this model uses OpenAI, not Azure."
+            else:
+                provider_msg = (
+                    f"{actual_provider} API call failed (model: {model_name})."
+                )
+
+            error_msg = f"{provider_msg}\n    Error: {error_str}"
+            error_messages.append(error_msg)
+
+    if _model_list_exists():
+        # If model list exists, we don't need to check classifier model since its checked in the model list
+        return True, None
+
+    # Check classifier model (using the original logic for compatibility)
     try:
         client, model = create_llm_client()
         client.chat.completions.create(
             model=model, messages=[{"role": "user", "content": "test"}], max_tokens=1
         )
-        return True, None
     except Exception as e:
-        # Gather environment info for better error message
-        azure_base = os.environ.get("AZURE_API_BASE")
-        classifier_model = os.environ.get(
-            "CLASSIFIER_MODEL", os.environ.get("MODEL", "gpt-4o")
-        )
-
-        # Build provider-specific message
-        if azure_base:
-            provider_msg = (
-                f"Tried to use AzureAI (model: {classifier_model}) because AZURE_API_BASE was set. "
-                "Check AZURE_API_BASE, AZURE_API_KEY, AZURE_API_VERSION, or unset them to use OpenAI."
-            )
+        failed_models.append(f"classifier:{classifier_model}")
+        # Build helpful provider-specific message for classifier
+        # Note: create_llm_client() uses different logic than LiteLLM:
+        # It uses Azure if AZURE_API_BASE is set, regardless of model name
+        if AZURE_API_BASE:
+            provider_msg = f"Tried to use Azure for classifier (model: {classifier_model}). Check AZURE_API_BASE, AZURE_API_KEY, AZURE_API_VERSION, or unset AZURE_API_BASE to use OpenAI."
         else:
-            provider_msg = (
-                f"Tried to use OpenAI (model: {classifier_model}). "
-                "Check OPENAI_API_KEY or set AZURE_API_BASE to use Azure AI."
+            provider_msg = f"Tried to use OpenAI for classifier (model: {classifier_model}). Check OPENAI_API_KEY or set AZURE_API_BASE to use Azure."
+
+        # Add helpful suggestion for gpt-5 models that may have parameter issues
+        if "gpt-5" in classifier_model.lower():
+            provider_msg += "\n    💡 Tip: If you're seeing parameter errors (e.g., 'max_tokens' not supported), try using: export CLASSIFIER_MODEL=gpt-4.1"
+            logging.warning(
+                f"Classifier model '{classifier_model}' contains 'gpt-5' and encountered an error. "
+                f"If the error is about unsupported parameters, try: export CLASSIFIER_MODEL=gpt-4.1"
             )
 
-        # Add error info + stacktrace
-        error_msg = (
-            f"Exception: {type(e).__name__}: {e}\n"
-            f"{traceback.format_exc()}\n"
-            f"{provider_msg}"
+        error_messages.append(f"{provider_msg}\n    Error: {str(e)}")
+
+    # Report results
+    if failed_models:
+        # Gather environment info for better error message
+        error_msg = "Failed to validate API access for the following models:\n\n"
+        # Add spacing between error messages for better readability
+        formatted_errors = []
+        for msg in error_messages:
+            # Each error message already has provider_msg\n    Error: format
+            # Add bullet and proper indentation
+            formatted_errors.append(f"  - {msg}")
+        error_msg += "\n\n".join(formatted_errors)
+        error_msg += "\n\nEnvironment status:\n"
+        error_msg += f"  - OPENAI_API_KEY: {'set' if OPENAI_API_KEY else 'not set'}\n"
+        error_msg += (
+            f"  - ANTHROPIC_API_KEY: {'set' if ANTHROPIC_API_KEY else 'not set'}\n"
         )
+        error_msg += f"  - AZURE_API_KEY: {'set' if AZURE_API_KEY else 'not set'}\n"
+        error_msg += f"  - AZURE_API_BASE: {AZURE_API_BASE or 'not set'}\n"
+        # Show classifier model - if CLASSIFIER_MODEL env var is unset, show the actual value being used
+        if CLASSIFIER_MODEL:
+            error_msg += f"  - CLASSIFIER_MODEL: {CLASSIFIER_MODEL}\n"
+        else:
+            error_msg += f"  - CLASSIFIER_MODEL: not set (using: {classifier_model})\n"
 
         return False, error_msg
+
+    return True, None
+
+
+def pytest_collection_modifyitems(config, items):
+    """
+    Hook to modify test collection. Runs BEFORE any tests start.
+    This ensures we validate LLM availability before pytest starts executing tests.
+    """
+    # Don't validate during collection-only mode
+    if config.getoption("--collect-only"):
+        return
+
+    # Check if LLM marker is being excluded
+    markexpr = config.getoption("-m", default="")
+    if "not llm" in markexpr:
+        return
+
+    # Find all LLM tests
+    llm_tests = [item for item in items if item.get_closest_marker("llm")]
+
+    if llm_tests:
+        # Check API connectivity
+        api_available, error_msg = check_llm_api_with_test_call()
+
+        # Store the result in config to avoid re-checking later
+        config._llm_api_available = api_available
+        config._llm_api_error_msg = error_msg
+
+        if not api_available:
+            # Print skip message immediately
+            print("\n" + "=" * 70)
+            print(f"ℹ️  INFO: {len(llm_tests)} LLM evaluation tests will be skipped")
+            print()
+            print(f"  Reason: {error_msg}")
+            print()
+            print("To see all available evals:")
+            print(
+                "  poetry run pytest -m llm --collect-only -q --no-cov --disable-warnings"
+            )
+            print()
+            print("To run a specific eval:")
+            print("  poetry run pytest --no-cov -k 01_how_many_pods")
+            print("=" * 70 + "\n")
+
+            # Mark all LLM tests as skipped with the detailed error message
+            for test in llm_tests:
+                test.add_marker(pytest.mark.skip(reason=error_msg))
 
 
 @pytest.fixture(scope="session", autouse=True)
 def llm_availability_check(request):
-    """Handle LLM test session setup: show warning, check API, and skip if needed"""
+    """Handle LLM test session setup: show warning message only"""
     # Don't show messages during collection-only mode
     # Check if we're in collect-only mode
     collect_only = request.config.getoption("--collect-only")
@@ -277,10 +566,18 @@ def llm_availability_check(request):
     llm_tests = [item for item in session.items if item.get_closest_marker("llm")]
 
     if llm_tests:
-        # Check API connectivity and show appropriate message
-        api_available, error_msg = check_llm_api_with_test_call()
+        # Use the cached result from pytest_collection_modifyitems if available
+        # Otherwise check now (this handles cases where the hook didn't run)
+        if hasattr(request.config, "_llm_api_available"):
+            api_available = request.config._llm_api_available
+            error_msg = request.config._llm_api_error_msg
+        else:
+            api_available, error_msg = check_llm_api_with_test_call()
 
+        # Only show messages if API is available (tests will run)
+        # Skip message is already shown by pytest_collection_modifyitems hook
         if api_available:
+            # API is available, tests will run, show warning
             with force_pytest_output(request):
                 print("\n" + "=" * 70)
                 print(f"⚠️  WARNING: About to run {len(llm_tests)} LLM evaluation tests")
@@ -304,13 +601,12 @@ def llm_availability_check(request):
                     t for t in llm_tests if "test_ask_holmes" in t.nodeid
                 ]
                 if ask_holmes_tests:
-                    test_type = os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
+                    test_type = ASK_HOLMES_TEST_TYPE.lower()
                     print(f"ASK_HOLMES_TEST_TYPE: {test_type} (use 'cli' or 'server')")
                     print()
 
                 # Check if Braintrust is enabled
-                braintrust_api_key = os.environ.get("BRAINTRUST_API_KEY")
-                if braintrust_api_key:
+                if BRAINTRUST_API_KEY:
                     print(
                         f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"  # type: ignore[no-untyped-call]
                     )
@@ -322,24 +618,6 @@ def llm_availability_check(request):
                         "set BRAINTRUST_API_KEY environment variable with a key from https://braintrust.dev"
                     )
                 print("=" * 70 + "\n")
-        else:
-            with force_pytest_output(request):
-                print("\n" + "=" * 70)
-                print(f"ℹ️  INFO: {len(llm_tests)} LLM evaluation tests will be skipped")
-                print()
-                print(f"  Reason: {error_msg}")
-                print()
-                print("To see all available evals:")
-                print(
-                    "  poetry run pytest -m llm --collect-only -q --no-cov --disable-warnings"
-                )
-                print()
-                print("To run a specific eval:")
-                print("  poetry run pytest --no-cov -k 01_how_many_pods")
-                print("=" * 70 + "\n")
-
-            # Skip all LLM tests if API is not available
-            pytest.skip(error_msg)
 
     return
 
@@ -353,8 +631,7 @@ def braintrust_eval_link(request):
     if not request.node.get_closest_marker("llm"):
         return
 
-    braintrust_api_key = os.environ.get("BRAINTRUST_API_KEY")
-    if not braintrust_api_key:
+    if not BRAINTRUST_API_KEY:
         return
 
     # Extract span IDs from user properties
@@ -570,6 +847,13 @@ def _collect_test_results_from_stats(terminalreporter):
                 "mock_data_failure": mock_data_failure,
                 "user_prompt": user_props.get("user_prompt", ""),
                 "is_setup_failure": user_props.get("is_setup_failure", False),
+                # Throttling flags
+                "failed_due_to_throttling": user_props.get(
+                    "failed_due_to_throttling", False
+                ),  # Terminal failure after max retries
+                "encountered_throttling": user_props.get(
+                    "encountered_throttling", False
+                ),  # Any throttling during execution
                 "model": user_props.get("model", "Unknown"),
                 "clean_test_case_id": user_props.get("clean_test_case_id"),
                 "braintrust_span_id": user_props.get("braintrust_span_id"),
@@ -640,7 +924,7 @@ def _collect_test_results_from_stats(terminalreporter):
 def _display_braintrust_experiment_link(terminalreporter):
     """Display a single Braintrust experiment link at the end of test output."""
     # Check if Braintrust is enabled
-    if not os.environ.get("BRAINTRUST_API_KEY"):
+    if not BRAINTRUST_API_KEY:
         return
 
     # Build experiment URL

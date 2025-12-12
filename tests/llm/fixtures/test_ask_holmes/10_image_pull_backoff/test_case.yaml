@@ -2,10 +2,12 @@ user_prompt: What is the issue with customer-relations-webapp?
 expected_output:
   - The Docker image `yourcompany/crw:latest` cannot be pulled
 before_test: |
-  kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/image_pull_backoff/no_such_image.yaml
+  kubectl create namespace app-10 || true
+  kubectl apply -f manifest.yaml -n app-10
   sleep 20
 after_test: |
-  kubectl delete -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/image_pull_backoff/no_such_image.yaml
+  kubectl delete -f manifest.yaml -n app-10
+  kubectl delete namespace app-10 || true
 tags:
   - easy
   - kubernetes

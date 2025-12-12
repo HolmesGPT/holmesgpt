@@ -13,7 +13,8 @@ import os
 import pytest
 
 from holmes.plugins.toolsets.datadog.toolset_datadog_rds import DatadogRDSToolset
-from holmes.core.tools import ToolResultStatus
+from holmes.core.tools import StructuredToolResultStatus
+from tests.conftest import create_mock_tool_invoke_context
 
 
 @pytest.fixture
@@ -68,9 +69,9 @@ def test_generate_performance_report(datadog_rds_toolset, test_rds_instance):
         "start_time": "-3600",  # 1 hour ago
     }
 
-    result = tool._invoke(params)
+    result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-    assert result.status == ToolResultStatus.SUCCESS
+    assert result.status == StructuredToolResultStatus.SUCCESS
     assert test_rds_instance in result.data
 
 
@@ -87,9 +88,9 @@ def test_get_top_worst_performing_instances(datadog_rds_toolset, test_rds_instan
         "sort_by": "latency",
     }
 
-    result = tool._invoke(params)
+    result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-    assert result.status == ToolResultStatus.SUCCESS
+    assert result.status == StructuredToolResultStatus.SUCCESS
 
     assert test_rds_instance in result.data
 

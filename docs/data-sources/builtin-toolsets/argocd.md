@@ -7,7 +7,7 @@ By enabling this toolset, HolmesGPT will be able to fetch the status, deployment
 ## Prerequisites
 
 ### Generating an ArgoCD token
-This toolset requires an `ARGOCD_AUTH_TOKEN` environment variable. Generate an auth token by following [these steps](https://argo-cd.readthedocs.io/en/latest/user-guide/commands/argocd_account_generate-token/).
+This toolset requires an `ARGOCD_AUTH_TOKEN` environment variable. Generate an auth token by following [these steps](https://argo-cd.readthedocs.io/en/stable/user-guide/commands/argocd_account_generate-token/).
 
 ### Adding a Read-only Policy to ArgoCD
 HolmesGPT requires specific permissions to access ArgoCD data. Add the permissions below to your ArgoCD RBAC configuration.

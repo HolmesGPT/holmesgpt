@@ -1,0 +1,7 @@
+nav:
+  - index.md
+  - Latest Results: latest-results.md
+  - Historical Results: history
+  - Running Evaluations: running-evals.md
+  - Adding New Evaluations: adding-evals.md
+  - Reporting with Braintrust: reporting.md

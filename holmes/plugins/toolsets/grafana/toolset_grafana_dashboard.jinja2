@@ -1,0 +1,27 @@
+---
+
+## **Instruction: Prometheus Dashboard Query Execution**
+
+**When running Prometheus queries from Grafana dashboards:**
+
+### **Key Rules:**
+1. **Always run as range queries** (not instant queries) to match dashboard behavior
+2. **Use dashboard's time range** from JSON: `"time": {"from": "now-1h", "to": "now"}`
+3. **Substitute variables:**
+   - `$__rate_interval` → `1m` (1-hour range) or `5m` (3+ hour range)
+   - `$cluster` → omit if empty
+4. **Copy query exactly** including `ceil()`, `sort_desc()`, etc.
+
+### **Example:**
+```
+Dashboard: "now-1h" + query with [$__rate_interval]
+↓
+Execute: start="-3600" + query with [1m]
+```
+
+### **Ignore:**
+- `"refresh": "10s"` (UI setting, not query-related)
+
+**This ensures you see the same time series data and historical spikes that users see on their dashboards.**
+
+---

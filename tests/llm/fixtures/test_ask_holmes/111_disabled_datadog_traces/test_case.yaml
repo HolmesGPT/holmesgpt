@@ -1,6 +1,6 @@
 user_prompt: "Fetch the Datadog traces for the checkout service to analyze the payment processing latency"
 expected_output:
-  - The link https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/datadog.html should be in the answer
+  - The link https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/ should be in the answer
   - Holmes should explain that it needs the Datadog traces toolset to fetch traces
   - Holmes should mention that the Datadog integration needs to be connected/enabled
 tags:

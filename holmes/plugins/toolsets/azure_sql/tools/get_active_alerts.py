@@ -2,7 +2,11 @@ import logging
 from typing import Dict
 from datetime import datetime, timezone
 
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolInvokeContext,
+)
 from holmes.plugins.toolsets.azure_sql.azure_base_toolset import (
     BaseAzureSQLTool,
     BaseAzureSQLToolset,
@@ -147,7 +151,7 @@ class GetActiveAlerts(BaseAzureSQLTool):
 
         return "\n".join(report_sections)
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             db_config = self.toolset.database_config()
             api_client = self.toolset.api_client()
@@ -168,7 +172,7 @@ class GetActiveAlerts(BaseAzureSQLTool):
             # Check for errors
             if "error" in alerts_data:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error=alerts_data["error"],
                     params=params,
                 )
@@ -177,7 +181,7 @@ class GetActiveAlerts(BaseAzureSQLTool):
             report_text = self._build_alerts_report(db_config, alerts_data, "active")
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=report_text,
                 params=params,
             )
@@ -185,7 +189,7 @@ class GetActiveAlerts(BaseAzureSQLTool):
             error_msg = f"Failed to retrieve active alerts: {str(e)}"
             logging.error(error_msg)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )

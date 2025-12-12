@@ -1,11 +1,13 @@
 {
   "catalog": [
     {
+      "id": "dns-troubleshooting.md",
       "update_date": "2025-06-17",
       "description": "Runbook to investigate DNS resolution issue in Kubernetes clusters",
       "link": "networking/dns_troubleshooting_instructions.md"
     },
     {
+      "id": "upgrade-troubleshooting.md",
       "update_date": "2025-07-08",
       "description": "Runbook to troubleshoot upgrade issues in Azure Kubernetes Service clusters",
       "link": "upgrade/upgrade_troubleshooting_instructions.md"

@@ -7,6 +7,10 @@ toolsets:
       - command: "az account show"
       - command: "az aks --help"
       - command: "kubectl version --client"
+
+    # Note: Tools in this toolset use transformers with llm_summarize
+    # to automatically summarize large JSON outputs from Azure CLI commands
+    # when a fast model is configured, focusing on key configuration and status information.
     tools:
       - name: "cloud_provider"
         description: "Fetches the cloud provider of the kubernetes cluster, determined by the providerID of the nodes"
@@ -18,16 +22,61 @@ toolsets:
         user_description: "get AKS cluster {{ CLUSTER_NAME }} under resource group {{ RESOURCE_GROUP_NAME }} in subscription {{ SUBSCRIPTION_ID }}"
         command: |
           az aks show --resource-group {{ RESOURCE_GROUP_NAME }} --name {{ CLUSTER_NAME }} --subscription {{ SUBSCRIPTION_ID }}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1500
+              prompt: |
+                Summarize this AKS cluster configuration focusing on:
+                - Cluster status, health state, and version information
+                - Node pool configuration and scaling settings
+                - Network configuration (subnet, load balancer, network policy)
+                - Add-ons and features enabled (monitoring, auto-scaling, etc.)
+                - Security settings (RBAC, managed identity, private cluster)
+                - Any warnings or deprecated configurations
+                - When possible, highlight settings that might impact performance or security
+                - Be concise: aim for ≤ 50% of the original length; avoid repeating defaults/healthy/unchanged details
+                - Prefer aggregates and counts; list only outliers and actionable items
+                - Keep grep-friendly: include exact field names/values that matter
       - name: "aks_list_clusters_by_rg"
         description: "Lists all AKS clusters under a specific resource group. Only run this tool when you need to get all clusters in a resource group, rather than a specific one."
         user_description: "list AKS clusters in resource group {{ RESOURCE_GROUP_NAME }} under subscription {{ SUBSCRIPTION_ID }}"
         command: |
           az aks list --resource-group {{ RESOURCE_GROUP_NAME }} --subscription {{ SUBSCRIPTION_ID }}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this AKS clusters list focusing on:
+                - Cluster names, locations, and current status
+                - Kubernetes versions and any version skew issues
+                - Node pool counts and VM SKUs
+                - Key configuration differences between clusters
+                - Any clusters in error or unusual states
+                - When possible, group clusters by similar configurations
+                - Be concise and avoid expansion: target ≤ 50% of input size; prefer counts + outliers over full listings
+                - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
       - name: "aks_list_node_pools"
         description: "Lists node pools in an AKS cluster"
         user_description: "list node pools for AKS cluster {{ CLUSTER_NAME }} under resource group {{ RESOURCE_GROUP_NAME }}"
         command: |
           az aks nodepool list --resource-group {{ RESOURCE_GROUP_NAME }} --cluster-name {{ CLUSTER_NAME }} --subscription {{ SUBSCRIPTION_ID }}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1200
+              prompt: |
+                Summarize this AKS node pools list focusing on:
+                - Node pool names, VM sizes, and current node counts
+                - Scaling configuration (min/max nodes, auto-scaling enabled)
+                - Node pool status and provisioning state
+                - OS types, Kubernetes versions, and any upgrade patterns
+                - Taints, labels, and specialized configurations
+                - Any node pools in error states or with scaling issues
+                - When possible, identify resource allocation patterns
+                - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
+                - Prioritize aggregates and actionable outliers over comprehensive details
       - name: "aks_show_node_pool"
         description: "Shows details of a specific node pool in an AKS cluster"
         user_description: "get node pool {{ NODE_POOL_NAME }} in AKS cluster {{ CLUSTER_NAME }} under resource group {{ RESOURCE_GROUP_NAME }}"
@@ -84,3 +133,18 @@ toolsets:
         user_description: "list NSG rules for NSG {{ NSG_NAME }} in resource group {{ RESOURCE_GROUP_NAME }} under subscription {{ SUBSCRIPTION_ID }}"
         command: |
             az network nsg rule list --resource-group {{ RESOURCE_GROUP_NAME }} --nsg-name {{ NSG_NAME }} --subscription {{ SUBSCRIPTION_ID }} --include-default -o table
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize these NSG rules focusing on:
+                - Allow vs deny rules and their priority order
+                - Inbound vs outbound traffic rules
+                - Port ranges and protocols affected
+                - Source and destination configurations
+                - Any overly permissive or potentially insecure rules
+                - Default rules vs custom rules
+                - When possible, highlight rules that might impact AKS connectivity
+                - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
+                - Include grep-ready keys/values; avoid repeating entire rules or unchanged defaults

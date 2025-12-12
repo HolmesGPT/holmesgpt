@@ -1,0 +1,13 @@
+nav:
+  - index.md
+  - Anthropic: anthropic.md
+  - AWS Bedrock: aws-bedrock.md
+  - Azure OpenAI: azure-openai.md
+  - Gemini: gemini.md
+  - Google Vertex AI: google-vertex-ai.md
+  - Ollama: ollama.md
+  - OpenAI: openai.md
+  - OpenAI-Compatible: openai-compatible.md
+  - Other: other.md
+  - Robusta AI: robusta-ai.md
+  - Using Multiple Providers: using-multiple-providers.md

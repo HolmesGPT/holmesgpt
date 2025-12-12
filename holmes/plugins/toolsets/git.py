@@ -4,7 +4,11 @@ import requests  # type: ignore
 import os
 from typing import Any, Optional, Dict, List, Tuple
 from pydantic import BaseModel
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolInvokeContext,
+)
 
 from holmes.core.tools import (
     Toolset,
@@ -20,10 +24,12 @@ class GitHubConfig(BaseModel):
     git_repo: str
     git_credentials: str
     git_branch: str = "main"
+    git_url: str = "https://api.github.com"
 
 
 class GitToolset(Toolset):
     git_repo: Optional[str] = None
+    git_url: Optional[str] = None
     git_credentials: Optional[str] = None
     git_branch: Optional[str] = None
     _created_branches: set[str] = set()  # Track branches created by the tool
@@ -33,7 +39,7 @@ class GitToolset(Toolset):
         super().__init__(
             name="git",
             description="Runs git commands to read repos and create PRs",
-            docs_url="https://docs.github.com/en/rest",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/github/",
             icon_url="https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[
@@ -75,6 +81,7 @@ class GitToolset(Toolset):
 
         try:
             self.git_repo = os.getenv("GIT_REPO") or config.get("git_repo")
+            self.git_url = os.getenv("GIT_URL") or config.get("git_url")
             self.git_credentials = os.getenv("GIT_CREDENTIALS") or config.get(
                 "git_credentials"
             )
@@ -82,7 +89,9 @@ class GitToolset(Toolset):
                 "git_branch", "main"
             )
 
-            if not all([self.git_repo, self.git_credentials, self.git_branch]):
+            if not all(
+                [self.git_repo, self.git_url, self.git_credentials, self.git_branch]
+            ):
                 logging.error("Missing one or more required Git configuration values.")
                 return False, "Missing one or more required Git configuration values."
             return True, ""
@@ -96,7 +105,7 @@ class GitToolset(Toolset):
     def list_open_prs(self) -> List[Dict[str, Any]]:
         """Helper method to list all open PRs in the repository."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/pulls?state=open"
+        url = f"{self.git_url}/repos/{self.git_repo}/pulls?state=open"
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
             raise Exception(self._sanitize_error(f"Error listing PRs: {resp.text}"))
@@ -105,9 +114,7 @@ class GitToolset(Toolset):
     def get_branch_ref(self, branch_name: str) -> Optional[str]:
         """Get the SHA of a branch reference."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = (
-            f"https://api.github.com/repos/{self.git_repo}/git/refs/heads/{branch_name}"
-        )
+        url = f"{self.git_url}/repos/{self.git_repo}/git/refs/heads/{branch_name}"
         resp = requests.get(url, headers=headers)
         if resp.status_code == 404:
             return None
@@ -120,7 +127,7 @@ class GitToolset(Toolset):
     def create_branch(self, branch_name: str, base_sha: str) -> None:
         """Create a new branch from a base SHA."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/git/refs"
+        url = f"{self.git_url}/repos/{self.git_repo}/git/refs"
         resp = requests.post(
             url,
             headers=headers,
@@ -136,7 +143,7 @@ class GitToolset(Toolset):
     def get_file_content(self, filepath: str, branch: str) -> tuple[str, str]:
         """Get file content and SHA from a specific branch."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/contents/{filepath}?ref={branch}"
+        url = f"{self.git_url}/repos/{self.git_repo}/contents/{filepath}?ref={branch}"
         resp = requests.get(url, headers=headers)
         if resp.status_code == 404:
             raise Exception(f"File not found: {filepath}")
@@ -150,7 +157,7 @@ class GitToolset(Toolset):
     ) -> None:
         """Update a file in a specific branch."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/contents/{filepath}"
+        url = f"{self.git_url}/repos/{self.git_repo}/contents/{filepath}"
         encoded_content = base64.b64encode(content.encode()).decode()
         resp = requests.put(
             url,
@@ -168,7 +175,7 @@ class GitToolset(Toolset):
     def create_pr(self, title: str, head: str, base: str, body: str) -> str:
         """Create a new pull request."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/pulls"
+        url = f"{self.git_url}/repos/{self.git_repo}/pulls"
         resp = requests.post(
             url,
             headers=headers,
@@ -188,7 +195,7 @@ class GitToolset(Toolset):
     def get_pr_details(self, pr_number: int) -> Dict[str, Any]:
         """Get details of a specific PR."""
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/pulls/{pr_number}"
+        url = f"{self.git_url}/repos/{self.git_repo}/pulls/{pr_number}"
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
             raise Exception(
@@ -215,7 +222,7 @@ class GitToolset(Toolset):
 
         # Update file
         headers = {"Authorization": f"token {self.git_credentials}"}
-        url = f"https://api.github.com/repos/{self.git_repo}/contents/{filepath}"
+        url = f"{self.git_url}/repos/{self.git_repo}/contents/{filepath}"
         encoded_content = base64.b64encode(content.encode()).decode()
         data = {
             "message": message,
@@ -249,15 +256,19 @@ class GitReadFileWithLineNumbers(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(
+        self,
+        params: dict,
+        context: ToolInvokeContext,
+    ) -> StructuredToolResult:
         filepath = params["filepath"]
         try:
             headers = {"Authorization": f"token {self.toolset.git_credentials}"}
-            url = f"https://api.github.com/repos/{self.toolset.git_repo}/contents/{filepath}"
+            url = f"{self.toolset.git_url}/repos/{self.toolset.git_repo}/contents/{filepath}"
             resp = requests.get(url, headers=headers)
             if resp.status_code != 200:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     data=self.toolset._sanitize_error(
                         f"Error fetching file: {resp.text}"
                     ),
@@ -266,13 +277,13 @@ class GitReadFileWithLineNumbers(Tool):
             content = base64.b64decode(resp.json()["content"]).decode().splitlines()
             numbered = "\n".join(f"{i+1}: {line}" for i, line in enumerate(content))
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=numbered,
                 params=params,
             )
         except Exception as e:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 data=self.toolset._sanitize_error(str(e)),
                 params=params,
             )
@@ -293,14 +304,18 @@ class GitListFiles(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(
+        self,
+        params: dict,
+        context: ToolInvokeContext,
+    ) -> StructuredToolResult:
         try:
             headers = {"Authorization": f"token {self.toolset.git_credentials}"}
-            url = f"https://api.github.com/repos/{self.toolset.git_repo}/git/trees/{self.toolset.git_branch}?recursive=1"
+            url = f"{self.toolset.git_url}/repos/{self.toolset.git_repo}/git/trees/{self.toolset.git_branch}?recursive=1"
             resp = requests.get(url, headers=headers)
             if resp.status_code != 200:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     data=self.toolset._sanitize_error(
                         f"Error listing files: {resp.text}"
                     ),
@@ -308,13 +323,13 @@ class GitListFiles(Tool):
                 )
             paths = [entry["path"] for entry in resp.json()["tree"]]
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=paths,
                 params=params,
             )
         except Exception as e:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 data=self.toolset._sanitize_error(str(e)),
                 params=params,
             )
@@ -334,7 +349,7 @@ class GitListOpenPRs(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             prs = self.toolset.list_open_prs()
             formatted = [
@@ -347,13 +362,13 @@ class GitListOpenPRs(Tool):
                 for pr in prs
             ]
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=formatted,
                 params=params,
             )
         except Exception as e:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 data=self.toolset._sanitize_error(str(e)),
                 params=params,
             )
@@ -402,17 +417,17 @@ class GitExecuteChanges(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         def error(msg: str) -> StructuredToolResult:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 data=self.toolset._sanitize_error(msg),
                 params=params,
             )
 
         def success(msg: Any) -> StructuredToolResult:
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS, data=msg, params=params
+                status=StructuredToolResultStatus.SUCCESS, data=msg, params=params
             )
 
         def modify_lines(lines: List[str]) -> List[str]:
@@ -620,7 +635,7 @@ class GitUpdatePR(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             line = params["line"]
             filename = params["filename"]
@@ -633,24 +648,24 @@ class GitUpdatePR(Tool):
             # Validate inputs
             if not commit_message.strip():
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="Tool call failed to run: Commit message cannot be empty",
                 )
             if not filename.strip():
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="Tool call failed to run: Filename cannot be empty",
                 )
             if line < 1:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="Tool call failed to run: Line number must be positive",
                 )
 
             # Verify this is a PR created by our tool
             if not self.toolset.is_created_pr(pr_number):
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error=f"Tool call failed to run: PR #{pr_number} was not created by this tool. Only PRs created using git_execute_changes can be updated.",
                 )
 
@@ -704,7 +719,7 @@ class GitUpdatePR(Tool):
                     del content_lines[line - 1]
                 else:
                     return StructuredToolResult(
-                        status=ToolResultStatus.ERROR,
+                        status=StructuredToolResultStatus.ERROR,
                         error=f"Tool call failed to run: Invalid command: {command}",
                     )
 
@@ -712,7 +727,7 @@ class GitUpdatePR(Tool):
 
                 if dry_run:
                     return StructuredToolResult(
-                        status=ToolResultStatus.SUCCESS,
+                        status=StructuredToolResultStatus.SUCCESS,
                         data=f"DRY RUN: Updated content for PR #{pr_number}:\n\n{updated_content}",
                     )
 
@@ -721,13 +736,13 @@ class GitUpdatePR(Tool):
                     pr_number, filename, updated_content, commit_message
                 )
                 return StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data=f"Added commit to PR #{pr_number} successfully",
                 )
 
             except Exception as e:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error=self.toolset._sanitize_error(
                         f"Tool call failed to run: Error updating PR: {str(e)}"
                     ),
@@ -735,14 +750,14 @@ class GitUpdatePR(Tool):
 
         except requests.exceptions.RequestException as e:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=self.toolset._sanitize_error(
                     f"Tool call failed to run: Network error: {str(e)}"
                 ),
             )
         except Exception as e:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=self.toolset._sanitize_error(
                     f"Tool call failed to run: Unexpected error: {str(e)}"
                 ),

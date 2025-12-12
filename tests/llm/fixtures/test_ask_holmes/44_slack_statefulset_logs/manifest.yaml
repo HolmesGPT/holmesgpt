@@ -143,11 +143,10 @@ spec:
           mountPath: /alertmanager
         resources: # Optional: Adjust based on your needs
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 10m
+            memory: 32Mi
           limits:
-            cpu: 500m
-            memory: 256Mi
+            memory: 128Mi
         readinessProbe:
           httpGet:
             path: /-/ready
@@ -295,11 +294,10 @@ spec:
           value: "200MiB"
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 10m
+            memory: 32Mi
           limits:
-            cpu: 500m
-            memory: 256Mi
+            memory: 128Mi
         ports:
         - name: metrics
           containerPort: 8080
@@ -328,6 +326,12 @@ metadata:
 spec:
   replicas: 1
   configSecret: alertmanager-config-secret
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
   storage:
     volumeClaimTemplate:
       spec:

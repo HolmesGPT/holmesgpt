@@ -1,12 +1,16 @@
 toolsets:
   kubernetes/core:
     description: "Read access to cluster resources (excluding secrets and other sensitive data)"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kubernetes.html#core"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
     tags:
       - core
     prerequisites:
       - command: "kubectl version --client"
+
+    # Note: Many tools in this toolset use transformers with llm_summarize
+    # to automatically summarize large kubectl outputs when a fast model is configured.
+    # This reduces context window usage while preserving key information for debugging.
 
     tools:
       - name: "kubectl_describe"
@@ -17,6 +21,20 @@ toolsets:
             - 'describe pod xyz-123'
             - 'show service xyz-123 in namespace my-ns'
         command: "kubectl describe {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this kubectl describe output focusing on:
+                - What needs attention or immediate action
+                - Resource status and health indicators
+                - Any errors, warnings, or non-standard states
+                - Key configuration details that could affect functionality
+                - When possible, mention exact field names so the user can grep for specific details
+                - Be concise: aim for ≤ 50% of the original length; avoid repeating defaults/healthy/unchanged details
+                - Prefer aggregates and counts; list only outliers and actionable items
+                - Keep grep-friendly: include exact field names/values that matter
 
       - name: "kubectl_get_by_name"
         description: "Run `kubectl get <kind> <name> --show-labels`"
@@ -25,10 +43,36 @@ toolsets:
       - name: "kubectl_get_by_kind_in_namespace"
         description: "Run `kubectl get <kind> -n <namespace> --show-labels` to get all resources of a given type in namespace"
         command: "kubectl get --show-labels -o wide {{ kind }} -n {{namespace}}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this kubectl output focusing on:
+                - What needs attention or immediate action
+                - Group similar resources into aggregate descriptions
+                - Make sure to mention outliers, errors, and non-standard states
+                - List healthy resources as aggregate descriptions
+                - When listing unhealthy resources, also try to use aggregate descriptions when possible
+                - When possible, mention exact keywords so the user can rerun the command with | grep <keyword> and drill down
+                - Be concise and avoid expansion: target ≤ 50% of input size; prefer counts + outliers over full listings
 
       - name: "kubectl_get_by_kind_in_cluster"
         description: "Run `kubectl get -A <kind> --show-labels` to get all resources of a given type in the cluster"
         command: "kubectl get -A --show-labels -o wide {{ kind }}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this kubectl output focusing on:
+                - What needs attention or immediate action
+                - Group similar resources into a single line and description
+                - Make sure to mention outliers, errors, and non-standard states
+                - List healthy resources as aggregate descriptions
+                - When listing unhealthy resources, also try to use aggregate descriptions when possible
+                - When possible, mention exact keywords so the user can rerun the command with | grep <keyword> and drill down on the parts they care about
+                - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
 
       - name: "kubectl_find_resource"
         description: "Run `kubectl get {{ kind }} -A --show-labels | grep {{ keyword }}` to find a resource where you know a substring of the name, IP, namespace, or labels"
@@ -42,95 +86,25 @@ toolsets:
         description: "Retrieve the events for a specific Kubernetes resource. `resource_type` can be any kubernetes resource type: 'pod', 'service', 'deployment', 'job', 'node', etc."
         command: "kubectl events --for {{resource_type}}/{{ resource_name }}{% if namespace %} -n {{ namespace }}{% endif %}"
 
-      - name: "kubectl_memory_requests_all_namespaces"
-        description: "Fetch and display memory requests for all pods across all namespaces in MiB, summing requests across multiple containers where applicable and handling binary, decimal, and millibyte units correctly."
-        command: |
-          kubectl get pods --all-namespaces -o custom-columns="NAMESPACE:.metadata.namespace,NAME:.metadata.name,MEMORY_REQUEST:.spec.containers[*].resources.requests.memory" --no-headers | \
-          awk '
-            function convert_to_mib(value) {
-              if (value ~ /^[0-9]+e[0-9]+$/) return (value + 0) / (1024 * 1024); # Scientific notation
-              if (value ~ /m$/) return (value + 0) / (1024^2 * 1000);           # Millibytes (m)
-              if (value ~ /Ei$/) return (value + 0) * 1024^6 / (1024^2);        # Binary units
-              if (value ~ /Pi$/) return (value + 0) * 1024^5 / (1024^2);
-              if (value ~ /Ti$/) return (value + 0) * 1024^4 / (1024^2);
-              if (value ~ /Gi$/) return (value + 0) * 1024^3 / (1024^2);
-              if (value ~ /Mi$/) return (value + 0);
-              if (value ~ /Ki$/) return (value + 0) / 1024;
-              if (value ~ /E$/) return (value + 0) * 1000^6 / (1024^2);         # Decimal units
-              if (value ~ /P$/) return (value + 0) * 1000^5 / (1024^2);
-              if (value ~ /T$/) return (value + 0) * 1000^4 / (1024^2);
-              if (value ~ /G$/) return (value + 0) * 1000^3 / (1024^2);
-              if (value ~ /M$/) return (value + 0) * 1000^2 / (1024^2);
-              if (value ~ /k$/) return (value + 0) * 1000 / (1024^2);
-              return (value + 0) / (1024 * 1024);                               # Default: bytes
-            }
-            function sum_memory(requests) {
-              gsub(/^[ \t]+|[ \t]+$/, "", requests);
-              if (requests == "" || requests == "<none>") return 0;
-              split(requests, arr, ",");
-              total = 0;
-              for (i in arr) {
-                if (arr[i] != "<none>") total += convert_to_mib(arr[i]);
-              }
-              return total;
-            }
-            {
-              namespace = $1;
-              name = $2;
-              requests = $3;
-              for (i=4; i<=NF; i++) {
-                requests = requests " " $i;
-              }
-              print namespace, name, sum_memory(requests) " Mi";
-            }' | sort -k3 -nr
-
-      - name: "kubectl_memory_requests_namespace"
-        description: "Fetch and display memory requests for all pods in a specified namespace in MiB, summing requests across multiple containers where applicable and handling binary, decimal, and millibyte units correctly."
-        command: |
-          kubectl get pods -n {{ namespace }} -o custom-columns="NAMESPACE:.metadata.namespace,NAME:.metadata.name,MEMORY_REQUEST:.spec.containers[*].resources.requests.memory" --no-headers | \
-          awk '
-            function convert_to_mib(value) {
-              if (value ~ /^[0-9]+e[0-9]+$/) return (value + 0) / (1024 * 1024); # Scientific notation
-              if (value ~ /m$/) return (value + 0) / (1024^2 * 1000);           # Millibytes (m)
-              if (value ~ /Ei$/) return (value + 0) * 1024^6 / (1024^2);        # Binary units
-              if (value ~ /Pi$/) return (value + 0) * 1024^5 / (1024^2);
-              if (value ~ /Ti$/) return (value + 0) * 1024^4 / (1024^2);
-              if (value ~ /Gi$/) return (value + 0) * 1024^3 / (1024^2);
-              if (value ~ /Mi$/) return (value + 0);
-              if (value ~ /Ki$/) return (value + 0) / 1024;
-              if (value ~ /E$/) return (value + 0) * 1000^6 / (1024^2);         # Decimal units
-              if (value ~ /P$/) return (value + 0) * 1000^5 / (1024^2);
-              if (value ~ /T$/) return (value + 0) * 1000^4 / (1024^2);
-              if (value ~ /G$/) return (value + 0) * 1000^3 / (1024^2);
-              if (value ~ /M$/) return (value + 0) * 1000^2 / (1024^2);
-              if (value ~ /k$/) return (value + 0) * 1000 / (1024^2);
-              return (value + 0) / (1024 * 1024);                               # Default: bytes
-            }
-            function sum_memory(requests) {
-              gsub(/^[ \t]+|[ \t]+$/, "", requests);
-              if (requests == "" || requests == "<none>") return 0;
-              split(requests, arr, ",");
-              total = 0;
-              for (i in arr) {
-                if (arr[i] != "<none>") total += convert_to_mib(arr[i]);
-              }
-              return total;
-            }
-            {
-              namespace = $1;
-              name = $2;
-              requests = $3;
-              for (i=4; i<=NF; i++) {
-                requests = requests " " $i;
-              }
-              print namespace, name, sum_memory(requests) " Mi";
-            }' | sort -k3 -nr
-
       - name: "kubernetes_jq_query"
         user_description: "Query Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -r {{jq_expr}}"
         description: >
           Use kubectl to get json for all resources of a specific kind pipe the results to jq to filter them. Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give. e.g. give an expression like .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
         command: kubectl get {{ kind }} --all-namespaces -o json | jq -r {{ jq_expr }}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this jq query output focusing on:
+                - Key patterns and commonalities in the data
+                - Notable outliers, anomalies, or items that need attention
+                - Group similar results into aggregate descriptions when possible
+                - Highlight any empty results, null values, or missing data
+                - When applicable, mention specific resource names, namespaces, or values that stand out
+                - Organize findings in a structured way that helps with troubleshooting
+                - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
+                - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
 
       - name: "kubernetes_count"
         user_description: "Count Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
@@ -197,7 +171,7 @@ toolsets:
 
   kubernetes/live-metrics:
     description: "Provides real-time metrics for pods and nodes"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kubernetes.html#live-metrics"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
     llm_instructions: |
       The kubectl_top_pods or kubectl_top_nodes do not return time series data or metrics that can be used for graphs
@@ -219,7 +193,7 @@ toolsets:
 
   kubernetes/kube-prometheus-stack:
     description: "Fetches prometheus definition"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kubernetes.html#prometheus-stack"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
     tags:
       - core
@@ -230,7 +204,7 @@ toolsets:
 
   kubernetes/krew-extras: # To make this work, install kube-lineage with krew
     description: "Fetches children/dependents and parents/dependencies resources using kube-lineage installed via `kubectl krew`"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kubernetes.html#resource-lineage-extras-with-krew"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
     tags:
       - cli
@@ -246,7 +220,7 @@ toolsets:
 
   kubernetes/kube-lineage-extras: # To make this work, build kube-lineage from source
     description: "Fetches children/dependents and parents/dependencies resources using kube-lineage"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kubernetes.html#resource-lineage-extras"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
     tags:
       - cluster

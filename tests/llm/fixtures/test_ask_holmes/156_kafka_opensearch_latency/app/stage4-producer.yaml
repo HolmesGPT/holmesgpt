@@ -80,10 +80,11 @@ spec:
           mountPath: /app
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "50m"
+            memory: "32Mi"
+            cpu: "5m"
           limits:
-            memory: "256Mi"
+            memory: "64Mi"
+            cpu: "50m"
       volumes:
       - name: order-service-script
         configMap:

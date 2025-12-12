@@ -60,7 +60,6 @@ class AzureSQLToolset(BaseAzureSQLToolset):
             docs_url="https://kagi.com/proxy/png-clipart-microsoft-sql-server-microsoft-azure-sql-database-microsoft-text-logo-thumbnail.png?c=4Sg1bvcUGOrhnDzXgoBBa0G0j27ykgskX4a8cLrZp_quzqlpVGVG02OqQtezTxy7lB6ydmTKgbVAn_F7BxofxK6LKKUZSpjJ1huIAsXPVaXyakO4sWXFiX0Wz_8WjkA0AIlO_oFfW31AKaj5RcvGcr3siy0n5kW-GcqdpeBWsmm_huxUT6RycULFCDFBwuUzHvVl5TW3cYqlMxT8ecPZfg%3D%3D",
             icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Azure_SQL_Database_logo.svg/1200px-Azure_SQL_Database_logo.svg.png",
             tags=[ToolsetTag.CORE],
-            experimental=True,
             tools=[
                 AnalyzeDatabaseHealthStatus(self),
                 AnalyzeDatabasePerformance(self),

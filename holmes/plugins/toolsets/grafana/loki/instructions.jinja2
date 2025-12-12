@@ -1,0 +1,25 @@
+Grafana Loki is a multi-tenant log aggregation system designed to store and query logs from all your applications and infrastructure.
+
+**IMPORTANT WILDCARD USAGE:**
+- **ALWAYS use wildcards** when searching for pods unless you have the COMPLETE pod name with all suffixes
+- Kubernetes pod names include deployment hash + replica ID (e.g., `nginx-ingress-7b9899-x2km9`, `frontend-5f4d3b2a1-abc123`)
+- When user says "nginx pod" or "frontend pod", search for `nginx-*` or `frontend-*` NOT just `nginx` or `frontend`
+- Loki supports wildcards: `*` matches any characters (e.g., `nginx-*`, `*ingress*`, `*-x2km9`)
+- For partial matches, use wildcards on both sides: `*keyword*` to find logs from any pod containing "keyword"
+
+**When user provides what looks like a complete pod name** (e.g., `my-workload-5f9d8b7c4d-x2km9`):
+- Query Loki directly with that exact pod name
+- Do NOT try to verify if the pod exists in Kubernetes first
+- This allows querying historical pods that have been deleted/replaced
+
+* If asked to check for logs, you must always try 1-2 of the best queries you can construct to search for the logs.
+
+Loki indexes log lines using labels to help find relevant log lines.
+For example a default Kubernetes labels setup would look like that
+{namespace="prod", app="backend-api", container="api", pod="backend-api-68b7d9df9c-xyz12", stream="stdout"}
+
+
+### Time Parameters
+- Use RFC3339 format: `2023-03-01T10:30:00Z`
+- Or relative seconds: `-3600` for 1 hour ago
+- If no time range is specificed use last 4 hours as default time.

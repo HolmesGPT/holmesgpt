@@ -1,0 +1,28 @@
+description: |
+  This demo environment in the app-117 namespace runs three microservices—checkout (Node.js),
+  inventory (Node.js), and risk (Python/Flask)—alongside a Postgres 16 database with an orders table.
+  Checkout orchestrates requests by calling Inventory for stock checks, Risk for fraud scoring,
+  and then writing to Postgres before replying to the client. Each service exposes a /healthz endpoint,
+  logs via standard libraries, and is labeled for New Relic auto-instrumentation, so traces stitch
+  across all components.
+
+user_prompt:
+- What http status code we have for /orders today
+
+expected_output:
+  - code are 200, 403, 409
+
+tags:
+  - chain-of-causation
+  - traces
+  - newrelic
+  - network
+
+before_test: |
+  ./setup.sh
+  ./traffic.sh
+  python3 verify_traces.py --max-attempts 30 --retry-interval 5
+
+after_test: |
+  kubectl delete namespace app-117 || true
+  kubectl delete -f instrumentation.yaml -n newrelic || true

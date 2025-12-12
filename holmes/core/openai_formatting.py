@@ -80,6 +80,19 @@ def format_tool_to_open_ai_standard(
         )
         if param_attributes.description is not None:
             tool_properties[param_name]["description"] = param_attributes.description
+        # Add enum constraint if specified
+        if hasattr(param_attributes, "enum") and param_attributes.enum:
+            enum_values = list(
+                param_attributes.enum
+            )  # Create a copy to avoid modifying original
+            # In strict mode, optional parameters need None in their enum to match the type allowing null
+            if (
+                strict_mode
+                and not param_attributes.required
+                and None not in enum_values
+            ):
+                enum_values.append(None)
+            tool_properties[param_name]["enum"] = enum_values
 
     result: dict[str, Any] = {
         "type": "function",

@@ -2,10 +2,12 @@ user_prompt: "What is the issue with user-profile-resources"
 expected_output:
   - This must mention insufficient GPU resources
 before_test: |
-  kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_resources.yaml
+  kubectl create namespace app-14 || true
+  kubectl apply -f manifest.yaml -n app-14
   sleep 30
 after_test: |
-  kubectl delete -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_resources.yaml
+  kubectl delete -f manifest.yaml -n app-14
+  kubectl delete namespace app-14 || true
 tags:
   - easy
   - kubernetes

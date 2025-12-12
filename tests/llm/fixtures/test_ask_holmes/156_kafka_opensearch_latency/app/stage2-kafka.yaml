@@ -41,21 +41,25 @@ spec:
           value: "PLAINTEXT://:9092"
         - name: KAFKA_CFG_ADVERTISED_LISTENERS
           value: "PLAINTEXT://kafka:9092"
+        - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+          value: "PLAINTEXT:PLAINTEXT"
         - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
           value: "true"
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "100m"
+            memory: "128Mi"
+            cpu: "20m"
           limits:
-            memory: "1Gi"
+            memory: "512Mi"
         readinessProbe:
           tcpSocket:
             port: 9092
           initialDelaySeconds: 30
           periodSeconds: 10
+          failureThreshold: 10
         livenessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 45
+          periodSeconds: 20
+          failureThreshold: 10

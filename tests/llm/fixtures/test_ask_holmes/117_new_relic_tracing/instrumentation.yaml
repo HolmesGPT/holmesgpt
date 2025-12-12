@@ -1,0 +1,31 @@
+# https://docs.newrelic.com/docs/kubernetes-pixie/kubernetes-integration/installation/k8s-agent-operator/
+# https://github.com/newrelic/k8s-agents-operator/blob/main/local/instrumentation.yaml
+apiVersion: newrelic.com/v1beta2
+kind: Instrumentation
+metadata:
+  name: nr-node-app-117
+  namespace: newrelic
+spec:
+  agent:
+    language: nodejs
+    image: newrelic/newrelic-node-init:latest
+  namespaceLabelSelector:
+    matchExpressions:
+      - key: "kubernetes.io/metadata.name"
+        operator: "In"
+        values: ["app-117"]
+---
+apiVersion: newrelic.com/v1beta2
+kind: Instrumentation
+metadata:
+  name: nr-python-app-117
+  namespace: newrelic
+spec:
+  agent:
+    language: python
+    image: newrelic/newrelic-python-init:latest
+  namespaceLabelSelector:
+    matchExpressions:
+      - key: "kubernetes.io/metadata.name"
+        operator: "In"
+        values: ["app-117"]

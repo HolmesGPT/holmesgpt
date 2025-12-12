@@ -1,0 +1,108 @@
+user_prompt:
+- "The checkout service in namespace app-121 is experiencing errors. Investigate why."
+
+expected_output:
+  - The answer must explicitly state that requests with promo codes are failing or all errors/failures occur when promo code is included.
+  - Including a query that mentions promo code is not sufficient.
+
+tags:
+  - kubernetes
+  - hard
+  - chain-of-causation
+  - traces
+  - newrelic
+  
+setup_timeout: 600  # 10 minutes for pod scheduling
+
+before_test: |
+  [ -n "${NEW_RELIC_ACCOUNT_ID:-}" ] && [ -n "${NEW_RELIC_API_KEY:-}" ] && [ -n "${NEW_RELIC_LICENSE_KEY:-}" ] || { for v in NEW_RELIC_ACCOUNT_ID NEW_RELIC_API_KEY NEW_RELIC_LICENSE_KEY; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+
+  echo "🚀 Setting up test 121 - Creating namespace app-121"
+  kubectl create namespace app-121 || true
+  echo "✅ Namespace app-121 created successfully!"
+
+  kubectl create secret generic newrelickey --from-literal=key="${NEW_RELIC_LICENSE_KEY}" -n app-121
+
+  kubectl apply -f checkout-service.yaml -n app-121
+
+  echo "⏳ Waiting for checkout pod to be ready"
+  CHECKOUT_POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=checkout -n app-121 --timeout=5s 2>/dev/null; then
+      echo "✅ Checkout pod is ready!"
+      CHECKOUT_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Checkout pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$CHECKOUT_POD_READY" = false ]; then
+    echo "❌ Checkout pod failed to become ready after 300 seconds"
+    kubectl get pods -n app-121 -l app=checkout
+    exit 1
+  fi
+
+  echo "🔍 Checking checkout deployment status"
+  kubectl get pods -n app-121 -l app=checkout
+
+  echo "🚦 Deploying traffic generator"
+  kubectl apply -f traffic-generator.yaml -n app-121
+
+  echo "⏳ Waiting for traffic generator pod to be ready"
+  TRAFFIC_POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=traffic-generator -n app-121 --timeout=5s 2>/dev/null; then
+      echo "✅ Traffic generator pod is ready!"
+      TRAFFIC_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Traffic generator pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TRAFFIC_POD_READY" = false ]; then
+    echo "❌ Traffic generator pod failed to become ready after 300 seconds"
+    kubectl get pods -n app-121 -l app=traffic-generator
+    exit 1
+  fi
+
+  echo "🔍 Checking all pods status"
+  kubectl get pods -n app-121
+
+  echo "⏰ Letting traffic generator run for 45 seconds to generate requests"
+  sleep 45
+
+  echo "🔍 Verifying traffic generator log entries"
+  if kubectl logs -n app-121 -l app=traffic-generator --tail=-1 | grep -q "WITH promo_code"; then
+    echo "✅ Found traffic generator log WITH promo_code"
+  else
+    echo "❌ Missing traffic generator log WITH promo_code"
+    exit 1
+  fi
+
+  if kubectl logs -n app-121 -l app=traffic-generator --tail=-1 | grep -q "WITHOUT promo_code"; then
+    echo "✅ Found traffic generator log WITHOUT promo_code"
+  else
+    echo "❌ Missing traffic generator log WITHOUT promo_code"
+    exit 1
+  fi
+
+  if kubectl logs -n app-121 -l app=checkout --tail=100 | grep -q "Processing checkout request"; then
+    echo "✅ Found checkout request log"
+  else
+    echo "❌ Missing checkout request log"
+    exit 1
+  fi
+
+  kubectl delete -f traffic-generator.yaml -n app-121
+
+  echo "✅ Test setup complete!"
+
+after_test: |
+  kubectl delete namespace app-121 || true
+
+skip: true
+skip_reason: need upgraded new relic account to support

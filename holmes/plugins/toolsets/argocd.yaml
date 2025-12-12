@@ -1,7 +1,7 @@
 toolsets:
   argocd/core:
     description: "Set of tools to get argocd metadata like list of apps, repositories, projects, etc."
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/argocd.html"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/"
     icon_url: "https://argo-cd.readthedocs.io/en/stable/assets/logo.png"
     llm_instructions: |
       You have access to a set of ArgoCD tools for debugging Kubernetes application deployments.

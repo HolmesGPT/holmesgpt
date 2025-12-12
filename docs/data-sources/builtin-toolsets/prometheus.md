@@ -22,7 +22,9 @@ toolsets:
 ```
 
 
-💡 **Alternative**: Set the `PROMETHEUS_URL` environment variable instead of using the config file.
+💡 **Alternative**: Set environment variables instead of using the config file:
+- `PROMETHEUS_URL`: The Prometheus server URL
+- `PROMETHEUS_AUTH_HEADER`: Optional authorization header value (e.g., "Bearer token123")
 
 ## Validation
 
@@ -81,11 +83,23 @@ toolsets:
       healthcheck: "-/healthy"  # Path for health checking (default: -/healthy)
       headers:
         Authorization: "Basic <base_64_encoded_string>"
-      metrics_labels_time_window_hrs: 48  # Time window (hours) for fetching labels (default: 48)
-      metrics_labels_cache_duration_hrs: 12  # How long to cache labels (hours, default: 12)
-      fetch_labels_with_labels_api: false  # Use labels API instead of series API (default: false)
-      fetch_metadata_with_series_api: false  # Use series API for metadata (default: false)
+
+      # Time windows and limits
+      default_metadata_time_window_hrs: 1  # Time window for metadata APIs (default: 1 hour)
+      query_response_size_limit: 20000  # Max characters in query response (default: 20000)
+
+      # Timeout configuration
+      default_query_timeout_seconds: 20  # Default timeout for PromQL queries (default: 20)
+      max_query_timeout_seconds: 180  # Maximum allowed timeout for PromQL queries (default: 180)
+      default_metadata_timeout_seconds: 20  # Default timeout for metadata/discovery APIs (default: 20)
+      max_metadata_timeout_seconds: 60  # Maximum allowed timeout for metadata APIs (default: 60)
+
+      # Other options
+      rules_cache_duration_seconds: 1800  # Cache duration for Prometheus rules (default: 30 minutes)
+      prometheus_ssl_enabled: true  # Enable SSL verification (default: true)
       tool_calls_return_data: true  # If false, disables returning Prometheus data (default: true)
+      additional_labels:  # Additional labels to add to all queries
+        cluster: "production"
 ```
 
 **Config option explanations:**
@@ -93,20 +107,29 @@ toolsets:
 - `prometheus_url`: The base URL for Prometheus. Should include protocol and port.
 - `healthcheck`: Path used for health checking Prometheus or Mimir/Cortex endpoint. Defaults to `-/healthy` for Prometheus, use `/ready` for Grafana Mimir.
 - `headers`: Extra headers for all Prometheus HTTP requests (e.g., for authentication).
-- `metrics_labels_time_window_hrs`: Time window (in hours) for fetching labels. Set to `null` to fetch all labels.
-- `metrics_labels_cache_duration_hrs`: How long to cache labels (in hours). Set to `null` to disable caching.
-- `fetch_labels_with_labels_api`: Use the Prometheus labels API to fetch labels (can improve performance, but increases HTTP calls).
-- `fetch_metadata_with_series_api`: Use the series API for metadata (only set to true if the metadata API is disabled or not working).
-- `tool_calls_return_data`: If `false`, disables returning Prometheus data to HolmesGPT (useful if you hit token limits).
+- `default_metadata_time_window_hrs`: Time window (in hours) for metadata/discovery APIs to look for active metrics. Default: 1 hour.
+- `query_response_size_limit`: Maximum number of characters in a query response before truncation. Set to `null` to disable. Default: 20000.
+- `default_query_timeout_seconds`: Default timeout for PromQL queries. Can be overridden per query. Default: 20.
+- `max_query_timeout_seconds`: Maximum allowed timeout for PromQL queries. Default: 180.
+- `default_metadata_timeout_seconds`: Default timeout for metadata/discovery API calls. Default: 20.
+- `max_metadata_timeout_seconds`: Maximum allowed timeout for metadata API calls. Default: 60.
+- `rules_cache_duration_seconds`: How long to cache Prometheus rules. Set to `null` to disable caching. Default: 1800 (30 minutes).
+- `prometheus_ssl_enabled`: Enable SSL certificate verification. Default: true.
+- `tool_calls_return_data`: If `false`, disables returning Prometheus data to HolmesGPT (useful if you hit token limits). Default: true.
+- `additional_labels`: Dictionary of labels to add to all queries (currently only implemented for AWS/AMP).
 
 ## Capabilities
 
 | Tool Name | Description |
 |-----------|-------------|
-| list_available_metrics | List all available Prometheus metrics |
-| execute_prometheus_instant_query | Execute an instant PromQL query |
-| execute_prometheus_range_query | Execute a range PromQL query for time series data |
-| get_current_time | Get current timestamp for time-based queries |
+| list_prometheus_rules | List all defined Prometheus rules with descriptions and annotations |
+| get_metric_names | Get list of metric names (fastest discovery method) - requires match filter |
+| get_label_values | Get all values for a specific label (e.g., pod names, namespaces) |
+| get_all_labels | Get list of all label names available in Prometheus |
+| get_series | Get time series matching a selector (returns full label sets) |
+| get_metric_metadata | Get metadata (type, description, unit) for metrics |
+| execute_prometheus_instant_query | Execute an instant PromQL query (single point in time) |
+| execute_prometheus_range_query | Execute a range PromQL query for time series data with graph generation |
 
 ---
 
@@ -140,12 +163,38 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
             prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
             headers:
               token: "{{ env.CORALOGIX_API_KEY }}"
-            metrics_labels_time_window_hrs: 72
-            metrics_labels_cache_duration_hrs: 12
-            fetch_labels_with_labels_api: true
+            default_metadata_time_window_hrs: 72  # Look back 72 hours for metrics
             tool_calls_return_data: true
-            fetch_metadata_with_series_api: true
     ```
+
+---
+
+## AWS Managed Prometheus (AMP) Configuration
+
+To connect HolmesGPT to AWS Managed Prometheus:
+
+```yaml
+holmes:
+  toolsets:
+    prometheus/metrics:
+      enabled: true
+      config:
+        prometheus_url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
+        aws_region: us-east-1
+        aws_service_name: aps  # Default value, can be omitted
+        # Optional: Specify credentials (otherwise uses default AWS credential chain)
+        aws_access_key: "{{ env.AWS_ACCESS_KEY_ID }}"
+        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+        # Optional: Assume a role for cross-account access
+        assume_role_arn: "arn:aws:iam::123456789012:role/PrometheusReadRole"
+        refresh_interval_seconds: 900  # Refresh AWS credentials every 15 minutes (default)
+```
+
+**Notes:**
+- The toolset automatically detects AWS configuration when `aws_region` is present
+- Uses SigV4 authentication for all requests
+- Supports IAM roles and cross-account access via `assume_role_arn`
+- Credentials refresh automatically based on `refresh_interval_seconds`
 
 ---
 
@@ -173,8 +222,6 @@ To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
          enabled: true
          config:
            prometheus_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
-           fetch_labels_with_labels_api: false  # Important for Mimir
-           fetch_metadata_with_series_api: true  # Important for Mimir
            headers:
              Authorization: Bearer YOUR_GLSA_TOKEN
    ```
@@ -182,5 +229,4 @@ To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
 **Important notes:**
 
 - Use the proxy endpoint URL format `/api/datasources/proxy/uid/` - this handles authentication and routing to Mimir automatically
-- Set `fetch_labels_with_labels_api: false` for optimal Mimir compatibility
-- Set `fetch_metadata_with_series_api: true` for proper metadata retrieval
+- The toolset automatically detects and uses the most appropriate APIs for discovery

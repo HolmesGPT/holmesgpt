@@ -26,9 +26,9 @@ kind: ClusterRole
 metadata:
   name: restricted-holmes-role-28
 rules:
-# Allow access to most resources but explicitly deny secrets
+# Allow access to most resources but explicitly deny clusterroles
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "events", "namespaces", "nodes", "persistentvolumes", "persistentvolumeclaims"]
+  resources: ["pods", "services", "configmaps", "events", "namespaces", "nodes", "persistentvolumes", "persistentvolumeclaims", "secrets"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
@@ -40,9 +40,9 @@ rules:
   resources: ["ingresses", "networkpolicies"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["rbac.authorization.k8s.io"]
-  resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+  resources: ["roles", "rolebindings", "clusterrolebindings"]
   verbs: ["get", "list", "watch"]
-# Note: No secrets access granted at all
+# Note: No clusterroles access granted at all
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -106,5 +106,14 @@ EOF
 # No output to prevent sensitive information leakage
 # The kubeconfig path is stored in .restricted-kubeconfig-temp-dir for the test framework
 
-# Create a test secret in the 28-test namespace to verify access is denied
-kubectl create secret generic test-secret -n 28-test --from-literal=key=value --dry-run=client -o yaml | kubectl apply -f -
+# Create a test clusterrole to verify access is denied
+kubectl apply -f - <<TESTEOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: test-clusterrole-28
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+TESTEOF

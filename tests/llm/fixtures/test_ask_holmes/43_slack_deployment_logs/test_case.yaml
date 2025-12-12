@@ -9,5 +9,7 @@ tags:
   - medium
   - kubernetes
   - logs
+skip: true
+skip_reason: "very resource-intensive (cpu and memory requests) to setup - needs some work"
 
 test_type: server

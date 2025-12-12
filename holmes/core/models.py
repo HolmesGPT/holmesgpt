@@ -1,8 +1,94 @@
+import json
 from holmes.core.investigation_structured_output import InputSectionsDataType
-from holmes.core.tool_calling_llm import ToolCallResult
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, model_validator, Field
 from enum import Enum
+
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
+
+
+class TruncationMetadata(BaseModel):
+    tool_call_id: str
+    start_index: int
+    end_index: int
+    tool_name: str
+    original_token_count: int
+
+
+class TruncationResult(BaseModel):
+    truncated_messages: list[dict]
+    truncations: list[TruncationMetadata]
+
+
+class ToolCallResult(BaseModel):
+    tool_call_id: str
+    tool_name: str
+    description: str
+    result: StructuredToolResult
+    size: Optional[int] = None
+
+    def as_tool_call_message(self):
+        return {
+            "tool_call_id": self.tool_call_id,
+            "role": "tool",
+            "name": self.tool_name,
+            "content": format_tool_result_data(
+                tool_result=self.result,
+                tool_call_id=self.tool_call_id,
+                tool_name=self.tool_name,
+            ),
+        }
+
+    def as_tool_result_response(self):
+        result_dump = self.result.model_dump()
+        result_dump["data"] = self.result.get_stringified_data()
+
+        return {
+            "tool_call_id": self.tool_call_id,
+            "tool_name": self.tool_name,
+            "description": self.description,
+            "role": "tool",
+            "result": result_dump,
+        }
+
+    def as_streaming_tool_result_response(self):
+        result_dump = self.result.model_dump()
+        result_dump["data"] = self.result.get_stringified_data()
+
+        return {
+            "tool_call_id": self.tool_call_id,
+            "role": "tool",
+            "description": self.description,
+            "name": self.tool_name,
+            "result": result_dump,
+        }
+
+
+def format_tool_result_data(
+    tool_result: StructuredToolResult, tool_call_id: str, tool_name: str
+) -> str:
+    tool_call_metadata = {"tool_name": tool_name, "tool_call_id": tool_call_id}
+    tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
+
+    if tool_result.status == StructuredToolResultStatus.ERROR:
+        tool_response += f"{tool_result.error or 'Tool execution failed'}:\n\n{tool_result.data or ''}".strip()
+    elif isinstance(tool_result.data, str):
+        tool_response += tool_result.data
+    else:
+        try:
+            if isinstance(tool_result.data, BaseModel):
+                tool_response += tool_result.data.model_dump_json(indent=2)
+            else:
+                tool_response += json.dumps(tool_result.data, indent=2)
+        except Exception:
+            tool_response += str(tool_result.data)
+
+    if tool_result.params:
+        tool_response = (
+            f"Params used for the tool call: {json.dumps(tool_result.params)}. The tool call output follows on the next line.\n"
+            + tool_response
+        )
+    return tool_response
 
 
 class InvestigationResult(BaseModel):
@@ -10,6 +96,7 @@ class InvestigationResult(BaseModel):
     sections: Optional[Dict[str, Union[str, None]]] = None
     tool_calls: List[ToolCallResult] = []
     instructions: List[str] = []
+    metadata: Optional[Dict[Any, Any]] = None
 
 
 class InvestigateRequest(BaseModel):
@@ -86,10 +173,31 @@ class ConversationRequest(BaseModel):
     include_tool_call_results: bool = False
 
 
+class PendingToolApproval(BaseModel):
+    """Represents a tool call that requires user approval."""
+
+    tool_call_id: str
+    tool_name: str
+    description: str
+    params: Dict[str, Any]
+
+
+class ToolApprovalDecision(BaseModel):
+    """Represents a user's decision on a tool approval."""
+
+    tool_call_id: str
+    approved: bool
+
+
 class ChatRequestBaseModel(BaseModel):
     conversation_history: Optional[list[dict]] = None
     model: Optional[str] = None
     stream: bool = Field(default=False)
+    enable_tool_approval: Optional[bool] = (
+        False  # Optional boolean for backwards compatibility
+    )
+    tool_decisions: Optional[List[ToolApprovalDecision]] = None
+    additional_system_prompt: Optional[str] = None
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],
@@ -145,6 +253,8 @@ class ChatResponse(BaseModel):
     conversation_history: list[dict]
     tool_calls: Optional[List[ToolCallResult]] = []
     follow_up_actions: Optional[List[FollowUpAction]] = []
+    pending_approvals: Optional[List[PendingToolApproval]] = None
+    metadata: Optional[Dict[Any, Any]] = None
 
 
 class WorkloadHealthInvestigationResult(BaseModel):

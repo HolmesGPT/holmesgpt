@@ -12,15 +12,11 @@ holmes = "holmes.main:run"
 [tool.poetry.dependencies]
 python = "^3.10"
 openai = ">=1.6.1,<1.100.0"
-slack-bolt = "^1.18.1"
-pydantic-settings = "^2.1.0"
-pyyaml = "^6.0.1"
 jinja2 = "^3.1.2"
 typer = "^0.15.4"
 python-benedict = "^0.33.1"
 humanize = "^4.9.0"
 rich = "^13.7.1"
-pydash = "^8.0.1"
 fastapi = "^0.116"
 uvicorn = "^0.30"
 pydantic = "^2.7"
@@ -29,26 +25,19 @@ colorlog = "^6.8.2"
 strenum = "^0.4.15"
 markdown = "^3.6"
 certifi = "^2024.7.4"
-urllib3 = "^1.26.19"
 boto3 = "^1.34.145"
-setuptools = "^80.9.0"
-aiohttp = "^3.10.2"
 cachetools = "^5.5.0"
 bs4 = "^0.0.2"
 markdownify = "^1.1.0"
-starlette = "0.47.2"
-google-api-python-client = "^2.156.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
-litellm = "^1.75.4"
+litellm = "1.77.1"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
-python_multipart = "^0.0.18"
 kubernetes = "^32.0.1"
 mcp = "v1.12.2"
 prompt-toolkit = "^3.0.51"
 pygments = "^2.18.0"
-pytest-shared-session-scope = "^0.4.0"
 azure-identity = "^1.23.0"
 azure-core = "^1.34.0"
 requests = "^2.32.4"
@@ -58,17 +47,24 @@ azure-monitor-query = "^1.2.0"
 azure-mgmt-monitor = "^7.0.0b1"
 azure-mgmt-alertsmanagement = "^1.0.0"
 azure-mgmt-resource = "^23.3.0"
-protobuf = ">=6.31.1"
 tenacity = "^9.1.2"
 # Due to a bug in the postgrest package, we need to pin the version to 0.16.8 until we will upgrade selfhost supabase versions.
 postgrest = "0.16.8"
 requests-aws4auth = "^1.3.1"
+prometrix = "0.2.5"
+httpx = {version = "<0.28", extras = ["socks"]}
+ag-ui-protocol = "^0.1.9"
+google-cloud-aiplatform = ">=1.38"
+
+[tool.poetry.group.dev]
+optional = true
 
 [tool.poetry.group.dev.dependencies]
 mkdocs-material = "^9.5.39"
 mkdocs-glightbox = "^0.4.0"
 pytest = "^8.3.3"
 pytest-xdist = "^3.6.1"
+pytest-json-report = "^1.5.0"
 ruff = "^0.7.3"
 braintrust = "^0.1.2"
 autoevals = "^0.0.129"
@@ -80,6 +76,9 @@ mypy = "^1.16.0"
 pytest-cov = "^6.2.1"
 types-python-dateutil = "^2.9.0.20250708"
 pytest-dotenv = "^0.5.2"
+pytest-sugar = "^1.1.1"
+pytest-shared-session-scope = "^0.4.0"
+mkdocs-awesome-nav = "^3.2.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -90,6 +89,9 @@ ignore_missing_imports = true
 scripts_are_modules = true
 exclude = [
     "tests/llm/fixtures/.*",
+    "dist/.*",
+    "site/.*",
+    "experimental/.*",
 ]
 
 [tool.pytest.ini_options]
@@ -97,15 +99,13 @@ markers = [
     "llm: Evaluate LLM behaviour (prompt, tools, etc.)",
     "datetime: Tests involving datetime functionality",
     "logs: Tests involving log processing",
+    "metrics: Tests involving metrics processing",
     "context_window: Tests involving context window handling",
-    "synthetic: Tests using synthetic data",
     "network: Tests requiring network connectivity",
     "runbooks: Tests involving runbook functionality",
-    "misleading-history: Tests with misleading historical data",
     "chain-of-causation: Tests involving chain-of-causation analysis",
     "slackbot: Tests involving Slack bot functionality",
     "numerical: Tests involving numerical calculations or data",
-    "understanding-real-intent: Tests that require understanding the user's real intent behind a question, not just giving a technically correct answer that is not useful",
     "counting: Ask holmes to count kubernetes/cloud resources",
     "kubernetes: Tests for Kubernetes-specific troubleshooting scenarios",
     "easy: Tests that are supposed to pass - if these fail, it indicates a regression. Only add evals here if they pass at least 20/20 runs.",
@@ -116,11 +116,19 @@ markers = [
     "leaked-information: cases where the eval is accidentally leaking information that should not be available to the LLM - e.g. if the names of environment variables or the docker image gives away part of the test",
     "port-forward: Tests requiring port forwarding to local services (automatically added to tests with port_forwards in test_case.yaml)",
     "toolset-limitation: Tests that cannot be solved no matter how smart the model, unless we improve the underlying toolsets themselves",
-    "ask-for-clarification: Tests where Holmes should ask the user for clarification",
     "database: Tests involving database interactions",
     "traces: Tests where the ai is expected to find the solution using the traces",
-    "answer-given-wrong-place: LLM gave the answer in intermediate steps, not final answer, so its harder for the user to see the answer",
-    "datadog: DataDog toolset"
+    "datadog: DataDog toolset",
+    "storage: Disk related, like I/O or disk space",
+    "question-answer: Simple question-answer tests where Holmes answers straightforward questions about the system",
+    "prometheus: Tests involving Prometheus metrics",
+    "newrelic: New Relic toolset",
+    "no-cicd: Tests to skip in the GitHub action because we're missing prerequisites in the KIND cluster like a Prometheus instance",
+    "compaction: Tests for conversation history compaction functionality",
+    "embeds: Tests ensuring embeds are as expected",
+    "one-test: Runs only one simple eval",
+    "loki: Loki toolset",
+    "coralogix: Runs coralogix evals"
 ]
 
 addopts = [
@@ -150,4 +158,4 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 38
+fail_under = 46

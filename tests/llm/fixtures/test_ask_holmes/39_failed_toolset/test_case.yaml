@@ -5,3 +5,4 @@ expected_output:
 tags:
   - easy
   - transparency
+allow_toolset_failures: true

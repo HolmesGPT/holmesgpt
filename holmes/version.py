@@ -57,11 +57,41 @@ def get_version() -> str:
         return __version__
 
     # we are running from an unreleased dev version
+    archival_file_path = os.path.join(this_path, ".git_archival.json")
+    if os.path.exists(archival_file_path):
+        try:
+            with open(archival_file_path, "r") as f:
+                archival_data = json.load(f)
+                refs = archival_data.get("refs", "")
+                hash_short = archival_data.get("hash-short", "")
+
+                # Check if Git substitution didn't happen (placeholders are still present)
+                if "$Format:" in refs or "$Format:" in hash_short:
+                    # Placeholders not substituted, skip to next method
+                    pass
+                else:
+                    # Valid archival data found
+                    return f"dev-{refs}-{hash_short}"
+        except Exception:
+            pass
+
+    # Now try git commands for development environments
     try:
+        env = os.environ.copy()
+        # Set ceiling to prevent walking up beyond the project root
+        # We want to allow access to holmes/.git but not beyond holmes
+        project_root = os.path.dirname(this_path)  # holmes
+        env["GIT_CEILING_DIRECTORIES"] = os.path.dirname(
+            project_root
+        )  # holmes's parent
+
         # Get the latest git tag
         tag = (
             subprocess.check_output(
-                ["git", "describe", "--tags"], stderr=subprocess.STDOUT, cwd=this_path
+                ["git", "describe", "--tags"],
+                stderr=subprocess.STDOUT,
+                cwd=this_path,
+                env=env,
             )
             .decode()
             .strip()
@@ -73,6 +103,7 @@ def get_version() -> str:
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 stderr=subprocess.STDOUT,
                 cwd=this_path,
+                env=env,
             )
             .decode()
             .strip()
@@ -84,6 +115,7 @@ def get_version() -> str:
                 ["git", "status", "--porcelain"],
                 stderr=subprocess.STDOUT,
                 cwd=this_path,
+                env=env,
             )
             .decode()
             .strip()
@@ -95,19 +127,7 @@ def get_version() -> str:
     except Exception:
         pass
 
-    # we are running without git history, but we still might have git archival data (e.g. if we were pip installed)
-    archival_file_path = os.path.join(this_path, ".git_archival.json")
-    if os.path.exists(archival_file_path):
-        try:
-            with open(archival_file_path, "r") as f:
-                archival_data = json.load(f)
-                return f"dev-{archival_data['refs']}-{archival_data['hash-short']}"
-        except Exception:
-            pass
-
-        return "dev-version"
-
-    return "unknown-version"
+    return "dev-unknown"
 
 
 @cache

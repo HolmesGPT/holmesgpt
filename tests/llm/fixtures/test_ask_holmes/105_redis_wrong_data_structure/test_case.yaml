@@ -1,26 +1,34 @@
-user_prompt: "The session-service in namespace-105 is experiencing timeouts when looking up user sessions. What's the issue?"
+user_prompt: |
+  The session-service in namespace-105 is experiencing timeouts when looking up user sessions.
+  What's the issue? Ignore resource constraints and high CPU - the db can't be allocated more resources,
+  we need to look at how we optimize it within those constraints"
+
+skip: true
+skip_reason: still a WIP
+
 expected_output:
   - Redis performance issue due to using KEYS command for pattern matching
-  - KEYS command scans all 50k keys causing O(N) complexity
+  - KEYS command scans all 100 keys causing O(N) complexity
   - Should use Redis Sets or Hashes for efficient session lookups
   - SCAN command or proper data structures would prevent the timeouts
 tags:
   - hard
   - database
+setup_timeout: 420
 description: |
   This eval demonstrates a common Redis anti-pattern - using KEYS command in production.
 
   Setup:
-  - Redis instance with 50k session keys (session:user:*)
+  - Redis instance with 100 session keys (session:user:*)
   - Session service using KEYS session:user:* to find sessions
-  - Each KEYS command scans all 50k keys causing slowness
+  - Each KEYS command scans all 100 keys causing slowness
   - Redis SLOWLOG captures these slow operations
 
   Expected troubleshooting steps:
   1. Check Redis slowlog: kubectl exec redis-pod -- redis-cli SLOWLOG GET 10
   2. See KEYS commands taking 50-200 microseconds (slow for Redis)
   3. Check Redis INFO: kubectl exec redis-pod -- redis-cli INFO KEYSPACE
-  4. See total of 50k keys in database
+  4. See total of 100 keys in database
   5. Monitor commands: kubectl exec redis-pod -- redis-cli MONITOR (briefly)
   6. Observe KEYS pattern matching commands
   7. Identify that KEYS command is O(N) and blocks Redis
@@ -31,6 +39,28 @@ before_test: |
   kubectl create namespace namespace-105
   kubectl apply -f ./manifest.yaml -n namespace-105
   kubectl wait --for=condition=ready pod -l app=redis -n namespace-105 --timeout=60s
+  echo "Waiting for session-init job to complete..."
+  # Retry loop to handle longer initialization times
+  JOB_COMPLETE=false
+  for i in {1..12}; do
+    if kubectl wait --for=condition=complete job/session-init -n namespace-105 --timeout=30s 2>/dev/null; then
+      echo "✅ Session init job completed!"
+      JOB_COMPLETE=true
+      break
+    else
+      echo "⏳ Attempt $i/12: Job not complete yet, checking status..."
+      kubectl get job session-init -n namespace-105
+      sleep 5
+    fi
+  done
+
+  if [ "$JOB_COMPLETE" = false ]; then
+    echo "❌ Session init job failed to complete after 360 seconds"
+    kubectl describe job session-init -n namespace-105
+    kubectl logs -l job-name=session-init -n namespace-105
+    exit 1
+  fi
+
   kubectl wait --for=condition=ready pod -l app=session-service -n namespace-105 --timeout=60s
   sleep 20  # Let slow operations accumulate in slowlog
 after_test: |

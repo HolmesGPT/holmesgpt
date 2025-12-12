@@ -1,5 +1,5 @@
-{"toolset_name":"internet","tool_name":"fetch_webpage","match_params":{"url":"https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/argocd.html"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"url": "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/argocd.html"}}
+{"toolset_name":"internet","tool_name":"fetch_webpage","match_params":{"url":"https://holmesgpt.dev/data-sources/builtin-toolsets/argocd"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"url": "https://holmesgpt.dev/data-sources/builtin-toolsets/argocd"}}
 
 
 Argocd \- Robusta documentation
@@ -16,7 +16,7 @@ Configuration[Â¶](#configuration)
 ---------------------------------
 
 This toolset requires an `ARGOCD_AUTH_TOKEN` environment variable. Generate such auth token by following
-[these steps](https://argo-cd.readthedocs.io/en/latest/user-guide/commands/argocd_account_generate-token/).
+[these steps](https://argo-cd.readthedocs.io/en/stable/user-guide/commands/argocd_account_generate-token/).
 You can consult the [available environment variables](https://argo-cd.readthedocs.io/en/latest/user-guide/environment-variables/)
 on argocd's official documentation for the CLI.
 

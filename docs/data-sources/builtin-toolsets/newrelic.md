@@ -2,8 +2,6 @@
 
 By enabling this toolset, HolmesGPT will be able to pull traces and logs from New Relic for investigations.
 
---8<-- "snippets/toolsets_that_provide_logging.md"
-
 ## Prerequisites
 
 1. A New Relic API Key with necessary permissions to access traces and logs
@@ -24,9 +22,7 @@ You can find these in your New Relic account under Administration > API keys and
         config:
           nr_api_key: "<your New Relic API key>"
           nr_account_id: "<your New Relic account ID>"
-
-      kubernetes/logs:
-        enabled: false  # Disable default Kubernetes logging if using New Relic for logs
+          is_eu_datacenter: false  # Set to true if using New Relic EU region
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -41,15 +37,22 @@ You can find these in your New Relic account under Administration > API keys and
           config:
             nr_api_key: "<your New Relic API key>"
             nr_account_id: "<your New Relic account ID>"
-
-        kubernetes/logs:
-          enabled: false  # Disable default Kubernetes logging if using New Relic for logs
+            is_eu_datacenter: false  # Set to true if using New Relic EU region
     ```
 
---8<-- "snippets/toolset_capabilities_intro.md"
+## Capabilities
 
---8<-- "snippets/capabilities_table_header.md"
-| `newrelic_get_logs` | Retrieve logs from New Relic for a specific application and time range |
-| `newrelic_get_traces` | Retrieve traces from New Relic based on duration threshold or specific trace ID |
+| Tool Name | Description |
+|-----------|-------------|
+| newrelic_execute_nrql_query | Execute NRQL queries for Traces, APM, Spans, Logs and more |
 
-For more information, see the [New Relic API documentation](https://docs.newrelic.com/docs/apis/nerdgraph-api/).
+## How it Works
+
+You don't need to know NRQL to use this toolset. Holmes will automatically construct and execute NRQL queries based on your investigation needs.
+
+For example, when investigating application logs, Holmes might execute a query like:
+```sql
+SELECT message, timestamp FROM Log WHERE pod_name = 'your-app' SINCE 1 hour ago
+```
+
+To learn more about NRQL syntax, see the [New Relic Query Language documentation](https://docs.newrelic.com/docs/nrql/get-started/introduction-nrql-new-relics-query-language/).

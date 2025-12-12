@@ -1,0 +1,30 @@
+tags:
+  - compaction
+  - easy
+
+expected_output: |
+  The conversation captures an investigation into high CPU usage on the api-gateway service.
+
+  **What was checked and found normal:**
+  - Pod status: All 3 pods running healthy with no restarts
+  - Memory usage: Normal at 45-52% of limits (892MB-1.1GB out of 2GB)
+  - Network connectivity: All pods responding normally, no connection issues
+  - Logs: No errors, warnings, or exceptions in application logs
+  - Database connections: Connection pool healthy with normal query times (50-80ms)
+  - External API dependencies: All returning 200 OK with normal response times
+  - Recent deployments: No configuration changes in the past 48 hours
+
+  **Actual issue found:**
+  - CPU usage: Consistently at 85-92% across all pods (850-920m out of 1000m limit)
+  - Root cause: CPU-intensive regex operations in request validation middleware
+  - Evidence: Profiling data showed validateEmailPattern() consuming 76% of CPU time
+  - Specific regex: Complex email validation pattern with nested lookaheads executing on every request
+  - Impact: High CPU causing slow response times (500ms vs normal 50ms)
+
+  The investigation systematically ruled out common issues before identifying the CPU-specific problem.
+
+description: |
+  Test compaction with a scenario that includes many negative findings (things checked but found normal).
+  This tests the ability to preserve context about what was ruled out, which helps users avoid
+  repeating the same investigation steps. The actual issue is CPU-related, but most other
+  components were checked and found healthy.

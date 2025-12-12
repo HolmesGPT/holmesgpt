@@ -10,7 +10,7 @@ from holmes.common.env_vars import KUBERNETES_LOGS_TIMEOUT_SECONDS
 from holmes.core.tools import (
     StaticPrerequisite,
     StructuredToolResult,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
@@ -63,7 +63,7 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
         super().__init__(
             name="kubernetes/logs",
             description="Read Kubernetes pod logs using a unified API",
-            docs_url="https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kubernetes.html#logs",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/",
             icon_url="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s",
             prerequisites=[prerequisite],
             is_default=True,
@@ -140,7 +140,7 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
             # Ensure both results are not None (they should always be set by the loop)
             if current_logs_result is None or previous_logs_result is None:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="Internal error: Failed to fetch logs",
                     params=params.model_dump(),
                 )
@@ -162,7 +162,7 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
             ):
                 # Both commands failed - return error from current logs
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error=current_logs_result.error,
                     params=params.model_dump(),
                     return_code=return_code,
@@ -206,7 +206,7 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
             if len(filtered_logs) == 0:
                 # Return NO_DATA status when there are no logs
                 return StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     data="\n".join(
                         metadata_lines
                     ),  # Still include metadata for context
@@ -218,7 +218,7 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
             response_data = formatted_logs + "\n" + "\n".join(metadata_lines)
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=response_data,
                 params=params.model_dump(),
                 return_code=return_code,
@@ -226,7 +226,7 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
         except Exception as e:
             logging.exception(f"Error fetching logs for pod {params.pod_name}")
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Error fetching logs: {str(e)}",
                 params=params.model_dump(),
             )

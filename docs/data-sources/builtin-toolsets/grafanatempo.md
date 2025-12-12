@@ -93,12 +93,6 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
             api_key: <your grafana API key>
             url: <your grafana url> # e.g. https://acme-corp.grafana.net
             grafana_datasource_uid: <the UID of the tempo data source in Grafana>
-            labels:
-              pod: "k8s.pod.name"
-              namespace: "k8s.namespace.name"
-              deployment: "k8s.deployment.name"
-              node: "k8s.node.name"
-              service: "service.name"
     ```
 
 ## Direct Connection
@@ -136,51 +130,39 @@ The toolset can directly connect to a Tempo instance without proxying through a 
               X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
     ```
 
-## Advanced Configuration
+## Example Usage
 
-### Search Labels
+### Finding Slow Traces
 
-You can tweak the labels used by the toolset to identify Kubernetes resources. This is only needed if the trace labels differ from the defaults.
+```bash
+homles ask "Find traces where the payment service is taking longer than 1 second"
+```
 
-=== "Holmes CLI"
+Holmes will use TraceQL to search for slow operations:
+```
+{resource.service.name="payment" && duration > 1s}
+```
 
-    Add the following to **~/.holmes/config.yaml**:
+### Analyzing Errors
 
-    ```yaml
-    toolsets:
-      grafana/tempo:
-        enabled: true
-        config:
-          url: ...
-          labels:
-            pod: "k8s.pod.name"
-            namespace: "k8s.namespace.name"
-            deployment: "k8s.deployment.name"
-            node: "k8s.node.name"
-            service: "service.name"
-    ```
+```bash
+homles ask "Show me traces with HTTP 500 errors in the frontend service"
+```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/tempo:
-          enabled: true
-          config:
-            url: ...
-            labels:
-              pod: "k8s.pod.name"
-              namespace: "k8s.namespace.name"
-              deployment: "k8s.deployment.name"
-              node: "k8s.node.name"
-              service: "service.name"
-    ```
+Holmes will search using:
+```
+{resource.service.name="frontend" && span.http.status_code = 500}
+```
 
 ## Capabilities
 
 | Tool Name | Description |
 |-----------|-------------|
-| fetch_tempo_tags | List the tags available in Tempo |
-| fetch_tempo_traces | Lists Tempo traces. At least one of `service_name`, `pod_name`, or `deployment_name` argument is required. |
-| fetch_tempo_trace_by_id | Retrieves detailed information about a Tempo trace using its trace ID. Use this to investigate a trace. |
+| tempo_fetch_traces_comparative_sample | Fetches statistics and samples of fast/slow/typical traces for performance analysis |
+| tempo_search_traces_by_query | Search traces using TraceQL query language (recommended) |
+| tempo_search_traces_by_tags | Search traces using logfmt-encoded tags (legacy) |
+| tempo_query_trace_by_id | Retrieve detailed trace information by trace ID |
+| tempo_search_tag_names | Discover available tag names across traces |
+| tempo_search_tag_values | Get all values for a specific tag |
+| tempo_query_metrics_instant | Compute a single TraceQL metric value across time range |
+| tempo_query_metrics_range | Get time series data from TraceQL metrics queries |

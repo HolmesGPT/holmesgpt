@@ -6,6 +6,13 @@ from typing import Any, Optional
 from pydantic import SecretStr
 
 
+def environ_get_safe_int(env_var: str, default: str = "0") -> int:
+    try:
+        return max(int(os.environ.get(env_var, default)), 0)
+    except ValueError:
+        return int(default)
+
+
 def get_env_replacement(value: str) -> Optional[str]:
     env_patterns = re.findall(r"{{\s*env\.([^}]*)\s*}}", value)
 

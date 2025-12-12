@@ -7,7 +7,8 @@ expected_output:
 tags:
   - kubernetes
   - medium
-  - answer-given-wrong-place # LLM gave the answer in intermediate steps, not final answer, so harder for user to see
+  - question-answer
+setup_timeout: 360
 before_test: |
   kubectl create namespace app-03
   cat <<EOF | kubectl apply -f -
@@ -22,12 +23,24 @@ before_test: |
     containers:
     - name: grafana
       image: busybox:1.35
-      command: ['sh', '-c', 'while true; do nc -l -p 3000; done']
+      command: ['sh', '-c', 'while true; do echo "HTTP/1.1 200 OK\n\nOK" | nc -l -p 3000; done']
       ports:
       - containerPort: 3000
         name: http
+      resources:
+        requests:
+          memory: "16Mi"
+          cpu: "5m"
+        limits:
+          memory: "32Mi"
+          cpu: "10m"
+      readinessProbe:
+        tcpSocket:
+          port: 3000
+        initialDelaySeconds: 2
+        periodSeconds: 5
   EOF
-  kubectl wait --for=condition=Ready pod/grafana-7f8b9c6d5-x2m4n -n app-03 --timeout=60s
+  kubectl wait --for=condition=Ready pod/grafana-7f8b9c6d5-x2m4n -n app-03 --timeout=300s
 
 after_test: |
   kubectl delete namespace app-03

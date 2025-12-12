@@ -1,10 +1,8 @@
 user_prompt: "figure out why workload payment-processor in production-65 namespace is unhealthy?"
-expected_output:
-  Something along the lines of one of these (any is fine - point is to ask user for more info)
-  - "No, I can't find anything. Can you share more details?"
-  - "Everything appears to be running normally"
-  - "What specific symptoms are you seeing?"
+expected_output: |
+  Says it does in fact seem healthy (may optionally mention minor issues or best practices or ask user for more information)
 before_test: 'kubectl apply -f ./manifest.yaml'
 after_test: 'kubectl delete -f ./manifest.yaml'
 tags:
-  - understanding-real-intent
+  - medium
+  - transparency

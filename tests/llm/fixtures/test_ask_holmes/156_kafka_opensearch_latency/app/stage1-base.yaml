@@ -43,10 +43,11 @@ spec:
           value: "yes"
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "50m"
+            memory: "64Mi"
+            cpu: "10m"
           limits:
-            memory: "512Mi"
+            memory: "128Mi"
+            cpu: "100m"
 ---
 # OpenSearch Service
 apiVersion: v1
@@ -90,10 +91,10 @@ spec:
           value: "1s"  # Index refresh interval
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
+            memory: "64Mi"
+            cpu: "10m"
           limits:
-            memory: "512Mi"
+            memory: "128Mi"
             cpu: "200m"
         startupProbe:
           httpGet:

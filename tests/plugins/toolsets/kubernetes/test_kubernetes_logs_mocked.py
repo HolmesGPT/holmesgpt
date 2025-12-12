@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-from holmes.core.tools import ToolResultStatus
+from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
 
@@ -106,7 +106,7 @@ class TestKubernetesLogsToolset(unittest.TestCase):
 
         result = self.toolset.fetch_pod_logs(params=params)
 
-        self.assertEqual(result.status, ToolResultStatus.SUCCESS)
+        self.assertEqual(result.status, StructuredToolResultStatus.SUCCESS)
         self.assertEqual(result.return_code, 0)
         self.assertIsNone(result.error)
         assert result.data
@@ -137,7 +137,7 @@ class TestKubernetesLogsToolset(unittest.TestCase):
 
         result = self.toolset.fetch_pod_logs(params=params)
 
-        self.assertEqual(result.status, ToolResultStatus.SUCCESS)
+        self.assertEqual(result.status, StructuredToolResultStatus.SUCCESS)
         self.assertEqual(result.return_code, 0)
         self.assertIsNone(result.error)
 
@@ -177,7 +177,7 @@ class TestKubernetesLogsToolset(unittest.TestCase):
 
         # With kubectl, we get an ERROR status when pod is not found
         self.assertEqual(result.return_code, 1)
-        self.assertEqual(result.status, ToolResultStatus.ERROR)
+        self.assertEqual(result.status, StructuredToolResultStatus.ERROR)
         self.assertIn("not found", result.error)
 
     def test_filter_logs(self):
@@ -192,7 +192,7 @@ class TestKubernetesLogsToolset(unittest.TestCase):
 
         result = self.toolset.fetch_pod_logs(params=params)
 
-        self.assertEqual(result.status, ToolResultStatus.SUCCESS)
+        self.assertEqual(result.status, StructuredToolResultStatus.SUCCESS)
         self.assertEqual(result.return_code, 0)
         self.assertIsNone(result.error)
 
@@ -216,7 +216,7 @@ class TestKubernetesLogsToolset(unittest.TestCase):
 
         result = self.toolset.fetch_pod_logs(params=params)
 
-        self.assertEqual(result.status, ToolResultStatus.SUCCESS)
+        self.assertEqual(result.status, StructuredToolResultStatus.SUCCESS)
         self.assertEqual(result.return_code, 0)
         self.assertIsNone(result.error)
 

@@ -2,7 +2,7 @@ import pytest
 from dateutil import parser  # type: ignore
 from holmes.core.tools import (
     StructuredToolResult,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     Toolset,
     ToolsetStatusEnum,
 )
@@ -152,8 +152,10 @@ class DummyNonLoggingToolset(Toolset):
             name="non_logging_toolset", description="Dummy toolset", tools=[]
         )
 
-    def _invoke(self, params: dict) -> StructuredToolResult:
-        return StructuredToolResult(status=ToolResultStatus.SUCCESS)
+    def _invoke(
+        self, params: dict, user_approved: bool = False
+    ) -> StructuredToolResult:
+        return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
 
     def get_parameterized_one_liner(self, params: dict) -> str:
         """Generate a one-line description of this tool invocation"""
@@ -176,7 +178,7 @@ class DummyLoggingToolset(BasePodLoggingToolset):
         return set()  # No advanced capabilities for dummy toolset
 
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
-        return StructuredToolResult(status=ToolResultStatus.SUCCESS)
+        return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
 
     def get_example_config(self):
         return {}

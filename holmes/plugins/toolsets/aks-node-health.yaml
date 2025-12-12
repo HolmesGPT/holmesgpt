@@ -7,17 +7,49 @@ toolsets:
       - command: "az account show"
       - command: "az aks --help"
       - command: "kubectl version --client"
+
+    # Note: Tools in this toolset use transformers with llm_summarize
+    # to automatically summarize large outputs from Azure CLI and kubectl commands
+    # when a fast model is configured, focusing on health issues and troubleshooting.
     tools:
       - name: "check_node_status"
         description: "Checks the status of all nodes in the AKS cluster."
         user_description: "get the status of all nodes in the AKS cluster"
         command: |
           kubectl get nodes
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 800
+              prompt: |
+                Summarize this node status output focusing on:
+                - Any nodes that are NotReady or in error states
+                - Node health patterns and issues requiring attention
+                - Group healthy nodes together with aggregate counts
+                - Highlight nodes with concerning conditions or ages
+                - When possible, mention exact node names for follow-up investigation
+                - Be concise: aim for ≤ 50% of the original length; avoid repeating defaults/healthy/unchanged details
+                - Prefer aggregates and counts; list only outliers and actionable items
+                - Keep grep-friendly: include exact field names/values that matter
       - name: "describe_node"
         description: "Describes a specific node in the AKS cluster to inspect its conditions."
         user_description: "describe node {{ NODE_NAME }} in the AKS cluster"
         command: |
           kubectl describe node {{ NODE_NAME }}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1200
+              prompt: |
+                Summarize this node description focusing on:
+                - Node conditions and health status (Ready, MemoryPressure, DiskPressure, etc.)
+                - Resource capacity vs allocatable vs current usage
+                - Any taints, labels, or annotations indicating issues
+                - Recent events that show problems or state changes
+                - System information relevant to troubleshooting
+                - When possible, highlight specific condition reasons for investigation
+                - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
+                - Prioritize aggregates and actionable outliers over comprehensive details
       - name: "get_node_events"
         description: "Fetches recent events for a specific node to surface warnings and errors."
         user_description: "get events for node {{ NODE_NAME }}"
@@ -33,6 +65,20 @@ toolsets:
         user_description: "review Azure Activity Log for resource group {{ RESOURCE_GROUP_NAME }}"
         command: |
           az monitor activity-log list --resource-group {{ RESOURCE_GROUP_NAME }}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1500
+              prompt: |
+                Summarize this Azure Activity Log focusing on:
+                - Recent administrative actions or configuration changes
+                - Any failed operations or errors that could impact node health
+                - Resource scaling, updates, or maintenance activities
+                - Network security group, load balancer, or VM-related changes
+                - Group similar activities and highlight time patterns
+                - When possible, mention specific operation names and correlation IDs
+                - Be concise and avoid expansion: target ≤ 50% of input size; prefer counts + outliers over full listings
+                - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
       - name: "check_top_resource_consuming_pods"
         description: "Checks for the top resource-consuming pods on a specific node."
         user_description: "get the top resource-consuming pods on node {{ NODE_NAME }}"
