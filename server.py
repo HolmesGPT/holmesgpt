@@ -415,6 +415,21 @@ def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
 
 
+@app.get("/healthz")
+def health_check():
+    return {"status": "healthy"}
+
+
+@app.get("/readyz")
+def readiness_check():
+    try:
+        models_list = config.get_models_list()
+        return {"status": "ready", "models": models_list}
+    except Exception as e:
+        logging.error(f"Readiness check failed: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+
 if __name__ == "__main__":
     log_config = uvicorn.config.LOGGING_CONFIG
     log_config["formatters"]["access"]["fmt"] = (
