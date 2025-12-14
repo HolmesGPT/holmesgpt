@@ -13,4 +13,4 @@ def is_service_running(host: str, port: int, timeout: float = 1.0) -> bool:
 def check_grafana_running():
     if is_service_running("localhost", 3000):
         return None
-    return "Grafana/loki is not running. Start it with: docker compose -f loki/docker-compose.yaml up -d"
+    return "Grafana is not running. Start it with: docker compose -f docker-compose.yaml up -d"
