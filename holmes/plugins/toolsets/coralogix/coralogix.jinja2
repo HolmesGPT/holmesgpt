@@ -1,0 +1,14 @@
+Coralogix DataPrime (tool: coralogix_execute_dataprime_query) queries logs/traces (sources: logs, spans).
+
+Rules:
+- Always set explicit time ranges: start_date/end_date
+- Include `limit` on every query (start with limit 100 and adjust accordingly)
+- Use `source logs | lucene 'text'` for log searches; prefer lucene over filter
+- Start broad, then narrow down
+- Never assume labels: start with plain text (e.g., `source logs | lucene 'app-173'`); only use label equality after seeing the exact field path in results
+- Traces: use `source spans`
+- Never query archive tier; only query frequent search data
+
+Example of a bad query: `source logs | filter $l.k8s.namespace_name == 'my_namespace'` (uses filter, unverified labels, no limit)
+
+To discover custom labels: run `source logs | limit 1` or `source spans | limit 1`

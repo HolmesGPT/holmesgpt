@@ -24,9 +24,19 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
     export AWS_REGION_NAME="us-east-1"  # Replace with your region
     export AWS_ACCESS_KEY_ID="your-access-key"
     export AWS_SECRET_ACCESS_KEY="your-secret-key"
-    export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}" # Optional, beta 1M context window support, for Claude Sonnet 4 model.
 
     holmes ask "what pods are failing?" --model="bedrock/<your-bedrock-model>"
+    ```
+
+    **For Claude Sonnet with 1M context window:**
+    ```bash
+    export AWS_REGION_NAME="us-east-1"
+    export AWS_ACCESS_KEY_ID="your-access-key"
+    export AWS_SECRET_ACCESS_KEY="your-secret-key"
+    export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
+    export OVERRIDE_MAX_CONTENT_SIZE="1000000"
+
+    holmes ask "what pods are failing?" --model="bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0"
     ```
 
 === "Holmes Helm Chart"
@@ -84,6 +94,8 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
           type: enabled
         extra_headers:
           anthropic-beta: context-1m-2025-08-07
+        custom_args:
+          max_context_size: 1000000
 
     # Optional: Set default model (use modelList key name)
     config:
@@ -146,11 +158,34 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
             type: enabled
           extra_headers:
             anthropic-beta: context-1m-2025-08-07
+          custom_args:
+            max_context_size: 1000000
 
       # Optional: Set default model (use modelList key name)
       config:
         model: "bedrock-claude-35-sonnet"  # This refers to the key name in modelList above
     ```
+
+### Using Claude Sonnet with 1M Context Window
+
+The `bedrock-claude-sonnet-4-1M-context` example above demonstrates how to enable the extended 1 million token context window for Claude Sonnet. This requires two configuration parameters:
+
+**1. Beta Feature Header:**
+```yaml
+extra_headers:
+  anthropic-beta: context-1m-2025-08-07
+```
+This enables Anthropic's beta 1M context window feature.
+
+**2. Context Size Override:**
+```yaml
+custom_args:
+  max_context_size: 1000000
+```
+This tells HolmesGPT the actual context window size (1M tokens) so it can properly manage conversation history.
+
+!!! warning "Both Parameters Required"
+    You must include **both** `extra_headers` and `custom_args` to use the 1M context window. The `extra_headers` enables the feature, while `custom_args.max_context_size` ensures HolmesGPT knows the correct window size.
 
 ### Finding Your AWS Credentials
 

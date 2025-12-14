@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment
+  template:
+    metadata:
+      labels:
+        app: payment
+    spec:
+      containers:
+      - name: payment
+        image: python:3.9-slim
+        command:
+        - sh
+        - -c
+        - |
+          pip install flask opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation --quiet
+          python /app/app.py
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: SERVICE_NAME
+          value: "payment-service"
+        - name: SERVICE_LABEL
+          value: "payment"
+        - name: CORALOGIX_LOGS_ENABLED
+          value: "true"
+        - name: CORALOGIX_TRACES_ENABLED
+          value: "true"
+        - name: CORALOGIX_METRICS_ENABLED
+          value: "false"
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: CORALOGIX_DOMAIN
+          value: "${CORALOGIX_DOMAIN}"
+        - name: CORALOGIX_API_KEY
+          value: "${CORALOGIX_API_KEY}"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: app
+        secret:
+          secretName: payment-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment
+spec:
+  selector:
+    app: payment
+  ports:
+  - port: 8080
+    targetPort: 8080

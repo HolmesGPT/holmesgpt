@@ -1,0 +1,38 @@
+# Secret is created in test_case.yaml setup from shared traffic_generator.py
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+    spec:
+      containers:
+      - name: traffic-generator
+        image: python:3.9-slim
+        command: 
+        - sh
+        - -c
+        - |
+          pip install requests -q
+          python /app/traffic_generator.py
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: TARGET_URL
+          value: "http://payment:8080/payment"
+        - name: SERVICE_LABEL
+          value: "payment"
+      volumes:
+      - name: app
+        secret:
+          secretName: coralogix-generator-app

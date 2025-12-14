@@ -1,0 +1,14 @@
+# Coralogix toolset configuration for test 173
+# Enables Coralogix logs toolset to query logs and traces
+
+toolsets:
+  coralogix:
+    enabled: true
+    config:
+      api_key: "{{env.CORALOGIX_API_KEY}}"
+      domain: "{{env.CORALOGIX_DOMAIN}}"
+      team_hostname: "{{env.CORALOGIX_TEAM_HOSTNAME}}"
+  kubernetes/logs:
+    enabled: false  # Disable default Kubernetes logging to use Coralogix
+  kubernetes/core:
+    enabled: true
