@@ -10,7 +10,7 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import json
-from typing import Any, List, Optional
+from typing import List, Optional
 from holmes.utils.global_instructions import generate_runbooks_args
 from holmes.core.prompt import generate_user_prompt
 import litellm
@@ -58,10 +58,16 @@ from holmes.core.models import (
 from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
+from holmes.utils.log import EndpointFilter
 # removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
+    # Filter out periodical healniss and readiness probe.
+    uvicorn_logger = logging.getLogger("uvicorn.access")
+    uvicorn_logger.addFilter(EndpointFilter(path="/healthz"))
+    uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
+
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
     logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
     logging_datefmt = "%Y-%m-%d %H:%M:%S"
@@ -428,21 +434,6 @@ def readiness_check():
     except Exception as e:
         logging.error(f"Readiness check failed: {e}", exc_info=True)
         raise HTTPException(status_code=503, detail="Service not ready")
-
-
-class EndpointFilter(logging.Filter):
-    def __init__(self, path: str, *args: Any, **kwargs: Any):
-        super().__init__(*args, **kwargs)
-        self._path = path
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        return record.getMessage().find(self._path) == -1
-
-
-# Filter out periodical healniss and readiness probe.
-uvicorn_logger = logging.getLogger("uvicorn.access")
-uvicorn_logger.addFilter(EndpointFilter(path="/healthz"))
-uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
 
 
 if __name__ == "__main__":
