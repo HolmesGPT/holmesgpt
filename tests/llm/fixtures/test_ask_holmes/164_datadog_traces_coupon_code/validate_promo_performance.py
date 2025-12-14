@@ -8,6 +8,7 @@ import os
 import json
 import urllib.request
 import urllib.error
+import time
 
 
 def check_environment_variables():
@@ -38,7 +39,7 @@ def query_spans_aggregate(api_key, app_key):
                 "filter": {
                     "from": "now-1h",
                     "to": "now",
-                    "query": "service:checkout @http.url:*checkout* kube_namespace:app-124",
+                    "query": "service:checkout @http.url:*checkout* kube_namespace:app-164",
                 },
                 "compute": [
                     {"aggregation": "count", "type": "total"},
@@ -96,21 +97,43 @@ def validate_promo_performance():
 
     print("Querying Datadog Spans Analytics for checkout endpoint performance...")
 
-    # Query the API
-    response = query_spans_aggregate(api_key, app_key)
+    # Retry intervals in seconds
+    retry_intervals = [30, 60, 90, 120]
+    attempt = 0
+    buckets = []
 
-    # Parse results - handle the actual response format
-    if "data" not in response:
-        print("ERROR: No data in response from Datadog API")
-        print(f"Response: {json.dumps(response, indent=2)}")
-        sys.exit(1)
+    while attempt <= len(retry_intervals):
+        # Query the API
+        response = query_spans_aggregate(api_key, app_key)
 
-    buckets = response["data"]
+        # Parse results - handle the actual response format
+        if "data" not in response:
+            print("ERROR: No data in response from Datadog API")
+            print(f"Response: {json.dumps(response, indent=2)}")
+            sys.exit(1)
 
-    if not buckets:
-        print("ERROR: No data returned from Datadog API")
-        print("This could mean no checkout spans exist in the last hour")
-        sys.exit(1)
+        buckets = response["data"]
+
+        if buckets:
+            # We have data, proceed
+            break
+
+        # No buckets returned
+        if attempt < len(retry_intervals):
+            wait_time = retry_intervals[attempt]
+            print(
+                f"No data returned from Datadog API (attempt {attempt + 1}/{len(retry_intervals) + 1})"
+            )
+            print("This could mean no checkout spans exist yet")
+            print(f"Retrying in {wait_time} seconds...")
+            time.sleep(wait_time)
+            attempt += 1
+        else:
+            # All retries exhausted
+            print("ERROR: No data returned from Datadog API after all retries")
+            print(f"Response: {json.dumps(response, indent=2)}")
+            print("This could mean no checkout spans exist in the last hour")
+            sys.exit(1)
 
     # Separate URLs into promo and non-promo groups
     promo_urls = []
