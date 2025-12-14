@@ -145,6 +145,26 @@ class BaseDatadogTracesTool(Tool):
     toolset: "DatadogTracesToolset"
 
 
+# Schema defines what fields to keep in compact mode
+COMPACT_SCHEMA = {
+    "custom": {
+        "duration": True,
+        "http": {"status_code": True, "host": True, "method": True, "url": True},
+    },
+    "status": True,
+    "start_timestamp": True,
+    "end_timestamp": True,
+    "error": True,
+    "single_span": True,
+    "span_id": True,
+    "trace_id": True,
+    "parent_id": True,
+    "service": True,
+    "resource_name": True,
+    "tags": {"_filter": "startswith", "_values": ["pod_name:"]},  # Generic array filter
+}
+
+
 class GetSpans(BaseDatadogTracesTool):
     """Tool to search for spans with specific filters."""
 
@@ -191,6 +211,11 @@ class GetSpans(BaseDatadogTracesTool):
                     description="Get the results in descending order. default: true",
                     type="boolean",
                     required=False,
+                ),
+                "compact": ToolParameter(
+                    description="Return only essential fields to reduce output size. Use with higher limits (50-100) for initial exploration, then use compact=false with lower limits (5-10) for detailed investigation. Default: True",
+                    type="boolean",
+                    required=True,
                 ),
             },
             toolset=toolset,
@@ -261,6 +286,12 @@ class GetSpans(BaseDatadogTracesTool):
                 method="POST",
             )
 
+            # Apply compact filtering if requested
+            if params.get("compact", False) and "data" in response:
+                response["data"] = [
+                    self._filter_span_attributes(span) for span in response["data"]
+                ]
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response,
@@ -302,6 +333,59 @@ class GetSpans(BaseDatadogTracesTool):
                     else None
                 ),
             )
+
+    def _apply_compact_schema(self, source: dict, schema: dict) -> dict:
+        """Apply schema to filter fields from source dict."""
+        result: Dict[str, Any] = {}
+
+        for key, value in schema.items():
+            if key not in source:
+                continue
+
+            source_value = source[key]
+
+            if isinstance(value, dict):
+                # Check if it's a filter directive for arrays
+                if "_filter" in value and isinstance(source_value, list):
+                    filter_type = value["_filter"]
+                    filter_values = value.get("_values", [])
+
+                    if filter_type == "startswith":
+                        # Filter array items that start with any of the specified values
+                        filtered = [
+                            item
+                            for item in source_value
+                            if isinstance(item, str)
+                            and any(item.startswith(prefix) for prefix in filter_values)
+                        ]
+                        if filtered:
+                            result[key] = filtered
+
+                elif isinstance(source_value, dict):
+                    # Regular nested object - recurse
+                    nested_result = self._apply_compact_schema(source_value, value)
+                    if nested_result:
+                        result[key] = nested_result
+
+            elif value is True:
+                # Copy the field as-is
+                result[key] = source_value
+
+        return result
+
+    def _filter_span_attributes(self, span: dict) -> dict:
+        """Filter span to include only essential fields."""
+        filtered_span = {
+            "id": span.get("id"),
+            "type": span.get("type"),
+        }
+
+        if "attributes" in span:
+            filtered_span["attributes"] = self._apply_compact_schema(
+                span["attributes"], COMPACT_SCHEMA
+            )
+
+        return filtered_span
 
 
 class AggregateSpans(BaseDatadogTracesTool):
