@@ -34,6 +34,7 @@ def test_server_loads_robusta_ai_when_true(mock_cluster, mock_fetch, *, monkeypa
 def test_server_loads_robusta_ai_when_not_exists_and_not_other_models(
     mock_cluster, mock_fetch, *, monkeypatch
 ):
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
     config = Config.load_from_env()
     assert "Robusta/test" in config.llm_model_registry.models
 

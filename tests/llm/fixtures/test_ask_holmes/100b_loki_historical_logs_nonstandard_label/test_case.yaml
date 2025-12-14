@@ -11,6 +11,7 @@ tags:
   - logs
   - kubernetes
   - medium
+  - loki
 
 setup_timeout: 600  # Increased to handle Datadog init containers
 
