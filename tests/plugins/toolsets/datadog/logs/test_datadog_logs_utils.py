@@ -232,7 +232,7 @@ def test_calculate_page_size(params, configs, logs, expected_page_size):
                     },
                 },
             ],
-            "[2025-07-15T08:20:55.676Z] 2025-07-15T08:20:54.879Z [INFO] inventory-service - Auth event: login_failed - User: user_1081 - IP: 192.168.52.128 - RequestID: n5e6lw8ueh\n[2025-07-15T08:20:55.676Z] 2025-07-15T08:20:55.236Z [INFO] notification-service - Auth event: login_failed - User: user_1001 - IP: 192.168.234.119 - RequestID: j0smuzixk8",
+            "2025-07-15T08:20:55.676Z kind-double-node-worker pod_name:my-app-51-59d94fd7cc-927wn multiple-errors-in-logs info 2025-07-15T08:20:54.879Z [INFO] inventory-service - Auth event: login_failed - User: user_1081 - IP: 192.168.52.128 - RequestID: n5e6lw8ueh\n2025-07-15T08:20:55.676Z kind-double-node-worker pod_name:my-app-51-59d94fd7cc-927wn multiple-errors-in-logs info 2025-07-15T08:20:55.236Z [INFO] notification-service - Auth event: login_failed - User: user_1001 - IP: 192.168.234.119 - RequestID: j0smuzixk8",
         ),
         (
             [
@@ -242,7 +242,7 @@ def test_calculate_page_size(params, configs, logs, expected_page_size):
                     "random_field": "random_value",
                 }
             ],
-            '{"id": "ABCD", "type": "malformatted log", "random_field": "random_value"}',
+            '     {"id": "ABCD", "type": "malformatted log", "random_field": "random_value"}',
         ),
     ],
 )
