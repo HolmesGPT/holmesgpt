@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Tuple
 import os
 import json
 from holmes.core.tools import (
@@ -29,6 +29,26 @@ from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
 class GrafanaLokiToolset(BaseGrafanaToolset):
+    def health_check(self) -> Tuple[bool, str]:
+        """Test a dummy query to check if service available."""
+        (start, end) = process_timestamps_to_rfc3339(
+            start_timestamp=-1,
+            end_timestamp=None,
+            default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
+        )
+
+        c = self._grafana_config
+        _ = execute_loki_query(
+            base_url=get_base_url(c),
+            api_key=c.api_key,
+            headers=c.headers,
+            query='{job="test_endpoint"}',
+            start=start,
+            end=end,
+            limit=1,
+        )
+        return True, ""
+
     def __init__(self):
         super().__init__(
             name="grafana/loki",
