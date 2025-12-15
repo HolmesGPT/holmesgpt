@@ -7,6 +7,8 @@ import os
 import re
 from typing import Any, Dict, Optional, Tuple
 
+from pydantic import AnyUrl
+
 from holmes.core.tools import (
     CallablePrerequisite,
     Tool,
@@ -130,13 +132,12 @@ class DatadogTracesToolset(Toolset):
             return False, f"Healthcheck failed with exception: {str(e)}"
 
     def get_example_config(self) -> Dict[str, Any]:
-        """Get example configuration for this toolset."""
-        return {
-            "dd_api_key": "<your_datadog_api_key>",
-            "dd_app_key": "<your_datadog_app_key>",
-            "site_api_url": "https://api.datadoghq.com",  # or https://api.datadoghq.eu for EU
-            "request_timeout": 60,
-        }
+        example_config = DatadogTracesConfig(
+            dd_api_key="<your_datadog_api_key>",
+            dd_app_key="<your_datadog_app_key>",
+            site_api_url=AnyUrl("https://api.datadoghq.com"),
+        )
+        return example_config.model_dump()
 
 
 class BaseDatadogTracesTool(Tool):
