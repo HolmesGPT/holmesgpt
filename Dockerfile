@@ -44,13 +44,14 @@ RUN chmod 777 kube-lineage
 RUN ./kube-lineage --version
 
 # Set the architecture-specific argocd URLs
-ARG ARGOCD_ARM_URL=https://github.com/argoproj/argo-cd/releases/download/v3.2.0/argocd-linux-arm64
-ARG ARGOCD_AMD_URL=https://github.com/argoproj/argo-cd/releases/download/v3.2.0/argocd-linux-amd64
+ARG ARGOCD_VERSION=v3.2.0
+ARG ARGOCD_ARM_URL=https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-arm64
+ARG ARGOCD_AMD_URL=https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64
 # Conditional download based on the platform
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-    curl -L -o argocd $ARGOCD_ARM_URL; \
+    curl -fsSL -o argocd $ARGOCD_ARM_URL; \
     elif [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-    curl -L -o argocd $ARGOCD_AMD_URL; \
+    curl -fsSL -o argocd $ARGOCD_AMD_URL; \
     else \
     echo "Unsupported platform: $TARGETPLATFORM"; exit 1; \
     fi
