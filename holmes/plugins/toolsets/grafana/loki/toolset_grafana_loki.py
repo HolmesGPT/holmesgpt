@@ -10,7 +10,6 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.consts import (
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
 )
-
 from holmes.plugins.toolsets.grafana.common import get_base_url, GrafanaConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana import BaseGrafanaToolset
 from holmes.plugins.toolsets.utils import (
@@ -35,24 +34,9 @@ def _build_grafana_loki_explore_url(
     try:
         base_url = config.external_url or config.url
         datasource_uid = config.grafana_datasource_uid or "loki"
-        from_str = "now-1h"
-        to_str = "now"
-        try:
-            # Try to parse RFC3339 timestamps and convert to relative time
-            from datetime import datetime
 
-            if start and end:
-                start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-                now_dt = datetime.now(start_dt.tzinfo)
-
-                start_delta = int((now_dt - start_dt).total_seconds())
-                end_delta = int((now_dt - end_dt).total_seconds())
-
-                from_str = f"now-{start_delta}s" if start_delta > 0 else "now-1h"
-                to_str = "now" if end_delta == 0 else f"now-{end_delta}s"
-        except Exception:
-            pass
+        from_str = start if start else "now-1h"
+        to_str = end if end else "now"
 
         pane_id = "tmp"
         safe_query = query if query else "{}"
