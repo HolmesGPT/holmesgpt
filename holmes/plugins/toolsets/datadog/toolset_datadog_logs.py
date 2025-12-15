@@ -45,7 +45,7 @@ DEFAULT_LOG_LIMIT = 150
 
 class DatadogLogsConfig(DatadogBaseConfig):
     indexes: list[str] = ["*"]
-    # Ordered list of storage tiers. Works as fallback. Subsequent tiers are queried only if the previous tier yielded no result
+    # TODO storage tier just works with first element. need to add support for multi stoarge tiers.
     storage_tiers: list[DataDogStorageTier] = Field(
         default=DEFAULT_STORAGE_TIERS, min_length=1
     )
