@@ -137,7 +137,7 @@ class DatadogTracesToolset(Toolset):
             dd_app_key="<your_datadog_app_key>",
             site_api_url=AnyUrl("https://api.datadoghq.com"),
         )
-        return example_config.model_dump()
+        return example_config.model_dump(mode="json")
 
 
 class BaseDatadogTracesTool(Tool):

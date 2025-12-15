@@ -10,7 +10,7 @@ from holmes.core.tools import (
     Tool,
     ToolParameter,
 )
-from pydantic import Field
+from pydantic import Field, AnyUrl
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.datadog_api import (
     DatadogBaseConfig,
@@ -22,7 +22,6 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
     Toolset,
-    FetchPodLogsParams,
 )
 
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
@@ -46,25 +45,13 @@ DEFAULT_LOG_LIMIT = 150
 
 class DatadogLogsConfig(DatadogBaseConfig):
     indexes: list[str] = ["*"]
-    # Ordered list of storage tiers. Works as fallback. Subsequent tiers are queried only if the previous tier yielded no result
+    # TODO storage tier just works with first element. need to add support for multi stoarge tiers.
     storage_tiers: list[DataDogStorageTier] = Field(
         default=DEFAULT_STORAGE_TIERS, min_length=1
     )
-    page_size: int = 300
+
     compact_logs: bool = True
     default_limit: int = DEFAULT_LOG_LIMIT
-
-
-def calculate_page_size(
-    params: FetchPodLogsParams, dd_config: DatadogLogsConfig, logs: list
-) -> int:
-    logs_count = len(logs)
-
-    max_logs_count = dd_config.default_limit
-    if params.limit:
-        max_logs_count = params.limit
-
-    return min(dd_config.page_size, max(0, max_logs_count - logs_count))
 
 
 def format_logs(raw_logs: list[dict]) -> str:
@@ -170,11 +157,13 @@ class DatadogLogsToolset(Toolset):
             return (False, f"Failed to parse Datadog configuration: {str(e)}")
 
     def get_example_config(self) -> Dict[str, Any]:
-        return {
-            "dd_api_key": "your-datadog-api-key",
-            "dd_app_key": "your-datadog-application-key",
-            "site_api_url": "https://api.datadoghq.com",
-        }
+        """Get example configuration for this toolset."""
+        example_config = DatadogLogsConfig(
+            dd_api_key="<your_datadog_api_key>",
+            dd_app_key="<your_datadog_app_key>",
+            site_api_url=AnyUrl("https://api.datadoghq.com"),
+        )
+        return example_config.model_dump(mode="json")
 
     def _reload_instructions(self):
         """Load Datadog logs specific troubleshooting instructions."""
@@ -215,7 +204,7 @@ class GetLogs(Tool):
             required=False,
         ),
         "limit": ToolParameter(
-            description=f"Maximum number of logs records to return. default: {DEFAULT_LOG_LIMIT}",
+            description=f"Maximum number of log records to return. Defaults to {DEFAULT_LOG_LIMIT}. This value is user-configured and represents the maximum allowed limit.",
             type="integer",
             required=False,
         ),
@@ -255,7 +244,7 @@ class GetLogs(Tool):
             config_limit = self.toolset.dd_config.default_limit
             limit = min(params.get("limit", config_limit), config_limit)
             params["limit"] = limit
-            sort = "timestamp" if params.get("sort", False) else "-timestamp"
+            sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 
             url = f"{self.toolset.dd_config.site_api_url}/api/v2/logs/events/search"
             headers = get_headers(self.toolset.dd_config)

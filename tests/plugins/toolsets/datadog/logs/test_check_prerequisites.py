@@ -174,21 +174,6 @@ class TestDatadogToolsetCheckPrerequisites:
         assert "storage_tiers" in toolset.error
         assert "at least 1 item" in toolset.error
 
-    def test_check_prerequisites_exception_during_config_parsing(self):
-        """Test check_prerequisites with exception during config parsing"""
-        toolset = DatadogLogsToolset()
-        toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
-            "page_size": "not-a-number",  # Invalid type
-        }
-        toolset.check_prerequisites()
-
-        assert toolset.status == ToolsetStatusEnum.FAILED
-        assert toolset.error
-        assert "Failed to parse Datadog configuration" in toolset.error
-
     def test_check_prerequisites_integration(self):
         """Integration test to ensure check_prerequisites is called via CallablePrerequisite"""
         toolset = DatadogLogsToolset()
