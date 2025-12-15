@@ -202,7 +202,7 @@ class GetLogs(Tool):
             required=False,
         ),
         "limit": ToolParameter(
-            description=f"Maximum number of logs records to return. default: {DEFAULT_LOG_LIMIT}",
+            description=f"Maximum number of log records to return. Defaults to {DEFAULT_LOG_LIMIT}. This value is user-configured and represents the maximum allowed limit.",
             type="integer",
             required=False,
         ),
