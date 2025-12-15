@@ -31,6 +31,11 @@ from holmes.plugins.toolsets.grafana.toolset_grafana import (
     GetHomeDashboard,
     GetDashboardTags,
 )
+from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
+    CoralogixToolset,
+    ExecuteDataPrimeQuery,
+)
+from holmes.plugins.toolsets.coralogix.utils import CoralogixConfig
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -468,6 +473,140 @@ class TestDashboardURLs:
             assert result.url is not None
             assert url_validator(
                 result.url, self
+            ), f"URL validation failed for {tool_class.__name__}: {result.url}"
+        finally:
+            mock_patcher.stop()
+
+
+class TestCoralogixURLs:
+    TEAM_HOSTNAME = "my-team"
+    DOMAIN = "eu2.coralogix.com"
+    BASE_URL = f"https://{TEAM_HOSTNAME}.{DOMAIN}"
+
+    @staticmethod
+    def extract_query_from_url(url: str) -> str:
+        if "?" in url:
+            query_part = url.split("?")[1]
+            query_params = parse_qs(query_part)
+            if "query" in query_params:
+                return unquote(query_params["query"][0])
+        return ""
+
+    @staticmethod
+    def setup_mocks():
+        mock_patcher = patch(
+            "holmes.plugins.toolsets.coralogix.toolset_coralogix.execute_dataprime_query"
+        )
+        mock_execute = mock_patcher.start()
+        # Return empty list to simulate successful query with no results
+        mock_execute.return_value = ([], None)
+        return mock_patcher
+
+    @pytest.fixture
+    def config(self):
+        return CoralogixConfig(
+            api_key="test-key",
+            team_hostname=self.TEAM_HOSTNAME,
+            domain=self.DOMAIN,
+        )
+
+    @pytest.fixture
+    def toolset(self, config):
+        toolset = CoralogixToolset()
+        toolset.config = config
+        return toolset
+
+    TEST_CASES = [
+        (
+            ExecuteDataPrimeQuery,
+            {
+                "query": "source logs | lucene 'error' | limit 100",
+                "description": "test logs query",
+                "query_type": "Logs",
+                "start_date": "2024-01-01T00:00:00Z",
+                "end_date": "2024-01-01T01:00:00Z",
+            },
+            lambda url, cls, params: (
+                cls.BASE_URL in url
+                and "/#/query-new/logs" in url
+                and "querySyntax=dataprime" in url
+                and "permalink=true" in url
+                and "time=" in url
+                and "query=" in url
+                and cls.extract_query_from_url(url) == params["query"]
+            ),
+        ),
+        (
+            ExecuteDataPrimeQuery,
+            {
+                "query": "source spans | lucene 'my-service' | limit 100",
+                "description": "test spans query",
+                "query_type": "Traces",
+                "start_date": "2024-01-01T00:00:00Z",
+                "end_date": "2024-01-01T01:00:00Z",
+            },
+            lambda url, cls, params: (
+                cls.BASE_URL in url
+                and "/#/query-new/logs" in url
+                and "querySyntax=dataprime" in url
+                and "permalink=true" in url
+                and cls.extract_query_from_url(url) == params["query"]
+            ),
+        ),
+        (
+            ExecuteDataPrimeQuery,
+            {
+                "query": "source logs | filter $m.severity == ERROR | limit 100",
+                "description": "test archive query",
+                "query_type": "Logs",
+                "start_date": "2024-01-01T00:00:00Z",
+                "end_date": "2024-01-01T01:00:00Z",
+                "tier": "ARCHIVE",
+            },
+            lambda url, cls, params: (
+                cls.BASE_URL in url
+                and "/#/query-new/archive-logs" in url
+                and "querySyntax=dataprime" in url
+                and "permalink=true" in url
+                and cls.extract_query_from_url(url) == params["query"]
+            ),
+        ),
+        (
+            ExecuteDataPrimeQuery,
+            {
+                "query": "source logs | limit 10",
+                "description": "test frequent search",
+                "query_type": "Logs",
+                "start_date": "2024-01-01T00:00:00Z",
+                "end_date": "2024-01-01T01:00:00Z",
+                "tier": "FREQUENT_SEARCH",
+            },
+            lambda url, cls, params: (
+                cls.BASE_URL in url
+                and "/#/query-new/logs" in url
+                and "querySyntax=dataprime" in url
+                and "permalink=true" in url
+                and cls.extract_query_from_url(url) == params["query"]
+            ),
+        ),
+    ]
+
+    @pytest.mark.parametrize("tool_class,params,url_validator", TEST_CASES)
+    def test_tool_urls(self, toolset, tool_class, params, url_validator):
+        tool = tool_class(toolset)
+        mock_patcher = self.setup_mocks()
+
+        try:
+            context = create_mock_tool_invoke_context()
+            result = tool.invoke(params=params, context=context)
+
+            assert result.status in (
+                StructuredToolResultStatus.SUCCESS,
+                StructuredToolResultStatus.NO_DATA,
+            )
+            assert result.url is not None
+            assert url_validator(
+                result.url, self, params
             ), f"URL validation failed for {tool_class.__name__}: {result.url}"
         finally:
             mock_patcher.stop()
