@@ -1,5 +1,5 @@
 {%- set loki_ts = toolsets | selectattr("name", "equalto", "grafana/loki") | first -%}
-{%- set coralogix_ts = toolsets | selectattr("name", "equalto", "coralogix/logs") | first -%}
+{%- set coralogix_ts = toolsets | selectattr("name", "equalto", "coralogix") | first -%}
 {%- set k8s_base_ts = toolsets | selectattr("name", "equalto", "kubernetes/logs") | selectattr("fetch_pod_logs", "defined") | first -%}
 {%- set k8s_yaml_ts = toolsets | selectattr("name", "equalto", "kubernetes/logs") | rejectattr("fetch_pod_logs", "defined") | first -%}
 {%- set opensearch_ts = toolsets | selectattr("name", "equalto", "opensearch/logs") | first -%}
@@ -25,9 +25,9 @@
 ** If there are too many logs, or not enough, narrow or widen the timestamps
 * If you are not provided with time information. Ignore start_timestamp and end_timestamp.
 {%- elif coralogix_ts and coralogix_ts.status == "enabled" -%}
-### coralogix/logs
-#### Coralogix Logs Toolset
-Tools to search and fetch logs from Coralogix.
+### coralogix
+#### Coralogix Toolset
+Tools to search and fetch logs, traces, metrics, and other telemetry data from Coralogix.
 {% include '_default_log_prompt.jinja2' %}
 {%- elif k8s_base_ts and k8s_base_ts.status == "enabled" -%}
 {% include '_default_log_prompt.jinja2' %}
@@ -77,7 +77,7 @@ DO NOT use `--tail` or `| tail` when calling `kubectl logs` because you may miss
 ** 'kubernetes/logs'
 ** 'grafana/loki'
 ** 'opensearch/logs'
-** 'coralogix/logs'
+** 'coralogix'
 ** 'datadog/logs'
 ** 'openshift/logs'
 ** 'newrelic'

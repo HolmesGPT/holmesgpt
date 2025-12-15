@@ -14,7 +14,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-console:{ .lg .middle } **Bash**](bash.md)
 -   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
 -   [:simple-confluence:{ .lg .middle } **Confluence**](confluence.md)
--   [:material-chart-line:{ .lg .middle } **Coralogix logs**](coralogix-logs.md)
+-   [:material-chart-line:{ .lg .middle } **Coralogix**](coralogix-logs.md)
 -   [:simple-datadog:{ .lg .middle } **Datadog**](datadog.md)
 -   [:material-clock:{ .lg .middle } **Datetime**](datetime.md)
 -   [:simple-docker:{ .lg .middle } **Docker**](docker.md)

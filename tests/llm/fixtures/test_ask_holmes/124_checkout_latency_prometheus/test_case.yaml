@@ -1,6 +1,5 @@
 user_prompt:
 - "The /checkout endpoint in namespace app-124 is experiencing high latency. Investigate why."
-#  Note telling holmes to focus on http_request_duration_seconds_bucket metric passes with sonnet - 'The checkout service in namespace app-124 is experiencing high latency. Investigate why. USE prometheus and http_request_duration_seconds_bucket'
 
 expected_output:
   - The answer must explicitly state that queries that include a promo code are slow or all slow requests include promo code.

@@ -3,49 +3,160 @@
 Tools to search and analyze distributed traces from Datadog APM.
 
 ### Available Tools:
-- **fetch_datadog_traces** - List traces with filters (service, operation, duration)
-- **fetch_datadog_trace_by_id** - Get detailed span hierarchy for a specific trace
 - **fetch_datadog_spans** - Search spans with Datadog query syntax
+- **aggregate_datadog_spans** - Aggregate span data into buckets and compute metrics
 
 ### Common Usage:
 
 ```python
-# Find slow traces (>5s) for a service
-fetch_datadog_traces(service="backend-service", min_duration="5s")
-
-# Get trace details showing full span hierarchy
-fetch_datadog_trace_by_id(trace_id="6878d11e0000000064837efe7e97f5f8")
-
 # Search for errors using Datadog query syntax
-fetch_datadog_spans(query="@http.status_code:500")
-fetch_datadog_spans(service="api", query="status:error")
+fetch_datadog_spans(query="@http.status_code:500", limit=5)
+fetch_datadog_spans(query="service:api status:error", limit=10)
+```
 
-# Time ranges (default: last hour)
-fetch_datadog_traces(
-    service="api",
-    start_datetime="-3600",  # 1 hour ago
-    end_datetime="0"         # now
+### Query Patterns:
+
+```python
+# Specific HTTP endpoint (any method)
+fetch_datadog_spans(query="@http.route:/api/orders", limit=5)
+
+# HTTP routes containing substring (wildcard search)
+fetch_datadog_spans(query="@http.route:*payment*", limit=5)
+
+# Broad search across all span types
+fetch_datadog_spans(query="resource_name:*user*", limit=10)
+
+# Errors by service with wildcard
+fetch_datadog_spans(query="service:payment @http.status_code:5*", limit=5)
+
+# Database queries with time range (last hour)
+fetch_datadog_spans(
+    query="service:postgres @duration:>1000000000",
+    start_datetime="-3600",  # 1 hour in seconds
+    limit=10
+)
+
+# Production errors
+fetch_datadog_spans(query="env:production error:true", limit=5)
+
+# Specific endpoint pattern with custom time range
+fetch_datadog_spans(
+    query='@http.route:*/user/* @http.status_code:>=400',
+    start_datetime="-1800",  # 30 minutes in seconds
+    limit=10
+)
+
+# Combining multiple conditions with wildcards
+fetch_datadog_spans(
+    query='service:*api* @http.route:*/user/* @http.status_code:[400 TO 599]',
+    limit=10
 )
 ```
 
-### Query Examples:
+### Aggregate Examples:
 
 ```python
-# Performance issues
-fetch_datadog_traces(min_duration="2s", operation="GET /api/products")
+# Count spans grouped by status code (last 15 minutes)
+aggregate_datadog_spans(
+    query='resource_name:*api* @http.method:POST',
+    compute=[{"aggregation": "count", "type": "total"}],
+    group_by=[{"facet": "@http.status_code", "limit": 50}],
+    start_datetime="-900"  # 15 minutes in seconds
+)
 
-# Errors by service
-fetch_datadog_spans(service="payment", query="@http.status_code:5*")
+# Get average duration by service (last hour)
+aggregate_datadog_spans(
+    query='service:*backend* OR service:*api*',
+    compute=[{"aggregation": "avg", "metric": "@duration", "type": "total"}],
+    group_by=[{"facet": "service", "limit": 50}],
+    start_datetime="-3600"  # 1 hour in seconds
+)
 
-# Database queries
-fetch_datadog_spans(query="service:postgres @duration:>1000000000")
+# Get P95 latency timeseries by service
+aggregate_datadog_spans(
+    query='@http.route:*/api/* @http.status_code:[200 TO 299]',
+    compute=[{
+        "aggregation": "pc95", 
+        "metric": "@duration", 
+        "type": "timeseries",
+        "interval": "5m"
+    }],
+    group_by=[{"facet": "service", "limit": 50}]
+)
 
-# With tags
-fetch_datadog_spans(tags={"env": "production"}, query="error:true")
+# Complex aggregation with histogram
+aggregate_datadog_spans(
+    query='resource_name:*product* OR resource_name:*catalog*',
+    compute=[
+        {"aggregation": "avg", "metric": "@duration", "type": "total"},
+        {"aggregation": "count", "type": "total"}
+    ],
+    group_by=[{
+        "facet": "@duration",
+        "histogram": {"interval": 100, "min": 0, "max": 1000},
+        "limit": 50
+    }]
+)
+
+# Error rate calculation by endpoint
+aggregate_datadog_spans(
+    query='@http.route:* @http.status_code:[400 TO 599]',
+    compute=[{"aggregation": "count", "type": "total"}],
+    group_by=[
+        {"facet": "resource_name", "limit": 50},
+        {"facet": "@http.status_code", "limit": 50}
+    ]
+)
 ```
 
-### Tips:
-- Duration units: ms, s, m (e.g., "500ms", "5s", "1m")
-- Time: RFC3339 format or negative seconds from now
-- Rate limit: 300 requests/hour
-- Default time range: 1 hour
+### Query Pattern Tips:
+
+| Your Goal | Use This Pattern |
+|-----------|------------------|
+| Specific HTTP endpoint, any method | `@http.route:/api/users` |
+| HTTP routes containing substring | `@http.route:*payment*` |
+| Broad search across all span types | `resource_name:*user*` |
+| Service name patterns | `service:*api*` or `service:payment-*` |
+| Multiple wildcards | `@http.route:*/user/*/profile` |
+| Error status codes | `@http.status_code:5*` or `@http.status_code:[400 TO 599]` |
+
+### General Tips:
+- Wildcards (*) can be used in most fields for flexible pattern matching
+- For aggregations: use @-prefixed attributes (e.g., @duration, @http.status_code)
+- Keep fetch_datadog_spans limit low (5-10) to avoid too much data
+- aggregate_datadog_spans can handle higher limits (50+) for group_by facets
+
+### Compact Mode Strategy:
+
+The `compact` parameter reduces output size by returning only essential fields. Use this strategy:
+
+1. **Initial exploration**: Use compact=true with higher limits (50-100) to get an overview
+2. **Detailed investigation**: Use compact=false with lower limits (5-10) for specific spans
+
+```python
+# STEP 1: Initial search with compact mode to find patterns
+fetch_datadog_spans(
+    query="service:api @http.status_code:5*",
+    compact=true,
+    limit=100  # Higher limit safe with compact mode
+)
+
+# STEP 2: Detailed investigation of specific issues
+fetch_datadog_spans(
+    query="service:api @http.status_code:500 resource_name:*/user/*",
+    compact=false,  # Full details for deep analysis
+    limit=10
+)
+```
+
+**When to use compact=true:**
+- Initial searches to identify patterns
+- When you need to scan many spans for errors or performance issues
+- When looking for specific span IDs or trace IDs
+- When the full span details aren't needed yet
+
+**When to use compact=false (default):**
+- Investigating specific errors
+- Analyzing request/response headers
+- Examining user agent details
+- Debugging authentication issues or HTTP details

@@ -37,7 +37,7 @@ class TestDatadogTracesLiveIntegration:
     def test_fetch_traces_list_live(self):
         """Test fetching traces from the live Datadog instance."""
         fetch_traces_tool = self.toolset.tools[0]
-        assert fetch_traces_tool.name == "fetch_datadog_traces"
+        assert fetch_traces_tool.name == "fetch_datadog_spans"
 
         # Fetch traces from the last hour
         params = {
@@ -54,20 +54,17 @@ class TestDatadogTracesLiveIntegration:
             result.status.value == "success"
         ), f"Failed to fetch traces: {result.error}"
         assert result.data is not None
-
-        # The result should contain trace information or indicate no traces found
-        assert (
-            "trace" in result.data.lower()
-            or "no matching traces" in result.data.lower()
-        )
+        # The tool returns raw response data with a 'data' key containing the list of traces
+        assert "data" in result.data
 
     def test_fetch_traces_with_service_filter_live(self):
         """Test fetching traces with service filter."""
         fetch_traces_tool = self.toolset.tools[0]
 
         # This will likely return no results unless you have a service named "test-service"
+        # GetSpans tool uses 'query' parameter, not 'service'
         params = {
-            "service": "test-service",
+            "query": "service:test-service",
             "start_datetime": "-3600",
             "limit": 5,
         }
@@ -83,7 +80,7 @@ class TestDatadogTracesLiveIntegration:
 
     def test_fetch_spans_by_filter_live(self):
         """Test searching for spans."""
-        fetch_spans_tool = self.toolset.tools[2]
+        fetch_spans_tool = self.toolset.tools[0]  # GetSpans is now at index 0
         assert fetch_spans_tool.name == "fetch_datadog_spans"
 
         # Search for any spans in the last 15 minutes
@@ -100,11 +97,8 @@ class TestDatadogTracesLiveIntegration:
             result.status.value == "success"
         ), f"Failed to fetch spans: {result.error}"
         assert result.data is not None
-
-        # The result should contain span information or indicate no spans found
-        assert (
-            "span" in result.data.lower() or "no matching spans" in result.data.lower()
-        )
+        # The tool returns raw response data with a 'data' key containing the list of spans
+        assert "data" in result.data
 
     def test_fetch_trace_by_id_live(self):
         """Test fetching a specific trace by ID."""
@@ -120,37 +114,39 @@ class TestDatadogTracesLiveIntegration:
             params, context=create_mock_tool_invoke_context()
         )
 
-        if result.status.value == "success" and "traceID=" in result.data:
-            # Extract a trace ID from the result
-            import re
+        if (
+            result.status.value == "success"
+            and result.data
+            and "data" in result.data
+            and len(result.data["data"]) > 0
+        ):
+            # Extract a trace ID from the first trace in the result
+            first_trace = result.data["data"][0]
+            if "attributes" in first_trace and "trace_id" in first_trace["attributes"]:
+                trace_id = first_trace["attributes"]["trace_id"]
 
-            match = re.search(r"traceID=([a-fA-F0-9]+)", result.data)
+                # We no longer have a fetch_datadog_trace_by_id tool
+                # Instead, we can search for the specific trace using GetSpans
+                params = {"query": f"trace_id:{trace_id}"}
 
-            if match:
-                trace_id = match.group(1)
-
-                # Now fetch the specific trace
-                fetch_trace_tool = self.toolset.tools[1]
-                assert fetch_trace_tool.name == "fetch_datadog_trace_by_id"
-
-                params = {"trace_id": trace_id}
-
-                result = fetch_trace_tool._invoke(
+                result = fetch_traces_tool._invoke(
                     params, context=create_mock_tool_invoke_context()
                 )
 
                 assert (
                     result.status.value == "success"
                 ), f"Failed to fetch trace: {result.error}"
-                assert trace_id in result.data
+                # Check that we got data back
+                assert result.data and "data" in result.data
 
     def test_fetch_traces_with_duration_filter_live(self):
         """Test fetching traces with minimum duration filter."""
         fetch_traces_tool = self.toolset.tools[0]
 
         # Look for traces taking more than 100ms
+        # GetSpans tool doesn't have min_duration parameter, use query instead
         params = {
-            "min_duration": "100ms",
+            "query": "@duration:>100000000",  # duration > 100ms in nanoseconds
             "start_datetime": "-3600",
             "limit": 5,
         }
@@ -166,7 +162,7 @@ class TestDatadogTracesLiveIntegration:
 
     def test_fetch_spans_with_query_live(self):
         """Test searching spans with a Datadog query."""
-        fetch_spans_tool = self.toolset.tools[2]
+        fetch_spans_tool = self.toolset.tools[0]  # GetSpans is at index 0
 
         # Search for any error spans
         params = {

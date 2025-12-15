@@ -511,8 +511,7 @@ def test_prerequisites_check_with_valid_config():
         # Mock successful validation
         mock_execute.return_value = {"valid": True}
 
-        prereq = toolset.prerequisites_check(valid_config)
-        success, message = prereq.callable(valid_config)
+        success, message = toolset.prerequisites_callable(valid_config)
 
         assert success is True
         assert message == ""
@@ -536,8 +535,7 @@ def test_prerequisites_check_with_invalid_credentials():
             payload={}, status_code=403, response_text="Forbidden", response_headers={}
         )
 
-        prereq = toolset.prerequisites_check(config)
-        success, message = prereq.callable(config)
+        success, message = toolset.prerequisites_callable(config)
 
         assert success is False
         assert "Invalid Datadog API keys" in message

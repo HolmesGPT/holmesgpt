@@ -2,16 +2,19 @@
 
 Connect HolmesGPT to Datadog for comprehensive observability including logs, metrics, traces, and more.
 
---8<-- "snippets/toolsets_that_provide_logging.md"
 
 ## Quick Start
 
-### 1. Get Your API Keys
+### 1. Get Your API Keys and Site URL
 
-You'll need two keys from your Datadog account:
+You'll need two keys and your site URL from your Datadog account:
 
-- **API Key**: Found under **Organization Settings > API Keys**
+- **API Key**: Found under **Organization Settings > API Keys** (disable 'Remote Config' when creating)
 - **Application Key**: Found under **Organization Settings > Application Keys**
+- **Site URL**: Your Datadog site endpoint
+    - **US (default)**: `https://app.datadoghq.com`
+    - **EU**: `https://app.datadoghq.eu`
+    - **Other regions**: See the [complete list of Datadog sites](https://docs.datadoghq.com/getting_started/site/)
 
 ### 2. Configure HolmesGPT
 
@@ -42,13 +45,6 @@ You'll need two keys from your Datadog account:
           site_api_url: https://app.datadoghq.com
 
       datadog/traces:
-        enabled: true
-        config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
-
-      datadog/rds:
         enabled: true
         config:
           dd_api_key: "{{ env.DD_API_KEY }}"
@@ -110,13 +106,6 @@ You'll need two keys from your Datadog account:
           dd_app_key: "{{ env.DD_APP_KEY }}"
           site_api_url: https://app.datadoghq.com
 
-      datadog/rds:
-        enabled: true
-        config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
-
       datadog/general:
         enabled: true
         config:
@@ -136,7 +125,7 @@ You'll need two keys from your Datadog account:
 
     Then add to your Robusta Helm values:
     ```yaml
-    runner:
+    holmes:
       # Load API keys from secret
       additionalEnvVars:
         - name: DD_API_KEY
@@ -150,7 +139,7 @@ You'll need two keys from your Datadog account:
               name: holmes-datadog-secrets
               key: dd-app-key
 
-      customToolsets:
+      toolsets:
         # Enable all Datadog toolsets
         datadog/logs:
           enabled: true
@@ -167,13 +156,6 @@ You'll need two keys from your Datadog account:
             site_api_url: https://app.datadoghq.com
 
         datadog/traces:
-          enabled: true
-          config:
-            dd_api_key: "{{ env.DD_API_KEY }}"
-            dd_app_key: "{{ env.DD_APP_KEY }}"
-            site_api_url: https://app.datadoghq.com
-
-        datadog/rds:
           enabled: true
           config:
             dd_api_key: "{{ env.DD_API_KEY }}"
@@ -205,43 +187,14 @@ That's it! You're now connected to Datadog with all toolsets enabled.
 
 ## Available Toolsets
 
-HolmesGPT provides five specialized Datadog toolsets:
+HolmesGPT provides four specialized Datadog toolsets:
 
 | Toolset | Purpose | Common Use Cases |
 |---------|---------|------------------|
 | **[datadog/logs](#datadog-logs)** | Query application logs | Debugging errors, tracking deployments, historical analysis |
 | **[datadog/metrics](#datadog-metrics)** | Access performance metrics | CPU/memory monitoring, custom metrics, SLI tracking |
 | **[datadog/traces](#datadog-traces)** | Analyze distributed traces | Latency issues, service dependencies, bottlenecks |
-| **[datadog/rds](#datadog-rds)** | Monitor RDS databases | Database performance, slow queries, connection issues |
 | **[datadog/general](#datadog-general)** | Access other Datadog APIs | Monitors, dashboards, SLOs, incidents, synthetics |
-
-## Core Configuration
-
-All Datadog toolsets share the same basic configuration structure:
-
-```yaml-toolset-config
-toolsets:
-  datadog/<toolset-name>:
-    enabled: true
-    config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.com  # Required - see regions below
-```
-
-### Regional Endpoints
-
-Configure the correct API endpoint for your Datadog region:
-
-| Region | Site API URL |
-|--------|--------------|
-| US1 (default) | `https://app.datadoghq.com` |
-| US3 | `https://us3.datadoghq.com` |
-| US5 | `https://us5.datadoghq.com` |
-| EU1 | `https://app.datadoghq.eu` |
-| US1-FED (Government) | `https://app.ddog-gov.com` |
-| AP1 (Japan) | `https://ap1.datadoghq.com` |
-| AP2 (Australia) | `https://ap2.datadoghq.com` |
 
 
 ## Toolset Details
@@ -264,25 +217,18 @@ toolsets:
 
       # Optional: Log search configuration
       indexes: ["*"]  # Log indexes to search (default: ["*"])
+      compact_logs: True # Reduces log metadata and tags to save LLM context space.
       storage_tiers: ["indexes"]  # Options: indexes, online-archives, flex
-      page_size: 300  # Results per page (default: 300)
-      default_limit: 1000  # Max logs to retrieve (default: 1000)
+      default_limit: 150  # Max logs to retrieve in a query.
 
-      # Optional: Kubernetes field mappings
-      labels:
-        pod: "pod_name"  # Datadog field for pod name
-        namespace: "kube_namespace"  # Datadog field for namespace
 
-  # Disable Kubernetes native logging when using Datadog
-  kubernetes/logs:
-    enabled: false
 ```
 
 **Capabilities**
 
 | Tool | Description |
 |------|-------------|
-| `fetch_pod_logs` | Retrieve logs for specific pods with time range and filter support |
+| `fetch_datadog_logs` | Retrieve logs with time range and search query |
 
 **Example Usage**
 
@@ -354,18 +300,14 @@ toolsets:
       dd_app_key: "{{ env.DD_APP_KEY }}"
       site_api_url: https://api.datadoghq.com
       request_timeout: 60  # Timeout in seconds (default: 60)
-
-      # Optional
-      indexes: ["*"]  # Trace indexes to search (default: ["*"])
 ```
 
 **Capabilities**
 
 | Tool | Description |
 |------|-------------|
-| `fetch_datadog_traces` | Search and fetch traces by service, operation, or tags |
-| `fetch_datadog_trace_by_id` | Get detailed information about a specific trace |
-| `fetch_datadog_spans` | Search for spans with specific filters |
+| `fetch_datadog_spans` | Search for spans using span syntax with wildcards and filters |
+| `aggregate_datadog_spans` | Aggregate spans into buckets and compute metrics and timeseries |
 
 **Example Usage**
 
@@ -378,47 +320,6 @@ holmes ask "analyze trace ID abc123 for performance issues"
 
 # Service dependencies
 holmes ask "show me traces involving both payment and inventory services"
-```
-
-### Datadog RDS
-
-Monitor and troubleshoot RDS database instances.
-
-**Configuration**
-
-```yaml-toolset-config
-toolsets:
-  datadog/rds:
-    enabled: true
-    config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.com
-      request_timeout: 60  # Timeout in seconds (default: 60)
-
-      # Optional
-      default_time_span_seconds: 3600  # Time span for queries (default: 1 hour)
-      default_top_instances: 10  # Number of top instances (default: 10)
-```
-
-**Capabilities**
-
-| Tool | Description |
-|------|-------------|
-| `datadog_rds_performance_report` | Generate comprehensive performance report for an RDS instance |
-| `datadog_rds_top_worst_performing` | Get report of worst performing RDS instances by latency, CPU, and errors |
-
-**Example Usage**
-
-```bash
-# List database instances
-holmes ask "show me all RDS instances and their status"
-
-# Performance analysis
-holmes ask "analyze the performance of the production database"
-
-# Slow query analysis
-holmes ask "find slow queries on the analytics database"
 ```
 
 ### Datadog General
@@ -483,73 +384,4 @@ holmes ask "find recent incidents in Datadog"
 
 # Get synthetic test results
 holmes ask "show me the latest synthetic test results for our homepage"
-```
-
-## Complete Configuration Example
-
-Here's a comprehensive example enabling all Datadog toolsets:
-
-```yaml-toolset-config
-toolsets:
-  # Logs configuration
-  datadog/logs:
-    enabled: true
-    config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.eu  # EU region
-      request_timeout: 60
-      indexes: ["main", "security"]
-      storage_tiers: ["indexes", "online-archives"]
-      page_size: 300
-      default_limit: 2000
-      labels:
-        pod: "pod_name"
-        namespace: "kube_namespace"
-
-  # Metrics configuration
-  datadog/metrics:
-    enabled: true
-    config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.eu
-      request_timeout: 60
-      default_limit: 5000
-
-  # Traces configuration
-  datadog/traces:
-    enabled: true
-    config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.eu
-      request_timeout: 60
-      indexes: ["*"]
-
-  # RDS monitoring
-  datadog/rds:
-    enabled: true
-    config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.eu
-      request_timeout: 60
-      default_time_span_seconds: 3600
-      default_top_instances: 10
-
-  # General API access
-  datadog/general:
-    enabled: true
-    config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.eu
-      request_timeout: 60
-      max_response_size: 10485760
-      allow_custom_endpoints: false
-
-  # Disable Kubernetes native logging when using Datadog
-  kubernetes/logs:
-    enabled: false
 ```
