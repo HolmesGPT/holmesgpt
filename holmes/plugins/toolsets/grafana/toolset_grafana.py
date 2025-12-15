@@ -213,7 +213,7 @@ class SearchDashboards(BaseGrafanaTool):
         result = self._make_grafana_request("/api/search", params, query_params)
 
         config = self._toolset.grafana_config
-        search_url = None
+        search_url = _build_grafana_dashboard_url(config, query_params=url_params)
 
         if params.get("dashboardUIDs"):
             uids = [
@@ -221,12 +221,6 @@ class SearchDashboards(BaseGrafanaTool):
             ]
             if len(uids) == 1:
                 search_url = _build_grafana_dashboard_url(config, uid=uids[0])
-            else:
-                search_url = _build_grafana_dashboard_url(
-                    config, query_params=url_params
-                )
-        else:
-            search_url = _build_grafana_dashboard_url(config, query_params=url_params)
 
         return StructuredToolResult(
             status=result.status,
