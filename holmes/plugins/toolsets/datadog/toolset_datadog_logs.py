@@ -242,7 +242,7 @@ class GetLogs(Tool):
             config_limit = self.toolset.dd_config.default_limit
             limit = min(params.get("limit", config_limit), config_limit)
             params["limit"] = limit
-            sort = "timestamp" if params.get("sort", False) else "-timestamp"
+            sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 
             url = f"{self.toolset.dd_config.site_api_url}/api/v2/logs/events/search"
             headers = get_headers(self.toolset.dd_config)
