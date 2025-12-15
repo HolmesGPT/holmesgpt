@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 from urllib.parse import unquote, parse_qs, urlparse
 import json
+import base64
 import pytest
 
 from holmes.core.tools import StructuredToolResultStatus
@@ -36,6 +37,10 @@ from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
     ExecuteDataPrimeQuery,
 )
 from holmes.plugins.toolsets.coralogix.utils import CoralogixConfig
+from holmes.plugins.toolsets.newrelic.newrelic import (
+    NewRelicToolset,
+    ExecuteNRQLQuery,
+)
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -604,6 +609,130 @@ class TestCoralogixURLs:
                 StructuredToolResultStatus.SUCCESS,
                 StructuredToolResultStatus.NO_DATA,
             )
+            assert result.url is not None
+            assert url_validator(
+                result.url, self, params
+            ), f"URL validation failed for {tool_class.__name__}: {result.url}"
+        finally:
+            mock_patcher.stop()
+
+
+class TestNewRelicURLs:
+    ACCOUNT_ID = "1234567"
+    BASE_URL_US = "https://one.newrelic.com"
+    BASE_URL_EU = "https://one.eu.newrelic.com"
+
+    @staticmethod
+    def extract_overlay_from_url(url: str) -> dict:
+        """Extract and decode the overlay parameter from a New Relic URL."""
+        parsed = urlparse(url)
+        query_params = parse_qs(parsed.query)
+        if "overlay" in query_params:
+            overlay_base64 = query_params["overlay"][0]
+            overlay_json = base64.b64decode(overlay_base64).decode("utf-8")
+            return json.loads(overlay_json)
+        return {}
+
+    @staticmethod
+    def setup_mocks():
+        mock_patcher = patch("holmes.plugins.toolsets.newrelic.newrelic.NewRelicAPI")
+        mock_api_class = mock_patcher.start()
+        mock_api = MagicMock()
+        mock_api_class.return_value = mock_api
+        mock_api.execute_nrql_query.return_value = []
+        return mock_patcher
+
+    @pytest.fixture
+    def toolset_us(self):
+        toolset = NewRelicToolset()
+        toolset.nr_api_key = "test-key"
+        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.is_eu_datacenter = False
+        return toolset
+
+    @pytest.fixture
+    def toolset_eu(self):
+        toolset = NewRelicToolset()
+        toolset.nr_api_key = "test-key"
+        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.is_eu_datacenter = True
+        return toolset
+
+    TEST_CASES = [
+        (
+            ExecuteNRQLQuery,
+            {
+                "query": "SELECT * FROM Transaction SINCE 1 hour ago",
+                "description": "test transaction query",
+                "query_type": "Traces",
+            },
+            False,
+            lambda url, cls, params: (
+                cls.BASE_URL_US in url
+                and "/launcher/dashboards.launcher" in url
+                and "pane=" in url
+                and "overlay=" in url
+                and cls.extract_overlay_from_url(url)
+                .get("initialQueries", [{}])[0]
+                .get("nrql")
+                == params["query"]
+                and cls.extract_overlay_from_url(url)
+                .get("initialQueries", [{}])[0]
+                .get("accountId")
+                == int(cls.ACCOUNT_ID)
+            ),
+        ),
+        (
+            ExecuteNRQLQuery,
+            {
+                "query": "SELECT count(*) FROM Log SINCE 24 hours ago FACET loglevel",
+                "description": "test logs query",
+                "query_type": "Logs",
+            },
+            False,
+            lambda url, cls, params: (
+                cls.BASE_URL_US in url
+                and "/launcher/dashboards.launcher" in url
+                and "overlay=" in url
+                and cls.extract_overlay_from_url(url)
+                .get("initialQueries", [{}])[0]
+                .get("nrql")
+                == params["query"]
+            ),
+        ),
+        (
+            ExecuteNRQLQuery,
+            {
+                "query": "SELECT average(duration) FROM Transaction SINCE 1 day ago",
+                "description": "test metrics query",
+                "query_type": "Metrics",
+            },
+            True,
+            lambda url, cls, params: (
+                cls.BASE_URL_EU in url
+                and "/launcher/dashboards.launcher" in url
+                and "overlay=" in url
+                and cls.extract_overlay_from_url(url)
+                .get("initialQueries", [{}])[0]
+                .get("nrql")
+                == params["query"]
+            ),
+        ),
+    ]
+
+    @pytest.mark.parametrize("tool_class,params,is_eu,url_validator", TEST_CASES)
+    def test_tool_urls(
+        self, toolset_us, toolset_eu, tool_class, params, is_eu, url_validator
+    ):
+        toolset = toolset_eu if is_eu else toolset_us
+        tool = tool_class(toolset)
+        mock_patcher = self.setup_mocks()
+
+        try:
+            context = create_mock_tool_invoke_context()
+            result = tool.invoke(params=params, context=context)
+
+            assert result.status == StructuredToolResultStatus.SUCCESS
             assert result.url is not None
             assert url_validator(
                 result.url, self, params

@@ -1,5 +1,7 @@
 import os
 import logging
+import json
+import base64
 from typing import Any, Optional, Dict
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -14,6 +16,60 @@ from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
 import yaml
+
+
+def _build_newrelic_query_url(
+    account_id: str,
+    nrql_query: str,
+    is_eu_datacenter: bool = False,
+) -> Optional[str]:
+    """Build a New Relic query URL for the NRQL query builder.
+
+    Note: URL links to queries are not officially supported by New Relic, so we are using
+    a workaround to open their overlay to the query builder with the query pre-filled.
+    This uses the dashboard launcher with an overlay parameter to open the query builder nerdlet.
+
+    """
+    try:
+        base_url = (
+            "https://one.eu.newrelic.com"
+            if is_eu_datacenter
+            else "https://one.newrelic.com"
+        )
+
+        account_id_int = int(account_id) if isinstance(account_id, str) else account_id
+
+        overlay = {
+            "nerdletId": "data-exploration.query-builder",
+            "initialActiveInterface": "nrqlEditor",
+            "initialQueries": [
+                {
+                    "accountId": account_id_int,
+                    "nrql": nrql_query,
+                }
+            ],
+        }
+
+        overlay_json = json.dumps(overlay, separators=(",", ":"))
+        overlay_base64 = base64.b64encode(overlay_json.encode("utf-8")).decode("utf-8")
+
+        pane = {
+            "nerdletId": "dashboards.list",
+            "entityDomain": "VIZ",
+            "entityType": "DASHBOARD",
+        }
+        pane_json = json.dumps(pane, separators=(",", ":"))
+        pane_base64 = base64.b64encode(pane_json.encode("utf-8")).decode("utf-8")
+
+        url = (
+            f"{base_url}/launcher/dashboards.launcher"
+            f"?pane={pane_base64}"
+            f"&overlay={overlay_base64}"
+        )
+
+        return url
+    except Exception:
+        return None
 
 
 class ExecuteNRQLQuery(Tool):
@@ -93,10 +149,19 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
             "is_eu": self._toolset.is_eu_datacenter,
         }
         final_result = yaml.dump(result_with_key, default_flow_style=False)
+
+        # Build New Relic query URL
+        explore_url = _build_newrelic_query_url(
+            account_id=self._toolset.nr_account_id,
+            nrql_query=query,
+            is_eu_datacenter=self._toolset.is_eu_datacenter,
+        )
+
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
             data=final_result,
             params=params,
+            url=explore_url,
         )
 
     def get_parameterized_one_liner(self, params) -> str:
