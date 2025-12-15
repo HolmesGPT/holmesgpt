@@ -22,7 +22,6 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
     Toolset,
-    FetchPodLogsParams,
 )
 
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
@@ -50,21 +49,9 @@ class DatadogLogsConfig(DatadogBaseConfig):
     storage_tiers: list[DataDogStorageTier] = Field(
         default=DEFAULT_STORAGE_TIERS, min_length=1
     )
-    page_size: int = 300
+
     compact_logs: bool = True
     default_limit: int = DEFAULT_LOG_LIMIT
-
-
-def calculate_page_size(
-    params: FetchPodLogsParams, dd_config: DatadogLogsConfig, logs: list
-) -> int:
-    logs_count = len(logs)
-
-    max_logs_count = dd_config.default_limit
-    if params.limit:
-        max_logs_count = params.limit
-
-    return min(dd_config.page_size, max(0, max_logs_count - logs_count))
 
 
 def format_logs(raw_logs: list[dict]) -> str:
