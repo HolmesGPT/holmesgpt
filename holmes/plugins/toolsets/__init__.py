@@ -24,9 +24,6 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
 from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     DatadogTracesToolset,
 )
-from holmes.plugins.toolsets.datadog.toolset_datadog_rds import (
-    DatadogRDSToolset,
-)
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
     DatadogGeneralToolset,
 )
@@ -96,7 +93,6 @@ def load_python_toolsets(
         DatadogGeneralToolset(),
         DatadogMetricsToolset(),
         DatadogTracesToolset(),
-        DatadogRDSToolset(),
         OpenSearchLogsToolset(),
         OpenSearchTracesToolset(),
         OpenSearchQueryAssistToolset(),
