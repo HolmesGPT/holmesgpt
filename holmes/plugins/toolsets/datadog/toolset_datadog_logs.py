@@ -10,7 +10,7 @@ from holmes.core.tools import (
     Tool,
     ToolParameter,
 )
-from pydantic import Field
+from pydantic import Field, AnyUrl
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.datadog_api import (
     DatadogBaseConfig,
@@ -157,11 +157,13 @@ class DatadogLogsToolset(Toolset):
             return (False, f"Failed to parse Datadog configuration: {str(e)}")
 
     def get_example_config(self) -> Dict[str, Any]:
-        return {
-            "dd_api_key": "your-datadog-api-key",
-            "dd_app_key": "your-datadog-application-key",
-            "site_api_url": "https://api.datadoghq.com",
-        }
+        """Get example configuration for this toolset."""
+        example_config = DatadogLogsConfig(
+            dd_api_key="<your_datadog_api_key>",
+            dd_app_key="<your_datadog_app_key>",
+            site_api_url=AnyUrl("https://api.datadoghq.com"),
+        )
+        return example_config.model_dump(mode="json")
 
     def _reload_instructions(self):
         """Load Datadog logs specific troubleshooting instructions."""
