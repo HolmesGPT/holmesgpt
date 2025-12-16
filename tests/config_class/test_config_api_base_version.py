@@ -2,7 +2,6 @@ from unittest.mock import MagicMock, patch
 
 from pydantic import SecretStr
 import yaml
-
 from holmes.config import Config
 
 

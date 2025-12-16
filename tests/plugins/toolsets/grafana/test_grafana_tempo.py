@@ -6,15 +6,15 @@ import pytest
 import requests  # type: ignore
 
 from holmes.plugins.toolsets.grafana.trace_parser import process_trace
-from tests.plugins.toolsets.grafana.conftest import check_grafana_running
+from tests.plugins.toolsets.grafana.conftest import check_service_running
 
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     GrafanaTempoToolset,
 )
 
-# use docker compose setup from https://github.com/grafana/tempo/blob/main/example/docker-compose/local/readme.md
-skip_reason = check_grafana_running()
+# use docker compose setup from https://github.com/grafana/tempo/blob/main/example/docker-compose/local/readme.md to run local grafana and tempo.
+skip_reason = check_service_running("Grafana", 3000)
 if skip_reason:
     pytestmark = pytest.mark.skip(reason=skip_reason)
 
