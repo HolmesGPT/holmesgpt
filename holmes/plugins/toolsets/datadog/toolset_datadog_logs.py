@@ -1,5 +1,4 @@
 import os
-from enum import Enum
 import json
 import logging
 from typing import Any, Dict, Tuple, Optional
@@ -10,16 +9,20 @@ from holmes.core.tools import (
     Tool,
     ToolParameter,
 )
-from pydantic import Field, AnyUrl
+from pydantic import AnyUrl
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.datadog_api import (
-    DatadogBaseConfig,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
 )
+from holmes.plugins.toolsets.datadog.datadog_models import (
+    DatadogLogsConfig,
+)
+from holmes.plugins.toolsets.datadog.datadog_url_utils import generate_datadog_logs_url
 from holmes.plugins.toolsets.logging_utils.logging_api import (
+    DEFAULT_LOG_LIMIT,
     DEFAULT_TIME_SPAN_SECONDS,
     Toolset,
 )
@@ -30,28 +33,6 @@ from holmes.plugins.toolsets.utils import (
     toolset_name_for_one_liner,
     standard_start_datetime_tool_param_description,
 )
-from urllib.parse import urlencode
-
-
-class DataDogStorageTier(str, Enum):
-    INDEXES = "indexes"
-    ONLINE_ARCHIVES = "online-archives"
-    FLEX = "flex"
-
-
-DEFAULT_STORAGE_TIERS = [DataDogStorageTier.INDEXES]
-DEFAULT_LOG_LIMIT = 150
-
-
-class DatadogLogsConfig(DatadogBaseConfig):
-    indexes: list[str] = ["*"]
-    # TODO storage tier just works with first element. need to add support for multi stoarge tiers.
-    storage_tiers: list[DataDogStorageTier] = Field(
-        default=DEFAULT_STORAGE_TIERS, min_length=1
-    )
-
-    compact_logs: bool = True
-    default_limit: int = DEFAULT_LOG_LIMIT
 
 
 def format_logs(raw_logs: list[dict]) -> str:
@@ -317,26 +298,3 @@ class GetLogs(Tool):
                     else None
                 ),
             )
-
-
-def generate_datadog_logs_url(
-    dd_config: DatadogLogsConfig,
-    params: dict,
-) -> str:
-    """Generate a Datadog web UI URL for the logs query."""
-    from holmes.plugins.toolsets.datadog.datadog_api import convert_api_url_to_app_url
-
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
-    url_params = {
-        "query": params["filter"]["query"],
-        "from_ts": params["filter"]["from"],
-        "to_ts": params["filter"]["to"],
-        "live": "true",
-        "storage": params["filter"]["storage_tier"],
-    }
-
-    if dd_config.indexes != ["*"]:
-        url_params["index"] = ",".join(dd_config.indexes)
-
-    # Construct the full URL
-    return f"{base_url}/logs?{urlencode(url_params)}"
