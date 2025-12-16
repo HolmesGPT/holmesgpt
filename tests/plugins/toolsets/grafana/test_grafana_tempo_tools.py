@@ -352,7 +352,7 @@ class TestQueryMetricsRange:
             )
 
             assert result.status == StructuredToolResultStatus.SUCCESS
-            assert "result" in result.data
+            assert "result" in result.data["data"]
             mock_query.assert_called_once_with(
                 q='{ service.name="api" } | rate()',
                 step="8m",
