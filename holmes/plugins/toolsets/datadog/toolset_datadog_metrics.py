@@ -350,10 +350,9 @@ class QueryMetrics(BaseDatadogMetricsTool):
                 "data": {"resultType": "matrix", "result": prometheus_result},
             }
 
-            data_str = json.dumps(response_data, indent=2)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=data_str,
+                data=response_data,
                 params=params,
             )
 
@@ -495,13 +494,13 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
                     error="Failed to retrieve metadata for all metrics",
-                    data=json.dumps(response_data, indent=2),
+                    data=response_data,
                     params=params,
                 )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(response_data, indent=2),
+                data=response_data,
                 params=params,
             )
 

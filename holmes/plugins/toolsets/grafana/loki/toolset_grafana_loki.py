@@ -1,6 +1,5 @@
 from typing import Dict
 import os
-import json
 from holmes.core.tools import (
     Tool,
     ToolInvokeContext,
@@ -100,7 +99,7 @@ class LokiQuery(Tool):
             if data:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
-                    data=json.dumps(data),
+                    data=data,
                     params=params,
                 )
             else:

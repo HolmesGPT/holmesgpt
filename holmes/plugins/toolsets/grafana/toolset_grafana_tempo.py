@@ -1,8 +1,6 @@
 import os
 from typing import Any, Dict, Tuple, cast, List
 
-import yaml  # type: ignore
-
 from holmes.common.env_vars import load_bool, MAX_GRAPH_POINTS
 from holmes.core.tools import (
     StructuredToolResult,
@@ -338,7 +336,7 @@ Examples:
             # Return as YAML for readability
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False, sort_keys=False),
+                data=result,
                 params=params,
             )
 
@@ -430,7 +428,7 @@ class SearchTracesByQuery(Tool):
             )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
             )
         except Exception as e:
@@ -512,7 +510,7 @@ class SearchTracesByTags(Tool):
             )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
             )
         except Exception as e:
@@ -572,7 +570,7 @@ class QueryTraceById(Tool):
             # Return raw trace data as YAML for readability
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(trace_data, default_flow_style=False),
+                data=trace_data,
                 params=params,
             )
         except Exception as e:
@@ -648,7 +646,7 @@ class SearchTagNames(Tool):
             )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
             )
         except Exception as e:
@@ -724,7 +722,7 @@ class SearchTagValues(Tool):
             )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
             )
         except Exception as e:
@@ -799,7 +797,7 @@ class QueryMetricsInstant(Tool):
             )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
             )
         except Exception as e:
@@ -895,7 +893,7 @@ class QueryMetricsRange(Tool):
             )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
             )
         except Exception as e:
