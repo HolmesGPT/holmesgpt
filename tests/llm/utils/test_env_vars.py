@@ -14,6 +14,9 @@ AZURE_API_KEY = os.environ.get("AZURE_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 BRAINTRUST_API_KEY = os.environ.get("BRAINTRUST_API_KEY")
 
+# OpenAI configuration
+OPENAI_API_BASE = os.environ.get("OPENAI_API_BASE")
+
 # Azure configuration
 AZURE_API_BASE = os.environ.get("AZURE_API_BASE")
 AZURE_API_VERSION = os.environ.get("AZURE_API_VERSION")
