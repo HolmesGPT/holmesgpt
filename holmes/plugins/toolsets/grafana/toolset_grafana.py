@@ -1,5 +1,5 @@
 import os
-from typing import ClassVar, Dict, Optional, Type, cast
+from typing import ClassVar, Dict, Optional, Type, cast, Tuple
 from urllib.parse import urljoin
 from abc import ABC
 from holmes.core.tools import (
@@ -46,6 +46,15 @@ class GrafanaToolset(BaseGrafanaToolset):
         self._load_llm_instructions_from_file(
             os.path.dirname(__file__), "toolset_grafana_dashboard.jinja2"
         )
+
+    def health_check(self) -> Tuple[bool, str]:
+        """Test connectivity by invoking GetDashboardTags tool."""
+        tool = GetDashboardTags(self)
+        try:
+            _ = tool._make_grafana_request("/api/dashboards/tags", {})
+            return True, ""
+        except Exception as e:
+            return False, f"Failed to connect to Grafana {str(e)}"
 
     @property
     def grafana_config(self) -> GrafanaDashboardConfig:
