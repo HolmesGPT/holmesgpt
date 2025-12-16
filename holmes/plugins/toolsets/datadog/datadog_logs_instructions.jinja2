@@ -44,7 +44,6 @@ Before running logs queries:
 ### Time Parameters
 - Use RFC3339 format: `2023-03-01T10:30:00Z`
 - Or relative seconds: `-3600` for 1 hour ago
-- Defaults to 1 hour window if not specified
 
 ### Common Investigation Patterns
 
@@ -52,3 +51,11 @@ Before running logs queries:
 1. User asks: "Show logs for my-workload"
 2. Use `kubectl_find_resource` → find pod "my-workload-abc123-xyz"
 3. Query Datadog for pod "my-workload-abc123-xyz" logs
+
+
+### Search Query Guidelines
+
+1. Avoid using @timestamp Attribute in the search queries (e.g  for example  @timestamp:[2025-12-10T01:00:00.000Z TO 2025-12-10T04:00:00.000Z)
+   Rely on the fetch_datadog_logs function start_datetime and end_datetime parameters for that.
+2. Datadog default TAGS for kubernetes are *kube_namespace* and *pod_name*, if a user specificy custom TAGS used in his environment please use them in your search queries.
+3. If you see a useful TAG in your Old fetch_datadog_logs query use it for further queries.

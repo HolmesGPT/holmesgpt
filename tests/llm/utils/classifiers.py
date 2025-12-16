@@ -8,6 +8,7 @@ from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
 from tests.llm.utils.test_env_vars import (
     CLASSIFIER_MODEL,
     OPENAI_API_KEY,
+    OPENAI_API_BASE,
     AZURE_API_KEY,
     AZURE_API_BASE,
     AZURE_API_VERSION,
@@ -41,7 +42,7 @@ def get_classifier_model_params() -> ClassifierModelParams:
             raise ValueError("No API key found (AZURE_API_KEY or OPENAI_API_KEY)")
         model_for_api = CLASSIFIER_MODEL
         client_api_key = AZURE_API_KEY if AZURE_API_BASE else OPENAI_API_KEY
-        client_base_url = AZURE_API_BASE
+        client_base_url = AZURE_API_BASE if AZURE_API_BASE else OPENAI_API_BASE
         client_api_version = AZURE_API_VERSION
 
         if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure"):
@@ -84,7 +85,8 @@ def create_llm_client():
     else:
         if not params.api_key:
             raise ValueError("No OPENAI_API_KEY")
-        client = openai.OpenAI(api_key=params.api_key)
+        client = openai.OpenAI(api_key=params.api_key, base_url=params.api_base)
+        model_for_api = params.model
 
     return client, model_for_api
 

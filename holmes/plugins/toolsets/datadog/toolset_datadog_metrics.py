@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from pydantic import AnyUrl
 from typing import Any, Optional, Dict, Tuple
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -685,13 +686,12 @@ class DatadogMetricsToolset(Toolset):
             return (False, f"Failed to parse Datadog configuration: {str(e)}")
 
     def get_example_config(self) -> Dict[str, Any]:
-        return {
-            "dd_api_key": "your-datadog-api-key",
-            "dd_app_key": "your-datadog-application-key",
-            "site_api_url": "https://api.datadoghq.com",
-            "default_limit": 1000,
-            "request_timeout": 60,
-        }
+        example_config = DatadogMetricsConfig(
+            dd_api_key="<your_datadog_api_key>",
+            dd_app_key="<your_datadog_app_key>",
+            site_api_url=AnyUrl("https://api.datadoghq.com"),
+        )
+        return example_config.model_dump(mode="json")
 
     def _reload_instructions(self):
         """Load Datadog metrics specific troubleshooting instructions."""

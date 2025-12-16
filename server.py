@@ -58,10 +58,16 @@ from holmes.core.models import (
 from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
+from holmes.utils.log import EndpointFilter
 # removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
+    # Filter out periodical healniss and readiness probe.
+    uvicorn_logger = logging.getLogger("uvicorn.access")
+    uvicorn_logger.addFilter(EndpointFilter(path="/healthz"))
+    uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
+
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
     logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
     logging_datefmt = "%Y-%m-%d %H:%M:%S"
@@ -413,6 +419,21 @@ def chat(chat_request: ChatRequest):
 @app.get("/api/model")
 def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
+
+
+@app.get("/healthz")
+def health_check():
+    return {"status": "healthy"}
+
+
+@app.get("/readyz")
+def readiness_check():
+    try:
+        models_list = config.get_models_list()
+        return {"status": "ready", "models": models_list}
+    except Exception as e:
+        logging.error(f"Readiness check failed: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Service not ready")
 
 
 if __name__ == "__main__":
