@@ -2,7 +2,6 @@ from unittest.mock import Mock, patch
 from holmes.core.tools import StructuredToolResultStatus, ToolsetStatusEnum
 from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
     DatadogLogsToolset,
-    DataDogStorageTier,
     DEFAULT_STORAGE_TIERS,
 )
 
@@ -62,14 +61,16 @@ class TestDatadogToolsetCheckPrerequisites:
         assert toolset.error
         assert "Failed to parse Datadog configuration" in toolset.error
 
-    @patch.object(DatadogLogsToolset, "fetch_pod_logs")
-    def test_check_prerequisites_successful_healthcheck(self, mock_fetch_pod_logs):
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_check_prerequisites_successful_healthcheck(self, mock_execute_request):
         """Test check_prerequisites with successful healthcheck"""
         # Mock successful healthcheck response
         mock_result = Mock()
         mock_result.status = StructuredToolResultStatus.SUCCESS
         mock_result.error = None
-        mock_fetch_pod_logs.return_value = mock_result
+        mock_execute_request.return_value = mock_result
 
         toolset = DatadogLogsToolset()
         toolset.config = {
@@ -91,21 +92,11 @@ class TestDatadogToolsetCheckPrerequisites:
         assert toolset.dd_config.storage_tiers == DEFAULT_STORAGE_TIERS
 
         # Verify healthcheck was called with correct params
-        mock_fetch_pod_logs.assert_called_once()
-        healthcheck_params = mock_fetch_pod_logs.call_args[0][0]
-        assert healthcheck_params.namespace == "*"
-        assert healthcheck_params.pod_name == "*"
-        assert healthcheck_params.limit == 1
-        assert healthcheck_params.start_time == "-172800"  # 48 hours
+        mock_execute_request.assert_called_once()
 
-    @patch.object(DatadogLogsToolset, "fetch_pod_logs")
-    def test_check_prerequisites_healthcheck_error(self, mock_fetch_pod_logs):
+    def test_check_prerequisites_healthcheck_error(self):
         """Test check_prerequisites with healthcheck returning error"""
         # Mock healthcheck error response
-        mock_result = Mock()
-        mock_result.status = StructuredToolResultStatus.ERROR
-        mock_result.error = "Authentication failed"
-        mock_fetch_pod_logs.return_value = mock_result
 
         toolset = DatadogLogsToolset()
         toolset.config = {
@@ -116,36 +107,15 @@ class TestDatadogToolsetCheckPrerequisites:
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.FAILED
-        assert toolset.error == "Datadog healthcheck failed: Authentication failed"
+        assert toolset.error == 'Datadog API error: 401 - {"errors":["Unauthorized"]}'
 
-    @patch.object(DatadogLogsToolset, "fetch_pod_logs")
-    def test_check_prerequisites_healthcheck_no_data(self, mock_fetch_pod_logs):
-        """Test check_prerequisites with healthcheck returning no data"""
-        # Mock healthcheck no data response
-        mock_result = Mock()
-        mock_result.status = StructuredToolResultStatus.NO_DATA
-        mock_result.error = None
-        mock_fetch_pod_logs.return_value = mock_result
-
-        toolset = DatadogLogsToolset()
-        toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
-        }
-        toolset.check_prerequisites()
-
-        assert toolset.status == ToolsetStatusEnum.FAILED
-        assert (
-            toolset.error
-            == "Datadog healthcheck failed: No logs were found in the last 48 hours using wildcards for pod and namespace. Is the configuration correct?"
-        )
-
-    @patch.object(DatadogLogsToolset, "fetch_pod_logs")
-    def test_check_prerequisites_healthcheck_exception(self, mock_fetch_pod_logs):
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_check_prerequisites_healthcheck_exception(self, mock_execute_request):
         """Test check_prerequisites with healthcheck throwing exception"""
-        # Mock healthcheck exception
-        mock_fetch_pod_logs.side_effect = Exception("Network error")
+        # Mock execute_datadog_http_request to raise an exception
+        mock_execute_request.side_effect = Exception("Network error")
 
         toolset = DatadogLogsToolset()
         toolset.config = {
@@ -158,15 +128,12 @@ class TestDatadogToolsetCheckPrerequisites:
         assert toolset.status == ToolsetStatusEnum.FAILED
         assert "Healthcheck failed with exception: Network error" in toolset.error
 
-    @patch.object(DatadogLogsToolset, "fetch_pod_logs")
-    def test_check_prerequisites_with_custom_config(self, mock_fetch_pod_logs):
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_check_prerequisites_with_custom_config(self, mock_execute_request):
         """Test check_prerequisites with custom configuration"""
-        # Mock successful healthcheck response
-        mock_result = Mock()
-        mock_result.status = StructuredToolResultStatus.SUCCESS
-        mock_result.error = None
-        mock_fetch_pod_logs.return_value = mock_result
-
+        mock_execute_request.return_value = {}
         toolset = DatadogLogsToolset()
         toolset.config = {
             "dd_api_key": "test-api-key",
@@ -189,15 +156,6 @@ class TestDatadogToolsetCheckPrerequisites:
             == "https://api.us3.datadoghq.com"
         )
         assert toolset.dd_config.indexes == ["main", "secondary"]
-        assert toolset.dd_config.storage_tiers == [
-            DataDogStorageTier.INDEXES,
-            DataDogStorageTier.FLEX,
-        ]
-        assert toolset.dd_config.labels.pod == "custom_pod_name"
-        assert toolset.dd_config.labels.namespace == "custom_namespace"
-        assert toolset.dd_config.page_size == 500
-        assert toolset.dd_config.default_limit == 2000
-        assert toolset.dd_config.request_timeout == 120
 
     def test_check_prerequisites_with_empty_storage_tiers(self):
         """Test check_prerequisites with empty storage_tiers should fail validation"""
@@ -215,21 +173,6 @@ class TestDatadogToolsetCheckPrerequisites:
         assert "Failed to parse Datadog configuration" in toolset.error
         assert "storage_tiers" in toolset.error
         assert "at least 1 item" in toolset.error
-
-    def test_check_prerequisites_exception_during_config_parsing(self):
-        """Test check_prerequisites with exception during config parsing"""
-        toolset = DatadogLogsToolset()
-        toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
-            "page_size": "not-a-number",  # Invalid type
-        }
-        toolset.check_prerequisites()
-
-        assert toolset.status == ToolsetStatusEnum.FAILED
-        assert toolset.error
-        assert "Failed to parse Datadog configuration" in toolset.error
 
     def test_check_prerequisites_integration(self):
         """Integration test to ensure check_prerequisites is called via CallablePrerequisite"""

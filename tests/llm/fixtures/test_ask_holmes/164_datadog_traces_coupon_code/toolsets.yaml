@@ -1,18 +1,9 @@
-# Datadog toolset configuration for test 91f
-# Enables Datadog logs toolset to query historical logs
-
 toolsets:
 
-  datadog/logs:
+  datadog/traces:
     enabled: true
     config:
       # These will be populated from environment variables
       dd_api_key: "{{env.DATADOG_API_KEY}}"
       dd_app_key: "{{env.DATADOG_APP_KEY}}"
       site_api_url: "https://api.datadoghq.eu"  # EU endpoint to match our API keys
-      indexes:
-        - "*"
-      storage_tiers:
-        - "indexes"
-      page_size: 300
-      default_limit: 1000
