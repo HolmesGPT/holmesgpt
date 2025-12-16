@@ -437,7 +437,7 @@ def create_structured_tool_result(
 
     return StructuredToolResult(
         status=status,
-        data=response.model_dump_json(indent=2),
+        data=response,
         params=params,
         error=error,
     )
