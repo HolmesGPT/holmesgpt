@@ -22,10 +22,14 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.datadog.datadog_api import (
     DataDogRequestError,
-    DatadogBaseConfig,
     execute_datadog_http_request,
     get_headers,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
+)
+from holmes.plugins.toolsets.datadog.datadog_models import DatadogTracesConfig
+from holmes.plugins.toolsets.datadog.datadog_url_utils import (
+    generate_datadog_spans_analytics_url,
+    generate_datadog_spans_url,
 )
 from holmes.plugins.toolsets.utils import (
     process_timestamps_to_int,
@@ -39,10 +43,6 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
 
 # Valid percentile aggregations supported by Datadog
 PERCENTILE_AGGREGATIONS = ["pc75", "pc90", "pc95", "pc98", "pc99"]
-
-
-class DatadogTracesConfig(DatadogBaseConfig):
-    indexes: list[str] = ["*"]
 
 
 class DatadogTracesToolset(Toolset):
@@ -250,7 +250,7 @@ class GetSpans(BaseDatadogTracesTool):
             from_time_ms = from_time_int * 1000
             to_time_ms = to_time_int * 1000
 
-            query = params.get("query") if params.get("query") else "*"
+            query: str = params.get("query") if params.get("query") else "*"  # type: ignore
             limit = params.get("limit") if params.get("limit") else 10
             if params.get("sort") is not None:
                 sort = "-timestamp" if params.get("sort") else True
@@ -293,10 +293,18 @@ class GetSpans(BaseDatadogTracesTool):
                     self._filter_span_attributes(span) for span in response["data"]
                 ]
 
+            web_url = generate_datadog_spans_url(
+                self.toolset.dd_config,
+                query,
+                from_time_ms,
+                to_time_ms,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response,
                 params=params,
+                url=web_url,
             )
 
         except DataDogRequestError as e:
@@ -652,10 +660,18 @@ class AggregateSpans(BaseDatadogTracesTool):
                 method="POST",
             )
 
+            web_url = generate_datadog_spans_analytics_url(
+                self.toolset.dd_config,
+                query,
+                from_time_ms,
+                to_time_ms,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response,
                 params=params,
+                url=web_url,
             )
 
         except DataDogRequestError as e:

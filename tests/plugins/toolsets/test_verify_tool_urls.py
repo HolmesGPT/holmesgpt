@@ -41,6 +41,28 @@ from holmes.plugins.toolsets.newrelic.newrelic import (
     NewRelicToolset,
     ExecuteNRQLQuery,
 )
+from holmes.plugins.toolsets.datadog.datadog_models import (
+    DatadogGeneralConfig,
+    DatadogMetricsConfig,
+    DatadogTracesConfig,
+)
+from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
+    DatadogAPIGet,
+    DatadogAPIPostSearch,
+    DatadogGeneralToolset,
+)
+from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
+    DatadogMetricsToolset,
+    ListActiveMetrics,
+    ListMetricTags,
+    QueryMetrics,
+    QueryMetricsMetadata,
+)
+from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
+    AggregateSpans,
+    DatadogTracesToolset,
+    GetSpans,
+)
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -739,3 +761,285 @@ class TestNewRelicURLs:
             ), f"URL validation failed for {tool_class.__name__}: {result.url}"
         finally:
             mock_patcher.stop()
+
+
+class TestDatadogMetricsURLs:
+    BASE_URL = "https://api.datadoghq.com"
+    APP_URL = "https://app.datadoghq.com"
+
+    @pytest.fixture
+    def mock_api(self):
+        """Fixture to mock Datadog API calls."""
+        with patch(
+            "holmes.plugins.toolsets.datadog.toolset_datadog_metrics.execute_datadog_http_request"
+        ) as mock_execute:
+            mock_execute.return_value = {
+                "metrics": ["system.cpu.user", "system.mem.used"],
+                "series": [
+                    {
+                        "metric": "system.cpu.user",
+                        "pointlist": [[1609459200000, 50.5]],
+                        "scope": "host:test-host",
+                    }
+                ],
+                "data": {
+                    "type": "metric",
+                    "id": "system.cpu.user",
+                },
+            }
+            yield mock_execute
+
+    @pytest.fixture
+    def config(self):
+        return DatadogMetricsConfig(
+            dd_api_key="test-key",
+            dd_app_key="test-app-key",
+            site_api_url=self.BASE_URL,
+        )
+
+    @pytest.fixture
+    def toolset(self, config):
+        toolset = DatadogMetricsToolset()
+        toolset.dd_config = config
+        return toolset
+
+    TEST_CASES = [
+        (
+            ListActiveMetrics,
+            {"from_time": "-3600"},
+            lambda url, cls: (cls.APP_URL in url and "/metric/summary" in url),
+        ),
+        (
+            ListActiveMetrics,
+            {"from_time": "-3600", "host": "test-host"},
+            lambda url, cls: (
+                cls.APP_URL in url
+                and "/metric/summary" in url
+                and "host=test-host" in url
+            ),
+        ),
+        (
+            QueryMetrics,
+            {
+                "query": "system.cpu.user{host:test-host}",
+                "description": "CPU usage",
+                "from_time": "-3600",
+                "to_time": "0",
+            },
+            lambda url, cls: (
+                cls.APP_URL in url and "/metric/explorer" in url and "query=" in url
+            ),
+        ),
+        (
+            QueryMetricsMetadata,
+            {"metric_names": "system.cpu.user"},
+            lambda url, cls: (
+                cls.APP_URL in url
+                and "/metric/summary" in url
+                and "metric=system.cpu.user" in url
+            ),
+        ),
+        (
+            ListMetricTags,
+            {"metric_name": "system.cpu.user"},
+            lambda url, cls: (
+                cls.APP_URL in url
+                and "/metric/summary" in url
+                and "metric=system.cpu.user" in url
+            ),
+        ),
+    ]
+
+    @pytest.mark.parametrize("tool_class,params,url_validator", TEST_CASES)
+    def test_tool_urls(self, toolset, mock_api, tool_class, params, url_validator):
+        tool = tool_class(toolset)
+        context = create_mock_tool_invoke_context()
+        result = tool.invoke(params=params, context=context)
+
+        assert result.status in (
+            StructuredToolResultStatus.SUCCESS,
+            StructuredToolResultStatus.NO_DATA,
+        )
+        assert result.url is not None
+        assert url_validator(
+            result.url, self
+        ), f"URL validation failed for {tool_class.__name__}: {result.url}"
+
+
+class TestDatadogTracesURLs:
+    BASE_URL = "https://api.datadoghq.com"
+    APP_URL = "https://app.datadoghq.com"
+
+    @pytest.fixture
+    def mock_api(self):
+        """Fixture to mock Datadog API calls."""
+        with patch(
+            "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
+        ) as mock_execute:
+            mock_execute.return_value = {
+                "data": [
+                    {
+                        "id": "span-1",
+                        "type": "span",
+                        "attributes": {
+                            "service": "test-service",
+                            "resource_name": "GET /api/test",
+                        },
+                    }
+                ],
+                "meta": {"page": {"after": None}},
+            }
+            yield mock_execute
+
+    @pytest.fixture
+    def config(self):
+        return DatadogTracesConfig(
+            dd_api_key="test-key",
+            dd_app_key="test-app-key",
+            site_api_url=self.BASE_URL,
+        )
+
+    @pytest.fixture
+    def toolset(self, config):
+        toolset = DatadogTracesToolset()
+        toolset.dd_config = config
+        return toolset
+
+    TEST_CASES = [
+        (
+            GetSpans,
+            {
+                "query": "service:test-service",
+                "start_datetime": "-3600",
+                "end_datetime": "0",
+                "compact": True,
+            },
+            lambda url, cls: (
+                cls.APP_URL in url and "/apm/traces" in url and "query=" in url
+            ),
+        ),
+        (
+            AggregateSpans,
+            {
+                "query": "service:test-service",
+                "start_datetime": "-3600",
+                "end_datetime": "0",
+                "compute": [{"aggregation": "count", "type": "total"}],
+            },
+            lambda url, cls: (
+                cls.APP_URL in url and "/apm/analytics" in url and "query=" in url
+            ),
+        ),
+    ]
+
+    @pytest.mark.parametrize("tool_class,params,url_validator", TEST_CASES)
+    def test_tool_urls(self, toolset, mock_api, tool_class, params, url_validator):
+        tool = tool_class(toolset)
+        context = create_mock_tool_invoke_context()
+        result = tool.invoke(params=params, context=context)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.url is not None
+        assert url_validator(
+            result.url, self
+        ), f"URL validation failed for {tool_class.__name__}: {result.url}"
+
+
+class TestDatadogGeneralURLs:
+    BASE_URL = "https://api.datadoghq.com"
+    APP_URL = "https://app.datadoghq.com"
+
+    @pytest.fixture
+    def mock_api(self):
+        """Fixture to mock Datadog API calls."""
+        with patch(
+            "holmes.plugins.toolsets.datadog.toolset_datadog_general.execute_datadog_http_request"
+        ) as mock_execute:
+            mock_execute.return_value = {
+                "monitors": [{"id": 12345, "name": "Test Monitor"}],
+                "data": [{"id": "test-id", "type": "monitor"}],
+            }
+            yield mock_execute
+
+    @pytest.fixture
+    def config(self):
+        return DatadogGeneralConfig(
+            dd_api_key="test-key",
+            dd_app_key="test-app-key",
+            site_api_url=self.BASE_URL,
+        )
+
+    @pytest.fixture
+    def toolset(self, config):
+        toolset = DatadogGeneralToolset()
+        toolset.dd_config = config
+        return toolset
+
+    TEST_CASES = [
+        (
+            DatadogAPIGet,
+            {
+                "endpoint": "/api/v1/monitor",
+                "description": "List monitors",
+                "query_params": {},
+            },
+            lambda url, cls: (cls.APP_URL in url and "/monitors" in url),
+        ),
+        (
+            DatadogAPIGet,
+            {
+                "endpoint": "/api/v1/monitor/12345",
+                "description": "Get monitor",
+                "query_params": {},
+            },
+            lambda url, cls: (cls.APP_URL in url and "/monitors/12345" in url),
+        ),
+        (
+            DatadogAPIGet,
+            {
+                "endpoint": "/api/v1/events",
+                "description": "Get events",
+                "query_params": {"start": 1609459200, "end": 1609545600},
+            },
+            lambda url, cls: (
+                cls.APP_URL in url and "/events" in url and "from_ts" in url
+            ),
+        ),
+        (
+            DatadogAPIPostSearch,
+            {
+                "endpoint": "/api/v2/monitor/search",
+                "description": "Search monitors",
+                "body": {"query": "env:production", "page": 0, "per_page": 20},
+            },
+            lambda url, cls: (cls.APP_URL in url and "/monitors" in url),
+        ),
+        (
+            DatadogAPIPostSearch,
+            {
+                "endpoint": "/api/v2/logs/events/search",
+                "description": "Search logs",
+                "body": {
+                    "filter": {
+                        "from": "2024-01-01T00:00:00Z",
+                        "to": "2024-01-02T00:00:00Z",
+                        "query": "*",
+                    },
+                    "page": {"limit": 50},
+                },
+            },
+            lambda url, cls: (cls.APP_URL in url and "/logs" in url),
+        ),
+    ]
+
+    @pytest.mark.parametrize("tool_class,params,url_validator", TEST_CASES)
+    def test_tool_urls(self, toolset, mock_api, tool_class, params, url_validator):
+        tool = tool_class(toolset)
+        context = create_mock_tool_invoke_context()
+        result = tool.invoke(params=params, context=context)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.url is not None
+        assert url_validator(
+            result.url, self
+        ), f"URL validation failed for {tool_class.__name__}: {result.url}"
