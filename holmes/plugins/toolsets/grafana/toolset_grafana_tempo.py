@@ -46,6 +46,8 @@ def _build_grafana_explore_tempo_url(
     filters: Optional[List[Dict[str, Any]]] = None,
     tags: Optional[str] = None,
 ) -> Optional[str]:
+    if not config.grafana_datasource_uid:
+        return None
     try:
         base_url = config.external_url or config.url
         datasource_uid = config.grafana_datasource_uid

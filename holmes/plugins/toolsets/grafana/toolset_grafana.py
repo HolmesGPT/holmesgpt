@@ -1,6 +1,6 @@
 import os
-from typing import ClassVar, Dict, List, Optional, Type, cast
-from urllib.parse import urljoin, quote
+from typing import Any, ClassVar, Dict, Optional, Type, cast
+from urllib.parse import urlencode, urljoin
 from abc import ABC
 from holmes.core.tools import (
     StructuredToolResult,
@@ -29,15 +29,14 @@ class GrafanaDashboardConfig(GrafanaConfig):
 def _build_grafana_dashboard_url(
     config: GrafanaDashboardConfig,
     uid: Optional[str] = None,
-    query_params: Optional[List[str]] = None,
+    query_params: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     try:
         base_url = config.external_url or config.url
         if uid:
             return f"{base_url.rstrip('/')}/d/{uid}"
         else:
-            # Build search page URL
-            query_string = "&".join(query_params) if query_params else ""
+            query_string = urlencode(query_params, doseq=True) if query_params else ""
             if query_string:
                 return f"{base_url.rstrip('/')}/dashboards?{query_string}"
             else:
@@ -173,16 +172,12 @@ class SearchDashboards(BaseGrafanaTool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         query_params = {}
-        url_params = []
         if params.get("query"):
             query_params["query"] = params["query"]
-            url_params.append(f"query={quote(params['query'])}")
         if params.get("tag"):
             query_params["tag"] = params["tag"]
-            url_params.append(f"tag={quote(params['tag'])}")
         if params.get("type"):
             query_params["type"] = params["type"]
-            url_params.append(f"type={quote(params['type'])}")
         if params.get("dashboardIds"):
             # Check if dashboardIds also needs to be passed as multiple params
             dashboard_ids = params["dashboardIds"].split(",")
@@ -213,7 +208,7 @@ class SearchDashboards(BaseGrafanaTool):
         result = self._make_grafana_request("/api/search", params, query_params)
 
         config = self._toolset.grafana_config
-        search_url = _build_grafana_dashboard_url(config, query_params=url_params)
+        search_url = _build_grafana_dashboard_url(config, query_params=query_params)
 
         if params.get("dashboardUIDs"):
             uids = [

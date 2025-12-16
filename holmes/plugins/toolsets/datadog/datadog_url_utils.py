@@ -125,10 +125,21 @@ def generate_datadog_logs_url(
     return f"{base_url}/logs?{urlencode(url_params)}"
 
 
-def _build_qs(query_params: Optional[Dict[str, Any]], allowed: Optional[set] = None) -> str:
+def _build_qs(
+    query_params: Optional[Dict[str, Any]], allowed: Optional[set] = None
+) -> str:
     if not query_params:
         return ""
-    allowed = allowed or {"filter", "query", "tags", "status", "start", "end", "from", "to"}
+    allowed = allowed or {
+        "filter",
+        "query",
+        "tags",
+        "status",
+        "start",
+        "end",
+        "from",
+        "to",
+    }
     url_params = {}
     for k, v in query_params.items():
         if k not in allowed or v is None:

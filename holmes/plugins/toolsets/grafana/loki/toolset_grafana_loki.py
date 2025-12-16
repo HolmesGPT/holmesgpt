@@ -31,6 +31,8 @@ from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 def _build_grafana_loki_explore_url(
     config: GrafanaConfig, query: str, start: str, end: str, limit: int = 100
 ) -> Optional[str]:
+    if not config.grafana_datasource_uid:
+        return None
     try:
         base_url = config.external_url or config.url
         datasource_uid = config.grafana_datasource_uid or "loki"
