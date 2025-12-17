@@ -49,10 +49,13 @@ class BaseGrafanaTempoToolset(BaseGrafanaToolset):
 
     def health_check(self) -> Tuple[bool, str]:
         """Test a dummy query to check if service available."""
-        _ = GrafanaTempoAPI(self.grafana_config).search_traces_by_query(
-            q='{ .service.name = "test-endpoint" }',
-            limit=1,
-        )
+        try:
+            _ = GrafanaTempoAPI(self.grafana_config).search_traces_by_query(
+                q='{ .service.name = "test-endpoint" }',
+                limit=1,
+            )
+        except Exception as e:
+            return False, f"Unable to connect to Tempo.\n{str(e)}"
 
         return True, ""
 
