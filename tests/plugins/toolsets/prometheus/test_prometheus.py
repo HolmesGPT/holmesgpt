@@ -20,6 +20,20 @@ def test_mimir_datasource_toolset_health_check():
     assert toolset.status == ToolsetStatusEnum.ENABLED
 
 
+def test_mimir_datasource_toolset_bad_uid_health_check():
+    toolset = PrometheusToolset()
+    toolset.config = {
+        "prometheus_url": "http://localhost:9000/api/datasources/proxy/uid/PAE45454D0EDB9216111",
+    }
+    toolset.check_prerequisites()
+
+    assert (
+        "Failed to connect to Prometheus at http://localhost:9000/api/datasources/proxy/uid/PAE45454D0EDB9216111/api/v1/query?query=up: HTTP 404"
+        in toolset.error
+    )
+    assert toolset.status == ToolsetStatusEnum.FAILED
+
+
 def test_mimir_direct_toolset_health_check():
     toolset = PrometheusToolset()
     toolset.config = {
