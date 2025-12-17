@@ -1,6 +1,7 @@
 import json
 import os
 from typing import Any, Optional, Tuple
+from urllib.parse import quote
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -20,6 +21,41 @@ from holmes.plugins.toolsets.coralogix.api import (
 )
 from holmes.plugins.toolsets.coralogix.utils import CoralogixConfig, normalize_datetime
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+
+
+def _build_coralogix_query_url(
+    config: CoralogixConfig,
+    query: str,
+    start_date: str,
+    end_date: str,
+    tier: Optional[CoralogixTier] = None,
+) -> Optional[str]:
+    try:
+        if tier == CoralogixTier.ARCHIVE:
+            data_pipeline = "archive-logs"
+        else:
+            # due to a bug in Coralogix, we always use the logs pipeline
+            # since the tracing url does not support the query parameter
+            # https://coralogix.com/docs/user-guides/monitoring-and-insights/logs-screen/query-urls/
+            data_pipeline = "logs"
+
+        time_range = f"from:{start_date},to:{end_date}"
+
+        encoded_query = quote(query)
+        encoded_time = quote(time_range)
+        base_url = f"https://{config.team_hostname}.{config.domain}"
+
+        url = (
+            f"{base_url}/#/query-new/{data_pipeline}"
+            f"?querySyntax=dataprime"
+            f"&time={encoded_time}"
+            f"&query={encoded_query}"
+            f"&permalink=true"
+        )
+        return url
+
+    except Exception:
+        return None
 
 
 class ExecuteDataPrimeQuery(Tool):
@@ -121,12 +157,22 @@ class ExecuteDataPrimeQuery(Tool):
             result_dict["results_msg"] = results_msg
             status = StructuredToolResultStatus.NO_DATA
 
+        # Build Coralogix query URL
+        explore_url = _build_coralogix_query_url(
+            config=self._toolset.coralogix_config,
+            query=params["query"],
+            start_date=start_time,
+            end_date=end_time,
+            tier=tier,
+        )
+
         # Return a pretty-printed JSON string for readability by the model/user.
         final_result = json.dumps(result_dict, indent=2, sort_keys=False)
         return StructuredToolResult(
             status=status,
             data=final_result,
             params=params,
+            url=explore_url,
         )
 
     def get_parameterized_one_liner(self, params) -> str:

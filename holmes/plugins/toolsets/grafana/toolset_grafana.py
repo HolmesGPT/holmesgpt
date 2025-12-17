@@ -1,6 +1,6 @@
 import os
-from typing import ClassVar, Dict, Optional, Type, cast
-from urllib.parse import urljoin
+from typing import Any, ClassVar, Dict, Optional, Type, cast, Tuple
+from urllib.parse import urlencode, urljoin
 from abc import ABC
 from holmes.core.tools import (
     StructuredToolResult,
@@ -26,6 +26,25 @@ class GrafanaDashboardConfig(GrafanaConfig):
     healthcheck: Optional[str] = "api/health"
 
 
+def _build_grafana_dashboard_url(
+    config: GrafanaDashboardConfig,
+    uid: Optional[str] = None,
+    query_params: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    try:
+        base_url = config.external_url or config.url
+        if uid:
+            return f"{base_url.rstrip('/')}/d/{uid}"
+        else:
+            query_string = urlencode(query_params, doseq=True) if query_params else ""
+            if query_string:
+                return f"{base_url.rstrip('/')}/dashboards?{query_string}"
+            else:
+                return f"{base_url.rstrip('/')}/dashboards"
+    except Exception:
+        return None
+
+
 class GrafanaToolset(BaseGrafanaToolset):
     config_class: ClassVar[Type[GrafanaDashboardConfig]] = GrafanaDashboardConfig
 
@@ -46,6 +65,15 @@ class GrafanaToolset(BaseGrafanaToolset):
         self._load_llm_instructions_from_file(
             os.path.dirname(__file__), "toolset_grafana_dashboard.jinja2"
         )
+
+    def health_check(self) -> Tuple[bool, str]:
+        """Test connectivity by invoking GetDashboardTags tool."""
+        tool = GetDashboardTags(self)
+        try:
+            _ = tool._make_grafana_request("/api/dashboards/tags", {})
+            return True, ""
+        except Exception as e:
+            return False, f"Failed to connect to Grafana {str(e)}"
 
     @property
     def grafana_config(self) -> GrafanaDashboardConfig:
@@ -186,7 +214,24 @@ class SearchDashboards(BaseGrafanaTool):
         if params.get("page"):
             query_params["page"] = params["page"]
 
-        return self._make_grafana_request("/api/search", params, query_params)
+        result = self._make_grafana_request("/api/search", params, query_params)
+
+        config = self._toolset.grafana_config
+        search_url = _build_grafana_dashboard_url(config, query_params=query_params)
+
+        if params.get("dashboardUIDs"):
+            uids = [
+                uid.strip() for uid in params["dashboardUIDs"].split(",") if uid.strip()
+            ]
+            if len(uids) == 1:
+                search_url = _build_grafana_dashboard_url(config, uid=uids[0])
+
+        return StructuredToolResult(
+            status=result.status,
+            data=result.data,
+            params=result.params,
+            url=search_url if search_url else None,
+        )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Search Dashboards"
@@ -209,7 +254,18 @@ class GetDashboardByUID(BaseGrafanaTool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         uid = params["uid"]
-        return self._make_grafana_request(f"/api/dashboards/uid/{uid}", params)
+        result = self._make_grafana_request(f"/api/dashboards/uid/{uid}", params)
+
+        dashboard_url = _build_grafana_dashboard_url(
+            self._toolset.grafana_config, uid=uid
+        )
+
+        return StructuredToolResult(
+            status=result.status,
+            data=result.data,
+            params=result.params,
+            url=dashboard_url if dashboard_url else result.url,
+        )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Get Dashboard {params.get('uid', '')}"
@@ -225,7 +281,21 @@ class GetHomeDashboard(BaseGrafanaTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        return self._make_grafana_request("/api/dashboards/home", params)
+        result = self._make_grafana_request("/api/dashboards/home", params)
+
+        config = self._toolset.grafana_config
+        dashboard_url = None
+        if isinstance(result.data, dict):
+            uid = result.data.get("dashboard", {}).get("uid")
+            if uid:
+                dashboard_url = _build_grafana_dashboard_url(config, uid=uid)
+
+        return StructuredToolResult(
+            status=result.status,
+            data=result.data,
+            params=result.params,
+            url=dashboard_url if dashboard_url else None,
+        )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Get Home Dashboard"
@@ -241,7 +311,17 @@ class GetDashboardTags(BaseGrafanaTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        return self._make_grafana_request("/api/dashboards/tags", params)
+        result = self._make_grafana_request("/api/dashboards/tags", params)
+
+        config = self._toolset.grafana_config
+        tags_url = _build_grafana_dashboard_url(config)
+
+        return StructuredToolResult(
+            status=result.status,
+            data=result.data,
+            params=result.params,
+            url=tags_url,
+        )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Get Dashboard Tags"

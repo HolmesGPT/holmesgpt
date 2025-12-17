@@ -1,9 +1,9 @@
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
-from tests.plugins.toolsets.grafana.conftest import check_grafana_running
+from tests.plugins.toolsets.grafana.conftest import check_service_running
 import pytest
 
-skip_reason = check_grafana_running(port=9000)
+skip_reason = check_service_running("Grafana", 9000)
 if skip_reason:
     pytestmark = pytest.mark.skip(reason=skip_reason)
 

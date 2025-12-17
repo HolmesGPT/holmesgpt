@@ -1,6 +1,7 @@
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 import os
 import json
+from urllib.parse import quote
 from holmes.core.tools import (
     Tool,
     ToolInvokeContext,
@@ -9,8 +10,7 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.consts import (
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
 )
-
-from holmes.plugins.toolsets.grafana.common import get_base_url
+from holmes.plugins.toolsets.grafana.common import get_base_url, GrafanaConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana import BaseGrafanaToolset
 from holmes.plugins.toolsets.utils import (
     process_timestamps_to_rfc3339,
@@ -28,6 +28,44 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
+def _build_grafana_loki_explore_url(
+    config: GrafanaConfig, query: str, start: str, end: str, limit: int = 100
+) -> Optional[str]:
+    if not config.grafana_datasource_uid:
+        return None
+    try:
+        base_url = config.external_url or config.url
+        datasource_uid = config.grafana_datasource_uid or "loki"
+
+        from_str = start if start else "now-1h"
+        to_str = end if end else "now"
+
+        pane_id = "tmp"
+        safe_query = query if query else "{}"
+        panes = {
+            pane_id: {
+                "datasource": datasource_uid,
+                "queries": [
+                    {
+                        "refId": "A",
+                        "datasource": {"type": "loki", "uid": datasource_uid},
+                        "expr": safe_query,
+                        "queryType": "range",
+                        "maxLines": limit,
+                    }
+                ],
+                "range": {"from": from_str, "to": to_str},
+            }
+        }
+
+        panes_encoded = quote(
+            json.dumps(panes, separators=(",", ":"), ensure_ascii=False), safe=""
+        )
+        return f"{base_url}/explore?schemaVersion=1&panes={panes_encoded}&orgId=1"
+    except Exception:
+        return None
+
+
 class GrafanaLokiToolset(BaseGrafanaToolset):
     def health_check(self) -> Tuple[bool, str]:
         """Test a dummy query to check if service available."""
@@ -38,15 +76,18 @@ class GrafanaLokiToolset(BaseGrafanaToolset):
         )
 
         c = self._grafana_config
-        _ = execute_loki_query(
-            base_url=get_base_url(c),
-            api_key=c.api_key,
-            headers=c.headers,
-            query='{job="test_endpoint"}',
-            start=start,
-            end=end,
-            limit=1,
-        )
+        try:
+            _ = execute_loki_query(
+                base_url=get_base_url(c),
+                api_key=c.api_key,
+                headers=c.headers,
+                query='{job="test_endpoint"}',
+                start=start,
+                end=end,
+                limit=1,
+            )
+        except Exception as e:
+            return False, f"Unable to connect to Loki.\n{str(e)}"
         return True, ""
 
     def __init__(self):
@@ -105,28 +146,38 @@ class LokiQuery(Tool):
         )
 
         config = self.toolset._grafana_config
+        query_str = params.get("query", '{query="no_query_fallback"}')
         try:
             data = execute_loki_query(
                 base_url=get_base_url(config),
                 api_key=config.api_key,
                 headers=config.headers,
-                query=params.get(
-                    "query", '{query="no_query_fallback"}'
-                ),  # make sure a string returns. fall back to query that will return nothing.
+                query=query_str,
                 start=start,
                 end=end,
                 limit=params.get("limit") or DEFAULT_LOG_LIMIT,
             )
+
+            explore_url = _build_grafana_loki_explore_url(
+                config,
+                query_str,
+                start,
+                end,
+                limit=params.get("limit") or DEFAULT_LOG_LIMIT,
+            )
+
             if data:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
                     data=json.dumps(data),
                     params=params,
+                    url=explore_url,
                 )
             else:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.NO_DATA,
                     params=params,
+                    url=explore_url,
                 )
         except Exception as e:
             return StructuredToolResult(
