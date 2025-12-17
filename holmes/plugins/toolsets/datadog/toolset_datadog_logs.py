@@ -180,7 +180,7 @@ class GetLogs(Tool):
             required=False,
         ),
         "cursor": ToolParameter(
-            description="The returned paging point to use to get the next results.",
+            description="The returned paging point to use to get the next results. IMPORTANT: Cursors are single-use and stateful - never reuse the same cursor value multiple times or parallelize cursor-based calls. Each response provides a new cursor for the subsequent request.",
             type="string",
             required=False,
         ),
@@ -209,7 +209,7 @@ class GetLogs(Tool):
                 params=params,
             )
         url = None
-        payload = None
+        payload: Optional[Dict[str, Any]] = None
         try:
             # Process timestamps
             from_time_int, to_time_int = process_timestamps_to_int(
@@ -244,6 +244,9 @@ class GetLogs(Tool):
                 },
                 "sort": sort,
             }
+
+            if params.get("cursor"):
+                payload["page"]["cursor"] = params["cursor"]
 
             response = execute_datadog_http_request(
                 url=url,
