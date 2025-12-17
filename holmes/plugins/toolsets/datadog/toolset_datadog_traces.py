@@ -199,7 +199,7 @@ class GetSpans(BaseDatadogTracesTool):
                     required=False,
                 ),
                 "cursor": ToolParameter(
-                    description="The returned paging point to use to get the next results.",
+                    description="The returned paging point to use to get the next results. IMPORTANT: Cursors are single-use and stateful - never reuse the same cursor value multiple times or parallelize cursor-based calls. Each response provides a new cursor for the subsequent request.",
                     type="string",
                     required=False,
                 ),
@@ -236,7 +236,7 @@ class GetSpans(BaseDatadogTracesTool):
             )
 
         url = None
-        payload = None
+        payload: Optional[Dict[str, Any]] = None
 
         try:
             # Process timestamps
@@ -278,6 +278,9 @@ class GetSpans(BaseDatadogTracesTool):
                     },
                 }
             }
+
+            if params.get("cursor"):
+                payload["data"]["attributes"]["page"]["cursor"] = params["cursor"]
 
             response = execute_datadog_http_request(
                 url=url,
