@@ -38,15 +38,18 @@ class GrafanaLokiToolset(BaseGrafanaToolset):
         )
 
         c = self._grafana_config
-        _ = execute_loki_query(
-            base_url=get_base_url(c),
-            api_key=c.api_key,
-            headers=c.headers,
-            query='{job="test_endpoint"}',
-            start=start,
-            end=end,
-            limit=1,
-        )
+        try:
+            _ = execute_loki_query(
+                base_url=get_base_url(c),
+                api_key=c.api_key,
+                headers=c.headers,
+                query='{job="test_endpoint"}',
+                start=start,
+                end=end,
+                limit=1,
+            )
+        except Exception as e:
+            return False, f"Unable to connect to Loki.\n{str(e)}"
         return True, ""
 
     def __init__(self):
