@@ -54,6 +54,31 @@ from holmes.utils.global_instructions import (
     Instructions,
     add_runbooks_to_user_prompt,
 )
+
+
+def get_tool_choice(tools: bool) -> Optional[str]:
+    """
+    Get the tool choice setting with KAITO toggle support.
+    
+    Args:
+        tools: Whether tools are available in this iteration
+        
+    Returns:
+        Tool choice string if tools available, None otherwise
+    """
+    # HOLMES_KAITO_ENABLED: Controls KAITO-specific optimizations including tool choice, 
+    # intelligent termination, and reduced toolset complexity. Default: "true"
+    kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
+    
+    if kaito_enabled:
+        # KAITO behavior: always use "required" for better model performance
+        tool_choice = "required" if tools else None
+    else:
+        # Original Holmes behavior: simple auto
+        tool_choice = "auto" if tools else None
+    
+    logging.debug(f"KAITO enabled: {kaito_enabled}, using tool_choice: {tool_choice}")
+    return tool_choice
 from holmes.utils.tags import format_tags_in_string, parse_messages_tags
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import DummySpan
@@ -474,32 +499,66 @@ class ToolCallingLLM:
                 for future in concurrent.futures.as_completed(futures):
                     tool_call_result: ToolCallResult = future.result()
 
-                    tool_number = (
-                        futures_tool_numbers[future]
-                        if future in futures_tool_numbers
-                        else None
-                    )
-
-                    if (
-                        tool_call_result.result.status
-                        == StructuredToolResultStatus.APPROVAL_REQUIRED
-                    ):
-                        with trace_span.start_span(type="tool") as tool_span:
-                            tool_call_result = self._handle_tool_call_approval(
-                                tool_call_result=tool_call_result,
-                                tool_number=tool_number,
-                            )
-                            ToolCallingLLM._log_tool_call_result(
-                                tool_span, tool_call_result
-                            )
-
-                    tool_result_response_dict = (
-                        tool_call_result.as_tool_result_response()
-                    )
-                    tool_calls.append(tool_result_response_dict)
-                    all_tool_calls.append(tool_result_response_dict)
+                    tool_calls.append(tool_call_result.as_tool_result_response())
                     messages.append(tool_call_result.as_tool_call_message())
-                    tokens = self.llm.count_tokens(messages=messages, tools=tools)
+
+                    # 🔍 Debug: Log every tool result for termination analysis
+                    logging.info(f"🔍 TERMINATION DEBUG: Tool {tool_call_result.tool_name} status={tool_call_result.result.status}")
+                    if tool_call_result.result.status == ToolResultStatus.ERROR:
+                        logging.info(f"🔍 TERMINATION DEBUG: Error message: {tool_call_result.result.error}")
+
+                    # Check for intelligent termination when safeguards block calls
+                    # Skip check on first iteration (need at least one successful tool call)
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: i={i}, i>1={i > 1}")
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: status={tool_call_result.result.status}, is_error={tool_call_result.result.status == ToolResultStatus.ERROR}")
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: error_text='{tool_call_result.result.error}'")
+                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: contains_already_called={'already been called' in (tool_call_result.result.error or '')}")
+                    
+                    if (i > 1 and 
+                        tool_call_result.result.status == ToolResultStatus.ERROR and 
+                        "already been called" in (tool_call_result.result.error or "")):
+                        logging.info("🔍 TERMINATION DEBUG: Safeguard condition met, checking if LLM wants to stop...")
+                        kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
+                        if kaito_enabled and self._should_stop_investigation(messages):
+                            logging.info("🎯 Safeguard blocked + LLM wants same tool → Forcing final iteration")
+                            # Remove the duplicate/error tool message that caused confusion
+                            if messages and messages[-1]["role"] == "tool":
+                                logging.info("🧹 Removing confusing duplicate tool message from conversation")
+                                messages.pop()
+                                # Also remove the corresponding tool call from tool_calls list
+                                if tool_calls:
+                                    tool_calls.pop()
+                            # Force final iteration by setting i to max_steps - 1
+                            # This will trigger tools=None on next iteration, leading to natural final response
+                            i = max_steps - 1
+                            # Don't break - let the loop continue to the final iteration
+                        else:
+                            logging.info("🔍 TERMINATION DEBUG: LLM says continue despite safeguard")
+                    else:
+                        logging.info("🔍 TERMINATION DEBUG: Safeguard condition NOT met")
+
+                    perf_timing.measure(f"tool completed {tool_call_result.tool_name}")
+
+                # Exit immediately if intelligent termination was triggered during tool execution
+                # (No longer needed since we don't break, just continue to final iteration)
+                
+                # Check for intelligent termination after tool execution
+                # Skip check on first iteration (need at least one tool call)
+                # Also skip if we're already on the final iteration
+                logging.info(f"🔍 GENERAL CHECK VARIABLES: i={i}, i>1={i > 1}, max_steps={max_steps}")
+                kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
+                if kaito_enabled and i > 1 and i < max_steps - 1:  # Only check if KAITO enabled and not already on final iteration
+                    logging.info("🔍 TERMINATION DEBUG: Checking general termination condition...")
+                    if self._should_stop_investigation(messages):
+                        logging.info("🎯 Terminating early to prevent repetitive tool calls")
+                        # Force final iteration by setting i to max_steps - 1
+                        # This will trigger tools=None on next iteration, leading to natural final response
+                        i = max_steps - 1
+                        # Don't break - let the loop continue to the final iteration
+                    else:
+                        logging.info("🔍 TERMINATION DEBUG: LLM says continue")
+                else:
+                    logging.info("🔍 TERMINATION DEBUG: General condition NOT met (i<=1 or already final iteration)")
 
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
@@ -997,20 +1056,51 @@ class ToolCallingLLM:
             f"Too many LLM calls - exceeded max_steps: {i}/{self.max_steps}"
         )
 
-    def find_assistant_tool_call_request(
-        self, tool_call_id: str, messages: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        for message in messages:
-            if message.get("role") == "assistant":
-                for tool_call in message.get("tool_calls", []):
-                    if tool_call.get("id") == tool_call_id:
-                        return tool_call
+    def _should_stop_investigation(self, messages: list) -> bool:
+        """
+        Ask the LLM to determine if investigation should stop based on full conversation context.
+        Evaluates whether the problem has been solved or if repetitive tool calls are unhelpful.
+        """
+        try:
+            logging.info("🔍 TERMINATION DEBUG: Asking LLM if investigation should stop...")
+            
+            # Load termination prompt from template
+            full_kaito_content = load_and_render_prompt("builtin://_kaito_accuracy.jinja2", {})
+            
+            # Extract just the termination decision section
+            if "# Termination Decision Prompt" in full_kaito_content:
+                termination_prompt = full_kaito_content.split("# Termination Decision Prompt\n\n", 1)[1]
+            else:
+                logging.warning("🔍 TERMINATION DEBUG: Template section not found, cannot perform intelligent termination")
+                return False  # Continue if template is missing
 
-        # Should not happen unless there is a bug.
-        # If we are here
-        raise Exception(
-            f"Failed to find assistant request for a tool_call in conversation history. tool_call_id={tool_call_id}"
-        )
+            # Create a fresh conversation for termination check
+            termination_messages = [
+                {"role": "system", "content": "You are a helpful assistant that evaluates whether investigations should continue."},
+                {"role": "user", "content": f"Based on this conversation history:\n\n{str(messages)}\n\n{termination_prompt}"}
+            ]
+
+            response = self.llm.completion(
+                messages=termination_messages,
+                tools=None,
+                tool_choice=None,
+                temperature=0.1,
+                drop_params=True,
+            )
+            
+            response_text = response.choices[0].message.content.upper()
+            should_stop = "STOP" in response_text
+            
+            logging.info(f"🔍 TERMINATION DEBUG: LLM response: '{response_text}' → should_stop={should_stop}")
+            
+            if should_stop:
+                logging.info(f"🎯 Intelligent termination: Investigation should stop based on conversation context")
+            
+            return should_stop
+            
+        except Exception as e:
+            logging.warning(f"Failed to check for intelligent termination: {e}")
+            return False  # Continue normally if check fails
 
 
 # TODO: consider getting rid of this entirely and moving templating into the cmds in holmes_cli.py

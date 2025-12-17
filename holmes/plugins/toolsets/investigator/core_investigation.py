@@ -134,14 +134,26 @@ class CoreInvestigationToolset(Toolset):
     """Core toolset for investigation management and task planning."""
 
     def __init__(self):
+        kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
+        
+        if kaito_enabled:
+            # KAITO behavior: disable TodoWrite for cleaner responses
+            enabled = False
+            is_default = False
+        else:
+            # Original Holmes behavior: enable TodoWrite
+            enabled = True
+            is_default = True
+            
         super().__init__(
             name="core_investigation",
             description="Core investigation tools for task management and planning",
-            enabled=True,
+            enabled=enabled,
             tools=[TodoWriteTool()],
             tags=[ToolsetTag.CORE],
-            is_default=True,
+            is_default=is_default,
         )
+        logging.info(f"Core investigation toolset loaded (KAITO enabled: {kaito_enabled}, toolset enabled: {enabled})")
 
     def get_example_config(self) -> Dict[str, Any]:
         return {}

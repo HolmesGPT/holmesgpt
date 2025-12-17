@@ -1,3 +1,4 @@
+import os
 from rich.console import Console
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
@@ -55,10 +56,14 @@ def build_initial_ask_messages(
     """
     # Load and render system prompt internally
     system_prompt_template = "builtin://generic_ask.jinja2"
+    
+    kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
+    
     template_context = {
         "toolsets": tool_executor.toolsets,
         "runbooks_enabled": True if runbooks else False,
-        "system_prompt_additions": system_prompt_additions or "",
+        "kaito_enabled": kaito_enabled,
+        "system_prompt_additions": system_prompt_additions,
     }
     system_prompt_rendered = load_and_render_prompt(
         system_prompt_template, template_context
@@ -69,7 +74,10 @@ def build_initial_ask_messages(
         console, initial_user_prompt, file_paths
     )
 
-    user_prompt_with_files += get_tasks_management_system_reminder()
+    # TodoWrite system - only enable for original Holmes behavior
+    if not kaito_enabled:
+        user_prompt_with_files += get_tasks_management_system_reminder()
+    # else: TodoWrite disabled when KAITO enabled - causes confusion and not needed
     messages = [
         {"role": "system", "content": system_prompt_rendered},
         {"role": "user", "content": user_prompt_with_files},

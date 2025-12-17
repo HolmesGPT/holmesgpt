@@ -41,6 +41,10 @@
 
 {% include '_permission_errors.jinja2' %}
 
+{% if kaito_enabled -%}
+{% include '_kaito_accuracy.jinja2' %}
+{%- endif %}
+
 # Special cases and how to reply
 
 * Make sure you differentiate between "I investigated and found error X caused this problem" and "I tried to investigate but while investigating I got some errors that prevented me from completing the investigation."
