@@ -18,11 +18,17 @@ from holmes.plugins.toolsets.consts import (
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
 )
 from holmes.plugins.toolsets.datadog.datadog_api import (
-    DatadogBaseConfig,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
+)
+from holmes.plugins.toolsets.datadog.datadog_models import DatadogMetricsConfig
+from holmes.plugins.toolsets.datadog.datadog_url_utils import (
+    generate_datadog_metric_metadata_url,
+    generate_datadog_metric_tags_url,
+    generate_datadog_metrics_explorer_url,
+    generate_datadog_metrics_list_url,
 )
 from holmes.plugins.toolsets.utils import (
     get_param_or_raise,
@@ -32,14 +38,9 @@ from holmes.plugins.toolsets.utils import (
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
-    DEFAULT_LOG_LIMIT,
 )
 
 from datetime import datetime
-
-
-class DatadogMetricsConfig(DatadogBaseConfig):
-    default_limit: int = DEFAULT_LOG_LIMIT
 
 
 class BaseDatadogMetricsTool(Tool):
@@ -130,10 +131,18 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             for metric in sorted(metrics):
                 output.append(metric)
 
+            url = generate_datadog_metrics_list_url(
+                self.toolset.dd_config,
+                from_time,
+                params.get("host"),
+                params.get("tag_filter"),
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data="\n".join(output),
                 params=params,
+                url=url,
             )
 
         except DataDogRequestError as e:
@@ -351,10 +360,18 @@ class QueryMetrics(BaseDatadogMetricsTool):
             }
 
             data_str = json.dumps(response_data, indent=2)
+            url = generate_datadog_metrics_explorer_url(
+                self.toolset.dd_config,
+                query,
+                from_time,
+                to_time,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=data_str,
                 params=params,
+                url=url,
             )
 
         except DataDogRequestError as e:
@@ -459,10 +476,10 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
 
             for metric_name in metric_names:
                 try:
-                    url = f"{self.toolset.dd_config.site_api_url}/api/v1/metrics/{metric_name}"
+                    api_url = f"{self.toolset.dd_config.site_api_url}/api/v1/metrics/{metric_name}"
 
                     data = execute_datadog_http_request(
-                        url=url,
+                        url=api_url,
                         headers=headers,
                         payload_or_params={},
                         timeout=self.toolset.dd_config.request_timeout,
@@ -491,18 +508,29 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
                 "failed": len(errors),
             }
 
+            # Generate URL for the first metric (or a general metrics page if multiple)
+            if metric_names:
+                url = generate_datadog_metric_metadata_url(
+                    self.toolset.dd_config,
+                    metric_names[0],
+                )
+            else:
+                url = None
+
             if not results and errors:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
                     error="Failed to retrieve metadata for all metrics",
                     data=json.dumps(response_data, indent=2),
                     params=params,
+                    url=url,
                 )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=json.dumps(response_data, indent=2),
                 params=params,
+                url=url,
             )
 
         except Exception as e:
@@ -550,27 +578,33 @@ class ListMetricTags(BaseDatadogMetricsTool):
                 params=params,
             )
 
-        url = None
+        api_url = None
         query_params = None
 
         try:
             metric_name = get_param_or_raise(params, "metric_name")
 
-            url = f"{self.toolset.dd_config.site_api_url}/api/v2/metrics/{metric_name}/active-configurations"
+            api_url = f"{self.toolset.dd_config.site_api_url}/api/v2/metrics/{metric_name}/active-configurations"
             headers = get_headers(self.toolset.dd_config)
 
             data = execute_datadog_http_request(
-                url=url,
+                url=api_url,
                 headers=headers,
                 timeout=self.toolset.dd_config.request_timeout,
                 method="GET",
                 payload_or_params={},
             )
 
+            web_url = generate_datadog_metric_tags_url(
+                self.toolset.dd_config,
+                metric_name,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=data,
                 params=params,
+                url=web_url,
             )
 
         except DataDogRequestError as e:
@@ -599,8 +633,8 @@ class ListMetricTags(BaseDatadogMetricsTool):
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
-                invocation=json.dumps({"url": url, "params": query_params})
-                if url and query_params
+                invocation=json.dumps({"url": api_url, "params": query_params})
+                if api_url and query_params
                 else None,
             )
 

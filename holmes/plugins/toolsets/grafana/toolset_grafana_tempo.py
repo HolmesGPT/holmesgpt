@@ -1,5 +1,9 @@
 import os
-from typing import Any, Dict, Tuple, cast, List
+import json
+import time
+import uuid
+from urllib.parse import quote
+from typing import Any, Dict, Tuple, cast, List, Optional
 
 import yaml  # type: ignore
 
@@ -30,6 +34,105 @@ from holmes.plugins.toolsets.utils import (
 )
 
 TEMPO_LABELS_ADD_PREFIX = load_bool("TEMPO_LABELS_ADD_PREFIX", True)
+
+
+def _build_grafana_explore_tempo_url(
+    config: GrafanaTempoConfig,
+    query: Optional[str] = None,
+    start: Optional[int] = None,
+    end: Optional[int] = None,
+    limit: int = 20,
+    trace_id: Optional[str] = None,
+    filters: Optional[List[Dict[str, Any]]] = None,
+    tags: Optional[str] = None,
+) -> Optional[str]:
+    if not config.grafana_datasource_uid:
+        return None
+    try:
+        base_url = config.external_url or config.url
+        datasource_uid = config.grafana_datasource_uid
+        now_s = int(time.time())
+        start_ts = start if start else now_s - 3600
+        end_ts = end if end else now_s
+        start_delta = max(0, now_s - start_ts)
+        end_delta = max(0, now_s - end_ts)
+        from_str = f"now-{start_delta}s" if start_delta > 0 else "now-1h"
+        to_str = "now" if end_delta == 0 else f"now-{end_delta}s"
+        pane_id = "tmp"
+
+        if trace_id:
+            # Direct trace ID lookup - query is just the traceID string
+            query_obj = {
+                "refId": "A",
+                "datasource": {"type": "tempo", "uid": datasource_uid},
+                "queryType": "traceql",
+                "limit": limit,
+                "tableType": "traces",
+                "metricsQueryType": "range",
+                "query": trace_id,
+            }
+        elif tags:
+            # Build filters from tag name
+            scope = "resource" if tags.startswith("resource.") else "span"
+            filter_id = str(uuid.uuid4())[:8]
+            filters = [
+                {
+                    "id": filter_id,
+                    "operator": "=",
+                    "scope": scope,
+                    "tag": tags,
+                    "value": [],
+                }
+            ]
+            query_obj = {
+                "refId": "A",
+                "datasource": {"type": "tempo", "uid": datasource_uid},
+                "queryType": "traceqlSearch",
+                "limit": limit,
+                "tableType": "traces",
+                "metricsQueryType": "range",
+                "query": "",
+                "filters": filters,
+            }
+        elif filters:
+            # Tag filters - use traceqlSearch with filters array
+            query_obj = {
+                "refId": "A",
+                "datasource": {"type": "tempo", "uid": datasource_uid},
+                "queryType": "traceqlSearch",
+                "limit": limit,
+                "tableType": "traces",
+                "metricsQueryType": "range",
+                "query": "",
+                "filters": filters,
+            }
+        else:
+            # Regular TraceQL query
+            safe_query = query if query else "{}"
+            query_obj = {
+                "refId": "A",
+                "datasource": {"type": "tempo", "uid": datasource_uid},
+                "queryType": "traceql",
+                "limit": limit,
+                "tableType": "traces",
+                "metricsQueryType": "range",
+                "query": safe_query,
+            }
+
+        panes = {
+            pane_id: {
+                "datasource": datasource_uid,
+                "queries": [query_obj],
+                "range": {"from": from_str, "to": to_str},
+            }
+        }
+
+        panes_encoded = quote(
+            json.dumps(panes, separators=(",", ":"), ensure_ascii=False), safe=""
+        )
+        return f"{base_url}/explore?schemaVersion=1&panes={panes_encoded}&orgId=1"
+    except Exception:
+        return None
 
 
 class BaseGrafanaTempoToolset(BaseGrafanaToolset):
@@ -330,11 +433,18 @@ Examples:
                 ],
             }
 
-            # Return as YAML for readability
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                query=f"{{{base_query}}}",
+                start=start,
+                end=end,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(result, default_flow_style=False, sort_keys=False),
                 params=params,
+                url=explore_url,
             )
 
         except Exception as e:
@@ -423,10 +533,20 @@ class SearchTracesByQuery(Tool):
                 end=end,
                 spss=params.get("spss"),
             )
+
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                query=params["q"],
+                start=start,
+                end=end,
+                limit=params.get("limit") or 20,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(result, default_flow_style=False),
                 params=params,
+                url=explore_url,
             )
         except Exception as e:
             return StructuredToolResult(
@@ -505,10 +625,21 @@ class SearchTracesByTags(Tool):
                 end=end,
                 spss=params.get("spss"),
             )
+
+            tag_filters = params["tags"].replace(" ", " && ")
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                query=f"{{{tag_filters}}}",
+                start=start,
+                end=end,
+                limit=params.get("limit") or 20,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(result, default_flow_style=False),
                 params=params,
+                url=explore_url,
             )
         except Exception as e:
             return StructuredToolResult(
@@ -564,11 +695,18 @@ class QueryTraceById(Tool):
                 end=end,
             )
 
-            # Return raw trace data as YAML for readability
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                trace_id=params["trace_id"],
+                start=start,
+                end=end,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(trace_data, default_flow_style=False),
                 params=params,
+                url=explore_url,
             )
         except Exception as e:
             return StructuredToolResult(
@@ -641,10 +779,20 @@ class SearchTagNames(Tool):
                 limit=params.get("limit"),
                 max_stale_values=params.get("max_stale_values"),
             )
+
+            query_filter = params.get("q") or "{}"
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                query=query_filter,
+                start=start,
+                end=end,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(result, default_flow_style=False),
                 params=params,
+                url=explore_url,
             )
         except Exception as e:
             return StructuredToolResult(
@@ -717,10 +865,19 @@ class SearchTagValues(Tool):
                 limit=params.get("limit"),
                 max_stale_values=params.get("max_stale_values"),
             )
+
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                start=start,
+                end=end,
+                tags=params["tag"],
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(result, default_flow_style=False),
                 params=params,
+                url=explore_url,
             )
         except Exception as e:
             return StructuredToolResult(
@@ -792,10 +949,19 @@ class QueryMetricsInstant(Tool):
                 start=start,
                 end=end,
             )
+
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                query=params["q"],
+                start=start,
+                end=end,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(result, default_flow_style=False),
                 params=params,
+                url=explore_url,
             )
         except Exception as e:
             return StructuredToolResult(
@@ -888,10 +1054,19 @@ class QueryMetricsRange(Tool):
                 end=end,
                 exemplars=params.get("exemplars"),
             )
+
+            explore_url = _build_grafana_explore_tempo_url(
+                self._toolset.grafana_config,
+                query=params["q"],
+                start=start,
+                end=end,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=yaml.dump(result, default_flow_style=False),
                 params=params,
+                url=explore_url,
             )
         except Exception as e:
             return StructuredToolResult(
