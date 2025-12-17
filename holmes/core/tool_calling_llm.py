@@ -605,7 +605,10 @@ class ToolCallingLLM:
 
     @staticmethod
     def _log_tool_call_result(
-        tool_span, tool_call_result: ToolCallResult, approval_possible=True
+        tool_span,
+        tool_call_result: ToolCallResult,
+        approval_possible=True,
+        original_token_count=None,
     ):
         tool_span.set_attributes(name=tool_call_result.tool_name)
         status = tool_call_result.result.status
@@ -633,6 +636,7 @@ class ToolCallingLLM:
                 "description": tool_call_result.description,
                 "return_code": tool_call_result.result.return_code,
                 "error": tool_call_result.result.error,
+                "original_token_count": original_token_count,
             },
         )
 
@@ -678,12 +682,15 @@ class ToolCallingLLM:
                     user_approved=user_approved,
                 )
 
-            prevent_overly_big_tool_response(
+            original_token_count = prevent_overly_big_tool_response(
                 tool_call_result=tool_call_result, llm=self.llm
             )
 
             ToolCallingLLM._log_tool_call_result(
-                tool_span, tool_call_result, self.approval_callback is not None
+                tool_span,
+                tool_call_result,
+                self.approval_callback is not None,
+                original_token_count,
             )
             return tool_call_result
 

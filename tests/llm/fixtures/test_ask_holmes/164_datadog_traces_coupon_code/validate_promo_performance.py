@@ -98,7 +98,7 @@ def validate_promo_performance():
     print("Querying Datadog Spans Analytics for checkout endpoint performance...")
 
     # Retry intervals in seconds
-    retry_intervals = [30, 60, 90, 120]
+    retry_intervals = [30, 60, 90, 120, 150]
     attempt = 0
     buckets = []
 

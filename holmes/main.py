@@ -304,6 +304,7 @@ def ask(
             tracer,
             config.get_runbook_catalog(),
             system_prompt_additions,
+            json_output_file=json_output_file,
         )
         return
 

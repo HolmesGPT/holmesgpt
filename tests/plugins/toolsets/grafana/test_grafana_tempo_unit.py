@@ -1,6 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import yaml
 
 from holmes.core.tools import (
     StructuredToolResultStatus,
@@ -151,8 +150,8 @@ def test_fetch_traces_simple_comparison_with_mocked_data():
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data is not None
 
-        # Parse the YAML response
-        data = yaml.safe_load(result.data)
+        # Data is now a dict, not YAML string
+        data = result.data
 
         # Verify statistics
         assert "statistics" in data
@@ -323,7 +322,7 @@ def test_fetch_traces_simple_comparison_percentile_calculations():
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data is not None
 
-        data = yaml.safe_load(result.data)
+        data = result.data  # Data is now a dict, not YAML string
 
         stats = data["statistics"]
         assert stats["trace_count"] == 3

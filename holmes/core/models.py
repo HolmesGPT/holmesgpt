@@ -71,17 +71,9 @@ def format_tool_result_data(
     tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
 
     if tool_result.status == StructuredToolResultStatus.ERROR:
-        tool_response += f"{tool_result.error or 'Tool execution failed'}:\n\n{tool_result.data or ''}".strip()
-    elif isinstance(tool_result.data, str):
-        tool_response += tool_result.data
-    else:
-        try:
-            if isinstance(tool_result.data, BaseModel):
-                tool_response += tool_result.data.model_dump_json(indent=2)
-            else:
-                tool_response += json.dumps(tool_result.data, indent=2)
-        except Exception:
-            tool_response += str(tool_result.data)
+        tool_response += f"{tool_result.error or 'Tool execution failed'}:\n\n"
+
+    tool_response += tool_result.get_stringified_data()
 
     if tool_result.params:
         tool_response = (

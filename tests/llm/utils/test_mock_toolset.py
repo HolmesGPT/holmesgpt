@@ -482,7 +482,8 @@ class TestMockToolsMatching:
                 tool_executor = ToolExecutor(mock_toolsets.toolsets)
 
                 context = create_mock_tool_invoke_context()
-                result = tool_executor.invoke("kubectl_describe", params, context)
+                tool = tool_executor.get_tool_by_name("kubectl_describe")
+                result = tool.invoke(params, context)
 
                 # Should return mocked data for exact match
                 assert result.data == "this tool is mocked"
@@ -539,7 +540,8 @@ class TestMockToolsMatching:
 
                 tool_executor = ToolExecutor(mock_toolsets.toolsets)
                 context = create_mock_tool_invoke_context()
-                result = tool_executor.invoke("kubectl_describe", params, context)
+                tool = tool_executor.get_tool_by_name("kubectl_describe")
+                result = tool.invoke(params, context)
 
                 # Should return mocked data for ANY params when add_params_to_filename=False
                 assert result.data == "this tool is mocked"
@@ -603,7 +605,8 @@ class TestMockToolsMatching:
                 context = create_mock_tool_invoke_context()
 
                 # In mock mode, calling with non-matching params should return error result
-                result = tool_executor.invoke("kubectl_describe", params, context)
+                tool = tool_executor.get_tool_by_name("kubectl_describe")
+                result = tool.invoke(params, context)
 
                 # Should return error result
                 assert result.status == StructuredToolResultStatus.ERROR
@@ -660,9 +663,8 @@ class TestMockToolsMatching:
                     try:
                         # In generate mode, this should not throw even without existing mocks
                         context = create_mock_tool_invoke_context()
-                        result = tool_executor.invoke(
-                            "kubectl_describe", {"foo": "bar"}, context
-                        )
+                        tool = tool_executor.get_tool_by_name("kubectl_describe")
+                        result = tool.invoke({"foo": "bar"}, context)
 
                         # Should have called the mocked tool and saved the result
                         assert result.status == StructuredToolResultStatus.SUCCESS

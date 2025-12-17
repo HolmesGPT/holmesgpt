@@ -245,7 +245,7 @@ class DescribeConsumerGroup(BaseKafkaTool):
                 group_metadata = futures.get(group_id).result()
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
-                    data=yaml.dump(convert_to_dict(group_metadata)),
+                    data=convert_to_dict(group_metadata),
                     params=params,
                 )
             else:
@@ -297,7 +297,7 @@ class ListTopics(BaseKafkaTool):
             topics = client.list_topics()
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(convert_to_dict(topics)),
+                data=convert_to_dict(topics),
                 params=params,
             )
         except Exception as e:
@@ -367,7 +367,7 @@ class DescribeTopic(BaseKafkaTool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result),
+                data=result,
                 params=params,
             )
         except Exception as e:
