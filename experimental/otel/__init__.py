@@ -1,0 +1,51 @@
+"""OpenTelemetry instrumentation for HolmesGPT experimental endpoints."""
+
+from experimental.otel.tracing import (
+    init_otel_tracer,
+    get_tracer,
+    shutdown_otel_tracer,
+    set_span_error,
+)
+from experimental.otel.attributes import (
+    REQUEST_ID,
+    CONVERSATION_ID,
+    MODEL,
+    INPUT_TOKENS,
+    OUTPUT_TOKENS,
+    TOTAL_TOKENS,
+    TOOL_NAME,
+    TOOL_CALL_ID,
+    TOOL_INPUT,
+    TOOL_OUTPUT,
+    TOOL_DURATION_MS,
+    AGENT_TYPE,
+    RESULT_SUCCESS,
+    SPAN_AGENT_RUN,
+    SPAN_TOOL_EXECUTE,
+    truncate,
+    MAX_ATTRIBUTE_SIZE,
+)
+
+__all__ = [
+    "init_otel_tracer",
+    "get_tracer",
+    "shutdown_otel_tracer",
+    "set_span_error",
+    "REQUEST_ID",
+    "CONVERSATION_ID",
+    "MODEL",
+    "INPUT_TOKENS",
+    "OUTPUT_TOKENS",
+    "TOTAL_TOKENS",
+    "TOOL_NAME",
+    "TOOL_CALL_ID",
+    "TOOL_INPUT",
+    "TOOL_OUTPUT",
+    "TOOL_DURATION_MS",
+    "AGENT_TYPE",
+    "RESULT_SUCCESS",
+    "SPAN_AGENT_RUN",
+    "SPAN_TOOL_EXECUTE",
+    "truncate",
+    "MAX_ATTRIBUTE_SIZE",
+]

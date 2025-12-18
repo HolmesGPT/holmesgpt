@@ -18,6 +18,16 @@ import uuid
 import uvicorn
 import colorlog
 
+# OTEL tracing imports
+import sys
+
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
+from opentelemetry import trace
+from experimental.otel.tracing import init_otel_tracer, get_tracer, set_span_error
+from experimental.otel import attributes as otel_attr
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -72,6 +82,13 @@ def init_logging():
 
 
 init_logging()
+
+# Initialize OTEL tracer if enabled
+otel_initialized = init_otel_tracer()
+if otel_initialized:
+    logging.info("OTEL tracing enabled for AG-UI endpoint")
+tracer = get_tracer("holmesgpt.agui")
+
 config = Config.load_from_env()
 dal = config.dal
 
@@ -120,10 +137,20 @@ def agui_chat(input_data: RunAgentInput, request: Request):
         additional_system_prompt=chat_request.additional_system_prompt,
     )
 
-    # Hijack the existing HolmesGPT cat stream output and format as AG-UI events.
+    # Hijack the existing HolmesGPT chat stream output and format as AG-UI events.
 
     async def event_generator(message_history):
+        # Start OTEL root span for this agent run - must be inside generator for streaming
+        root_span = tracer.start_span(otel_attr.SPAN_AGENT_RUN)
         try:
+            # Set correlation attributes for linking traces
+            root_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
+            root_span.set_attribute(
+                otel_attr.CONVERSATION_ID, input_data.thread_id or ""
+            )
+            root_span.set_attribute(otel_attr.AGENT_TYPE, "HolmesGPT")
+            root_span.set_attribute(otel_attr.MODEL, chat_request.model or "default")
+
             yield encoder.encode(
                 RunStartedEvent(
                     type=EventType.RUN_STARTED,
@@ -135,6 +162,10 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 msgs=message_history,
                 enable_tool_approval=chat_request.enable_tool_approval or False,
             )
+            tool_call_count = 0
+            tool_start_times: dict[
+                str, float
+            ] = {}  # Track tool start times for duration calculation
             for chunk in hgpt_chat_stream_response:
                 if hasattr(chunk, "event"):
                     event_type = (
@@ -160,6 +191,12 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         ):
                             yield encoder.encode(event)
                     elif event_type == StreamEvents.START_TOOL:
+                        # Record tool start time for duration calculation
+                        tool_call_count += 1
+                        tool_call_id = chunk.data.get(
+                            "tool_call_id", chunk.data.get("id", "unknown")
+                        )
+                        tool_start_times[tool_call_id] = time.time()
                         async for event in _stream_agui_text_message_event(
                             message=f"🔧 Using Agent tool: `{tool_name}`..."
                         ):
@@ -168,6 +205,29 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         logging.debug(
                             f"🔧 TOOL_RESULT received - tool_name: {tool_name}"
                         )
+                        # Create OTEL child span for tool execution
+                        tool_call_id = chunk.data.get(
+                            "tool_call_id", chunk.data.get("id", "unknown")
+                        )
+                        # Calculate duration from tracked start time
+                        start_time = tool_start_times.pop(tool_call_id, None)
+                        duration_ms = (
+                            int((time.time() - start_time) * 1000) if start_time else 0
+                        )
+
+                        tool_span = tracer.start_span(
+                            otel_attr.SPAN_TOOL_EXECUTE,
+                            context=trace.set_span_in_context(root_span),
+                        )
+                        tool_span.set_attribute(otel_attr.TOOL_NAME, tool_name)
+                        tool_span.set_attribute(otel_attr.TOOL_CALL_ID, tool_call_id)
+                        tool_span.set_attribute(otel_attr.TOOL_DURATION_MS, duration_ms)
+                        tool_span.set_attribute(
+                            otel_attr.TOOL_OUTPUT,
+                            otel_attr.truncate(str(chunk.data.get("result", {}))),
+                        )
+                        tool_span.end()
+
                         front_end_tool_invoked = False
                         if _should_graph_timeseries_data(tool_name=tool_name):
                             front_end_tool_invoked = True
@@ -175,9 +235,6 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                 f"🔧 Should graph timeseries data for tool: {tool_name}"
                             )
                             ts_data = _parse_timeseries_data(chunk.data)
-                            tool_call_id = chunk.data.get(
-                                "tool_call_id", chunk.data.get("id", "unknown")
-                            )
                             # TODO [FUTURE]: Automate front-end tools discovery and let LLM decide which to invoke.
                             async for tool_event in _invoke_front_end_tool(
                                 tool_call_id=tool_call_id,
@@ -189,9 +246,6 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             backend_tool_name=tool_name, frontend_tools=input_data.tools
                         ):
                             front_end_tool_invoked = True
-                            tool_call_id = chunk.data.get(
-                                "tool_call_id", chunk.data.get("id", "unknown")
-                            )
                             front_end_query_tool = None
                             if tool_name == "opensearch_ppl_query_assist":
                                 front_end_query_tool = "execute_ppl_query"
@@ -219,6 +273,11 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                 message=tool_message
                             ):
                                 yield encoder.encode(event)
+
+            # Set final attributes on root span
+            root_span.set_attribute("tool_call_count", tool_call_count)
+            root_span.set_attribute(otel_attr.RESULT_SUCCESS, True)
+
             yield encoder.encode(
                 RunFinishedEvent(
                     type=EventType.RUN_FINISHED,
@@ -228,12 +287,15 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             )
         except Exception as e:
             logging.error(f"Error in /api/agui/chat: {e}", exc_info=True)
+            set_span_error(root_span, e)
             yield encoder.encode(
                 RunErrorEvent(
                     type=EventType.RUN_ERROR,
                     message=f"Agent encountered an error: {str(e)}",
                 )
             )
+        finally:
+            root_span.end()
 
     return StreamingResponse(
         event_generator(messages), media_type=encoder.get_content_type()
