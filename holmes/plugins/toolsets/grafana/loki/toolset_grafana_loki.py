@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import os
 import json
 from urllib.parse import quote
@@ -67,6 +67,29 @@ def _build_grafana_loki_explore_url(
 
 
 class GrafanaLokiToolset(BaseGrafanaToolset):
+    def health_check(self) -> Tuple[bool, str]:
+        """Test a dummy query to check if service available."""
+        (start, end) = process_timestamps_to_rfc3339(
+            start_timestamp=-1,
+            end_timestamp=None,
+            default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
+        )
+
+        c = self._grafana_config
+        try:
+            _ = execute_loki_query(
+                base_url=get_base_url(c),
+                api_key=c.api_key,
+                headers=c.headers,
+                query='{job="test_endpoint"}',
+                start=start,
+                end=end,
+                limit=1,
+            )
+        except Exception as e:
+            return False, f"Unable to connect to Loki.\n{str(e)}"
+        return True, ""
+
     def __init__(self):
         super().__init__(
             name="grafana/loki",

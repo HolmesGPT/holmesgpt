@@ -21,8 +21,6 @@ A [Grafana service account token](https://grafana.com/docs/grafana/latest/admini
         config:
           api_key: <your grafana service account token>
           url: <your grafana url>  # e.g. https://acme-corp.grafana.net or http://localhost:3000
-          # Optional: Custom health check endpoint (defaults to api/health)
-          # healthcheck: api/health
           # Optional: Additional headers for all requests
           # headers:
           #   X-Custom-Header: "custom-value"
