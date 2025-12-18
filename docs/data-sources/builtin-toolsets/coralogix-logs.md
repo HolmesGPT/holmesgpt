@@ -29,7 +29,7 @@ toolsets:
       headers:
         Authorization: "Bearer <your Coralogix API key>"
       prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
-      healthcheck: "api/v1/query?query=up"
+
 
 ```
 
