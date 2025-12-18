@@ -600,7 +600,6 @@ class KafkaToolset(Toolset):
                         "bootstrap.servers": cluster.kafka_broker,
                         "client.id": cluster.kafka_client_id,
                         "socket.timeout.ms": 15000,  # 15 second timeout
-                        "metadata.request.timeout.ms": 15000,  # 15 second metadata timeout
                         "api.version.request.timeout.ms": 15000,  # 15 second API version timeout
                     }
 
@@ -617,9 +616,7 @@ class KafkaToolset(Toolset):
                     client = AdminClient(admin_config)
                     # Test the connection by trying to list topics with a timeout
                     # This will fail fast if the broker is not reachable
-                    future = client.list_topics(timeout=15)  # 15 second timeout
-                    if future is None:
-                        raise Exception("Failed to connect to Kafka broker")
+                    _ = client.list_topics(timeout=10)  # 10 second timeout
                     self.clients[cluster.name] = client  # Store in dictionary
                 except Exception as e:
                     message = (
