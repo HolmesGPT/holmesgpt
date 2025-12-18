@@ -1,0 +1,8 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_events","match_params":{"resource_type":"pod","resource_name":"frontend-service","namespace":"default"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl events --for pod/frontend-service -n default", "params": {"resource_type": "pod", "resource_name": "frontend-service", "namespace": "default"}, "icon_url": null}
+LAST SEEN              TYPE      REASON    OBJECT                 MESSAGE
+60m                    Normal    Pulling   Pod/frontend-service   Pulling image "jfusterm/stress"
+44m (x9 over 60m)      Normal    Created   Pod/frontend-service   Created container: stress
+44m (x9 over 60m)      Normal    Started   Pod/frontend-service   Started container stress
+3m10s (x16 over 60m)   Normal    Pulled    Pod/frontend-service   Container image "jfusterm/stress" already present on machine
+17s (x280 over 60m)    Warning   BackOff   Pod/frontend-service   Back-off restarting failed container stress in pod frontend-service_default(d5d64096-dfff-4596-a955-e3e4a1bc6a1d)

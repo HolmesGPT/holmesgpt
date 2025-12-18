@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-80
+---
+# PVC requesting non-existent storage class
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: database-pvc
+  namespace: app-80
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd  # This storage class doesn't exist!
+  resources:
+    requests:
+      storage: 1Gi
+---
+# StatefulSet trying to use the PVC
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database
+  namespace: app-80
+spec:
+  serviceName: database-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: database
+  template:
+    metadata:
+      labels:
+        app: database
+    spec:
+      containers:
+      - name: database
+        image: busybox
+        command: ["/bin/sh"]
+        args: ["-c", "echo 'Database started' && tail -f /dev/null"]
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: database-pvc

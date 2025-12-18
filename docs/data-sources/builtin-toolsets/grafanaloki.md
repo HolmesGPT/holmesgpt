@@ -1,4 +1,4 @@
-# Grafana Loki
+# Loki
 
 Connect HolmesGPT to Loki for log analysis through Grafana or direct API access. Provides access to historical logs and advanced log queries.
 
@@ -36,42 +36,18 @@ curl -s -u admin:admin http://localhost:3000/api/datasources | jq '.[] | select(
 
 ### Configuration (Grafana Proxy)
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  grafana/loki:
+    enabled: true
+    config:
+      api_key: <your grafana API key>
+      url: https://xxxxxxx.grafana.net # Your Grafana cloud account URL
+      grafana_datasource_uid: <the UID of the loki data source in Grafana>
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      grafana/loki:
-        enabled: true
-        config:
-          api_key: <your grafana API key>
-          url: https://xxxxxxx.grafana.net # Your Grafana cloud account URL
-          grafana_datasource_uid: <the UID of the loki data source in Grafana>
-
-      kubernetes/logs:
-        enabled: false # HolmesGPT's default logging mechanism MUST be disabled
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/loki:
-          enabled: true
-          config:
-            api_key: <your grafana API key>
-            url: https://xxxxxxx.grafana.net # Your Grafana cloud account URL
-            grafana_datasource_uid: <the UID of the loki data source in Grafana>
-
-        kubernetes/logs:
-          enabled: false # HolmesGPT's default logging mechanism MUST be disabled
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+  kubernetes/logs:
+    enabled: false # HolmesGPT's default logging mechanism MUST be disabled
+```
 
 ## Direct Connection
 
@@ -79,42 +55,18 @@ The toolset can directly connect to a Loki instance without proxying through a G
 
 ### Configuration (Direct Connection)
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  grafana/loki:
+    enabled: true
+    config:
+      url: http://loki.logging
+      headers:
+        X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if loki multitenancy is enabled
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      grafana/loki:
-        enabled: true
-        config:
-          url: http://loki.logging
-          headers:
-            X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if loki multitenancy is enabled
-
-      kubernetes/logs:
-        enabled: false # HolmesGPT's default logging mechanism MUST be disabled
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/loki:
-          enabled: true
-          config:
-            url: http://loki.logging
-            headers:
-              X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if loki multitenancy is enabled
-
-        kubernetes/logs:
-          enabled: false # HolmesGPT's default logging mechanism MUST be disabled
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+  kubernetes/logs:
+    enabled: false # HolmesGPT's default logging mechanism MUST be disabled
+```
 
 ## Advanced Configuration
 
@@ -122,34 +74,16 @@ The toolset can directly connect to a Loki instance without proxying through a G
 
 You can tweak the labels used by the toolset to identify Kubernetes resources. This is only needed if your Loki logs settings for `pod` and `namespace` differ from the defaults.
 
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**:
-
-    ```yaml
-    toolsets:
-      grafana/loki:
-        enabled: true
-        config:
-          url: ...
-          labels:
-              pod: "pod"
-              namespace: "namespace"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/loki:
-          enabled: true
-          config:
-            url: ...
-            labels:
-                pod: "pod"
-                namespace: "namespace"
-    ```
+```yaml-toolset-config
+toolsets:
+  grafana/loki:
+    enabled: true
+    config:
+      url: ...
+      labels:
+          pod: "pod"
+          namespace: "namespace"
+```
 
 Use the following commands to list Loki's labels and determine which ones to use:
 

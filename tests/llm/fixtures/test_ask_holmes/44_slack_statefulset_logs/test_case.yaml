@@ -1,10 +1,11 @@
 user_prompt: "Fetch the logs of this stateful set from the past 3 hours"
 tags:
   - slackbot
-  - misleading-history
-  - reproducible
+  - medium
 expected_output: "alertmanager running without issues"
 before_test: 'kubectl apply -f ./manifest.yaml'
 after_test: 'kubectl delete -f ./manifest.yaml'
-evaluation:
-  correctness: 0
+
+mock_policy: always_mock
+
+test_type: server

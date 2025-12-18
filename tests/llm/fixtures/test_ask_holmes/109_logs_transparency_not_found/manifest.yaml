@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: data-processor-app
+  namespace: app-109
+type: Opaque
+stringData:
+  app.py: |
+    import sys
+    # Crash immediately without any output
+    # This simulates a scenario where the app fails before logging anything
+    sys.exit(1)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-processor
+  namespace: app-109
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-processor
+  template:
+    metadata:
+      labels:
+        app: data-processor
+    spec:
+      containers:
+      - name: data-processor
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      restartPolicy: Always  # Ensures CrashLoopBackOff
+      volumes:
+      - name: app-code
+        secret:
+          secretName: data-processor-app
+          defaultMode: 0755

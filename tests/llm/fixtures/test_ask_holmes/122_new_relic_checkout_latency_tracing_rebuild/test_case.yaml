@@ -1,0 +1,84 @@
+user_prompt:
+- "The payment service in namespace app-122 is experiencing high latency. Investigate why."
+
+expected_output:
+  - The answer must explicitly state that queries that include a promo code are slow or all slow requests include promo code.
+  - Including a query that mentions promo code is not sufficient.
+
+tags:
+  - kubernetes
+  - hard
+  - chain-of-causation
+  - traces
+  - newrelic
+  
+setup_timeout: 600  # 10 minutes for pod scheduling
+
+
+before_test: |
+  [ -n "${NEW_RELIC_ACCOUNT_ID:-}" ] && [ -n "${NEW_RELIC_API_KEY:-}" ] && [ -n "${NEW_RELIC_LICENSE_KEY:-}" ] || { for v in NEW_RELIC_ACCOUNT_ID NEW_RELIC_API_KEY NEW_RELIC_LICENSE_KEY; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+  echo "🚀 Setting up test 122 - Creating namespace app-122"
+  kubectl create namespace app-122 || true
+  kubectl create secret generic newrelickey --from-literal=key="${NEW_RELIC_LICENSE_KEY}" -n app-122
+  echo "✅ Namespace app-122 created successfully!"
+
+  echo "🛒 Deploying payment service"
+  kubectl apply -f payment-service.yaml -n app-122
+
+  echo "⏳ Waiting for payment pod to be ready"
+  PAYMENT_POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=payment -n app-122 --timeout=5s 2>/dev/null; then
+      echo "✅ Payment pod is ready!"
+      PAYMENT_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Payment pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$PAYMENT_POD_READY" = false ]; then
+    echo "❌ Payment pod failed to become ready after 300 seconds"
+    kubectl get pods -n app-122 -l app=payment
+    exit 1
+  fi
+
+  echo "🔍 Checking payment deployment status"
+  kubectl get pods -n app-122 -l app=payment
+
+  echo "🚦 Deploying traffic generator"
+  kubectl apply -f traffic-generator.yaml -n app-122
+
+  echo "⏳ Waiting for traffic generator pod to be ready"
+  TRAFFIC_POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=traffic-generator -n app-122 --timeout=5s 2>/dev/null; then
+      echo "✅ Traffic generator pod is ready!"
+      TRAFFIC_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Traffic generator pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TRAFFIC_POD_READY" = false ]; then
+    echo "❌ Traffic generator pod failed to become ready after 300 seconds"
+    kubectl get pods -n app-122 -l app=traffic-generator
+    exit 1
+  fi
+
+  echo "🔍 Checking all pods status"
+  kubectl get pods -n app-122
+
+  echo "⏰ Letting traffic generator run for 20 seconds to generate requests"
+  sleep 60
+
+  echo "✅ Test setup complete!"
+
+after_test: |
+  kubectl delete namespace app-122 || true
+
+skip: true
+skip_reason: need upgraded new relic account to support

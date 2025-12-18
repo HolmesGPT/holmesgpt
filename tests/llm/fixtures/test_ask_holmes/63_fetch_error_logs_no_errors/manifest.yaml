@@ -1,8 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: staging-63
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,31 +15,19 @@ spec:
     spec:
       containers:
       - name: app-container
-        image: busybox:1.35
-        command: ["/bin/sh"]
-        args:
-        - -c
-        - |
-          echo "$(date) INFO: Application starting up"
-          echo "$(date) INFO: Loading configuration"
-          echo "$(date) INFO: Connecting to database"
-          echo "$(date) INFO: Database connection established"
-          echo "$(date) INFO: Running health checks"
-          echo "$(date) INFO: All systems operational"
-          echo "$(date) INFO: Ready to serve requests"
-          echo "$(date) DEBUG: Processing request batch 1"
-          echo "$(date) INFO: Request batch 1 completed successfully"
-          echo "$(date) DEBUG: Processing request batch 2"
-          echo "$(date) INFO: Request batch 2 completed successfully"
-          echo "$(date) INFO: Application running smoothly"
-          while true; do
-            echo "$(date) INFO: Heartbeat - application healthy"
-            sleep 60
-          done
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+          readOnly: true
         resources:
           requests:
-            memory: "32Mi"
-            cpu: "50m"
+            memory: "64Mi"
+            cpu: "10m"
           limits:
-            memory: "32Mi"
-            cpu: "50m"
+            memory: "64Mi"
+      volumes:
+      - name: app-code
+        secret:
+          secretName: app-code-63

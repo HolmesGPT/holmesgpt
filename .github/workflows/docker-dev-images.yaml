@@ -1,0 +1,55 @@
+name: Docker Build on Commit
+
+on:
+  push:
+    branches:
+      - '**'  # Trigger on push to any branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: google-github-actions/auth@v2
+      with:
+        project_id: 'robusta-development'
+        workload_identity_provider: 'projects/479654156100/locations/global/workloadIdentityPools/github/providers/robusta-repos'
+
+    - name: Set up gcloud CLI
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: robusta-development
+
+    - name: Configure Docker Registry
+      run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Get short SHA
+      id: short_sha
+      run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/arm64,linux/amd64
+        push: true
+        tags: |
+          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}
+          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
+    - name: Print image location
+      run: |
+        echo "Docker image pushed to:"
+        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}"
+        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}"

@@ -1,0 +1,204 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-config
+  namespace: namespace-105
+type: Opaque
+stringData:
+  redis.conf: |
+    # Enable slowlog for operations over 10000 microseconds (10ms)
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+
+    # Basic Redis configuration
+    maxmemory 64mb
+    maxmemory-policy allkeys-lru
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: namespace-105
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: namespace-105
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+        - redis-server
+        - /usr/local/etc/redis/redis.conf
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: config
+          mountPath: /usr/local/etc/redis
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: config
+        secret:
+          secretName: redis-config
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: session-init
+  namespace: namespace-105
+type: Opaque
+stringData:
+  init-sessions.sh: |
+    #!/bin/sh
+    echo "Waiting for Redis..."
+    until redis-cli -h redis ping; do
+      sleep 2
+    done
+
+    echo "Creating 100 session keys..."
+    for i in $(seq 1 100); do
+      # Create session keys with user ID and data
+      redis-cli -h redis SET "session:user:$i" "{\"userId\":$i,\"loginTime\":\"$(date -Iseconds)\",\"lastAccess\":\"$(date -Iseconds)\"}" EX 86400 >/dev/null
+
+      # Every 50 keys, show progress
+      if [ $((i % 50)) -eq 0 ]; then
+        echo "Created $i session keys..."
+      fi
+    done
+
+    echo "Session initialization complete!"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: session-init
+  namespace: namespace-105
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: init
+        image: redis:7-alpine
+        command: ["/bin/sh", "/scripts/init-sessions.sh"]
+        volumeMounts:
+        - name: init-script
+          mountPath: /scripts
+      volumes:
+      - name: init-script
+        secret:
+          secretName: session-init
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: session-lookup-script
+  namespace: namespace-105
+type: Opaque
+stringData:
+  lookup.sh: |
+    #!/bin/sh
+    echo "Waiting for Redis and session data..."
+    # Wait for Redis to be available
+    until redis-cli -h redis ping; do
+      sleep 2
+    done
+
+    # Wait for init job to complete by checking if keys exist
+    echo "Waiting for session initialization..."
+    until [ "$(redis-cli -h redis DBSIZE | awk '{print $1}')" -ge "100" ]; do
+      echo "Waiting for sessions... (current: $(redis-cli -h redis DBSIZE))"
+      sleep 5
+    done
+
+    echo "Starting session lookup service..."
+    while true; do
+      # BAD PRACTICE: Using KEYS to find user sessions
+      # This simulates looking up sessions for random users
+      user_id=$(shuf -i 1-100 -n 1)
+
+      # This KEYS command will scan ALL 10k keys!
+      redis-cli -h redis KEYS "session:user:*" | grep "session:user:${user_id}$" >/dev/null
+
+      # Then get the actual session data
+      redis-cli -h redis GET "session:user:${user_id}" >/dev/null
+
+      # Sometimes do a pattern search (even worse)
+      if [ $((RANDOM % 10)) -eq 0 ]; then
+        # Find all sessions for users in a range (extremely slow)
+        redis-cli -h redis KEYS "session:user:[1-9]*" | head -10 >/dev/null
+      fi
+
+      sleep 0.5
+    done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-service
+  namespace: namespace-105
+spec:
+  selector:
+    app: session-service
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-service
+  namespace: namespace-105
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: session-service
+  template:
+    metadata:
+      labels:
+        app: session-service
+    spec:
+      containers:
+      - name: session-lookup
+        image: redis:7-alpine
+        command: ["/bin/sh", "/scripts/lookup.sh"]
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: scripts
+        secret:
+          secretName: session-lookup-script
+          defaultMode: 0755

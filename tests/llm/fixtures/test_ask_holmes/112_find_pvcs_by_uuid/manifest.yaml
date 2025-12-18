@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-112-prod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-112-staging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-112-dev
+---
+# Production PVCs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: database-pvc
+  namespace: app-112-prod
+  annotations:
+    backup.velero.io/backup-id: "b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e"
+    backup.velero.io/backup-time: "2024-01-15T03:00:00Z"
+    storage.kubernetes.io/tier: "premium"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-storage
+  namespace: app-112-prod
+  annotations:
+    backup.velero.io/backup-id: "b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e"
+    backup.velero.io/backup-time: "2024-01-15T03:00:00Z"
+    storage.kubernetes.io/tier: "standard"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: logs-archive
+  namespace: app-112-prod
+  annotations:
+    backup.velero.io/backup-id: "d9e2f7a3-5b1c-4d8e-a3f6-2c4e6f8a1b3d"
+    backup.velero.io/backup-time: "2024-01-14T03:00:00Z"
+    storage.kubernetes.io/tier: "archive"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Mi
+---
+# Staging PVCs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-database
+  namespace: app-112-staging
+  annotations:
+    backup.velero.io/backup-id: "b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e"
+    backup.velero.io/backup-time: "2024-01-15T03:00:00Z"
+    storage.kubernetes.io/tier: "standard"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: staging-cache
+  namespace: app-112-staging
+  annotations:
+    backup.velero.io/backup-id: "e8f1a6b2-7c3d-4e9f-b5a7-3d5f7e9b2c4e"
+    backup.velero.io/backup-time: "2024-01-13T03:00:00Z"
+    storage.kubernetes.io/tier: "standard"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Mi
+---
+# Dev PVCs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dev-workspace
+  namespace: app-112-dev
+  annotations:
+    backup.velero.io/backup-id: "a3c5e7f9-2b4d-6e8a-c1f3-5a7d9e1b3f5e"
+    backup.velero.io/backup-time: "2024-01-12T03:00:00Z"
+    storage.kubernetes.io/tier: "standard"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: build-cache
+  namespace: app-112-dev
+  annotations:
+    backup.velero.io/backup-id: "b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e"
+    backup.velero.io/backup-time: "2024-01-15T03:00:00Z"
+    storage.kubernetes.io/tier: "standard"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Mi
+---
+# Add some other PVCs without the target backup ID
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: temp-storage
+  namespace: app-112-dev
+  annotations:
+    storage.kubernetes.io/tier: "standard"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: app-112-prod
+  annotations:
+    backup.velero.io/backup-id: "f1a2b3c4-d5e6-7f8a-9b0c-1d2e3f4a5b6c"
+    backup.velero.io/backup-time: "2024-01-16T03:00:00Z"
+    storage.kubernetes.io/tier: "premium"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Mi

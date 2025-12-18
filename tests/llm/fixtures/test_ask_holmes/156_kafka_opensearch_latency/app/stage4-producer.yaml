@@ -1,0 +1,91 @@
+# Order Service ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-service-script
+  namespace: app-156
+data:
+  order_service.py: |
+    import os
+    import time
+    import json
+    from datetime import datetime
+    from kafka import KafkaProducer
+
+    # Kafka configuration
+    bootstrap_servers = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
+    topic = 'messages'
+
+    # Wait for Kafka to be ready
+    print("Waiting for Kafka to be ready...")
+    while True:
+        try:
+            producer = KafkaProducer(
+                bootstrap_servers=bootstrap_servers,
+                value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            )
+            break
+        except Exception as e:
+            print(f"Kafka not ready yet: {e}")
+            time.sleep(5)
+
+    print("Connected to Kafka. Starting to produce messages...")
+
+    message_id = 1
+    while True:
+        message = {
+            'id': f'msg-{message_id}',
+            'timestamp': datetime.utcnow().isoformat(),
+            'data': f'Message content {message_id}'
+        }
+
+        producer.send(topic, value=message)
+        print(f"Sending a message msg-{message_id}")
+        producer.flush()
+
+        message_id += 1
+        time.sleep(0.1)  # Send 10 messages per second
+---
+# Order Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: app-156
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+      - name: order-service
+        image: python:3.9-slim
+        command: ["sh", "-c"]
+        args:
+          - |
+            pip install kafka-python
+            python /app/order_service.py
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka:9092"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        volumeMounts:
+        - name: order-service-script
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "5m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+      volumes:
+      - name: order-service-script
+        configMap:
+          name: order-service-script

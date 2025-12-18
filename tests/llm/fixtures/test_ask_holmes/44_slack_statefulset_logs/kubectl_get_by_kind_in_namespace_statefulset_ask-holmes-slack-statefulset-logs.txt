@@ -1,5 +1,5 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_kind_in_namespace","match_params":{"kind":"statefulset","namespace":"ask-holmes-slack-statefulset-logs"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide statefulset -n ask-holmes-slack-statefulset-logs", "params": {"kind": "statefulset", "namespace": "ask-holmes-slack-statefulset-logs"}}
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_kind_in_namespace","match_params":{"kind":"statefulset","namespace":"app-44"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide statefulset -n app-44", "params": {"kind": "statefulset", "namespace": "app-44"}}
 NAME                        READY   AGE   CONTAINERS                     IMAGES                                                                                                   LABELS
 alertmanager                1/1     29m   alertmanager                   prom/alertmanager:v0.27.0                                                                                app.kubernetes.io/name=alertmanager
 alertmanager-alertmanager   0/1     29m   alertmanager,config-reloader   quay.io/prometheus/alertmanager:v0.26.0,quay.io/prometheus-operator/prometheus-config-reloader:v0.68.0   <none>

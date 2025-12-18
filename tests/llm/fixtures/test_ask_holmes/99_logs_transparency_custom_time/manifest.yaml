@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: time-traveler-app
+  namespace: app-99
+type: Opaque
+stringData:
+  app.py: |
+    import time
+    import sys
+    from datetime import datetime, timedelta
+
+    def main():
+        print("Pod time-traveler starting...", flush=True)
+
+        # Get current time
+        now = datetime.utcnow()
+
+        # Generate logs for the last 2 hours with relative timestamps
+        logs = [
+            (now - timedelta(minutes=90), "INFO", "Service initialized"),
+            (now - timedelta(minutes=75), "WARN", "CPU usage spike detected"),
+            (now - timedelta(minutes=60), "ERROR", "API rate limit reached: 429 Too Many Requests"),
+            (now - timedelta(minutes=45), "INFO", "Rate limit reset, resuming operations"),
+            (now - timedelta(minutes=30), "ERROR", "Memory threshold exceeded: using 95% of allocated memory"),
+            (now - timedelta(minutes=15), "INFO", "Garbage collection completed, memory usage normalized"),
+            (now, "INFO", "Current status: healthy")
+        ]
+
+        # Print all logs with UTC timestamps
+        for timestamp, level, message in logs:
+            formatted_time = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            print(f"{formatted_time} {level} {message}", flush=True)
+
+        # Keep container running and periodically log
+        while True:
+            time.sleep(300)  # 5 minutes
+            current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"{current_time} INFO Service health check: all systems operational", flush=True)
+
+    if __name__ == "__main__":
+        main()
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: time-traveler
+  namespace: app-99
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: time-traveler
+  template:
+    metadata:
+      labels:
+        app: time-traveler
+    spec:
+      containers:
+      - name: time-traveler
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        secret:
+          secretName: time-traveler-app
+          defaultMode: 0755

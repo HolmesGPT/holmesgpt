@@ -1,6 +1,5 @@
 # ruff: noqa: E402
 import os
-import sys
 
 from holmes.utils.cert_utils import add_custom_certificate
 
@@ -10,13 +9,12 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
-
-
+import sys
+from holmes.utils.colors import USER_COLOR
 import json
 import logging
 import socket
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -31,7 +29,7 @@ from holmes.config import (
     SourceFactory,
     SupportedTicketSources,
 )
-from holmes.core.prompt import build_initial_ask_messages
+from holmes.core.prompt import build_initial_ask_messages, generate_user_prompt
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import SpanType, TracingFactory
@@ -76,6 +74,9 @@ opt_api_key: Optional[str] = typer.Option(
     help="API key to use for the LLM (if not given, uses environment variables OPENAI_API_KEY or AZURE_API_KEY)",
 )
 opt_model: Optional[str] = typer.Option(None, help="Model to use for the LLM")
+opt_fast_model: Optional[str] = typer.Option(
+    None, help="Optional fast model for summarization tasks"
+)
 opt_config_file: Optional[Path] = typer.Option(
     DEFAULT_CONFIG_LOCATION,  # type: ignore
     "--config",
@@ -94,7 +95,7 @@ opt_custom_runbooks: Optional[List[Path]] = typer.Option(
     help="Path to a custom runbooks (can specify -r multiple times to add multiple runbooks)",
 )
 opt_max_steps: Optional[int] = typer.Option(
-    10,
+    40,
     "--max-steps",
     help="Advanced. Maximum number of steps the LLM can take to investigate the issue",
 )
@@ -103,6 +104,11 @@ opt_verbose: Optional[List[bool]] = typer.Option(
     "--verbose",
     "-v",
     help="Verbose output. You can pass multiple times to increase the verbosity. e.g. -v or -vv or -vvv",
+)
+opt_log_costs: bool = typer.Option(
+    False,
+    "--log-costs",
+    help="Show LLM cost information in the output",
 )
 opt_echo_request: bool = typer.Option(
     True,
@@ -172,18 +178,16 @@ def ask(
     # common options
     api_key: Optional[str] = opt_api_key,
     model: Optional[str] = opt_model,
+    fast_model: Optional[str] = opt_fast_model,
     config_file: Optional[Path] = opt_config_file,
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
+    log_costs: bool = opt_log_costs,
     # semi-common options
     destination: Optional[DestinationType] = opt_destination,
     slack_token: Optional[str] = opt_slack_token,
     slack_channel: Optional[str] = opt_slack_channel,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_ask.jinja2", help=system_prompt_help
-    ),
     show_tool_output: bool = typer.Option(
         False,
         "--show-tool-output",
@@ -214,11 +218,16 @@ def ask(
         "--trace",
         help="Enable tracing to the specified provider (e.g., 'braintrust')",
     ),
+    system_prompt_additions: Optional[str] = typer.Option(
+        None,
+        "--system-prompt-additions",
+        help="Additional content to append to the system prompt",
+    ),
 ):
     """
     Ask any question and answer using available tools
     """
-    console = init_logging(verbose)  # type: ignore
+    console = init_logging(verbose, log_costs)  # type: ignore
     # Detect and read piped input
     piped_data = None
 
@@ -237,6 +246,7 @@ def ask(
         config_file,
         api_key=api_key,
         model=model,
+        fast_model=fast_model,
         max_steps=max_steps,
         custom_toolsets_from_cli=custom_toolsets,
         slack_token=slack_token,
@@ -245,22 +255,14 @@ def ask(
 
     # Create tracer if trace option is provided
     tracer = TracingFactory.create_tracer(trace, project="HolmesGPT-CLI")
-    experiment_name = f"holmes-ask-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    tracer.start_experiment(
-        experiment_name=experiment_name, metadata={"prompt": prompt or "holmes-ask"}
-    )
+    tracer.start_experiment()
 
     ai = config.create_console_toolcalling_llm(
         dal=None,  # type: ignore
         refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
         tracer=tracer,
+        model_name=model,
     )
-    template_context = {
-        "toolsets": ai.tool_executor.toolsets,
-        "runbooks": config.get_runbook_catalog(),
-    }
-
-    system_prompt_rendered = load_and_render_prompt(system_prompt, template_context)  # type: ignore
 
     if prompt_file and prompt:
         raise typer.BadParameter(
@@ -289,26 +291,30 @@ def ask(
             prompt = f"Here's some piped output:\n\n{piped_data}\n\nWhat can you tell me about this output?"
 
     if echo_request and not interactive and prompt:
-        console.print("[bold yellow]User:[/bold yellow] " + prompt)
+        console.print(f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {prompt}")
 
     if interactive:
         run_interactive_loop(
             ai,
             console,
-            system_prompt_rendered,
             prompt,
             include_file,
             post_processing_prompt,
             show_tool_output,
             tracer,
+            config.get_runbook_catalog(),
+            system_prompt_additions,
+            json_output_file=json_output_file,
         )
         return
 
     messages = build_initial_ask_messages(
         console,
-        system_prompt_rendered,
         prompt,  # type: ignore
         include_file,
+        ai.tool_executor,
+        config.get_runbook_catalog(),
+        system_prompt_additions,
     )
 
     with tracer.start_trace(
@@ -341,6 +347,7 @@ def ask(
         issue,
         show_tool_output,
         False,  # type: ignore
+        log_costs,
     )
 
     if trace_url:
@@ -409,7 +416,7 @@ def alertmanager(
         custom_runbooks=custom_runbooks,
     )
 
-    ai = config.create_console_issue_investigator()  # type: ignore
+    ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
 
     source = config.create_alertmanager_source()
 
@@ -538,7 +545,7 @@ def jira(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()  # type: ignore
+    ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
     source = config.create_jira_source()
     try:
         issues = source.fetch_issues()
@@ -614,6 +621,7 @@ def ticket(
         "builtin://generic_ticket.jinja2", help=system_prompt_help
     ),
     post_processing_prompt: Optional[str] = opt_post_processing_prompt,
+    model: Optional[str] = opt_model,
 ):
     """
     Fetch and print a Jira ticket from the specified source.
@@ -654,7 +662,7 @@ def ticket(
         },
     )
 
-    ai = ticket_source.config.create_console_issue_investigator()
+    ai = ticket_source.config.create_console_issue_investigator(model_name=model)
     console.print(
         f"[bold yellow]Analyzing ticket: {issue_to_investigate.name}...[/bold yellow]"
     )
@@ -663,7 +671,8 @@ def ticket(
         + f" for issue '{issue_to_investigate.name}' with description:'{issue_to_investigate.description}'"
     )
 
-    result = ai.prompt_call(system_prompt, prompt, post_processing_prompt)
+    ticket_user_prompt = generate_user_prompt(prompt, context={})
+    result = ai.prompt_call(system_prompt, ticket_user_prompt, post_processing_prompt)
 
     console.print(Rule())
     console.print(
@@ -684,14 +693,14 @@ def github(
     ),
     github_owner: Optional[str] = typer.Option(
         None,
-        help="The GitHub repository Owner, eg: if the repository url is https://github.com/robusta-dev/holmesgpt, the owner is robusta-dev",
+        help="The GitHub repository Owner, eg: if the repository url is https://github.com/HolmesGPT/holmesgpt, the owner is HolmesGPT",
     ),
     github_pat: str = typer.Option(
         None,
     ),
     github_repository: Optional[str] = typer.Option(
         None,
-        help="The GitHub repository name, eg: if the repository url is https://github.com/robusta-dev/holmesgpt, the repository name is holmesgpt",
+        help="The GitHub repository name, eg: if the repository url is https://github.com/HolmesGPT/holmesgpt, the repository name is holmesgpt",
     ),
     update: Optional[bool] = typer.Option(False, help="Update GitHub with AI results"),
     github_query: Optional[str] = typer.Option(
@@ -729,7 +738,7 @@ def github(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()
+    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_github_source()
     try:
         issues = source.fetch_issues()
@@ -813,7 +822,7 @@ def pagerduty(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()
+    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_pagerduty_source()
     try:
         issues = source.fetch_issues()
@@ -899,7 +908,7 @@ def opsgenie(
         custom_toolsets_from_cli=custom_toolsets,
         custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator()
+    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_opsgenie_source()
     try:
         issues = source.fetch_issues()

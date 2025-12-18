@@ -134,6 +134,8 @@ class ConnectionFailureAPI:
                     for metric in metrics.value:
                         if metric.timeseries:
                             for timeseries in metric.timeseries:
+                                if timeseries.data is None:
+                                    continue
                                 for data_point in timeseries.data:
                                     if data_point.time_stamp:
                                         metric_values.append(

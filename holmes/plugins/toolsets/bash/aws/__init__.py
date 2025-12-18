@@ -1,0 +1,66 @@
+import argparse
+from typing import Any, Optional
+
+from holmes.plugins.toolsets.bash.common.bash_command import BashCommand
+from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
+from holmes.plugins.toolsets.bash.common.stringify import escape_shell_args
+from holmes.plugins.toolsets.bash.common.validators import (
+    validate_command_and_operations,
+)
+from holmes.plugins.toolsets.bash.aws.constants import (
+    ALLOWED_AWS_COMMANDS,
+    DENIED_AWS_COMMANDS,
+)
+
+
+class AWSCommand(BashCommand):
+    def __init__(self):
+        super().__init__("aws")
+
+    def add_parser(self, parent_parser: Any):
+        """Create AWS CLI parser with safe command validation."""
+        aws_parser = parent_parser.add_parser(
+            "aws",
+            help="Amazon Web Services Command Line Interface",
+            exit_on_error=False,
+        )
+
+        aws_parser.add_argument(
+            "service",
+            help="AWS service name (e.g., ec2, s3, lambda)",
+        )
+
+        aws_parser.add_argument("operation", help="AWS operation to perform")
+
+        aws_parser.add_argument(
+            "options",
+            nargs=argparse.REMAINDER,
+            default=[],
+            help="Additional AWS CLI options and parameters",
+        )
+        return aws_parser
+
+    def validate_command(
+        self, command: Any, original_command: str, config: Optional[BashExecutorConfig]
+    ) -> None:
+        # Build options list with operation and remaining arguments
+        options = [command.operation] + (
+            command.options if hasattr(command, "options") else []
+        )
+        validate_command_and_operations(
+            command=command.service,
+            options=options,
+            allowed_commands=ALLOWED_AWS_COMMANDS,
+            denied_commands=DENIED_AWS_COMMANDS,
+        )
+
+    def stringify_command(
+        self, command: Any, original_command: str, config: Optional[BashExecutorConfig]
+    ) -> str:
+        """Convert parsed AWS command back to safe command string."""
+        parts = ["aws", command.service, command.operation]
+
+        if hasattr(command, "options") and command.options:
+            parts.extend(command.options)
+
+        return " ".join(escape_shell_args(parts))

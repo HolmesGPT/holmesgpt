@@ -2,22 +2,22 @@
 import os
 import tempfile
 import pytest
+import yaml
 from unittest.mock import Mock, patch
 
 from holmes.core.tools import (
     Tool,
     StructuredToolResult,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     ToolsetStatusEnum,
 )
+from tests.conftest import create_mock_tool_invoke_context
 from tests.llm.utils.mock_toolset import (
     MockToolsetManager,
     sanitize_filename,
     MockMode,
     MockFileManager,
     MockableToolWrapper,
-    ToolsetConfigurator,
-    MockDataNotFoundError,
 )
 
 
@@ -102,13 +102,13 @@ class TestSanitizeFilename:
 
 
 def assert_toolset_enabled(mock_toolsets: MockToolsetManager, toolset_name: str):
-    for toolset in mock_toolsets.enabled_toolsets:
+    for toolset in mock_toolsets.toolsets:
         if toolset.name == toolset_name:
             assert (
                 toolset.status == ToolsetStatusEnum.ENABLED
             ), f"Expected toolset {toolset_name} to be enabled but it is disabled"
             return
-    assert False, f"Expected toolset {toolset_name} to be enabled but it missing from the list of enabled toolsets"
+    assert False, f"Expected toolset {toolset_name} to be found in the list of toolsets"
 
 
 @pytest.mark.skip(
@@ -157,7 +157,7 @@ class TestMockFileManager:
 
             # Create test result
             result = StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data="Test output data",
                 metadata={"key": "value"},
             )
@@ -178,7 +178,7 @@ class TestMockFileManager:
             assert mock.tool_name == "test_tool"
             assert mock.toolset_name == "test_toolset"
             assert mock.return_value.data == "Test output data"
-            assert mock.return_value.status == ToolResultStatus.SUCCESS
+            assert mock.return_value.status == StructuredToolResultStatus.SUCCESS
 
     def test_read_nonexistent_mock(self):
         """Test reading a mock that doesn't exist."""
@@ -224,7 +224,7 @@ class TestMockableToolWrapper:
         tool.user_description = None
         tool.invoke = Mock(
             return_value=StructuredToolResult(
-                status=ToolResultStatus.SUCCESS, data="Real tool output"
+                status=StructuredToolResultStatus.SUCCESS, data="Real tool output"
             )
         )
         tool.get_parameterized_one_liner = Mock(return_value="test_tool()")
@@ -245,10 +245,11 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            result = wrapper.invoke({})
+            context = create_mock_tool_invoke_context()
+            result = wrapper.invoke({}, context)
 
             # Should call real tool
-            tool.invoke.assert_called_once_with({})
+            tool.invoke.assert_called_once_with({}, context)
             assert result.data == "Real tool output"
 
     def test_mock_mode_with_existing_mock(self):
@@ -260,7 +261,7 @@ class TestMockableToolWrapper:
 
             # First, write a mock file
             mock_result = StructuredToolResult(
-                status=ToolResultStatus.SUCCESS, data="Mocked output"
+                status=StructuredToolResultStatus.SUCCESS, data="Mocked output"
             )
             file_manager.write_mock(
                 tool_name="test_tool",
@@ -278,18 +279,21 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            result = wrapper.invoke({})
+            context = create_mock_tool_invoke_context()
+            result = wrapper.invoke({}, context)
 
             # Should NOT call real tool
             tool.invoke.assert_not_called()
             assert result.data == "Mocked output"
 
     def test_mock_mode_without_mock_raises_error(self):
-        """Test that mock mode raises error when no mock exists."""
+        """Test that mock mode returns error result when no mock exists."""
+        context = create_mock_tool_invoke_context()
         with tempfile.TemporaryDirectory() as tmpdir:
             tool = self.create_mock_tool()
             file_manager = MockFileManager(tmpdir)
             mock_request = Mock()
+            mock_request.node.user_properties = []
 
             wrapper = MockableToolWrapper(
                 tool=tool,
@@ -299,11 +303,17 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            with pytest.raises(MockDataNotFoundError) as exc_info:
-                wrapper.invoke({})
+            result = wrapper.invoke({}, context)
 
-            assert "No mock data found" in str(exc_info.value)
-            assert "RUN_LIVE=true" in str(exc_info.value)
+            # Should return error result instead of raising
+            assert result.status == StructuredToolResultStatus.ERROR
+            assert "Mock data error" in result.error
+            assert "No mock data found" in result.error
+
+            # Check that error was tracked in user_properties
+            assert len(mock_request.node.user_properties) == 1
+            assert mock_request.node.user_properties[0][0] == "mock_data_error"
+            assert mock_request.node.user_properties[0][1]["tool"] == "test_tool"
 
     def test_generate_mode(self):
         """Test that generate mode calls tool and saves mock."""
@@ -321,10 +331,11 @@ class TestMockableToolWrapper:
                 request=mock_request,
             )
 
-            result = wrapper.invoke({})
+            context = create_mock_tool_invoke_context()
+            result = wrapper.invoke({}, context)
 
             # Should call real tool
-            tool.invoke.assert_called_once_with({})
+            tool.invoke.assert_called_once_with({}, context)
             assert result.data == "Real tool output"
 
             # Should save mock file
@@ -337,22 +348,94 @@ class TestMockableToolWrapper:
             assert mock_request.node.user_properties[0][0] == "generated_mock_file"
 
 
-class TestToolsetConfigurator:
-    def test_load_builtin_toolsets(self):
-        """Test loading builtin toolsets."""
-        # This would normally load real toolsets, but we can at least
-        # verify the method exists and returns a list
-        configurator = ToolsetConfigurator()
-        # Mock the actual loading since we don't want to load real toolsets in unit test
-        with patch("tests.llm.utils.mock_toolset.load_builtin_toolsets") as mock_load:
-            mock_load.return_value = []
-            toolsets = configurator.load_builtin_toolsets()
-            assert isinstance(toolsets, list)
+class TestToolsetsYamlConfiguration:
+    """Test per-test toolsets.yaml configuration loading."""
+
+    def test_load_custom_toolsets_from_yaml(self):
+        """Test that MockToolsetManager loads toolsets.yaml from test folder."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a toolsets.yaml file with configuration
+            toolsets_config = {
+                "toolsets": {
+                    "kubernetes/core": {"enabled": True},
+                    "kubernetes/logs": {"enabled": False},
+                    "prometheus/metrics": {
+                        "enabled": True,
+                        "config": {"prometheus_url": "http://custom-prometheus:9090"},
+                    },
+                }
+            }
+
+            toolsets_path = os.path.join(tmpdir, "toolsets.yaml")
+            with open(toolsets_path, "w") as f:
+                yaml.dump(toolsets_config, f)
+
+            mock_config = Mock()
+            mock_config.mode = MockMode.MOCK
+            mock_config.generate_mocks = False
+            mock_config.regenerate_all_mocks = False
+
+            mock_request = Mock()
+            mock_request.node.user_properties = []
+
+            manager = MockToolsetManager(
+                test_case_folder=tmpdir,
+                mock_generation_config=mock_config,
+                request=mock_request,
+            )
+
+            # Verify all builtin toolsets are loaded but our overrides are applied
+            enabled_names = [
+                t.name
+                for t in manager.toolsets
+                if t.status == ToolsetStatusEnum.ENABLED
+            ]
+            all_names = [t.name for t in manager.toolsets]
+
+            # Debug print
+            print(f"Enabled toolsets: {enabled_names}")
+            print(f"All toolsets: {all_names}")
+            print(f"Number of all toolsets: {len(all_names)}")
+
+            # All builtin toolsets should be present
+            assert (
+                len(all_names) > 3
+            ), f"Should have all builtin toolsets loaded, but got only {len(all_names)}: {all_names}"
+
+            # Check that our custom configurations were applied
+            # kubernetes/core should be enabled (explicitly set to True)
+            assert (
+                "kubernetes/core" in enabled_names
+            ), "kubernetes/core should be enabled"
+
+            # kubernetes/logs should NOT be enabled (explicitly set to False)
+            assert (
+                "kubernetes/logs" not in enabled_names
+            ), "kubernetes/logs should be disabled"
+            assert (
+                "kubernetes/logs" in all_names
+            ), "kubernetes/logs should still be in all_toolsets"
+
+            # prometheus/metrics should be enabled with custom config
+            assert (
+                "prometheus/metrics" in enabled_names
+            ), "prometheus/metrics should be enabled"
+
+            # Find the prometheus toolset to verify custom config
+            prometheus_toolset = next(
+                (t for t in manager.toolsets if t.name == "prometheus/metrics"),
+                None,
+            )
+            assert (
+                prometheus_toolset is not None
+            ), "prometheus/metrics toolset should exist"
+            assert (
+                prometheus_toolset.config.get("prometheus_url")
+                == "http://custom-prometheus:9090"
+            ), "prometheus/metrics should have custom config"
 
 
 class TestMockToolsMatching:
-    """Tests migrated from test_mocks.py, adapted for file-based mock system."""
-
     def test_mock_tools_exact_match(self):
         """Test that mocked tools return the expected data when parameters match exactly."""
         with patch(
@@ -364,7 +447,7 @@ class TestMockToolsMatching:
                 file_manager = MockFileManager(tmpdir, add_params_to_filename=True)
                 params = {"field1": "1", "field2": "2"}
                 mock_result = StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data="this tool is mocked",
                     params=params,
                 )
@@ -396,8 +479,11 @@ class TestMockToolsMatching:
                 # Use tool executor to invoke the tool
                 from holmes.core.tools_utils.tool_executor import ToolExecutor
 
-                tool_executor = ToolExecutor(mock_toolsets.enabled_toolsets)
-                result = tool_executor.invoke("kubectl_describe", params)
+                tool_executor = ToolExecutor(mock_toolsets.toolsets)
+
+                context = create_mock_tool_invoke_context()
+                tool = tool_executor.get_tool_by_name("kubectl_describe")
+                result = tool.invoke(params, context)
 
                 # Should return mocked data for exact match
                 assert result.data == "this tool is mocked"
@@ -420,7 +506,7 @@ class TestMockToolsMatching:
                 # Set up file-based mock WITHOUT params in filename
                 file_manager = MockFileManager(tmpdir, add_params_to_filename=False)
                 mock_result = StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data="this tool is mocked",
                     params={},  # Will be ignored when matching
                 )
@@ -452,8 +538,10 @@ class TestMockToolsMatching:
                 # Use tool executor to invoke the tool
                 from holmes.core.tools_utils.tool_executor import ToolExecutor
 
-                tool_executor = ToolExecutor(mock_toolsets.enabled_toolsets)
-                result = tool_executor.invoke("kubectl_describe", params)
+                tool_executor = ToolExecutor(mock_toolsets.toolsets)
+                context = create_mock_tool_invoke_context()
+                tool = tool_executor.get_tool_by_name("kubectl_describe")
+                result = tool.invoke(params, context)
 
                 # Should return mocked data for ANY params when add_params_to_filename=False
                 assert result.data == "this tool is mocked"
@@ -470,7 +558,7 @@ class TestMockToolsMatching:
         ],
     )
     def test_mock_tools_do_not_match(self, params):
-        """Test that tools fail with MockDataNotFoundError when parameters don't match."""
+        """Test that tools return error result when parameters don't match in mock mode."""
         with patch(
             "holmes.plugins.toolsets.service_discovery.find_service_url",
             return_value="http://mock-prometheus:9090",
@@ -479,7 +567,7 @@ class TestMockToolsMatching:
                 # Set up file-based mock with specific params
                 file_manager = MockFileManager(tmpdir, add_params_to_filename=True)
                 mock_result = StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data="this tool is mocked",
                     params={"field1": "1", "field2": "2"},
                 )
@@ -511,11 +599,27 @@ class TestMockToolsMatching:
                 # Use tool executor to invoke the tool
                 from holmes.core.tools_utils.tool_executor import ToolExecutor
 
-                tool_executor = ToolExecutor(mock_toolsets.enabled_toolsets)
+                tool_executor = ToolExecutor(mock_toolsets.toolsets)
 
                 # In mock mode, calling with non-matching params should raise MockDataNotFoundError
-                with pytest.raises(MockDataNotFoundError):
-                    tool_executor.invoke("kubectl_describe", params)
+                context = create_mock_tool_invoke_context()
+
+                # In mock mode, calling with non-matching params should return error result
+                tool = tool_executor.get_tool_by_name("kubectl_describe")
+                result = tool.invoke(params, context)
+
+                # Should return error result
+                assert result.status == StructuredToolResultStatus.ERROR
+                assert "Mock data error" in result.error
+
+                # Check that error was tracked in user_properties
+                errors = [
+                    p
+                    for p in mock_request.node.user_properties
+                    if p[0] == "mock_data_error"
+                ]
+                assert len(errors) > 0
+                assert errors[0][1]["tool"] == "kubectl_describe"
 
     def test_mock_tools_generate_mode_does_not_throw(self):
         """Test that generate mode creates mocks when they don't exist."""
@@ -543,7 +647,7 @@ class TestMockToolsMatching:
                 # Find the kubectl_describe tool and mock its _invoke method
                 from holmes.core.tools_utils.tool_executor import ToolExecutor
 
-                tool_executor = ToolExecutor(mock_toolsets.enabled_toolsets)
+                tool_executor = ToolExecutor(mock_toolsets.toolsets)
                 kubectl_tool = tool_executor.get_tool_by_name("kubectl_describe")
 
                 if kubectl_tool:
@@ -551,19 +655,19 @@ class TestMockToolsMatching:
                     original_invoke = kubectl_tool._tool._invoke
                     kubectl_tool._tool._invoke = Mock(
                         return_value=StructuredToolResult(
-                            status=ToolResultStatus.SUCCESS,
+                            status=StructuredToolResultStatus.SUCCESS,
                             data="Generated output from mock",
                         )
                     )
 
                     try:
                         # In generate mode, this should not throw even without existing mocks
-                        result = tool_executor.invoke(
-                            "kubectl_describe", {"foo": "bar"}
-                        )
+                        context = create_mock_tool_invoke_context()
+                        tool = tool_executor.get_tool_by_name("kubectl_describe")
+                        result = tool.invoke({"foo": "bar"}, context)
 
                         # Should have called the mocked tool and saved the result
-                        assert result.status == ToolResultStatus.SUCCESS
+                        assert result.status == StructuredToolResultStatus.SUCCESS
                         assert "Generated output" in result.data
 
                         # Verify mock was generated
@@ -584,3 +688,50 @@ class TestMockToolsMatching:
                 else:
                     # If kubectl_describe is not available, skip test
                     pytest.skip("kubectl_describe tool not available")
+
+    def test_default_toolsets_when_no_yaml_provided(self):
+        """Test that default toolsets are loaded when no toolsets.yaml is provided."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create MockToolsetManager without toolsets.yaml file
+            mock_request = Mock()
+            mock_request.node.user_properties = []
+
+            mock_config = Mock()
+            mock_config.mode = MockMode.MOCK
+            mock_config.generate_mocks = False
+            mock_config.regenerate_all_mocks = False
+
+            mock_toolsets = MockToolsetManager(
+                test_case_folder=tmpdir,
+                mock_generation_config=mock_config,
+                request=mock_request,
+            )
+
+            # Verify that default toolsets are loaded
+            assert mock_toolsets.toolsets is not None
+            assert len(mock_toolsets.toolsets) > 0
+
+            # Check that some common default toolsets are present
+            toolset_names = {
+                ts.name
+                for ts in mock_toolsets.toolsets
+                if ts.status == ToolsetStatusEnum.ENABLED
+            }
+
+            # These are commonly enabled by default
+            expected_default_toolsets = {
+                "kubernetes/core",
+                "kubernetes/logs",
+                "bash",
+                "internet",
+            }
+
+            # At least some of the expected defaults should be present
+            assert len(expected_default_toolsets & toolset_names) > 0
+
+            # Verify toolsets have proper status
+            for toolset in mock_toolsets.toolsets:
+                assert toolset.status in [
+                    ToolsetStatusEnum.ENABLED,
+                    ToolsetStatusEnum.DISABLED,
+                ]

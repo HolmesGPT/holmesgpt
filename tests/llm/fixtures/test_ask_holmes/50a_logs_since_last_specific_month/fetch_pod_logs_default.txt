@@ -1,0 +1,13 @@
+{"toolset_name":"kubernetes/logs","tool_name":"fetch_pod_logs","match_params":{"pod_name":"robusta-holmes-6bbcd9f6f5-2q4jc","namespace":"default","start_time":"2024-12-01T00:00:00Z"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"namespace": "default", "pod_name": "robusta-holmes-6bbcd9f6f5-2q4jc", "start_time": "2024-12-01T00:00:00Z", "end_time": null, "filter": null, "limit": null}}
+2024-12-12 22:14:51,711 ERROR    Database error: The database at my.postgresql.com has become unavailable
+2024-12-13 13:12:53,047 WARNING  The application is suffering from memory pressure. The current memory usage is 594MB but the soft limit is 512MB. The hard limit is 768MB.
+2024-12-13 15:11:53,047 INFO     Memory pressure resolved. The current memory usage is 496MB. The soft limit is 512MB. The hard limit is 768MB.
+2024-12-14 16:57:02,098 WARNING  High CPU usage. Average CPU usage over the last 5 minutes is 325% the allocated CPU. If this issue persists the app will self-terminate.
+2024-12-14 17:15:01,032 INFO     CPU usage back to normal.
+2024-12-15 16:57:02,098 ERROR    Failed to execute query fetch_user_logs: Syntax error
+2024-12-19 08:35:17,235 ERROR    SSL certificate expired
+                                 Traceback (most recent call last):
+                                 File "/app/app.py", line 141, in check_certificate_expiry
+                                    raise ExpiredCertException(f"Certificate expired on {cert_expiry}")
+                                 ExpiredCertException: Certificate expired on 2024-08-03 17:00:08

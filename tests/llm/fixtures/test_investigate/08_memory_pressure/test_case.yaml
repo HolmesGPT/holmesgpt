@@ -6,3 +6,4 @@ evaluation:
   # Unreliable test
   # The mocks need to be re-generated and we need to add instructions to replicate the context for the eval
   correctness: 0
+mock_policy: always_mock

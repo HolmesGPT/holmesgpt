@@ -80,17 +80,3 @@ VALID_RESOURCE_TYPES = {
     "pdb",
     "all",
 }
-
-
-VALID_OUTPUT_FORMATS = {
-    "yaml",
-    "json",
-    "wide",
-    "name",
-    "custom-columns",
-    "custom-columns-file",
-    "go-template",
-    "go-template-file",
-    "jsonpath",
-    "jsonpath-file",
-}

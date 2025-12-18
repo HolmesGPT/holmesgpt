@@ -6,7 +6,10 @@ metadata:
   labels:
     app: holmes
 spec:
-  replicas: 1
+  {{- if (not .Values.autoscaling.enabled) }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       app: holmes
@@ -17,12 +20,11 @@ spec:
       annotations:
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
-      {{- if .Values.customServiceAccountName }}
-      serviceAccountName: {{ .Values.customServiceAccountName }}
-      {{ else }}
-      serviceAccountName: {{ .Release.Name }}-holmes-service-account
-      {{- end }}
+      serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
       {{- toYaml .Values.imagePullSecrets | nindent 6 }}
@@ -41,6 +43,25 @@ spec:
         image: "{{ .Values.registry }}/{{ .Values.image }}"
         imagePullPolicy: Always
         command: ["python3", "-u", "server.py"]
+        ports:
+        - containerPort: 5050
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
         env:
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}

@@ -1,0 +1,131 @@
+user_prompt:
+  - "Frontend in namespace app-175 is reporting high latency according to the metrics dashboard. Look at the custom payments metrics to find the failure rate and average duration. Share what metrics you found."
+
+expected_output:
+  - The answer must identify elevated latency in metrics for the frontend service
+  - "The answer must reference custom payments metrics: payment_duration_seconds, payment_failure_total, payment_success_total (e.g., failure rate and average duration)"
+
+tags:
+  - kubernetes
+  - metrics
+  - logs
+  - coralogix
+
+setup_timeout: 900
+
+before_test: |
+  # Validate required Coralogix environment variables
+  [ -n "${CORALOGIX_API_KEY:-}" ] && [ -n "${CORALOGIX_DOMAIN:-}" ] && [ -n "${CORALOGIX_TEAM_HOSTNAME:-}" ] || { for v in CORALOGIX_API_KEY CORALOGIX_DOMAIN CORALOGIX_TEAM_HOSTNAME; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+
+  echo "🚀 Setting up test 175 - Creating namespace app-175"
+  kubectl create namespace app-175 || true
+  echo "✅ Namespace app-175 created successfully!"
+
+  echo "🔐 Creating frontend-service secret from shared coralogix_app.py"
+  kubectl create secret generic frontend-service-app \
+    --from-file=app.py=../../shared/coralogix/coralogix_app.py \
+    -n app-175 --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "🔐 Creating frontend traffic-generator secret from shared traffic_generator.py"
+  kubectl create secret generic frontend-generator-app \
+    --from-file=traffic_generator.py=../../shared/coralogix/traffic_generator.py \
+    -n app-175 --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "📦 Deploying frontend service"
+  kubectl apply -f frontend-service.yaml -n app-175
+
+  echo "⏳ Waiting for frontend-service pod to exist"
+  for i in {1..60}; do
+    if kubectl get pod -l app=frontend-service -n app-175 2>/dev/null | grep -q frontend-service; then
+      echo "✅ frontend-service pod exists"
+      break
+    fi
+    echo "Waiting for frontend-service pod to be created... ($i/60)"
+    sleep 2
+  done
+
+  echo "⏳ Waiting for frontend-service pod to be ready (timeout 780s)"
+  FRONTEND_POD_READY=false
+  for i in {1..156}; do
+    if kubectl wait --for=condition=ready pod -l app=frontend-service -n app-175 --timeout=5s 2>/dev/null; then
+      echo "✅ frontend-service pod is ready!"
+      FRONTEND_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/156: frontend-service pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$FRONTEND_POD_READY" = false ]; then
+    echo "❌ frontend-service pod failed to become ready after 780 seconds"
+    kubectl get pods -n app-175 -l app=frontend-service
+    exit 1
+  fi
+
+  echo "🔍 Checking frontend-service deployment status"
+  kubectl get pods -n app-175 -l app=frontend-service
+
+  echo "🚦 Deploying frontend traffic generator"
+  kubectl apply -f frontend-traffic-generator.yaml -n app-175
+
+  echo "⏳ Waiting for frontend-generator pod to exist"
+  for i in {1..60}; do
+    if kubectl get pod -l app=frontend-generator -n app-175 2>/dev/null | grep -q frontend-generator; then
+      echo "✅ frontend-generator pod exists"
+      break
+    fi
+    echo "Waiting for frontend-generator pod to be created... ($i/60)"
+    sleep 2
+  done
+
+  echo "⏳ Waiting for frontend-generator pod to be ready (timeout 780s)"
+  TRAFFIC_POD_READY=false
+  for i in {1..156}; do
+    if kubectl wait --for=condition=ready pod -l app=frontend-generator -n app-175 --timeout=5s 2>/dev/null; then
+      echo "✅ frontend-generator pod is ready!"
+      TRAFFIC_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/156: frontend-generator pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TRAFFIC_POD_READY" = false ]; then
+    echo "❌ frontend-generator pod failed to become ready after 780 seconds"
+    kubectl get pods -n app-175 -l app=frontend-generator
+    exit 1
+  fi
+
+  echo "🔍 Checking all pods status"
+  kubectl get pods -n app-175
+
+  echo "⏰ Waiting for frontend traffic to produce logs..."
+  TRAFFIC_READY=false
+  for i in {1..90}; do
+    FRONTEND_LOGS=$(kubectl logs -n app-175 -l app=frontend-service --tail=100 2>/dev/null | grep -c "Processing frontend request" || echo "0")
+    ERROR_LOGS=$(kubectl logs -n app-175 -l app=frontend-service --tail=100 2>/dev/null | grep -c "ERROR\\|WARN" || echo "0")
+
+    if [ "$FRONTEND_LOGS" -gt "10" ] && [ "$ERROR_LOGS" -gt "0" ]; then
+      echo "✅ Found required logs after $i seconds:"
+      echo "   - Frontend processing logs: $FRONTEND_LOGS"
+      echo "   - Error/Warning logs: $ERROR_LOGS"
+      TRAFFIC_READY=true
+      sleep 10
+      break
+    fi
+
+    echo "⏳ Attempt $i/90: FRONTEND_LOGS=$FRONTEND_LOGS, ERRORS=$ERROR_LOGS"
+    sleep 1
+  done
+
+  if [ "$TRAFFIC_READY" = false ]; then
+    echo "❌ Failed to generate required traffic patterns"
+    exit 1
+  fi
+
+  echo "✅ Test setup complete!"
+
+after_test: |
+  kubectl delete namespace app-175 || true

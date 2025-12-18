@@ -1,0 +1,3 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"frontend-service"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep frontend-service", "params": {"kind": "pod", "keyword": "frontend-service"}, "icon_url": null}
+default            frontend-service                                         0/1     Error              16 (5m11s ago)   57m     10.244.1.0     aks-agentpool-29949785-vmss000001   <none>           <none>            <none>

@@ -1,7 +1,7 @@
 toolsets:
   docker/core:
     description: "Read access to Docker resources"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/docker.html"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/docker/"
     icon_url: "https://platform.robusta.dev/demos/docker.svg"
     tags:
       - cli

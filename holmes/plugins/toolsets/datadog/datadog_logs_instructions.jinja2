@@ -1,0 +1,87 @@
+## Datadog Logs Tools Usage Guide
+
+Before running logs queries:
+
+** You are often (but not always) running in a kubernetes environment. So users might ask you questions about kubernetes workloads without explicitly stating their type.
+** When getting ambiguous questions, use kubectl_find_resource to find the resource you are being asked about!
+** Find the involved resource name and kind
+** If you can't figure out what is the type of the resource, ask the user for more information and don't guess
+
+
+### General guideline
+- This toolset is used to read pod logs.
+- Assume the pod should have logs. If logs not found, try to adjust the query
+
+### CRITICAL: Pod Name Resolution Workflow
+
+**IMPORTANT WILDCARD USAGE:**
+- **ALWAYS use wildcards** when searching for pods unless you have the COMPLETE pod name with all suffixes
+- Kubernetes pod names include deployment hash + replica ID (e.g., `nginx-ingress-7b9899-x2km9`, `frontend-5f4d3b2a1-abc123`)
+- When user says "nginx pod" or "frontend pod", search for `nginx-*` or `frontend-*` NOT just `nginx` or `frontend`
+- Datadog supports wildcards: `*` matches any characters (e.g., `nginx-*`, `*ingress*`, `*-x2km9`)
+- For partial matches, use wildcards on both sides: `*keyword*` to find logs from any pod containing "keyword"
+
+**When user provides what looks like a complete pod name** (e.g., `my-workload-5f9d8b7c4d-x2km9`):
+- Query Datadog directly with that exact pod name
+- Do NOT try to verify if the pod exists in Kubernetes first
+- This allows querying historical pods that have been deleted/replaced
+
+**When user provides a simple/generic name** (e.g., "nginx", "redis", "payment-service", "auth"):
+- **DEFAULT ACTION: Use wildcards** - Query with `pod-name-*` pattern
+- For historical queries (yesterday, last week): ALWAYS use wildcards directly in Datadog
+- For current issues: Optionally use `kubectl_find_resource` to find exact pod names, but wildcards often work better
+- Examples:
+  - User says "nginx pod" → Query Datadog with `nginx-*`
+  - User says "redis instance" → Query Datadog with `redis-*`
+  - User says "payment service" → Query Datadog with `payment-*`
+
+**Why wildcards are critical:**
+- Pod names in Datadog are the actual Kubernetes pod names (with random suffixes)
+- Users typically refer to pods by their deployment/service name without suffixes
+- Without wildcards, queries for "nginx" will find NOTHING when actual pods are named "nginx-7b9899-x2km9"
+- Historical pods that no longer exist can only be found via Datadog with proper wildcard usage
+
+### Time Parameters
+- Use RFC3339 format: `2023-03-01T10:30:00Z`
+- Or relative seconds: `-3600` for 1 hour ago
+
+### Common Investigation Patterns
+
+**For Pod/Container Metrics (MOST COMMON):**
+1. User asks: "Show logs for my-workload"
+2. Use `kubectl_find_resource` → find pod "my-workload-abc123-xyz"
+3. Query Datadog for pod "my-workload-abc123-xyz" logs
+
+
+### Search Query Guidelines
+
+1. Avoid using @timestamp Attribute in the search queries (e.g  for example  @timestamp:[2025-12-10T01:00:00.000Z TO 2025-12-10T04:00:00.000Z)
+   Rely on the fetch_datadog_logs function start_datetime and end_datetime parameters for that.
+2. Datadog default TAGS for kubernetes are *kube_namespace* and *pod_name*, if a user specificy custom TAGS used in his environment please use them in your search queries.
+3. If you see a useful TAG in your Old fetch_datadog_logs query use it for further queries.
+
+### CRITICAL: Cursor Usage Rules
+**NEVER parallelize cursor-based calls or reuse cursor values!**
+
+Cursors are stateful pointers - each one is single-use and represents a unique position in the data stream.
+
+**WRONG (causes duplicate data):**
+```
+Batch 1 → cursor_A
+Then call Batch 2, 3, 4 ALL with cursor_A in parallel ❌
+Result: Duplicate data, incomplete results
+```
+
+**CORRECT (sequential pagination):**
+```
+Batch 1 → cursor_A
+Wait for response → use cursor_A for Batch 2 → cursor_B  
+Wait for response → use cursor_B for Batch 3 → cursor_C
+Result: Complete unique data ✅
+```
+
+**Key Rules:**
+- Each response provides a NEW cursor for the NEXT request
+- NEVER reuse the same cursor value multiple times
+- NEVER make parallel calls with the same cursor
+- Always wait for response before using the returned cursor

@@ -1,5 +1,5 @@
-{"toolset_name":"kubernetes/logs","tool_name":"fetch_pod_logs","match_params":{"pod_name":"alertmanager-0","namespace":"ask-holmes-slack-statefulset-logs","start_time":"*","end_time":"*"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"namespace": "ask-holmes-slack-statefulset-logs", "pod_name": "alertmanager-0", "start_time": "2025-06-12T05:58:20Z", "end_time": "2025-06-12T08:58:20Z", "filter": null, "limit": null}}
+{"toolset_name":"kubernetes/logs","tool_name":"fetch_pod_logs","match_params":{"pod_name":"alertmanager-0","namespace":"app-44","start_time":"*","end_time":"*"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"namespace": "app-44", "pod_name": "alertmanager-0", "start_time": "2025-06-12T05:58:20Z", "end_time": "2025-06-12T08:58:20Z", "filter": null, "limit": null}}
 ts=2025-06-12T08:41:58.714Z caller=main.go:181 level=info msg="Starting Alertmanager" version="(version=0.27.0, branch=HEAD, revision=0aa3c2aad14cff039931923ab16b26b7481783b5)"
 ts=2025-06-12T08:41:58.714Z caller=main.go:182 level=info build_context="(go=go1.21.7, platform=linux/amd64, user=root@22cd11f671e9, date=20240228-11:51:20, tags=netgo)"
 ts=2025-06-12T08:41:58.715Z caller=cluster.go:186 level=info component=cluster msg="setting advertise address explicitly" addr=10.244.1.139 port=9094

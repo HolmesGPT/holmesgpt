@@ -1,0 +1,189 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-init
+  namespace: namespace-104c
+type: Opaque
+stringData:
+  init.sql: |
+    -- Create orders table
+    CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      order_number VARCHAR(20) UNIQUE NOT NULL,
+      customer_email VARCHAR(255) NOT NULL,
+      customer_name VARCHAR(255),
+      order_date TIMESTAMP DEFAULT NOW(),
+      total_amount DECIMAL(10, 2),
+      status VARCHAR(50) DEFAULT 'pending',
+      shipping_address TEXT,
+      items JSONB
+    );
+
+    -- Insert 75k order records
+    INSERT INTO orders (order_number, customer_email, customer_name, total_amount, status, shipping_address, items)
+    SELECT
+      'ORD-2024-' || LPAD(i::text, 6, '0'),
+      'customer' || MOD(i, 10000) || '@example.com',
+      'Customer ' || MOD(i, 10000),
+      (50 + random() * 450)::decimal(10,2),
+      CASE WHEN random() < 0.7 THEN 'completed'
+           WHEN random() < 0.9 THEN 'processing'
+           ELSE 'pending' END,
+      '123 Street ' || MOD(i, 1000) || ', City, State 12345',
+      jsonb_build_object(
+        'items', jsonb_build_array(
+          jsonb_build_object('product', 'Item ' || i, 'quantity', 1 + floor(random() * 5))
+        )
+      )
+    FROM generate_series(1, 75000) i;
+
+    -- Create indexes on other columns but NOT on customer_email
+    CREATE INDEX idx_order_number ON orders(order_number);
+    CREATE INDEX idx_order_date ON orders(order_date);
+    CREATE INDEX idx_status ON orders(status);
+
+    -- Analyze table for query planner
+    ANALYZE orders;
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: namespace-104c
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: postgres123
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: namespace-104c
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: namespace-104c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          value: orderdb
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: init-script
+        secret:
+          secretName: postgres-init
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: order-lookup-script
+  namespace: namespace-104c
+type: Opaque
+stringData:
+  lookup.sh: |
+    #!/bin/sh
+    echo "Waiting for PostgreSQL..."
+    until pg_isready -h postgres -p 5432; do
+      sleep 2
+    done
+    sleep 10  # Extra time for data loading
+
+    echo "Starting order lookup queries..."
+    while true; do
+      # Simulate customer looking up their orders by email (slow - no index)
+      customer_num=$(shuf -i 1-10000 -n 1)
+      email="customer${customer_num}@example.com"
+
+      psql -h postgres -U postgres -d orderdb \
+        -c "SELECT id, order_number, order_date, total_amount, status
+            FROM orders
+            WHERE customer_email = '$email'
+            ORDER BY order_date DESC
+            LIMIT 10;" >/dev/null 2>&1
+
+      # Occasionally do a fast query (using indexed column)
+      if [ $((RANDOM % 8)) -eq 0 ]; then
+        order_num=$(printf "ORD-2024-%06d" $(shuf -i 1-75000 -n 1))
+        psql -h postgres -U postgres -d orderdb \
+          -c "SELECT * FROM orders WHERE order_number = '$order_num';" >/dev/null 2>&1
+      fi
+
+      sleep 0.4
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-lookup
+  namespace: namespace-104c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-lookup
+  template:
+    metadata:
+      labels:
+        app: order-lookup
+    spec:
+      containers:
+      - name: lookup
+        image: postgres:15-alpine
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        command: ["/bin/sh", "/scripts/lookup.sh"]
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: scripts
+        secret:
+          secretName: order-lookup-script
+          defaultMode: 0755

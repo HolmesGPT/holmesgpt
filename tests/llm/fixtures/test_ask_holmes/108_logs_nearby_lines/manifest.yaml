@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-service-app
+  namespace: app-108
+type: Opaque
+stringData:
+  app.sh: |
+    #!/bin/sh
+    # Simulate service with 300+ Connection refused errors from config issue
+
+    # Initial healthy state
+    echo "2024-01-15T10:00:00.000Z [INFO] API Service v2.5.0 starting in PRODUCTION environment"
+    echo "2024-01-15T10:00:00.100Z [INFO] Loading configuration..."
+    echo "2024-01-15T10:00:00.200Z [CONFIG] Environment: PRODUCTION"
+    echo "2024-01-15T10:00:00.300Z [CONFIG] Database host: db-prod.internal:5432"
+    echo "2024-01-15T10:00:00.400Z [CONFIG] Cache host: redis-prod.internal:6379"
+    echo "2024-01-15T10:00:00.500Z [CONFIG] External API: https://api.production.example.com"
+    echo "2024-01-15T10:00:01.000Z [INFO] Successfully connected to database"
+    echo "2024-01-15T10:00:01.100Z [INFO] Successfully connected to cache"
+    echo "2024-01-15T10:00:01.200Z [INFO] Server listening on port 8080"
+
+    # Normal operation for a while
+    echo "2024-01-15T10:01:00.000Z [HTTP] 200 GET /api/users/123 (45ms)"
+    echo "2024-01-15T10:01:05.000Z [HTTP] 200 POST /api/orders (89ms)"
+    echo "2024-01-15T10:01:10.000Z [HTTP] 200 GET /api/products (34ms)"
+    echo "2024-01-15T10:01:15.000Z [INFO] Health check: OK"
+
+    # THE ROOT CAUSE - Config reload with wrong settings
+    echo "2024-01-15T10:05:00.000Z [WARN] Configuration file change detected"
+    echo "2024-01-15T10:05:00.100Z [INFO] Reloading configuration..."
+    echo "2024-01-15T10:05:00.200Z [CONFIG] Reading from /config/app.yaml"
+    echo "2024-01-15T10:05:00.300Z [CONFIG] PROD_CONFIG=false (was: true)"
+    echo "2024-01-15T10:05:00.400Z [CONFIG] Environment: PRODUCTION (unchanged)"
+    echo "2024-01-15T10:05:00.500Z [CONFIG] Database host: db-staging.internal:5432 (was: db-prod.internal:5432)"
+    echo "2024-01-15T10:05:00.600Z [CONFIG] Cache host: redis-staging.internal:6379 (was: redis-prod.internal:6379)"
+    echo "2024-01-15T10:05:00.700Z [WARN] Configuration mismatch: Using staging endpoints in production environment!"
+    echo "2024-01-15T10:05:00.800Z [INFO] Closing existing connections..."
+    echo "2024-01-15T10:05:00.900Z [INFO] Establishing new connections with updated config..."
+
+    # First connection refused errors start here
+    echo "2024-01-15T10:05:01.000Z [ERROR] Failed to connect to database: Connection refused (db-staging.internal:5432)"
+    echo "2024-01-15T10:05:01.100Z [ERROR] Failed to connect to cache: Connection refused (redis-staging.internal:6379)"
+    echo "2024-01-15T10:05:01.200Z [ERROR] Service degraded: No database connection"
+
+    # Generate 300+ Connection refused errors as service keeps retrying
+    for i in $(seq 1 50); do
+      echo "2024-01-15T10:05:$(printf '%02d' $((i + 1))).000Z [HTTP] 500 GET /api/users/$(($i + 1000)) - Connection refused"
+      echo "2024-01-15T10:05:$(printf '%02d' $((i + 1))).100Z [ERROR] Database connection failed: Connection refused (db-staging.internal:5432)"
+      echo "2024-01-15T10:05:$(printf '%02d' $((i + 1))).200Z [ERROR] Cache connection failed: Connection refused (redis-staging.internal:6379)"
+      echo "2024-01-15T10:05:$(printf '%02d' $((i + 1))).300Z [RETRY] Attempting to reconnect to database..."
+      echo "2024-01-15T10:05:$(printf '%02d' $((i + 1))).400Z [ERROR] Reconnection failed: Connection refused"
+      echo "2024-01-15T10:05:$(printf '%02d' $((i + 1))).500Z [HTTP] 500 POST /api/orders - Connection refused"
+    done
+
+    # Continue with more errors in next minute
+    for i in $(seq 1 50); do
+      echo "2024-01-15T10:06:$(printf '%02d' $i).000Z [ERROR] Connection refused (db-staging.internal:5432)"
+      echo "2024-01-15T10:06:$(printf '%02d' $i).100Z [HTTP] 500 GET /api/products - Connection refused"
+      echo "2024-01-15T10:06:$(printf '%02d' $i).200Z [ERROR] All database queries failing: Connection refused"
+      echo "2024-01-15T10:06:$(printf '%02d' $i).300Z [WARN] Circuit breaker opened for database connections"
+      echo "2024-01-15T10:06:$(printf '%02d' $i).400Z [ERROR] Health check failed: Connection refused"
+    done
+
+    # Some diagnostic logs mixed in
+    echo "2024-01-15T10:07:00.000Z [ALERT] Service has been down for 2 minutes"
+    echo "2024-01-15T10:07:00.100Z [INFO] Current configuration:"
+    echo "2024-01-15T10:07:00.200Z [INFO]   Environment: PRODUCTION"
+    echo "2024-01-15T10:07:00.300Z [INFO]   Database: db-staging.internal (INCORRECT FOR PRODUCTION)"
+    echo "2024-01-15T10:07:00.400Z [INFO]   Cache: redis-staging.internal (INCORRECT FOR PRODUCTION)"
+    echo "2024-01-15T10:07:00.500Z [ERROR] Staging infrastructure not accessible from production network"
+
+    # More connection refused errors
+    for i in $(seq 1 30); do
+      echo "2024-01-15T10:07:$(printf '%02d' $i).000Z [ERROR] Connection refused (db-staging.internal:5432)"
+      echo "2024-01-15T10:07:$(printf '%02d' $i).100Z [ERROR] Connection refused (redis-staging.internal:6379)"
+      echo "2024-01-15T10:07:$(printf '%02d' $i).200Z [HTTP] 500 GET /api/health - Connection refused"
+    done
+
+    # Keep pod running
+    sleep 3600
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: app-108
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-service
+  template:
+    metadata:
+      labels:
+        app: api-service
+    spec:
+      containers:
+      - name: api-service
+        image: busybox
+        command: ["sh", "/app/app.sh"]
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        secret:
+          secretName: api-service-app
+          defaultMode: 0755

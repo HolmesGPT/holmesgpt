@@ -1,0 +1,13 @@
+{
+  "instructions": [
+    "Gather relevant logs and changes",
+    "Explicitly list in the alert description the time range queried for logs, graphs and changes",
+    "**Do not return an investigation without any relevant times/dates. This investigation is a failure without any dates explicitly listed**",
+    "make a graph of  avg by(node,mode)(rate(node_cpu_seconds_total[5m])) on the relevant time"
+  ],
+  "documents": [
+    {
+      "url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubecpuovercommit"
+    }
+  ]
+}

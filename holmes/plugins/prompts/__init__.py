@@ -43,6 +43,12 @@ def load_and_render_prompt(prompt: str, context: Optional[dict] = None) -> str:
         context = {}
 
     now = datetime.now(timezone.utc)
-    context.update({"now": f"{now}", "now_timestamp_seconds": int(now.timestamp())})
+    context.update(
+        {
+            "now": f"{now}",
+            "now_timestamp_seconds": int(now.timestamp()),
+            "current_year": now.year,
+        }
+    )
 
     return template.render(**context)

@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: namespace-76
+---
+# Backend deployment with specific labels
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: namespace-76
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: backend
+        version: v1
+    spec:
+      containers:
+      - name: backend
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+---
+# Service with WRONG selector (missing version label)
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: namespace-76
+spec:
+  selector:
+    app: backend
+    version: v2  # Wrong version! Should be v1
+  ports:
+  - port: 80
+    targetPort: 80
+---
+# Frontend deployment trying to connect to backend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: namespace-76
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: busybox
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          while true; do
+            echo "Trying to connect to backend-service..."
+            if wget -O- http://backend-service:80 -T 5; then
+              echo "Success!"
+            else
+              echo "ERROR: Connection to backend-service failed!"
+            fi
+            sleep 10
+          done
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"

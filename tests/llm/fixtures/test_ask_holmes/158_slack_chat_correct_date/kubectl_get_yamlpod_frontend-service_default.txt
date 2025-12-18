@@ -1,0 +1,136 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_yaml","match_params":{"kind":"pod","name":"frontend-service","namespace":"default"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl get -o yaml pod frontend-service -n default", "params": {"kind": "pod", "name": "frontend-service", "namespace": "default"}, "icon_url": null}
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Pod","metadata":{"annotations":{},"name":"frontend-service","namespace":"default"},"spec":{"containers":[{"command":["stress","--cpu","100"],"image":"jfusterm/stress","imagePullPolicy":"IfNotPresent","name":"stress","resources":{"limits":{"cpu":"10m","memory":"64Mi"},"requests":{"cpu":"10m","memory":"64Mi"}}}]}}
+  creationTimestamp: "2025-08-2312:02:32Z"
+  name: frontend-service
+  namespace: default
+  resourceVersion: "8378975"
+  uid: d5d64096-dfff-4596-a955-e3e4a1bc6a1d
+spec:
+  containers:
+  - command:
+    - stress
+    - --cpu
+    - "100"
+    image: jfusterm/stress
+    imagePullPolicy: IfNotPresent
+    name: stress
+    resources:
+      limits:
+        cpu: 10m
+        memory: 64Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-5f9lc
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  nodeName: aks-agentpool-29949785-vmss000001
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoSchedule
+    key: node.kubernetes.io/memory-pressure
+    operator: Exists
+  volumes:
+  - name: kube-api-access-5f9lc
+    projected:
+      defaultMode: 420
+      sources:
+      - serviceAccountToken:
+          expirationSeconds: 3607
+          path: token
+      - configMap:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          name: kube-root-ca.crt
+      - downwardAPI:
+          items:
+          - fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+            path: namespace
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-2312:02:37Z"
+    status: "True"
+    type: PodReadyToStartContainers
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-2312:02:32Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-2312:02:38Z"
+    message: 'containers with unready status: [stress]'
+    reason: ContainersNotReady
+    status: "False"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-2312:02:38Z"
+    message: 'containers with unready status: [stress]'
+    reason: ContainersNotReady
+    status: "False"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2025-08-2312:02:32Z"
+    status: "True"
+    type: PodScheduled
+  containerStatuses:
+  - containerID: containerd://286072467f3e5ad881fadf39700064eeba6ffec869d1881c314efeabef0d2293
+    image: docker.io/jfusterm/stress:latest
+    imageID: sha256:95c477f06eefebe5ab343ce1b2dc80313dc79559067304f72b10a5a82bfb9179
+    lastState:
+      terminated:
+        containerID: containerd://286072467f3e5ad881fadf39700064eeba6ffec869d1881c314efeabef0d2293
+        exitCode: 255
+        finishedAt: "2025-08-2312:13:39Z"
+        reason: Error
+        startedAt: "2025-08-2312:13:39Z"
+    name: stress
+    ready: false
+    restartCount: 7
+    started: false
+    state:
+      waiting:
+        message: back-off 5m0s restarting failed container=stress pod=frontend-service_default(d5d64096-dfff-4596-a955-e3e4a1bc6a1d)
+        reason: CrashLoopBackOff
+    volumeMounts:
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-5f9lc
+      readOnly: true
+      recursiveReadOnly: Disabled
+  hostIP: 10.224.0.5
+  hostIPs:
+  - ip: 10.224.0.5
+  phase: Running
+  podIP: 10.244.1.0
+  podIPs:
+  - ip: 10.244.1.0
+  qosClass: Guaranteed
+  startTime: "2025-08-2312:02:32Z"

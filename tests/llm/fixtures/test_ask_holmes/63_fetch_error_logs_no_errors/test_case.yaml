@@ -1,10 +1,16 @@
 user_prompt: "post last 10 logs that contain \"ERROR\" from user-api in staging-63 namespace"
 expected_output: "No ERROR logs found"
-before_test: 'kubectl apply -f ./manifest.yaml'
-after_test: 'kubectl delete -f ./manifest.yaml'
-evaluation:
-  correctness: 1
-generate_mocks: True
+before_test: |
+  # Create namespace first since the secret depends on it (|| true ignores if it already exists)
+  kubectl create namespace staging-63 || true
+  kubectl create secret generic app-code-63 -n staging-63 --from-file=app.py=./app.py --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./manifest.yaml
+  kubectl wait --for=condition=available deployment/user-api -n staging-63 --timeout=120s
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret app-code-63 -n staging-63 --ignore-not-found
+  kubectl delete namespace staging-63 --ignore-not-found
+
 tags:
   - logs
-  - reproducible
+  - easy

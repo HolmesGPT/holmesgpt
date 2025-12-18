@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Type, Union
-from holmes.core.llm import LLM
+from holmes.core.llm import LLM, TokenCountMetadata
 from litellm.types.utils import ModelResponse
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import Tool
@@ -7,6 +7,7 @@ from holmes.plugins.toolsets import load_builtin_toolsets
 from pydantic import BaseModel
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.prompt import generate_user_prompt
 
 
 class MyCustomLLM(LLM):
@@ -16,8 +17,18 @@ class MyCustomLLM(LLM):
     def get_maximum_output_token(self) -> int:
         return 4096
 
-    def count_tokens_for_message(self, messages: list[dict]) -> int:
-        return 1
+    def count_tokens(
+        self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
+    ) -> TokenCountMetadata:
+        return TokenCountMetadata(
+            total_tokens=1000,
+            tools_to_call_tokens=100,
+            system_tokens=200,
+            tools_tokens=0,
+            user_tokens=700,
+            other_tokens=0,
+            assistant_tokens=0,
+        )
 
     def completion(  # type: ignore
         self,
@@ -55,9 +66,10 @@ def ask_holmes():
     )
 
     tool_executor = ToolExecutor(load_builtin_toolsets())
-    ai = ToolCallingLLM(tool_executor, max_steps=10, llm=MyCustomLLM())
+    ai = ToolCallingLLM(tool_executor, max_steps=40, llm=MyCustomLLM())
 
-    response = ai.prompt_call(system_prompt, prompt)
+    user_prompt = generate_user_prompt(prompt, context={})
+    response = ai.prompt_call(system_prompt, user_prompt)
 
     print(response.model_dump())
 

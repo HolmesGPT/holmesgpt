@@ -1,13 +1,11 @@
 user_prompt: "How many pods have the label env=prod in namespace test-59?"
 expected_output:
-  - 7 pods
+    - either 7, 7 pods, etc.
 before_test: |
   kubectl apply -f manifests.yaml
   sleep 60
 after_test: |
   kubectl delete -f manifests.yaml
-evaluation:
-  correctness: 1
 tags:
   - counting
-  - reproducible
+  - easy

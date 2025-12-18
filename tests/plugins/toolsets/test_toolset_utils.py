@@ -2,7 +2,7 @@ import pytest
 from dateutil import parser  # type: ignore
 from holmes.core.tools import (
     StructuredToolResult,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     Toolset,
     ToolsetStatusEnum,
 )
@@ -11,7 +11,11 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
     BasePodLoggingToolset,
     FetchPodLogsParams,
 )
-from holmes.plugins.toolsets.utils import process_timestamps_to_rfc3339, to_unix_ms
+from holmes.plugins.toolsets.utils import (
+    process_timestamps_to_rfc3339,
+    to_unix_ms,
+    toolset_name_for_one_liner,
+)
 from freezegun import freeze_time
 
 
@@ -148,8 +152,10 @@ class DummyNonLoggingToolset(Toolset):
             name="non_logging_toolset", description="Dummy toolset", tools=[]
         )
 
-    def _invoke(self, params: dict) -> StructuredToolResult:
-        return StructuredToolResult(status=ToolResultStatus.SUCCESS)
+    def _invoke(
+        self, params: dict, user_approved: bool = False
+    ) -> StructuredToolResult:
+        return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
 
     def get_parameterized_one_liner(self, params: dict) -> str:
         """Generate a one-line description of this tool invocation"""
@@ -167,8 +173,12 @@ class DummyLoggingToolset(BasePodLoggingToolset):
         if enabled:
             self.status = ToolsetStatusEnum.ENABLED
 
+    @property
+    def supported_capabilities(self) -> set:
+        return set()  # No advanced capabilities for dummy toolset
+
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
-        return StructuredToolResult(status=ToolResultStatus.SUCCESS)
+        return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
 
     def get_example_config(self):
         return {}
@@ -246,3 +256,15 @@ def test_filter_out_default_toolset(unfiltered_toolsets, expected_toolsets):
     filtered_toolsets_names = [t.name for t in filtered_toolsets].sort()
 
     assert expected_toolsets_names == filtered_toolsets_names
+
+
+@pytest.mark.parametrize(
+    "toolset_name, expected_name",
+    [
+        ("datadog/traces", "Datadog"),
+        ("datadog", "Datadog"),
+        ("", ""),
+    ],
+)
+def test_toolset_name_for_one_liner(toolset_name, expected_name):
+    assert toolset_name_for_one_liner(toolset_name) == expected_name

@@ -1,5 +1,0 @@
-user_prompt: "Fetch all kubernetes events related to the alertmanager pod"
-expected_output:
-  - To answer should list events with at least a mention of the container `alertmanager` being created.
-evaluation:
-  correctness: 1

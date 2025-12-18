@@ -2,8 +2,5 @@ user_prompt: "Fetch the logs for deployment `my-server-deployment`"
 expected_output: "nginx is running without issues"
 before_test: 'kubectl apply -f ./manifest.yaml'
 after_test: 'kubectl delete -f ./manifest.yaml'
-evaluation:
-  correctness: 1
-
 tags:
-  - reproducible
+  - easy

@@ -4,3 +4,5 @@ expected_output:
 evaluation:
   correctness: 0
 # the LLM sometimes confuses the issue id for a resource and tries to run `kubectl get -A --show-labels -o wide pod | grep asodfkq1209edyhqawdo2uydqawidh`
+
+mock_policy: always_mock

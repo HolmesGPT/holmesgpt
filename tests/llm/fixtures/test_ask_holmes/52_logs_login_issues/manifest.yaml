@@ -1,8 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ask-holmes-namespace-52
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,20 +17,20 @@ spec:
     spec:
       containers:
       - name: main-container
-        image: us-central1-docker.pkg.dev/genuine-flight-317411/devel/multiple-errors-in-logs:v1
-        imagePullPolicy: Always
-        env:
-        - name: SHOW_LOGIN_ERRORS
-          value: "true"
-        - name: LOGIN_ERRORS_FREQUENCY
-          value: "50"
-        - name: SHOW_DB_ERRORS
-          value: "false"
+        image: python:3.9-slim
+        command: ["python", "/scripts/generate_logs.py"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /scripts
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
+            memory: "64Mi"
+            cpu: "10m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "64Mi"
+      volumes:
+      - name: script-volume
+        secret:
+          secretName: my-app-52-logs-script
+          defaultMode: 0755
       restartPolicy: Always

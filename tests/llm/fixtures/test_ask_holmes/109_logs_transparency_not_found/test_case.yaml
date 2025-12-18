@@ -1,0 +1,22 @@
+user_prompt: "Show me the logs for the data-processor pod in namespace app-109"
+
+tags:
+  - logs
+  - transparency
+  - kubernetes
+  - medium
+
+expected_output: |
+  Holmes should:
+  1. Explicitly state that there are NO LOGS available for the pod
+  2. Explain why (pod is crashing immediately on startup)
+  3. Not just describe the problem without mentioning the lack of logs
+  4. Should include phrases like "no logs", "logs are empty", or "no log output available"
+
+before_test: |
+  kubectl create namespace app-109 || true
+  kubectl apply -f manifest.yaml -n app-109
+  sleep 20  # Let the pod crash a few times
+
+after_test: |
+  kubectl delete namespace app-109 --force --grace-period=0

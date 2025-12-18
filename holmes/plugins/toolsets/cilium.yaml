@@ -1,0 +1,284 @@
+toolsets:
+  cilium/core:
+    description: "Cilium CNI and Hubble network observability tools for troubleshooting network connectivity and security"
+    docs_url: "https://robusta-dev.github.io/holmesgpt/data-sources/builtin-toolsets/cilium/"
+    icon_url: "https://cilium.io/static/logo-dark-text.png"
+    llm_instructions: |
+      You have access to comprehensive Cilium and Hubble tools for debugging Kubernetes networking and security.
+      Use these tools to investigate:
+      - Network connectivity issues between pods/services
+      - Network policy violations
+      - Load balancing problems
+      - Network flows and traffic patterns
+      - Cilium component health and status
+
+      ALWAYS follow these troubleshooting steps:
+        1. Check Cilium agent status and health, and attempt to remediate if broken.
+        2. Use Hubble to observe network flows and identify blocked or dropped traffic
+        3. Check network policies if traffic is being denied
+        4. Examine Cilium endpoints and services for configuration issues
+        5. Analyze BPF maps and load balancer state if needed
+        6. Run connectivity tests ONLY as a last resort (they take 5+ minutes)
+
+      {% if tool_names|list|length > 0 %}
+      The following Cilium commands are available: {{ ", ".join(tool_names) }}
+      {% endif %}
+
+      ALWAYS provide specific actionable solutions based on the observed data rather than generic troubleshooting advice.
+    tags:
+      - cli
+    prerequisites:
+      - command: "cilium status"
+    config:
+      timeout: 300 # Default timeout in seconds - connectivity tests can take 5+ minutes to complete
+
+    tools:
+      # Cilium Status and Health
+      - name: "cilium_status"
+        description: "Display overall Cilium agent status and health"
+        command: "cilium status"
+
+      - name: "cilium_status_verbose"
+        description: "Display detailed Cilium agent status with verbose output"
+        command: "cilium status --verbose"
+
+      - name: "cilium_version"
+        description: "Show Cilium version information"
+        command: "cilium version"
+
+      - name: "cilium_config"
+        description: "Display current Cilium configuration"
+        command: "cilium config view"
+
+      # Connectivity Testing
+      - name: "cilium_connectivity_test"
+        description: "Run comprehensive connectivity tests to validate network functionality (SLOW: 5+ minutes - use as last resort)"
+        command: "timeout {{ config.timeout | default(600) }} cilium connectivity test --test-concurrency 1"
+
+      - name: "cilium_connectivity_test_namespace"
+        description: "Run connectivity tests in a specific namespace (SLOW: 5+ minutes - use as last resort)"
+        command: "timeout {{ config.timeout | default(600) }} cilium connectivity test --test-namespace {{ namespace }}"
+        args:
+          - name: "namespace"
+            type: "string"
+            description: "Kubernetes namespace to run connectivity tests in"
+
+      # Cluster and Node Information
+      - name: "cilium_clustermesh_status"
+        description: "Display cluster mesh status for multi-cluster networking"
+        command: "cilium clustermesh status"
+
+      # Features and Configuration
+      - name: "cilium_features_status"
+        description: "Report which features are enabled in Cilium agents"
+        command: "cilium features status"
+
+      # BGP Control Plane
+      - name: "cilium_bgp_peers"
+        description: "List BGP peers for nodes running Cilium (requires BGP enabled)"
+        command: "cilium bgp peers || echo 'BGP not enabled or not properly configured'"
+
+      - name: "cilium_bgp_routes"
+        description: "List BGP routes for nodes running Cilium (requires BGP enabled)"
+        command: "cilium bgp routes || echo 'BGP not enabled or not properly configured'"
+
+      # Encryption (requires Cilium 1.18+)
+      - name: "cilium_encryption_status"
+        description: "Show encryption status and configuration (requires Cilium 1.18+)"
+        command: "cilium encryption status || echo 'Encryption status not supported in this Cilium version'"
+
+      # System Diagnostics
+      - name: "cilium_sysdump"
+        description: "Collect system information for troubleshooting Cilium issues"
+        command: "cilium sysdump --output-filename cilium-sysdump-$(date +%Y%m%d-%H%M%S).zip"
+
+      # Installation and Upgrade
+      - name: "cilium_install_status"
+        description: "Check Cilium installation status in the cluster"
+        command: "cilium status --wait"
+
+      - name: "cilium_context"
+        description: "Display the current Kubernetes context configuration"
+        command: "cilium context"
+
+      # Multicast (only works if multicast is enabled)
+      - name: "cilium_multicast_groups"
+        description: "List multicast groups and their members (requires multicast enabled)"
+        command: "cilium multicast list group || echo 'Multicast not enabled in this cluster'"
+
+  hubble/observability:
+    description: "Hubble network observability tools for monitoring and troubleshooting network flows"
+    docs_url: "https://robusta-dev.github.io/holmesgpt/data-sources/builtin-toolsets/cilium/#hubble"
+    icon_url: "https://raw.githubusercontent.com/cilium/hubble/main/Documentation/images/hubble_logo.png"
+    llm_instructions: |
+      Use Hubble to observe and analyze network traffic flows in your Kubernetes cluster.
+
+      IMPORTANT: Hubble commands require a running Hubble server (hubble-relay) to be accessible.
+      If Hubble server is not available, these commands will fail with connection errors.
+      Use 'cilium hubble enable' to enable Hubble if needed.
+
+      Hubble provides deep visibility into:
+      - HTTP/gRPC/DNS traffic flows
+      - Network policy drops and allows
+      - Service-to-service communication patterns
+      - Security events and anomalies
+      - Cilium agent events and debug information
+
+      When troubleshooting with Hubble:
+        1. Start with broad flow observations to understand traffic patterns
+        2. Filter by specific pods, namespaces, or protocols as needed
+        3. Look for dropped flows to identify policy issues
+        4. Check DNS resolution problems
+        5. Analyze L7 protocols for application-level issues
+        6. Use policy verdicts to understand network policy behavior
+
+      Use time windows and limits to focus on recent events during incident investigation.
+      Note: Some advanced features like agent-events and debug-events may not be available in all Hubble versions.
+    tags:
+      - cli
+    prerequisites:
+      - command: "hubble version"
+      - command: "hubble status"
+    config:
+      timeout: 300 # Default timeout in seconds for potentially long-running commands
+
+    tools:
+      # Flow Observation
+      - name: "hubble_observe"
+        description: "Observe network flows in real-time (last 100 flows)"
+        command: "hubble observe --last 1000"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this hubble observe output focusing on
+                - Notable traffic patterns.
+                - Traffic drops of any kind, source, destingation, protocol, etc.
+                - Errors that might indicate network issues.
+
+      - name: "hubble_observe_namespace"
+        description: "Observe flows for a specific namespace"
+        command: "hubble observe --namespace {{ namespace }} --last 100"
+        args:
+          - name: "namespace"
+            type: "string"
+            description: "Kubernetes namespace to observe flows for"
+
+      - name: "hubble_observe_pod"
+        description: "Observe flows to/from a specific pod (format: namespace/pod-name)"
+        command: "hubble observe --pod {{ pod_name }} --last 100"
+        args:
+          - name: "pod_name"
+            type: "string"
+            description: "Pod name in format namespace/pod-name or just pod-name (defaults to 'default' namespace)"
+
+      - name: "hubble_observe_since"
+        description: "Observe flows since a specific time (e.g., '5m', '1h', '2023-01-01T10:00:00Z')"
+        command: "timeout {{ config.timeout | default(30) }} hubble observe --since {{ time_duration }}"
+        args:
+          - name: "time_duration"
+            type: "string"
+            description: "Time duration or timestamp (e.g., '5m', '1h', '2023-01-01T10:00:00Z')"
+
+      # Protocol-Specific Observation
+      - name: "hubble_observe_http"
+        description: "Observe HTTP traffic flows"
+        command: "hubble observe --protocol http --last 100"
+
+      - name: "hubble_observe_dns"
+        description: "Observe DNS queries and responses"
+        command: "hubble observe --protocol dns --last 100"
+
+      - name: "hubble_observe_grpc"
+        description: "Observe gRPC traffic flows"
+        command: "hubble observe --protocol grpc --last 100"
+
+      # Traffic Analysis
+      - name: "hubble_observe_drops"
+        description: "Show only dropped network flows (policy denials, etc.)"
+        command: "hubble observe --verdict DROPPED --last 100"
+
+      - name: "hubble_observe_forwarded"
+        description: "Show flows that were successfully forwarded"
+        command: "hubble observe --verdict FORWARDED --last 100"
+
+      - name: "hubble_observe_service"
+        description: "Observe flows to/from a specific service (format: namespace/service-name)"
+        command: "hubble observe --service {{ service_name }} --last 100"
+        args:
+          - name: "service_name"
+            type: "string"
+            description: "Service name in format namespace/service-name or just service-name (defaults to 'default' namespace)"
+
+      - name: "hubble_observe_port"
+        description: "Observe flows on a specific port"
+        command: "hubble observe --port {{ port }} --last 100"
+        args:
+          - name: "port"
+            type: "integer"
+            description: "Port number to filter flows by (e.g., 8080, 443)"
+
+      # Flow Filtering and Analysis
+      - name: "hubble_observe_from_pod"
+        description: "Observe flows originating from a specific pod (format: namespace/pod-name)"
+        command: "hubble observe --from-pod {{ namespace }}/{{ pod_name }} --last 100"
+        args:
+          - name: "namespace"
+            type: "string"
+            description: "Kubernetes namespace where the source pod is located"
+          - name: "pod_name"
+            type: "string"
+            description: "Name of the source pod"
+
+      - name: "hubble_observe_to_pod"
+        description: "Observe flows destined to a specific pod (format: namespace/pod-name)"
+        command: "hubble observe --to-pod {{ namespace }}/{{ pod_name }} --last 100"
+        args:
+          - name: "namespace"
+            type: "string"
+            description: "Kubernetes namespace where the destination pod is located"
+          - name: "pod_name"
+            type: "string"
+            description: "Name of the destination pod"
+
+      - name: "hubble_observe_between_namespaces"
+        description: "Observe flows between two specific namespaces"
+        command: "hubble observe --from-namespace {{ src_namespace }} --to-namespace {{ dst_namespace }} --last 100"
+        args:
+          - name: "src_namespace"
+            type: "string"
+            description: "Source namespace to filter flows from"
+          - name: "dst_namespace"
+            type: "string"
+            description: "Destination namespace to filter flows to"
+
+      - name: "hubble_observe_json"
+        description: "Output flow observations in JSON format for detailed analysis"
+        command: "hubble observe --output json --last 100"
+
+      # Status and Metrics
+      - name: "hubble_status"
+        description: "Display Hubble server status and configuration"
+        command: "hubble status"
+
+      - name: "hubble_list_nodes"
+        description: "List nodes available for flow observation"
+        command: "hubble list nodes"
+
+      - name: "hubble_observe_flows_summary"
+        description: "Get a summary of recent network flows with basic statistics"
+        command: "hubble observe --last 100 --output compact"
+
+      # Security and Policy Analysis
+      - name: "hubble_observe_security_events"
+        description: "Observe security-related network events and policy violations"
+        command: "hubble observe --verdict DROPPED --last 100"
+
+      - name: "hubble_observe_policy_verdicts"
+        description: "Show policy verdict events (allows and denies)"
+        command: "hubble observe --type policy-verdict --last 100"
+
+      - name: "hubble_observe_l7_traffic"
+        description: "Show L7 (application-layer) traffic flows"
+        command: "hubble observe --type l7 --last 100"

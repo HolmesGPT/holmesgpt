@@ -6,54 +6,25 @@ By enabling this toolset, HolmesGPT will be able to access cluster metadata info
 
 The configuration for OpenSearch is passed through to the underlying [opensearch-py library](https://github.com/opensearch-project/opensearch-py). Consult this library's [user guide](https://github.com/opensearch-project/opensearch-py/blob/main/USER_GUIDE.md) or [reference documentation](https://opensearch-project.github.io/opensearch-py/api-ref/clients/opensearch_client.html) for configuring the connection to OpenSearch, including how to authenticate this toolset to an OpenSearch cluster.
 
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-    ```yaml
-    toolsets:
-        opensearch/status:
-            enabled: true
-            config:
-                opensearch_clusters:
-                    - hosts:
-                        - host1.com
-                        - host2.com
-                      headers:
-                        header1: "value1"
-                      use_ssl: <boolean>
-                      ssl_assert_hostname: <boolean>
-                      verify_certs: <boolean>
-                      ssl_show_warn: <boolean>
-                      http_auth:
-                        username: <basic auth username>
-                        password: <basic auth password>
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        toolsets:
-            opensearch/status:
-                enabled: true
-                config:
-                    opensearch_clusters:
-                        - hosts:
-                            - host1.com
-                            - host2.com
-                          headers:
-                            header1: "value1"
-                          use_ssl: <boolean>
-                          ssl_assert_hostname: <boolean>
-                          verify_certs: <boolean>
-                          ssl_show_warn: <boolean>
-                          http_auth:
-                            username: <basic auth username>
-                            password: <basic auth password>
-    ```
-    --8<-- "snippets/helm_upgrade_command.md"
+```yaml-toolset-config
+toolsets:
+    opensearch/status:
+        enabled: true
+        config:
+            opensearch_clusters:
+                - hosts:
+                    - host1.com
+                    - host2.com
+                  headers:
+                    header1: "value1"
+                  use_ssl: <boolean>
+                  ssl_assert_hostname: <boolean>
+                  verify_certs: <boolean>
+                  ssl_show_warn: <boolean>
+                  http_auth:
+                    username: <basic auth username>
+                    password: <basic auth password>
+```
 
 Here is an example of an insecure OpenSearch configuration for local development using a bearer token:
 

@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "alertmanager"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "alertmanager"}}
-stdout:
-monitoring           alertmanager-robusta-kube-prometheus-st-alertmanager-0           2/2     Running     0          3m54s   10.244.0.30   nicolas-local-rbac-azure-control-plane   <none>           <none>            alertmanager=robusta-kube-prometheus-st-alertmanager,app.kubernetes.io/instance=robusta-kube-prometheus-st-alertmanager,app.kubernetes.io/managed-by=prometheus-operator,app.kubernetes.io/name=alertmanager,app.kubernetes.io/version=0.26.0,apps.kubernetes.io/pod-index=0,controller-revision-hash=alertmanager-robusta-kube-prometheus-st-alertmanager-7fd84555d5,statefulset.kubernetes.io/pod-name=alertmanager-robusta-kube-prometheus-st-alertmanager-0
-
-stderr:

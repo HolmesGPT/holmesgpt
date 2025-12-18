@@ -1,0 +1,136 @@
+# Analytics Service ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: analytics-service-script
+  namespace: app-156
+data:
+  analytics_service.py: |
+    import os
+    import time
+    import json
+    from datetime import datetime
+    from kafka import KafkaConsumer
+    from opensearchpy import OpenSearch
+
+    # Kafka configuration
+    bootstrap_servers = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
+    topic = 'messages'
+
+    # OpenSearch configuration from environment
+    opensearch_host = os.environ['OPENSEARCH_HOST']
+    opensearch_port = int(os.environ['OPENSEARCH_PORT'])
+
+    # Wait for OpenSearch to be ready
+    print("Waiting for OpenSearch to be ready...")
+    client = None
+    max_attempts = 30
+    for attempt in range(max_attempts):
+        try:
+            client = OpenSearch(
+                hosts=[{'host': opensearch_host, 'port': opensearch_port}],
+                use_ssl=False
+            )
+            # Test connection
+            client.info()
+            print("OpenSearch is ready")
+            break
+        except Exception as e:
+            print(f"OpenSearch not ready yet (attempt {attempt+1}/{max_attempts}): {e}")
+            time.sleep(2)
+
+    if client is None:
+        raise Exception("Failed to connect to OpenSearch after multiple attempts")
+
+    # Create index if it doesn't exist
+    index_name = 'kafka-messages'
+    if not client.indices.exists(index=index_name):
+        client.indices.create(
+            index=index_name,
+            body={
+                'settings': {
+                    'number_of_shards': 1,
+                    'number_of_replicas': 0
+                }
+            }
+        )
+
+    # Connect to Kafka with production-ready timeout settings
+    consumer = KafkaConsumer(
+        topic,
+        bootstrap_servers=bootstrap_servers,
+        value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+        auto_offset_reset='earliest',
+        enable_auto_commit=True,
+        max_poll_interval_ms=300000,    # Allow up to 5 minutes between polls
+        session_timeout_ms=30000,        # Consumer must heartbeat within 30 seconds
+        heartbeat_interval_ms=3000,      # Send heartbeat every 3 seconds
+        max_poll_records=10,             # Only fetch 10 records at a time to avoid overwhelming
+        group_id='analytics-group'
+    )
+
+    print("Connected to Kafka. Starting to consume messages...")
+
+    for message in consumer:
+        msg_data = message.value
+        msg_id = msg_data['id']
+
+        print(f"Got a new message {msg_id}. Writing to OpenSearch...")
+
+        # Write to OpenSearch
+        try:
+            response = client.index(
+                index=index_name,
+                body=msg_data,
+                refresh=True  # Force refresh after each write for consistency
+            )
+        except Exception as e:
+            print(f"Error writing to OpenSearch: {e}")
+---
+# Analytics Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: app-156
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+    spec:
+      containers:
+      - name: analytics-service
+        image: python:3.9-slim
+        command: ["sh", "-c"]
+        args:
+          - |
+            pip install kafka-python opensearch-py
+            python /app/analytics_service.py
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka:9092"
+        - name: OPENSEARCH_HOST
+          value: "opensearch"
+        - name: OPENSEARCH_PORT
+          value: "9200"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        volumeMounts:
+        - name: analytics-service-script
+          mountPath: /app
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "5m"
+          limits:
+            memory: "256Mi"
+            cpu: "50m"
+      volumes:
+      - name: analytics-service-script
+        configMap:
+          name: analytics-service-script

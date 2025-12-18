@@ -1,5 +1,0 @@
-{"toolset_name": "prometheus/metrics", "tool_name": "list_available_metrics", "match_params": {"name_filter": "container_cpu_usage_seconds_total"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "list_available_metrics command", "params": {"name_filter": "container_cpu_usage_seconds_total"}}
-Metric | Description | Type | Labels
-----------------------------------------------------------------------------------------------------
-container_cpu_usage_seconds_total | Cumulative cpu time consumed in seconds. | counter | container, cpu, endpoint, id, image, instance, job, metrics_path, name, namespace, node, pod, service

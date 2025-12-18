@@ -1,0 +1,9 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  datadog/metrics:
+    enabled: true
+    config:
+      dd_api_key: "{{env.DATADOG_API_KEY}}"
+      dd_app_key: "{{env.DATADOG_APP_KEY}}"
+      site_api_url: "https://api.datadoghq.eu"

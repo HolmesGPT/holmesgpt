@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-server
+  namespace: namespace-66
+  labels:
+    app: web-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-server
+  template:
+    metadata:
+      labels:
+        app: web-server
+    spec:
+      containers:
+      - name: web-server
+        image: python:3.9-slim
+        command: ["python"]
+        args: ["/scripts/generate_logs.py"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+      volumes:
+      - name: script-volume
+        secret:
+          secretName: web-server-logs-script
+          defaultMode: 0755
+      restartPolicy: Always

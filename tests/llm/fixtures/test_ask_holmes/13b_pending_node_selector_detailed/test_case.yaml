@@ -1,0 +1,15 @@
+user_prompt: "What is the issue with user-profile-import"
+expected_output:
+  - The pod user-profile-import is pending because its nodeSelector "label=someLabel" doesn't match any nodes
+  - The pod requires a node with label "label=someLabel" but neither node has this label
+  - To fix, either remove the nodeSelector from the pod or add the label "label=someLabel" to a node
+tags:
+  - medium  # requires citing exact labels and node information
+  - kubernetes
+before_test: |
+  kubectl create namespace app-13b || true
+  kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml -n app-13b
+  sleep 30
+after_test: |
+  kubectl delete -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml -n app-13b || true
+  kubectl delete namespace app-13b || true

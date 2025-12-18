@@ -1,7 +1,7 @@
 toolsets:
   slab:
     description: "Fetches slab pages"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/slab.html"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/slab/"
     icon_url: "https://platform.robusta.dev/demos/slab-mark.svg"
     tags:
       - core
@@ -11,7 +11,7 @@ toolsets:
           - SLAB_API_KEY
     tools:
       - name: "fetch_slab_document"
-        description: "Fetch a document from slab. Use this to fetch runbooks if they are present before starting your investigation."
+        description: "Fetch a document from slab."
         command: |
           curl -X POST \
           -H "Authorization: ${SLAB_API_KEY}" \

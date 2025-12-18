@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: namespace-85
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: golden-eagle
+  namespace: namespace-85
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: golden-eagle
+  template:
+    metadata:
+      labels:
+        app: golden-eagle
+    spec:
+      containers:
+      - name: golden-eagle
+        image: busybox
+        command: ["sh", "-c", "while true; do echo 'Working...'; sleep 1; done"]
+        # Note: Missing resource requests/limits - this is intentional to match the expected output
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: golden-eagle-hpa
+  namespace: namespace-85
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: golden-eagle
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50

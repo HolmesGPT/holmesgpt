@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-27a
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: llama
+  namespace: app-27a
+  labels:
+    app: multi-container-app
+spec:
+  containers:
+  - name: web
+    image: python:3.9-slim
+    command: ["python", "/scripts/generate_logs.py", "web"]
+    volumeMounts:
+    - name: script-volume
+      mountPath: /scripts
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "10m"
+  - name: sidecar
+    image: python:3.9-slim
+    command: ["python", "/scripts/generate_logs.py", "sidecar"]
+    volumeMounts:
+    - name: script-volume
+      mountPath: /scripts
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "10m"
+  volumes:
+  - name: script-volume
+    secret:
+      secretName: llama-logs-script
+      defaultMode: 0755

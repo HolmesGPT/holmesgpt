@@ -1,0 +1,12 @@
+user_prompt: "What is the issue with redis?"
+expected_output:
+  - The PersistentVolumeClaim (pvc) is misconfigured
+tags:
+  - easy # although it failed 1/20 runs and the failure was asking the user for more information and not trying to investigate at all first - see https://www.braintrust.dev/app/robustadev/p/HolmesGPT/experiments/natan-all-easy-ask3?c=github-16532477432.2600.1&r=9ab9ed06-1db1-45f1-a98c-119160af79c3&s=c6b3795a-8984-4537-830b-76a8e4a932a0
+  - kubernetes
+before_test: |
+  kubectl create namespace app-24a || true
+  kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pvc-misconfiguration/redis-deployment.yaml -n app-24a
+after_test: |
+  kubectl delete -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pvc-misconfiguration/redis-deployment.yaml -n app-24a
+  kubectl delete namespace app-24a || true

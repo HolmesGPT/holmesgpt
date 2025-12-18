@@ -1,0 +1,11 @@
+user_prompt: "Why is the app-server pod stuck in ContainerCreating state in namespace-79?"
+expected_output:
+  - App server stuck in ContainerCreating because it tries to mount ConfigMap app-config which doesn't exist in the namespace
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  sleep 20
+after_test: |
+  kubectl delete -f ./manifest.yaml
+tags:
+  - easy
+  - kubernetes

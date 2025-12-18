@@ -1,5 +1,6 @@
 import pytest
 from holmes.core.openai_formatting import type_to_open_ai_schema
+from holmes.core.tools import ToolParameter
 
 
 @pytest.mark.parametrize(
@@ -24,5 +25,6 @@ from holmes.core.openai_formatting import type_to_open_ai_schema
     ],
 )
 def test_type_to_open_ai_schema(toolset_type, open_ai_type):
-    result = type_to_open_ai_schema(toolset_type)
+    param = ToolParameter(type=toolset_type, required=True)
+    result = type_to_open_ai_schema(param, strict_mode=False)
     assert result == open_ai_type

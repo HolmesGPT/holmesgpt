@@ -1,0 +1,27 @@
+user_prompt: "Fetch all logs for ocean-breeze pod in app-26 namespace and summarize render times for checkout page?"
+expected_output:
+  - "Page render times for the checkout page range from about 7 to 9 seconds"
+
+before_test: |
+  # Create namespace
+  kubectl create namespace app-26 || true
+  # Create secret with the logs script
+  kubectl create secret generic ocean-breeze-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n app-26 --dry-run=client -o yaml | kubectl apply -f -
+  # Deploy the application
+  kubectl apply -f ./manifest.yaml
+  kubectl wait --for=condition=Ready pod/ocean-breeze -n app-26 --timeout=60s
+  # Let it generate some logs
+  sleep 30
+
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret ocean-breeze-logs-script -n app-26 --ignore-not-found
+  kubectl delete namespace app-26 --ignore-not-found
+
+tags:
+  - logs
+  - kubernetes
+  - medium
+  - numerical

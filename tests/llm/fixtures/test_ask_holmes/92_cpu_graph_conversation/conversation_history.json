@@ -1,0 +1,12 @@
+[
+  {
+    "role": "user",
+    "content": "Can you show the memory usage of the robusta-runner-78599b764d-f847h pod?",
+    "token_count": 510
+  },
+  {
+    "role": "assistant",
+    "content": "The `robusta-runner-78599b764d-f847h` pod in the `default` namespace is running without any OOM (Out of Memory) issues. Memory limits and requests are set to 1Gi. No OOM-related logs were found.",
+    "annotations": []
+  }
+]

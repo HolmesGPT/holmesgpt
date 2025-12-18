@@ -1,14 +1,39 @@
 user_prompt: "Show me the errors in the logs of my-app-51"
 tags:
   - logs
-  - reproducible
+  - easy
 expected_output: |
   A summary with the following errors in whichever order:
     1. Login issues due to redis timeouts
     2. Login issues due to Identity provider certificate expired
     3. DB query issues due to a syntax error
     4. DB query issues due unicity constraint volation
-before_test: kubectl apply -f ./manifest.yaml && sleep 60
-after_test: kubectl delete -f ./manifest.yaml
-evaluation:
-  correctness: 0
+before_test: |
+  # Create namespace (or reuse existing)
+  kubectl create namespace ask-holmes-namespace-51 || true
+
+  # Delete any stuck/pending pods from previous runs to force recreation
+  kubectl delete pods --all -n ask-holmes-namespace-51 --force --grace-period=0 2>/dev/null || true
+
+  # Update secret for the log generation script (apply will update if exists)
+  kubectl create secret generic my-app-51-logs-script \
+    --from-file=generate_logs.py=./generate_logs.py \
+    -n ask-holmes-namespace-51 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Apply the deployment manifest (will update if exists)
+  kubectl apply -f ./manifest.yaml
+
+  # Rollout restart to ensure fresh pods with updated config
+  kubectl rollout restart deployment/my-app-51 -n ask-holmes-namespace-51
+
+  # Wait for deployment to be available
+  kubectl rollout status deployment/my-app-51 -n ask-holmes-namespace-51 --timeout=180s
+
+after_test: |
+  # Delete resources with proper error reporting
+  echo "Cleaning up test resources..."
+  kubectl delete -f ./manifest.yaml || echo "WARNING: Failed to delete manifest resources (exit code: $?)"
+  kubectl delete secret my-app-51-logs-script -n ask-holmes-namespace-51 || echo "WARNING: Failed to delete secret (exit code: $?)"
+  # Note: namespace deletion can be slow, using --wait=false for speed
+  kubectl delete namespace ask-holmes-namespace-51 --wait=false || echo "WARNING: Failed to delete namespace (exit code: $?)"
+  echo "Cleanup completed"

@@ -7,5 +7,7 @@
 * If you have an issue id or finding id, use `fetch_finding_by_id` as it contains time information about the issue (`starts_at`, `updated_at` and `ends_at`).
 ** Then, use `start_time=-300` (5 minutes before `end_time`) and `end_time=<issue start_at time>`  when calling `fetch_pod_logs`.
 ** If there are too many logs, or not enough, narrow or widen the timestamps
-** If looking for a specific keyword, use the `filter` argument
-* If you are not provided with time information. Ignore the `start_time` and `end_time`. The tool `fetch_pod_logs` will default to the latest logs.
+* If the user did not explicitly ask about a given timeframe, ignore the `start_time` and `end_time` so it will use the default.
+* IMPORTANT: ALWAYS inform the user about the actual time period fetched (e.g., "Looking at logs from the last <X> days")
+* IMPORTANT: If a limit was applied, ALWAYS tell the user how many logs were shown vs total (e.g., "Showing latest <Y> of <Z> logs")
+* IMPORTANT: If any filters were applied, ALWAYS mention them explicitly

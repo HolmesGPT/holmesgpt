@@ -1,4 +1,0 @@
-{"toolset_name":"helm/core","tool_name":"helm_list","match_params":{}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "helm list", "params": {}}
-NAME   	NAMESPACE	REVISION	UPDATED                                 	STATUS  	CHART         	APP VERSION
-robusta	default  	70      	2025-05-23 13:13:50.238608188 +0200 CEST	deployed	robusta-0.23.0	0.23.0

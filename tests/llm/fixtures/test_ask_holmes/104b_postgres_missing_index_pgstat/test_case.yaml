@@ -1,0 +1,53 @@
+user_prompt: "The user-lookup deployment in namespace-104b is experiencing slow response times. Why?"
+expected_output:
+  - Database queries are slow due to missing index on users.email column
+  - Sequential scans are occurring on the users table with 100k rows
+  - Each email lookup query is taking over 100ms due to full table scan
+#  - CREATE INDEX ON users(email) would resolve the performance issue
+
+skip: true
+skip_reason: setup needs fixing, the database has other issues right now that the llm correctly finds
+
+tags:
+  - hard
+  - database
+runbooks:
+  catalog:
+    - id: postgres-performance
+      name: PostgreSQL Performance Investigation
+      description: Guide for investigating slow PostgreSQL queries
+      path: postgres_performance.md
+
+description: |
+  This eval simulates a common database performance issue - missing index on a frequently queried column.
+
+  NOTE: This version is intended to be solved by using pg_stat_statements to discover slow queries.
+
+  Setup:
+  - PostgreSQL database with pg_stat_statements extension enabled
+  - Users table with 100k records but no index on email column
+  - API service performing email lookups: SELECT * FROM users WHERE email = ?
+  - Each query results in a sequential scan of all 100k rows
+
+  Expected troubleshooting steps:
+  1. Check pod logs to see if queries are slow
+  2. Connect to PostgreSQL using kubectl run: kubectl run temp --image=postgres:15-alpine --rm -it --restart=Never -- psql -h postgres -U postgres -d userdb
+  3. Query pg_stat_statements: SELECT query, mean_time, calls FROM pg_stat_statements ORDER BY mean_time DESC
+  4. Identify slow query with high mean_time
+  5. Run EXPLAIN ANALYZE on the query to see Sequential Scan
+  6. Check table structure: \d users (shows no index on email)
+  7. Conclude that missing index on email column is causing full table scans
+
+  The issue becomes obvious when you see Seq Scan on 100k rows in EXPLAIN output.
+
+  Note: Use PGPASSWORD=postgres123 environment variable for authentication.
+
+before_test: |
+  kubectl create namespace namespace-104b
+  kubectl apply -f ./manifest.yaml -n namespace-104b
+  kubectl wait --for=condition=ready pod -l app=postgres -n namespace-104b --timeout=60s
+  kubectl wait --for=condition=ready pod -l app=user-lookup -n namespace-104b --timeout=60s
+  sleep 30  # Let some slow queries accumulate
+after_test: |
+  kubectl delete -f ./manifest.yaml -n namespace-104b
+  kubectl delete namespace namespace-104b

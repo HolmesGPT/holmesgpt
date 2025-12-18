@@ -1,0 +1,98 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# Development
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+pyrightconfig.json
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+cover/
+.deepeval*
+
+# Documentation
+docs/
+/site
+docs/_build/
+*.md
+!CLAUDE.md
+
+# Temporary files
+tmp/
+*.log
+*.tmp
+
+# Config files
+config.yaml
+config_toolsets.yaml
+.claude/
+.claude-trace/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Evaluation/test artifacts
+evals_report.txt
+evals_report.md
+eval_results.json
+playwright.png
+
+# Poetry (keep poetry.lock and pyproject.toml as they're needed)
+poetry.toml
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# IDE
+.ropeproject
+.spyderproject
+.spyproject

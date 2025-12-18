@@ -1,4 +1,5 @@
 from typing import Any, Optional
+from holmes.plugins.toolsets.bash.common.bash_command import BashCommand
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.kubectl.constants import (
     SAFE_NAME_PATTERN,
@@ -6,95 +7,95 @@ from holmes.plugins.toolsets.bash.kubectl.constants import (
     SAFE_SELECTOR_PATTERN,
     VALID_RESOURCE_TYPES,
 )
-from holmes.plugins.toolsets.bash.kubectl.kubectl_describe import (
-    create_kubectl_describe_parser,
-    stringify_describe_command,
-)
-from holmes.plugins.toolsets.bash.kubectl.kubectl_events import (
-    create_kubectl_events_parser,
-    stringify_events_command,
-)
-from holmes.plugins.toolsets.bash.kubectl.kubectl_logs import (
-    create_kubectl_logs_parser,
-    stringify_logs_command,
-)
-from holmes.plugins.toolsets.bash.kubectl.kubectl_top import (
-    create_kubectl_top_parser,
-    stringify_top_command,
-)
-from holmes.plugins.toolsets.bash.kubectl.kubectl_get import (
-    create_kubectl_get_parser,
-    stringify_get_command,
-)
+from holmes.plugins.toolsets.bash.kubectl.kubectl_describe import KubectlDescribeCommand
+from holmes.plugins.toolsets.bash.kubectl.kubectl_events import KubectlEventsCommand
+from holmes.plugins.toolsets.bash.kubectl.kubectl_logs import KubectlLogsCommand
+from holmes.plugins.toolsets.bash.kubectl.kubectl_top import KubectlTopCommand
+from holmes.plugins.toolsets.bash.kubectl.kubectl_get import KubectlGetCommand
 
 
-def create_kubectl_parser(parent_parser: Any):
-    kubectl_parser = parent_parser.add_parser(
-        "kubectl", help="Kubernetes command-line tool", exit_on_error=False
-    )
-    action_subparsers = kubectl_parser.add_subparsers(
-        dest="action",
-        required=True,
-        help="Action to perform (e.g., get, apply, delete)",
-    )
-    create_kubectl_get_parser(action_subparsers)
-    create_kubectl_describe_parser(action_subparsers)
-    create_kubectl_top_parser(action_subparsers)
-    create_kubectl_events_parser(action_subparsers)
-    create_kubectl_logs_parser(action_subparsers)
+class KubectlCommand(BashCommand):
+    def __init__(self):
+        super().__init__("kubectl")
 
+        self.sub_commands = [
+            KubectlDescribeCommand(),
+            KubectlEventsCommand(),
+            KubectlLogsCommand(),
+            KubectlTopCommand(),
+            KubectlGetCommand(),
+        ]
 
-def validate_kubectl_command(cmd: Any) -> None:
-    """
-    Validate common kubectl command fields to prevent injection attacks.
-    Raises ValueError if validation fails.
-    """
+    def add_parser(self, parent_parser: Any):
+        kubectl_parser = parent_parser.add_parser(
+            "kubectl", help="Kubernetes command-line tool", exit_on_error=False
+        )
+        action_subparsers = kubectl_parser.add_subparsers(
+            dest="action",
+            required=True,
+            help="Action to perform (e.g., get, apply, delete)",
+        )
 
-    # Validate resource type
-    if (
-        hasattr(cmd, "resource_type")
-        and cmd.resource_type.lower() not in VALID_RESOURCE_TYPES
-    ):
-        raise ValueError(f"Invalid resource type: {cmd.resource_type}")
+        for sub_command in self.sub_commands:
+            sub_command.add_parser(action_subparsers)
 
-    # Validate resource name if provided
-    if hasattr(cmd, "resource_name") and cmd.resource_name:
-        if not SAFE_NAME_PATTERN.match(cmd.resource_name):
-            raise ValueError(f"Invalid resource name: {cmd.resource_name}")
-        if len(cmd.resource_name) > 253:
-            raise ValueError("Resource name too long")
+    def validate_command(
+        self, command: Any, original_command: str, config: Optional[BashExecutorConfig]
+    ) -> None:
+        """
+        Validate common kubectl command fields to prevent injection attacks.
+        Raises ValueError if validation fails.
+        """
 
-    # Validate namespace if provided
-    if hasattr(cmd, "namespace") and cmd.namespace:
-        if not SAFE_NAMESPACE_PATTERN.match(cmd.namespace):
-            raise ValueError(f"Invalid namespace: {cmd.namespace}")
-        if len(cmd.namespace) > 63:
-            raise ValueError("Namespace name too long")
+        # Validate resource type
+        if (
+            hasattr(command, "resource_type")
+            and command.resource_type.lower() not in VALID_RESOURCE_TYPES
+        ):
+            raise ValueError(f"Invalid resource type: {command.resource_type}")
 
-    # Validate selectors if provided
-    if hasattr(cmd, "selector") and cmd.selector:
-        if not SAFE_SELECTOR_PATTERN.match(cmd.selector):
-            raise ValueError(f"Invalid label selector: {cmd.selector}")
-        if len(cmd.selector) > 1000:
-            raise ValueError("Label selector too long")
+        # Validate resource name if provided
+        if hasattr(command, "resource_name") and command.resource_name:
+            if not SAFE_NAME_PATTERN.match(command.resource_name):
+                raise ValueError(f"Invalid resource name: {command.resource_name}")
+            if len(command.resource_name) > 253:
+                raise ValueError("Resource name too long")
 
+        # Validate namespace if provided
+        if hasattr(command, "namespace") and command.namespace:
+            if not SAFE_NAMESPACE_PATTERN.match(command.namespace):
+                raise ValueError(f"Invalid namespace: {command.namespace}")
+            if len(command.namespace) > 63:
+                raise ValueError("Namespace name too long")
 
-def stringify_kubectl_command(command: Any, config: Optional[BashExecutorConfig]):
-    if command.cmd == "kubectl":
-        validate_kubectl_command(command)
-        if command.action == "get":
-            return stringify_get_command(command)
-        elif command.action == "describe":
-            return stringify_describe_command(command)
-        elif command.action == "top":
-            return stringify_top_command(command)
-        elif command.action == "events":
-            return stringify_events_command(command)
-        elif command.action == "logs":
-            return stringify_logs_command(command)
-        else:
+        # Validate selectors if provided
+        if hasattr(command, "selector") and command.selector:
+            if not SAFE_SELECTOR_PATTERN.match(command.selector):
+                raise ValueError(f"Invalid label selector: {command.selector}")
+            if len(command.selector) > 1000:
+                raise ValueError("Label selector too long")
+
+        # Delegate to sub-command-specific validation
+        if hasattr(command, "action"):
+            for sub_command in self.sub_commands:
+                if command.action == sub_command.name:
+                    if hasattr(sub_command, "validate_command"):
+                        sub_command.validate_command(command, original_command, config)
+                    break
+
+    def stringify_command(
+        self, command: Any, original_command: str, config: Optional[BashExecutorConfig]
+    ) -> str:
+        if command.cmd == "kubectl":
+            for sub_command in self.sub_commands:
+                if command.action == sub_command.name:
+                    return sub_command.stringify_command(
+                        command=command,
+                        original_command=original_command,
+                        config=config,
+                    )
             raise ValueError(
                 f"Unsupported {command.tool_name} action {command.action}. Supported actions are: get, describe, events, top, run"
             )
-    else:
-        raise ValueError(f"Unsupported command {command.tool_name}")
+        else:
+            raise ValueError(f"Unsupported command {command.tool_name}")

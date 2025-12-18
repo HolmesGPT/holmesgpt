@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: java-api-checker
+  namespace: app-12
+spec:
+  template:
+    spec:
+      containers:
+      - name: java-beans
+        image: python:3.9-slim
+        command: ["python", "/scripts/generate_logs.py"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+      volumes:
+      - name: script-volume
+        secret:
+          secretName: java-api-checker-logs-script
+          defaultMode: 0755
+      restartPolicy: Never
+  backoffLimit: 1

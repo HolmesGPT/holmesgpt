@@ -1,0 +1,12 @@
+user_prompt: "Why are pods in pending state for the api-server deployment in namespace-78a?"
+tags:
+  - kubernetes
+  - medium
+expected_output:
+  - Pods cannot be created because the container spec is missing limits.cpu which is required by the ResourceQuota
+  - The api-server container must specify limits.cpu to comply with the compute-quota ResourceQuota
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  sleep 20
+after_test: |
+  kubectl delete -f ./manifest.yaml

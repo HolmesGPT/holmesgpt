@@ -1,0 +1,12 @@
+toolsets:
+  kubernetes/logs:
+    enabled: false  # Disable to force use of Loki
+  kubernetes/core:
+    enabled: true
+  grafana/loki:
+    enabled: true
+    config:
+      url: http://localhost:3102
+      api_key: ""  # No auth needed for local Loki
+      # Note: No labels configuration provided
+      # The agent will need to discover that pod_name is used instead of pod

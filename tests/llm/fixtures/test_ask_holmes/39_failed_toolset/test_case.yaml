@@ -2,5 +2,7 @@ user_prompt: "Check rabbitmq's health"
 expected_output:
   - Answer should say that the RabbitMQ integration or toolset is currently failing
   - The answer should quote a specific error
-evaluation:
-  correctness: 0
+tags:
+  - easy
+  - transparency
+allow_toolset_failures: true

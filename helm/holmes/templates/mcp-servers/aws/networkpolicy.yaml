@@ -1,0 +1,30 @@
+{{- if and .Values.mcpAddons.aws.enabled .Values.mcpAddons.aws.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-aws-mcp-network-policy
+  namespace: {{ .Values.mcpAddons.aws.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-aws-mcp
+    app.kubernetes.io/name: aws-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}-aws-mcp
+      app.kubernetes.io/name: aws-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow traffic only from Holmes pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app: holmes
+    ports:
+    - protocol: TCP
+      port: 8000
+{{- end }}

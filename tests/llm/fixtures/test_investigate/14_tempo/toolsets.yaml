@@ -19,4 +19,4 @@ toolsets:
     enabled: False
 # Relies on https://github.com/robusta-dev/kubernetes-demos/tree/main/minishop-telemetry
 # Requires
-# - Grafana tempo receiving telemetry from minishop
+# - tempo receiving telemetry from minishop

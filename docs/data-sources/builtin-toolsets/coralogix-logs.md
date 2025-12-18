@@ -1,11 +1,8 @@
-# Coralogix logs
+# Coralogix
 
-By enabling this toolset, HolmesGPT will fetch pod logs from [Coralogix](https://coralogix.com/).
-
---8<-- "snippets/toolsets_that_provide_logging.md"
+HolmesGPT can use Coralogix for logs/traces (DataPrime) and, separately, PromQL-style metrics. This page shows both setups.
 
 ## Prerequisites
-
 1. A [Coralogix API key](https://coralogix.com/docs/developer-portal/apis/data-query/direct-archive-query-http-api/#api-key) which is assigned the `DataQuerying` permission preset
 2. A [Coralogix domain](https://coralogix.com/docs/user-guides/account-management/account-settings/coralogix-domain/). For example `eu2.coralogix.com`
 3. Your team's [name or hostname](https://coralogix.com/docs/user-guides/account-management/organization-management/create-an-organization/#teams-in-coralogix). For example `your-company-name`
@@ -15,46 +12,54 @@ You can deduce the `domain` and `team_hostname` configuration fields by looking 
 For example if you access Coralogix at `https://my-team.app.eu2.coralogix.com/` then the `team_hostname` is `my-team` and the Coralogix `domain` is `eu2.coralogix.com`.
 
 ## Configuration
+Configure both the Coralogix DataPrime toolset (for logs/traces) and the Prometheus metrics toolset (for metrics) using the same API key:
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  coralogix:
+    enabled: true
+    config:
+      api_key: "<your Coralogix API key>"
+      domain: "eu2.coralogix.com"
+      team_hostname: "your-company-name"
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  prometheus/metrics:
+    enabled: true
+    config:
+      headers:
+        Authorization: "Bearer <your Coralogix API key>"
+      prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
+      healthcheck: "api/v1/query?query=up"
 
-    ```yaml
-    toolsets:
-      coralogix/logs:
-        enabled: true
-        config:
-          api_key: "<your Coralogix API key>"
-          domain: "eu2.coralogix.com"
-          team_hostname: "your-company-name"
+```
 
-      kubernetes/logs:
-        enabled: false  # Disable default Kubernetes logging
-    ```
+**Note**: Both toolsets use the same API key. The DataPrime toolset supports fields (`CoralogixConfig`): `api_key`, `domain`, `team_hostname`, optional `labels`.
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+## Recommended: Customize Coralogix Instructions
 
-=== "Robusta Helm Chart"
+By specifying details about your Coralogix metrics, logs, and traces, you can significantly speed up and improve investigations. This allows Holmes to work with your environment directly, rather than spending time discovering labels, mappings, and metric names on its own.
 
-    ```yaml
-    holmes:
-      toolsets:
-        coralogix/logs:
-          enabled: true
-          config:
-            api_key: "<your Coralogix API key>"
-            domain: "eu2.coralogix.com"
-            team_hostname: "your-company-name"
+To configure this:
 
-        kubernetes/logs:
-          enabled: false  # Disable default Kubernetes logging
-    ```
+1. Go to [platform.robusta.dev](https://platform.robusta.dev/)
+2. Navigate to **Settings → AI Assistant → AI Customization**
+3. Add your labels and metric details
+4. Save your changes
 
-    --8<-- "snippets/helm_upgrade_command.md"
+### Example Custom Instructions
 
-## Capabilities
+Below is an example of how your custom instructions might look, based on the labels and metrics used in your environment:
 
-| Tool Name | Description |
-|-----------|-------------|
-| coralogix_fetch_logs | Fetch logs from Coralogix for specified pods and time ranges |
+```text
+# Coralogix details
+
+For Coralogix, use the following label mappings for logs:
+- pod: k8s.pod_name
+- namespace: k8s.namespace_name
+- service: k8s.service_name
+- deployment: k8s.deployment_name
+
+Custom Coralogix metrics:
+- payments_failures: tracks payment processing failures
+- api_latency_p95: 95th percentile API latency
+```

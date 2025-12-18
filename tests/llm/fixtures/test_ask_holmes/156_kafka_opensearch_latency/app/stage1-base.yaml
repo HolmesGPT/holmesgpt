@@ -1,0 +1,318 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-156
+---
+# Zookeeper Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: app-156
+spec:
+  ports:
+  - port: 2181
+    name: client
+  selector:
+    app: zookeeper
+---
+# Zookeeper Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper
+  namespace: app-156
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+      - name: zookeeper
+        image: bitnami/zookeeper:3.8
+        ports:
+        - containerPort: 2181
+        env:
+        - name: ALLOW_ANONYMOUS_LOGIN
+          value: "yes"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+# OpenSearch Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  namespace: app-156
+spec:
+  ports:
+  - port: 9200
+    name: http
+  selector:
+    app: opensearch
+---
+# OpenSearch Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch
+  namespace: app-156
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      containers:
+      - name: opensearch
+        image: python:3.9-slim
+        ports:
+        - containerPort: 9200
+        command: ["python", "/app/opensearch_server.py"]
+        env:
+        - name: MERGE_POLICY
+          value: "tiered"  # Index merge policy
+        - name: REFRESH_INTERVAL
+          value: "1s"  # Index refresh interval
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        startupProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 30
+        volumeMounts:
+        - name: opensearch-script
+          mountPath: /app
+      volumes:
+      - name: opensearch-script
+        configMap:
+          name: opensearch-script
+---
+# ConfigMap for OpenSearch
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opensearch-script
+  namespace: app-156
+data:
+  opensearch_server.py: |
+    import json
+    import time
+    import os
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from urllib.parse import urlparse
+    import hashlib
+    import sys
+
+    # Configuration from environment
+    MERGE_POLICY = os.environ.get('MERGE_POLICY', 'tiered')
+    REFRESH_INTERVAL = os.environ.get('REFRESH_INTERVAL', '1s')
+
+    # In-memory storage
+    indices = {}
+    documents = {}
+    last_cpu_warning_time = 0  # Track when we last warned about CPU
+
+    class OpenSearchHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            # Custom logging to include timestamps
+            print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {format % args}")
+
+        def optimize_index(self):
+            """Perform index optimization operations"""
+            if MERGE_POLICY == 'tiered':
+                # Perform optimization work
+                start = time.time()
+                while time.time() - start < 1.0:  # Optimization cycle duration
+                    # Multiple optimization operations
+                    # 1. Calculate many hashes
+                    for i in range(50000):
+                        hashlib.sha256(str(i * i).encode()).hexdigest()
+                    # 2. Do some math operations
+                    result = 0
+                    for i in range(100000):
+                        result += i ** 2 + i ** 3
+                    # 3. String operations
+                    s = ""
+                    for i in range(1000):
+                        s = s + str(i) + "-" + str(i*2)
+                    # 4. List operations
+                    lst = [i for i in range(10000)]
+                    lst.sort(reverse=True)
+                    lst.sort()
+
+        def send_json_response(self, code, data):
+            try:
+                self.send_response(code)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(data).encode())
+            except (BrokenPipeError, ConnectionResetError):
+                # Ignore broken pipe errors from health checks
+                pass
+
+        def do_GET(self):
+            path = urlparse(self.path).path
+
+            # Health check endpoint
+            if path == '/_cluster/health':
+                self.send_json_response(200, {
+                    'status': 'green',
+                    'cluster_name': 'opensearch-cluster',
+                    'number_of_nodes': 1
+                })
+            # Index exists check
+            elif path.startswith('/') and path.count('/') == 1:
+                index_name = path[1:]
+                exists = index_name in indices
+                if exists:
+                    self.send_json_response(200, {})
+                else:
+                    self.send_json_response(404, {'error': 'index_not_found'})
+            else:
+                self.send_json_response(404, {'error': 'not_found'})
+
+        def do_HEAD(self):
+            # For index exists checks
+            path = urlparse(self.path).path
+            if path.startswith('/') and path.count('/') == 1:
+                index_name = path[1:]
+                if index_name in indices:
+                    self.send_response(200)
+                else:
+                    self.send_response(404)
+                self.end_headers()
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_PUT(self):
+            path = urlparse(self.path).path
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length).decode() if content_length > 0 else '{}'
+
+            # Create index
+            if path.startswith('/') and path.count('/') == 1:
+                index_name = path[1:]
+                indices[index_name] = json.loads(body) if body else {}
+                documents[index_name] = []
+                print(f"Created index: {index_name}")
+                self.send_json_response(200, {'acknowledged': True, 'index': index_name})
+            else:
+                self.send_json_response(400, {'error': 'bad_request'})
+
+        def do_POST(self):
+            path = urlparse(self.path).path
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length).decode() if content_length > 0 else '{}'
+
+            # Index document
+            if '/_doc' in path or '/_create' in path:
+                # Perform indexing with optimization
+                print(f"Indexing document with optimization...")
+                self.optimize_index()
+
+                # Apply refresh interval only with tiered merge policy
+                if MERGE_POLICY == 'tiered':
+                    # Warn periodically about CPU usage when under load
+                    global last_cpu_warning_time
+                    current_time = time.time()
+                    if current_time - last_cpu_warning_time > 10:  # Warn every 10 seconds
+                        print(f"WARNING: Index merge thread consuming excessive CPU - merge throttling may be needed", flush=True)
+                        last_cpu_warning_time = current_time
+
+                    time.sleep(3.0)  # Processing time for document with heavy optimization
+
+                parts = path.split('/')
+                index_name = parts[1]
+                if index_name in documents:
+                    doc = json.loads(body) if body else {}
+                    doc_id = str(len(documents[index_name]))
+                    documents[index_name].append(doc)
+                    print(f"Indexed document {doc_id} to {index_name}")
+                    self.send_json_response(201, {
+                        '_index': index_name,
+                        '_id': doc_id,
+                        'result': 'created'
+                    })
+                else:
+                    self.send_json_response(404, {'error': 'index_not_found'})
+            # Refresh endpoint
+            elif path.endswith('/_refresh'):
+                print(f"Refresh requested for {path}")
+                self.optimize_index()
+                time.sleep(0.5)  # Refresh operation duration
+                self.send_json_response(200, {'_shards': {'successful': 1}})
+            # Force merge endpoint
+            elif '_forcemerge' in path:
+                print(f"Force merge requested for {path}")
+                self.optimize_index()
+                time.sleep(1)  # Force merge operation duration
+                self.send_json_response(200, {'_shards': {'successful': 1}})
+            # Search endpoint
+            elif path.endswith('/_search'):
+                print(f"Search requested for {path}")
+                self.optimize_index()
+                time.sleep(0.3)
+                self.send_json_response(200, {
+                    'hits': {'total': {'value': 0}},
+                    'aggregations': {}
+                })
+            else:
+                self.send_json_response(400, {'error': 'bad_request'})
+
+    def background_index_optimizer():
+        """Background thread that continuously optimizes indices"""
+        print("Starting background index optimization thread...", flush=True)
+        while True:
+            if MERGE_POLICY == 'tiered':
+                # Continuous index optimization
+                for _ in range(100000):
+                    hashlib.sha256(os.urandom(256)).hexdigest()
+                # Very short sleep to allow other threads
+                time.sleep(0.001)
+            else:
+                time.sleep(1)
+
+    def run_server():
+        # Start multiple background index optimizer threads
+        for i in range(3):  # 3 threads for parallel optimization
+            optimizer_thread = threading.Thread(target=background_index_optimizer, daemon=True)
+            optimizer_thread.start()
+            print(f"Started index optimizer thread {i+1}", flush=True)
+
+        server_address = ('', 9200)
+        httpd = HTTPServer(server_address, OpenSearchHandler)
+        print(f"OpenSearch server starting on port 9200", flush=True)
+        print(f"Merge policy: {MERGE_POLICY}", flush=True)
+        print(f"Refresh interval: {REFRESH_INTERVAL}", flush=True)
+        sys.stdout.flush()
+        httpd.serve_forever()
+
+    if __name__ == '__main__':
+        print("Starting OpenSearch server...", flush=True)
+        run_server()

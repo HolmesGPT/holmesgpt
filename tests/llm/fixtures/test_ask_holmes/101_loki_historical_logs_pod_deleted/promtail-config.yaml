@@ -1,0 +1,46 @@
+# Promtail ConfigMap - specific to this test for log collection
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+data:
+  promtail-config.yaml: |
+    server:
+      http_listen_port: 9080
+    positions:
+      filename: /tmp/positions.yaml
+      sync_period: 10s
+      ignore_invalid_yaml: true
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+        batchwait: 100ms       # Send batches more frequently
+        batchsize: 102400      # 100KB batch size (smaller batches)
+        backoff_config:
+          min_period: 100ms
+          max_period: 1m
+          max_retries: 20
+        timeout: 10s
+    scrape_configs:
+      - job_name: payment-api
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: payment-api
+              namespace: app-101
+              __path__: /var/log/*.log
+        pipeline_stages:
+          - json:
+              expressions:
+                timestamp: timestamp
+                level: level
+                message: message
+                service: service
+                pod_name: pod
+          - timestamp:
+              source: timestamp
+              format: RFC3339
+          - labels:
+              level:
+              service:
+              pod_name:

@@ -1,5 +1,13 @@
 ## Datadog Metrics Tools Usage Guide
 
+Before running metrics queries:
+
+** You are often (but not always) running in a kubernetes environment. So users might ask you questions about kubernetes workloads without explicitly stating their type.
+** When getting ambiguous questions, use kubectl_find_resource to find the resource you are being asked about!
+** Find the involved resource name and kind
+** If you can't figure out what is the type of the resource, ask the user for more information and don't guess
+
+
 When investigating metrics-related issues:
 
 1. **Start with `list_active_datadog_metrics`** to discover available metrics
@@ -8,19 +16,71 @@ When investigating metrics-related issues:
 
 2. **Use `query_datadog_metrics`** to fetch actual metric data
    - Query syntax: `metric_name{tag:value}`
-   - Example: `system.cpu.user{host:myhost}`
    - Returns timeseries data with timestamps and values
 
 3. **Use `get_datadog_metric_metadata`** to understand metric properties
    - Provides metric type (gauge/count/rate), unit, and description
    - Accepts comma-separated list for batch queries
 
+4. **Use `list_datadog_metric_tags`** to understand which tags are available for a given metric
+   - Provides a set of tags and aggregations
+   - Can help to build the correct `tag_filter`, to find which metrics are available for a given resource
+
+### General guideline
+- This toolset is used to generate visualizations and graphs.
+- Assume the resource should have metrics. If metrics not found, try to adjust tag filters
+- IMPORTANT: This toolset DOES NOT support promql queries.
+
+### CRITICAL: Pod Name Resolution Workflow
+
+**When user provides an exact pod name** (e.g., `my-workload-5f9d8b7c4d-x2km9`):
+- Query Datadog directly with that pod name using appropriate metrics and tags
+- Do NOT try to verify if the pod exists in Kubernetes first
+- This allows querying historical pods that have been deleted/replaced
+
+**When user provides a generic workload name** (e.g., "my-workload", "nginx", "telemetry-processor"):
+- First use `kubectl_find_resource` to find actual pod names
+- Example: `kubectl_find_resource` with "my-workload" → finds pods like "my-workload-8f8cdfxyz-c7zdr"
+- Then use those specific pod names in Datadog queries
+- Alternative: Use deployment-level tags when appropriate
+
+**Why this matters:**
+- Pod names in Datadog are the actual Kubernetes pod names (with random suffixes)
+- Historical pods that no longer exist in the cluster can still have metrics in Datadog
+- Deployment/service names alone are NOT pod names (they need the suffix)
+
 ### Time Parameters
 - Use RFC3339 format: `2023-03-01T10:30:00Z`
 - Or relative seconds: `-3600` for 1 hour ago
 - Defaults to 1 hour window if not specified
 
-### Common Patterns
-- CPU investigation: First list metrics with `tag_filter:kube_node_name:nodename`, then query specific metrics
-- Memory issues: Look for `system.mem.*` or `kubernetes.memory.*` metrics
-- Container metrics: Filter by pod/container tags
+### Common Investigation Patterns
+
+**For Pod/Container Metrics (MOST COMMON):**
+1. User asks: "Show CPU for my-workload"
+2. Use `kubectl_find_resource` → find pod "my-workload-abc123-xyz"
+3. Query Datadog: `container.cpu.usage{pod_name:my-workload-abc123-xyz}`
+
+**For Node-level Metrics:**
+1. Use `tag_filter:kube_node_name:nodename` to filter by node
+2. Query system-level metrics like `system.cpu.user{kube_node_name:worker-1}`
+
+**For Service-level Metrics:**
+1. First resolve service to pods using `kubectl_find_resource`
+2. Query metrics for all pods belonging to that service
+3. Use namespace filtering: `tag_filter:kube_namespace:default`
+
+
+# Handling queries results
+* ALWAYS embed the execution results into your answer
+* You only need to embed the partial result in your response. Include the "tool_name" and "tool_call_id". For example: << {"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "92jf2hf"} >>
+* Post processing will parse your response, re-run the query from the tool output and create a chart visible to the user
+* You MUST ensure that the query is successful.
+* ALWAYS embed a DataDog graph in the response. The graph should visualize data related to the incident.
+* Embed at most 2 graphs
+* When embedding multiple graphs, always add line spacing between them
+    For example:
+
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "lBaA"}>>
+
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "IKtq"}>>

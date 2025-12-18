@@ -1,10 +1,21 @@
-user_prompt: "Was there any 'Peer down' problem reported for network-connector pod?"
+user_prompt: "Was there any 'Peer down' problem reported for network-connector pod in namespace app-20?"
 expected_output:
   - There is a Peer down issue
-before_test: kubectl apply -f ./long-log-pod.yaml
-after_test: kubectl delete -f ./long-log-pod.yaml
+before_test: |
+  # Create namespace first since the secret depends on it (|| true ignores if it already exists)
+  kubectl create namespace app-20 || true
+  kubectl create secret generic network-connector-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n app-20 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./manifest.yaml
+  sleep 45
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret network-connector-logs-script -n app-20 --ignore-not-found
+  kubectl delete namespace app-20 --ignore-not-found
 evaluation:
   correctness: 1
 
 tags:
-  - reproducible
+  - logs
+  - easy

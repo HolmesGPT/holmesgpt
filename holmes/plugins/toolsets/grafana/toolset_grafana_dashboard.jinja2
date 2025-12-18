@@ -1,0 +1,49 @@
+---
+  ## **IMPORTANT: Handling Grafana Dashboard URLs**
+
+  **When the user provides a Grafana dashboard URL (e.g., http://some-domain.com/d/09ec8aa1e996d6ffcd6817bbaff4db1b/kubernetes-api-server):**
+
+  1. **DO NOT use the internet/fetch_webpage tool** - Grafana URLs should always be handled by the grafana dashboards toolset
+  2. **Extract the dashboard parameters from the URL:**
+     - Pattern: `/d/{uid}/{dashboard-name}`
+     - Example: `/d/09ec8aa1e996d6ffcd6817bbaff4db1b/kubernetes-api-server` → UID is `09ec8aa1e996d6ffcd6817bbaff4db1b`
+  3. **Use `grafana_get_dashboard_by_uid` with the extracted UID** to fetch the dashboard definition
+  4. **Extract queries from the dashboard panels** and execute them with the appropriate toolset (Prometheus, Loki, etc.)
+
+  ### **Example Workflow:**
+  User: "Look at this graph: http://localhost:3000/d/abc123/my-dashboard?from=now-1h&to=now"
+  ↓
+  1. Recognize this is a Grafana URL (contains /d/)
+  2. Extract UID: abc123
+  3. Call grafana_get_dashboard_by_uid(uid="abc123")
+  4. Analyze dashboard panels and their queries
+  5. Execute relevant queries using the time range from the URL (from=now-1h, to=now)
+
+  **Key Point:** Always prefer the Grafana toolset for any URL pointing to a Grafana instance. This gives you access to the dashboard structure, panel queries, and metadata - not just HTML content.
+
+
+## **Instruction: Prometheus Dashboard Query Execution**
+
+**When running Prometheus queries from Grafana dashboards:**
+
+### **Key Rules:**
+1. **Always run as range queries** (not instant queries) to match dashboard behavior
+2. **Use dashboard's time range** from JSON: `"time": {"from": "now-1h", "to": "now"}`
+3. **Substitute variables:**
+   - `$__rate_interval` → `1m` (1-hour range) or `5m` (3+ hour range)
+   - `$cluster` → omit if empty
+4. **Copy query exactly** including `ceil()`, `sort_desc()`, etc.
+
+### **Example:**
+```
+Dashboard: "now-1h" + query with [$__rate_interval]
+↓
+Execute: start="-3600" + query with [1m]
+```
+
+### **Ignore:**
+- `"refresh": "10s"` (UI setting, not query-related)
+
+**This ensures you see the same time series data and historical spikes that users see on their dashboards.**
+
+---

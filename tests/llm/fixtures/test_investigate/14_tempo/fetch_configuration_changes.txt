@@ -1,3 +1,3 @@
-{"toolset_name":"robusta","tool_name":"fetch_configuration_changes"}
+{"toolset_name":"robusta","tool_name":"fetch_configuration_changes_metadata"}
 {"schema_version": "robusta:v1.0.0", "status": "no_data", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"start_datetime": "2025-03-17T08:36:49.299Z", "end_datetime": "2025-03-17T12:36:49.299Z"}}
 Could not find changes

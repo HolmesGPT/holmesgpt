@@ -1,4 +1,0 @@
-user_prompt: "How are the page render times for pod customer-orders"
-expected_output: "Page render times for `the pod range from about 7 to 9 seconds."
-evaluation:
-  correctness: 0

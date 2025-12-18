@@ -4,7 +4,6 @@ expected_output:
   - June 23rd 2025
   - 11:34 UTC
 mocked_date: "2025-06-23T11:34:00Z"
-evaluation:
-  correctness: 1
 tags:
   - datetime
+  - easy

@@ -1,0 +1,41 @@
+toolsets:
+  internet:
+    enabled: false
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:10158
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
+  kubernetes/kube-lineage-extras:
+    enabled: false
+  bash:
+    enabled: false
+  helm/core:
+    enabled: false
+  kafka/admin:
+    enabled: false
+  aws/security:
+    enabled: false
+  aws/rds:
+    enabled: false
+  aks/core:
+    enabled: false
+  kubernetes/live-metrics:
+    enabled: false
+  kubernetes/kube-prometheus-stack:
+    enabled: false
+  runbook:
+    enabled: false
+  kubernetes/krew-extras:
+    enabled: false
+  aks/node-health:
+    enabled: false
+  docker/core:
+    enabled: false
+  confluence:
+    enabled: False
+  slab:
+    enabled: False

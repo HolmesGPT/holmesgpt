@@ -1,12 +1,16 @@
 toolsets:
   kubernetes/logs:
     description: "Read pod logs"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kubernetes.html#logs"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
     tags:
       - core
     prerequisites:
       - command: "kubectl version --client"
+
+    # Note: Log tools use transformers with llm_summarize to automatically
+    # summarize large log outputs when a fast model is configured. This helps
+    # focus on errors, patterns, and key information while reducing context usage.
 
     tools:
       - name: "kubectl_previous_logs"
@@ -24,10 +28,38 @@ toolsets:
       - name: "kubectl_logs"
         description: "Run `kubectl logs` on a single Kubernetes pod. Never give a deployment name or a resource that is not a pod."
         command: "kubectl logs {{pod_name}} -n {{ namespace }}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize these pod logs focusing on:
+                - Errors, exceptions, and warning messages
+                - Recent activity patterns and trends
+                - Any authentication, connection, or startup issues
+                - Performance indicators (response times, throughput)
+                - Group similar log entries together
+                - When possible, mention exact error codes or keywords for easier searching
+                - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
+                - Include grep-ready keys/values; avoid repeating entire logs or unchanged defaults
 
       - name: "kubectl_logs_all_containers"
         description: "Run `kubectl logs` on all containers within a single Kubernetes pod."
         command: "kubectl logs {{pod_name}} -n {{ namespace }} --all-containers"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize these multi-container pod logs focusing on:
+                - Errors, exceptions, and warning messages by container
+                - Inter-container communication patterns
+                - Any authentication, connection, or startup issues
+                - Performance indicators and resource usage patterns
+                - Group similar log entries together by container
+                - When possible, mention exact error codes or keywords for easier searching
+                - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
+                - Prioritize aggregates and actionable outliers over comprehensive details
 
       - name: "kubectl_container_logs"
         description: "Run `kubectl logs` on a single container within a Kubernetes pod. This is to get the logs of a specific container in a multi-container pod."

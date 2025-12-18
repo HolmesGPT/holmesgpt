@@ -1,13 +1,13 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: java-api-checker
-  namespace: ask-holmes-namespace-46
+  name: typescript-transpiler
+  namespace: ts-46
 spec:
   template:
     spec:
       containers:
-      - name: java-beans
+      - name: typescript-transpiler
         image: busybox
         command: ["/bin/sh", "-c"]
         args: ["echo 'Java Network Exception: \nAll host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256 \nAll host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256 \nAll host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256 \nAll host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256'; sleep 60; exit 1"]

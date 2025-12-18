@@ -1,0 +1,208 @@
+## Datadog General API Tools Usage Guide
+
+### When to Use This Toolset
+
+**PROACTIVELY use the Datadog general toolset when investigating issues to gather comprehensive observability data.**
+
+**Use Datadog for Historical Context When Needed, or check live data when needed:**
+- **When checking current status**: Use current time ranges for real-time monitoring
+- **When investigating past issues**: If asked about problems from yesterday, last week, etc.
+- **When finding root causes**: Look at events/monitors from BEFORE an issue started
+- **When Kubernetes data is missing**: Pods may have been deleted, events expired, etc.
+
+This toolset provides access to critical Datadog resources that can help identify root causes, or health status:
+- **Monitors**: Check alert history, thresholds, and monitor states
+- **Incidents**: Review recent incidents and their timelines
+- **Dashboards**: Access pre-configured dashboards for system overview
+- **SLOs**: Verify service level objectives and error budgets
+- **Events**: Correlate deployments, configuration changes, and system events
+- **Synthetics**: Check endpoint availability and performance
+- **Security**: Review security signals and alerts
+- **Hosts**: Get infrastructure-level information
+
+### When Historical Data is Important
+
+**Kubernetes limitations that Datadog can address:**
+- Kubernetes events expire after 1 hour by default
+- Deleted pods/deployments leave no trace in the cluster
+- Previous configuration values are not retained
+- Past node issues may be resolved without evidence
+
+**Datadog preserves this context when you need it:**
+- Events from before an incident started
+- Monitor triggers on now-deleted resources
+- Past incidents and their resolutions
+- Deployment and configuration change history
+
+### Investigation Workflow
+
+**1. Determine the appropriate time range based on the request:**
+```
+- For current status: Use recent time windows (last hour, last few minutes)
+- For investigating alerts: Query from before the alert started to understand triggers
+- For past issues: Use the specific timeframe when the issue occurred
+- For root cause analysis: Look at events/changes before the problem began
+```
+
+**2. Check relevant monitors and incidents:**
+```
+- Use `datadog_api_get` with `/api/v1/monitor` to list monitors
+- Use `datadog_api_post_search` with `/api/v2/incidents/search` to find recent incidents
+- Check monitor states to understand alert patterns
+```
+
+**3. Correlate with events when investigating issues:**
+```
+- Query `/api/v1/events` with appropriate time range
+- For root cause: Look for events BEFORE the issue started
+- Events often reveal deployments, config changes, or infrastructure updates
+- Especially useful when Kubernetes resources have been deleted/replaced
+```
+
+**4. Check service health and dependencies:**
+```
+- Use `/api/v2/services` to list services and their states
+- Query `/api/v2/services/{service}/dependencies` to understand service relationships
+- This helps identify cascade failures
+```
+
+**5. Review SLOs for service degradation over time:**
+```
+- Query `/api/v1/slo` to check service level objectives
+- Use `/api/v1/slo/{id}/history` to see historical compliance
+- Identify when degradation started (may be before alerts fired)
+- Check if issues are violating SLO targets
+```
+
+### Common Investigation Patterns
+
+**For Kubernetes Pod/Deployment Issues:**
+1. **When pods are missing/deleted**: Query Datadog for historical data about those pods
+2. **For recurring issues**: Check monitor history for patterns
+3. **For deployment problems**: Look for deployment events around issue time
+4. **When Kubernetes events expired**: Use Datadog events for the same timeframe
+
+**For Application Issues:**
+1. **Adjust time range based on issue**: Current for live issues, historical for past problems
+2. Review monitors: `datadog_api_get` with `/api/v1/monitor` filtering by service
+3. Search incidents: `datadog_api_post_search` with `/api/v2/incidents/search`
+4. For degradation: Check SLO history to identify when it started
+
+**For Infrastructure Issues:**
+1. List hosts: `datadog_api_get` with `/api/v1/hosts` to see host status
+2. Check host details: `datadog_api_get` with `/api/v1/hosts/{hostname}`
+3. Review events: Look for infrastructure changes or maintenance
+4. Check monitors: Find infrastructure-related alerts
+
+**For Performance Issues:**
+1. Review synthetics: `datadog_api_get` with `/api/v1/synthetics/tests` for endpoint monitoring
+2. Check SLO history: Track performance degradation over time
+3. Review dashboards: `datadog_api_get` with `/api/v1/dashboard` for performance dashboards
+4. Correlate with events: Find changes that might impact performance
+
+**For Security Issues:**
+1. Search security signals: `datadog_api_post_search` with `/api/v2/security_monitoring/signals/search`
+2. Review security rules: `datadog_api_get` with `/api/v2/security_monitoring/rules`
+3. Check recent incidents: Look for security-related incidents
+
+### Time Parameters
+
+**Choose time ranges based on the investigation context:**
+- Use query parameters for time ranges:
+  - `from`: Start time (Unix timestamp or ISO 8601)
+  - `to`: End time (Unix timestamp or ISO 8601)
+- Example: `{"from": "2024-01-01T00:00:00Z", "to": "2024-01-02T00:00:00Z"}`
+- For relative times: `{"from": "-1h"}` for last hour
+- **For root cause analysis**: Query from before the issue started (e.g., if alert fired 2 hours ago, query from "-4h")
+- **For current status**: Use recent time windows (e.g., "-15m" or "-1h")
+- **For historical issues**: Use the specific timeframe when the issue occurred
+
+### Query Examples
+
+**List all monitors with their current state:**
+```
+Tool: datadog_api_get
+Endpoint: /api/v1/monitor
+Query params: {"group_states": "all", "monitor_tags": "env:production"}
+```
+
+**Search for recent incidents:**
+```
+Tool: datadog_api_post_search
+Endpoint: /api/v2/incidents/search
+Body: {
+  "filter": {
+    "created": {
+      "from": "-24h"
+    }
+  },
+  "sort": "-created",
+  "page": {"limit": 10}
+}
+```
+
+**Get events for a specific service:**
+```
+Tool: datadog_api_get
+Endpoint: /api/v1/events
+Query params: {"start": "-3600", "end": "now", "tags": "service:my-service"}
+```
+
+**Check SLO compliance:**
+```
+Tool: datadog_api_get
+Endpoint: /api/v1/slo/{slo_id}/history
+Query params: {"from_ts": 1234567890, "to_ts": 1234567900}
+```
+
+### Best Practices
+
+1. **Always correlate multiple data sources:**
+   - Don't rely on a single metric or log
+   - Cross-reference monitors, events, and incidents
+   - Look for patterns across different data types
+
+2. **Use time windows effectively:**
+   - Start with a broader time range to see patterns
+   - Narrow down once you identify the issue timeframe
+   - Compare with historical data when available
+
+3. **Follow the dependency chain:**
+   - Check upstream services when investigating issues
+   - Use service dependency maps to understand impact
+   - Look for cascade failures
+
+4. **Prioritize based on severity:**
+   - Check critical monitors and P1 incidents first
+   - Review SLO violations for business impact
+   - Focus on customer-facing services
+
+5. **Document findings:**
+   - Note correlations between events and issues
+   - Identify patterns in monitor triggers
+   - Track incident timelines for post-mortems
+
+### Resource Discovery
+
+Use `list_datadog_api_resources` to discover available endpoints:
+- Filter by category: monitors, dashboards, slos, incidents, etc.
+- This helps identify which resources are available for investigation
+- Example: `list_datadog_api_resources` with `{"category": "monitors"}`
+
+### Integration with Other Toolsets
+
+This toolset complements other Datadog toolsets:
+- Use with `datadog/metrics` for detailed metric analysis
+- Combine with `datadog/logs` for log correlation
+- Use alongside `datadog/traces` for distributed tracing
+- Integrate with Kubernetes toolsets for container-level issues
+
+### IMPORTANT: Proactive Usage
+
+**Don't wait for the user to explicitly ask for Datadog data. When investigating any issue:**
+1. Check if there are relevant monitors or incidents
+2. Look for recent events that might be related
+3. Verify service health and SLO compliance
+4. Review any security signals if applicable
+
+This proactive approach often reveals root causes that wouldn't be found through logs or metrics alone.

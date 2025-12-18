@@ -6,7 +6,7 @@ Change the TEST_** variables defined below based on the content in opensearch to
 import pytest
 import os
 
-from holmes.core.tools import ToolResultStatus
+from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
 from holmes.plugins.toolsets.opensearch.opensearch_logs import (
     OpenSearchLogsToolset,
@@ -71,7 +71,7 @@ def test_basic_query(opensearch_logs_toolset):
         FetchPodLogsParams(namespace=TEST_NAMESPACE, pod_name=TEST_POD_NAME)
     )
 
-    assert result.status == ToolResultStatus.SUCCESS, result.error
+    assert result.status == StructuredToolResultStatus.SUCCESS, result.error
     assert not result.error
     print(result.data)
     assert TEST_SEARCH_TERM in result.data
@@ -84,7 +84,7 @@ def test_search_term(opensearch_logs_toolset):
         )
     )
 
-    assert result.status == ToolResultStatus.SUCCESS, result.error
+    assert result.status == StructuredToolResultStatus.SUCCESS, result.error
     assert not result.error
     print(result.data)
     for line in result.data.split("\n"):
@@ -102,7 +102,7 @@ def test_search_term_with_dates(opensearch_logs_toolset):
         )
     )
 
-    assert result.status == ToolResultStatus.SUCCESS, result.error
+    assert result.status == StructuredToolResultStatus.SUCCESS, result.error
     assert not result.error
     print(result.data)
 

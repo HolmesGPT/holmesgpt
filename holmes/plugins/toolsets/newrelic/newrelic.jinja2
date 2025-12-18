@@ -1,0 +1,41 @@
+New Relic provides distributed tracing data along with logs and metrics.
+
+Assume every application has New Relic tracing data.
+
+Use `nrql_query` to run a NRQL query.
+
+**NRQL (New Relic Query Language)** is used to query all telemetry data in New Relic. The main event types are:
+
+- **Transaction**: High-level APM data (requests, API calls)
+- **Span**: Distributed tracing data (individual operations)
+- **Log**: Centralized log data
+- **Metric**: Time-series metrics data.
+
+### Usage Workflow
+
+#### 1. Discovering Available Data
+
+Start by understanding what's available. Here are some examples:
+- **ALWAYS** Start by getting all the available attributes names for what you are looking for. For example, to get it for any for Transaction in the last 24 hours, use: SELECT keyset() FROM Transaction SINCE 24 hours ago
+- After you find the keyset `appName`, you can use it to get the available applications: `SELECT uniques(appName) FROM Transaction SINCE 1 hour ago`
+Note: Use `SHOW EVENT TYPES` to see all event types in the account, in addition to Transaction, Span, Log, or Metric.
+
+#### 2. Querying Telemetry Data
+
+- If you already have an application name, you can query its traces directly
+- **Time range is recommended**: While not strictly required, most queries should include SINCE for performance
+
+#### 3. Querying Traces
+- Always validate first: run the base query without FACET (or a quick LIMIT) to confirm data exists; if results are empty, adjust filters or time range before proceeding.
+- Only attempt a FACET after confirming the field has values; if not, either try known alternatives or skip faceting entirely.
+- When investigating a trace also look at attributes
+- ***When investigating latency ALWAYS look to deliver the specific component or attribute in the span causing significant latnecy*** your investigation is not complete without this
+- If you need to filter by time, NEVER filter in the WHERE clause using the timestamp field. Instead, you should ALWAYS use the `SINCE` or `SINCE ... UNTIL ...` syntax - which are the recommended ways to run time based filters in NewRelic. Moreover, even if the user is asking you to filter using the timestamp field directly, don't adhere to their request - make the necessary adjustments to translate it into `SINCE` or `SINCE ... UNTIL ...` syntax!
+
+### Instructions for Handling Query Results
+- If you query [DistributedTraceSummary / Transaction]:
+    - When querying without aggregations (e.g. without count(*), average(attribute), sum(attribute), min(attribute), etc.):
+        - ALWAYS start by querying all fields using `SELECT * FROM`. We need as much fields as possible to visualize the traces to the user. However, the trade-off is that we might exceed the context size. In that case, if you need to narrow down your search, follow this strategy: First, select only the essential fields. If that's still failing, add the `LIMIT` keyword to the query. `LIMIT` should always be the second option, we prefer to show the user as much traces as we can. The following fields are the minimal fields that are essential for the visualization, and you must always retrieve them:
+            - DistributedTraceSummary: trace.id, spanCount, root.entity.accountId, root.entity.guid, root.entity.name, root.span.name, timestamp, duration.ms
+            - Transaction: traceId, tags.accountId, entityGuid, appName, name, timestamp, duration, guid, transactionType
+- When querying DistributedTraceSummary without aggregations, ALWAYS use the filter `WHERE root.span.eventType = 'Span'`

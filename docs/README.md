@@ -5,20 +5,14 @@ This file explains how to build and serve the HolmesGPT documentation locally.
 ## Prerequisites
 
 - Python 3.8+
-- pip or poetry
+- Poetry
 
 ## Installation
 
-Install MkDocs and required dependencies:
+Install MkDocs and required dependencies using poetry:
 
 ```bash
-pip install mkdocs-material
-```
-
-Or if using poetry (from the repository root):
-
-```bash
-poetry install --group docs
+poetry install --with=dev
 ```
 
 ## Building Documentation
@@ -28,21 +22,21 @@ poetry install --group docs
 To serve the documentation locally with live reload:
 
 ```bash
-# From the repository root
-mkdocs serve
+# From the repository root (serves on http://127.0.0.1:7000)
+poetry run mkdocs serve --dev-addr=127.0.0.1:7000
 
 # Or specify a different port
-mkdocs serve --dev-addr=127.0.0.1:8001
+poetry run mkdocs serve --dev-addr=127.0.0.1:8001
 ```
 
-The documentation will be available at `http://127.0.0.1:8000` (or the port you specified).
+The documentation will be available at `http://127.0.0.1:7000` (or the port you specified).
 
 ### Build Static Site
 
 To build the static documentation site:
 
 ```bash
-mkdocs build
+poetry run mkdocs build
 ```
 
 This creates a `site/` directory with the built documentation.
@@ -52,7 +46,7 @@ This creates a `site/` directory with the built documentation.
 To check for warnings and broken links:
 
 ```bash
-mkdocs serve --strict
+poetry run mkdocs serve --strict
 ```
 
 This will stop the build if there are any warnings.
@@ -121,7 +115,7 @@ Files and directories are excluded from the build if they:
 ## Common Issues
 
 ### Broken Links
-- Run `mkdocs serve --strict` to identify broken links
+- Run `poetry run mkdocs serve --strict` to identify broken links
 - Ensure all relative links use `.md` extension
 - Check that linked files exist
 
@@ -140,6 +134,10 @@ The documentation is automatically built and deployed when changes are pushed to
 For manual deployment:
 
 ```bash
+# Using poetry
+poetry run mkdocs gh-deploy
+
+# If you installed via pip directly
 mkdocs gh-deploy
 ```
 

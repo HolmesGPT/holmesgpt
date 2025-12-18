@@ -2,12 +2,12 @@ user_prompt: "What is the issue with analytics-exporter-fast?"
 expected_output:
   - The result mentions analytics-exporter-fast is getting OOMKILLED
 before_test: |
-  kubectl apply -f ./fast_oom_deployment.yaml
+  kubectl create namespace app-17 || true
+  kubectl apply -f ./fast_oom_deployment.yaml -n app-17
   sleep 5
 after_test: |
-  kubectl delete -f ./fast_oom_deployment.yaml
-evaluation:
-  correctness: 1
-
+  kubectl delete -f ./fast_oom_deployment.yaml -n app-17
+  kubectl delete namespace app-17 || true
 tags:
-  - reproducible
+  - easy
+  - kubernetes

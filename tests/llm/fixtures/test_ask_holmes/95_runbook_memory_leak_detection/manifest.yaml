@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orca-app
+  namespace: app-95
+type: Opaque
+stringData:
+  app.py: |
+    import time
+    import os
+    import json
+    import random
+    import base64
+    from datetime import datetime
+
+    # Image processing service with a memory leak
+    class ImageProcessor:
+        def __init__(self):
+            self.processed_images = []  # Memory leak: keeps all processed images
+            self.thumbnail_cache = {}   # Memory leak: unbounded cache
+            print(f"[{datetime.now()}] Starting Orca image processing service...")
+            print(f"[{datetime.now()}] Service initialized on PID {os.getpid()}")
+
+        def process_image(self, image_id):
+            # Simulate image processing
+            print(f"[{datetime.now()}] Processing image {image_id}")
+
+            # Create fake image data (simulating actual image bytes)
+            image_size = random.randint(500000, 2000000)  # 0.5MB to 2MB
+            fake_image_data = os.urandom(image_size)
+
+            # Process the image (resize, filter, etc.)
+            processed = {
+                'id': image_id,
+                'original': fake_image_data,
+                'thumbnail': os.urandom(50000),  # 50KB thumbnail
+                'metadata': {
+                    'size': image_size,
+                    'processed_at': datetime.now().isoformat(),
+                    'filters': ['sharpen', 'contrast', 'resize']
+                }
+            }
+
+            # Memory leak: store all processed images
+            self.processed_images.append(processed)
+
+            # Memory leak: cache without eviction
+            self.thumbnail_cache[image_id] = processed['thumbnail']
+
+            # Log progress
+            if image_id % 10 == 0:
+                print(f"[{datetime.now()}] Processed {image_id} images so far")
+                print(f"[{datetime.now()}] Cache size: {len(self.thumbnail_cache)} thumbnails")
+                print(f"[{datetime.now()}] Memory usage: processed_images list has {len(self.processed_images)} items")
+                # Calculate approximate memory usage
+                total_size = sum(len(img['original']) + len(img['thumbnail']) for img in self.processed_images)
+                print(f"[{datetime.now()}] Approximate memory used by stored images: {total_size / 1024 / 1024:.1f} MB")
+
+            return True
+
+    def main():
+        processor = ImageProcessor()
+        image_id = 0
+
+        print(f"[{datetime.now()}] Starting image processing loop...")
+        print(f"[{datetime.now()}] Configuration: Storing all processed images for audit trail")
+        print(f"[{datetime.now()}] Configuration: Caching thumbnails for quick retrieval")
+
+        while True:
+            try:
+                image_id += 1
+
+                # Simulate receiving image processing requests
+                processor.process_image(image_id)
+
+                # Variable processing rate
+                if image_id < 50:
+                    time.sleep(0.1)  # Fast initial processing
+                else:
+                    time.sleep(0.5)  # Slower as memory grows
+
+                # Simulate batch processing logs
+                if image_id % 25 == 0:
+                    print(f"[{datetime.now()}] Batch complete: processed images {image_id-24} to {image_id}")
+
+            except MemoryError:
+                print(f"[{datetime.now()}] ERROR: Out of memory while processing image {image_id}")
+                time.sleep(5)
+            except Exception as e:
+                print(f"[{datetime.now()}] ERROR: Failed to process image {image_id}: {e}")
+                time.sleep(1)
+
+    if __name__ == "__main__":
+        main()
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orca
+  namespace: app-95
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orca
+  template:
+    metadata:
+      labels:
+        app: orca
+    spec:
+      containers:
+      - name: orca
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: SERVICE_NAME
+          value: "orca-image-processor"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        secret:
+          secretName: orca-app
+          defaultMode: 0755
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orca
+  namespace: app-95
+spec:
+  selector:
+    app: orca
+  ports:
+  - port: 8080
+    targetPort: 8080

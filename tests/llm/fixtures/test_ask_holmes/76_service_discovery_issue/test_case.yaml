@@ -1,0 +1,11 @@
+user_prompt: "Why can't the frontend pod connect to the backend service in namespace-76?"
+tags:
+  - kubernetes
+  - medium
+expected_output:
+  - Frontend cannot connect to backend because service selector has version v2 but backend pods have version v1 resulting in no endpoints
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  sleep 30
+after_test: |
+  kubectl delete -f ./manifest.yaml

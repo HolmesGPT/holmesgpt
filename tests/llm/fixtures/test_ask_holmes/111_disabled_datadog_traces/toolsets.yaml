@@ -1,0 +1,5 @@
+toolsets:
+  datadog/traces:
+    enabled: false
+  kubernetes/core:
+    enabled: true

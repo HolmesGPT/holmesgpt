@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cache-91e
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myapp-code
+  namespace: cache-91e
+type: Opaque
+stringData:
+  app.py: |
+    import time
+    import random
+    import logging
+
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+    logger = logging.getLogger(__name__)
+
+    class CacheSimulator:
+        def __init__(self):
+            self.cache = {}
+            self.hits = 0
+            self.misses = 0
+
+        def get(self, key):
+            if key in self.cache:
+                self.hits += 1
+                logger.info(f"Cache HIT for key: {key}")
+                return self.cache[key]
+            else:
+                self.misses += 1
+                logger.info(f"Cache MISS for key: {key}")
+                # Simulate fetching from database
+                value = f"data_{key}_{random.randint(1000, 9999)}"
+                self.cache[key] = value
+                return value
+
+        def get_hit_ratio(self):
+            total = self.hits + self.misses
+            if total == 0:
+                return 0.0
+            return self.hits / total
+
+    def main():
+        cache = CacheSimulator()
+        keys = [f"user_{i}" for i in range(20)]
+
+        logger.info("Starting myapp cache service...")
+
+        while True:
+            # Simulate realistic cache access patterns
+            key = random.choice(keys)
+
+            # 70% chance to access popular keys (better cache hit ratio)
+            if random.random() < 0.7:
+                key = random.choice(keys[:5])
+
+            cache.get(key)
+
+            # Log cache statistics every 10 seconds
+            if random.random() < 0.1:
+                ratio = cache.get_hit_ratio()
+                logger.info(f"Cache statistics - Hits: {cache.hits}, Misses: {cache.misses}, Hit Ratio: {ratio:.2%}")
+
+            time.sleep(random.uniform(0.5, 2.0))
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  namespace: cache-91e
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: app-code
+        secret:
+          secretName: myapp-code

@@ -1,0 +1,6 @@
+nav:
+  - index.md
+  - Interactive Mode: interactive-mode.md
+  - CI/CD Troubleshooting: cicd-troubleshooting.md
+  - Investigating Prometheus Alerts: investigating-prometheus-alerts.md
+  - Investigating using AKS MCP Server: investigating-using-aks-mcp-server.md

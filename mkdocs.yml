@@ -1,16 +1,18 @@
 site_name: HolmesGPT Documentation
 site_description: AI-powered root cause analysis for DevOps and SRE teams
-site_url: https://robusta-dev.github.io/holmesgpt/
-repo_url: https://github.com/robusta-dev/holmesgpt
-repo_name: robusta-dev/holmesgpt
+site_url: https://holmesgpt.dev/
+repo_url: https://github.com/HolmesGPT/holmesgpt
+repo_name: HolmesGPT/holmesgpt
 edit_uri: edit/master/docs/
 exclude_docs: |
   _*
   snippets/
   README.md
+  cncf-self-assesment.md
 
 theme:
   name: material
+  custom_dir: docs/overrides
   features:
     - announce.dismiss
     - content.action.edit
@@ -54,7 +56,12 @@ theme:
   favicon: assets/favicon.png
   logo: assets/logo.png
 
+copyright: |
+  Copyright HolmesGPT a Series of LF Projects, LLC
+  For website terms of use, trademark policy and other project policies please see lfprojects.org/policies/.
+
 plugins:
+  - awesome-nav
   - search:
       separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
   - glightbox
@@ -62,7 +69,7 @@ plugins:
   #     enable_creation_date: true
   #     type: timeago
   # - git-committers:
-  #     repository: robusta-dev/holmesgpt
+  #     repository: HolmesGPT/holmesgpt
   #     branch: master
   #     docs_path: docs/
   # - minify:
@@ -106,6 +113,12 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+        - name: yaml-helm-values
+          class: yaml
+          format: !!python/name:docs.custom_fences.helm_tabs_fence_format
+        - name: yaml-toolset-config
+          class: yaml
+          format: !!python/name:docs.custom_fences.toolset_config_fence_format
   - pymdownx.tabbed:
       alternate_style: true
       combine_header_slug: true
@@ -116,82 +129,14 @@ markdown_extensions:
       custom_checkbox: true
   - pymdownx.tilde
 
+extra_css:
+  - stylesheets/extra.css
+
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/robusta-dev/holmesgpt
+      link: https://github.com/HolmesGPT/holmesgpt
     - icon: fontawesome/brands/slack
-      link: https://bit.ly/robusta-slack
+      link: https://cloud-native.slack.com/archives/C0A1SPQM5PZ
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/RobustaDev
-
-nav:
-  - Installation:
-      - index.md
-      - Install CLI: installation/cli-installation.md
-      - Install UI/TUI: installation/ui-installation.md
-      - Install Helm Chart: installation/kubernetes-installation.md
-      - Install Python SDK: installation/python-installation.md
-
-  - Walkthrough:
-      - walkthrough/index.md
-      - Investigating Prometheus Alerts: walkthrough/investigating-prometheus-alerts.md
-
-  - AI Providers:
-      - ai-providers/index.md
-      - Anthropic: ai-providers/anthropic.md
-      - AWS Bedrock: ai-providers/aws-bedrock.md
-      - Azure OpenAI: ai-providers/azure-openai.md
-      - Gemini: ai-providers/gemini.md
-      - Google Vertex AI: ai-providers/google-vertex-ai.md
-      - Ollama: ai-providers/ollama.md
-      - OpenAI: ai-providers/openai.md
-      - OpenAI-Compatible: ai-providers/openai-compatible.md
-
-  - Data Sources:
-      - data-sources/index.md
-      - Built-in Toolsets:
-          - data-sources/builtin-toolsets/index.md
-          - AKS Node Health: data-sources/builtin-toolsets/aks-node-health.md
-          - ArgoCD: data-sources/builtin-toolsets/argocd.md
-          - AWS: data-sources/builtin-toolsets/aws.md
-          - Azure Kubernetes Service: data-sources/builtin-toolsets/aks.md
-          - Azure SQL Database: data-sources/builtin-toolsets/azure-sql.md
-          - Confluence: data-sources/builtin-toolsets/confluence.md
-          - Coralogix logs: data-sources/builtin-toolsets/coralogix-logs.md
-          - DataDog: data-sources/builtin-toolsets/datadog.md
-          - Datetime: data-sources/builtin-toolsets/datetime.md
-          - Docker: data-sources/builtin-toolsets/docker.md
-          - GitHub: data-sources/builtin-toolsets/github.md
-          - Grafana Loki: data-sources/builtin-toolsets/grafanaloki.md
-          - Grafana Tempo: data-sources/builtin-toolsets/grafanatempo.md
-          - Helm: data-sources/builtin-toolsets/helm.md
-          - Internet: data-sources/builtin-toolsets/internet.md
-          - Kafka: data-sources/builtin-toolsets/kafka.md
-          - Kubernetes: data-sources/builtin-toolsets/kubernetes.md
-          - MongoDB Atlas: data-sources/builtin-toolsets/mongodb-atlas.md
-          - New Relic: data-sources/builtin-toolsets/newrelic.md
-          - Notion: data-sources/builtin-toolsets/notion.md
-          - OpenSearch logs: data-sources/builtin-toolsets/opensearch-logs.md
-          - OpenSearch status: data-sources/builtin-toolsets/opensearch-status.md
-          - Prometheus: data-sources/builtin-toolsets/prometheus.md
-          - RabbitMQ: data-sources/builtin-toolsets/rabbitmq.md
-          - Robusta: data-sources/builtin-toolsets/robusta.md
-          - ServiceNow: data-sources/builtin-toolsets/servicenow.md
-          - Slab: data-sources/builtin-toolsets/slab.md
-
-      - Custom Toolsets: data-sources/custom-toolsets.md
-      - Remote MCP Servers: data-sources/remote-mcp-servers.md
-      - Adding Permissions for Additional Resources: data-sources/permissions.md
-
-  - Development:
-      - development/index.md
-      - Evaluations:
-          - development/evals/index.md
-          - Writing Evaluations: development/evals/writing.md
-          - Reporting with Braintrust: development/evals/reporting.md
-
-  - Reference:
-      - reference/helm-configuration.md
-      - HTTP API: reference/http-api.md
-      - Troubleshooting: reference/troubleshooting.md

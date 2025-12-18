@@ -1,0 +1,23 @@
+user_prompt: "Show me a graph of CPU per namespace"
+
+description: "tests holmes with a simple query and a low `query_response_size_limit` (see toolsets.yaml), to verify that when queries are truncated, holmes retries until it succeeds"
+
+expected_output:
+  - "Should execute a Prometheus query that aggregates CPU usage by namespace"
+  - "Tool calls must contain an initial Prometheus query that was truncated due to large size of the response"
+  - "After that response, the query MUST be retried with a different variation. Answering when only getting a truncation error in unacceptable."
+  - "To pass, there must be both the initial truncated response and the successful retry that was not truncated"
+  - "This does NOT need to be mentioned in the user output but it needs to be present in the tool calls"
+
+tags:
+  - prometheus
+  - kubernetes
+
+# Port forward configuration for Prometheus
+port_forwards:
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 11161
+    remote_port: 9090
+
+include_tool_calls: true

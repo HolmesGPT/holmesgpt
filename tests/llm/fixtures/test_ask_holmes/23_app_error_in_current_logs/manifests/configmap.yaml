@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: meme-generator-config
+  namespace: app-23
+data:
+  # Intentionally using incorrect hostname to trigger DNS error
+  MEME_API_URL: "http://memcom:5000/"
+  DEBUG: "false"

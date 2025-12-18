@@ -1,18 +1,18 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ask-holmes-namespace-54a
+  name: namespace-54a
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ask-holmes-namespace-54b
+  name: namespace-54b
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: massive-pod-deployment-with-very-long-name
-  namespace: ask-holmes-namespace-54a
+  namespace: namespace-54a
 spec:
   replicas: 2000
   selector:
@@ -33,7 +33,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: fast-fail-pod
-  namespace: ask-holmes-namespace-54b
+  namespace: namespace-54b
 spec:
   containers:
   - name: fail-container

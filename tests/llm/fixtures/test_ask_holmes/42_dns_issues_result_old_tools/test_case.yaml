@@ -2,7 +2,6 @@ user_prompt: "detect why the k8s pod client under namespace test-ns-42c cannot r
 tags:
   - network
   - runbooks
-  - reproducible
 expected_output: mention that a network policy named `default-deny-egress` is or may be the root cause of DNS issues
 before_test: |
   kubectl apply -f./manifest.yaml

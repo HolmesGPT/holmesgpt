@@ -1,0 +1,19 @@
+user_prompt: "What were the errors in pod robusta-holmes-6bbcd9f6f5-2q4jc pod (namespace default) last December?"
+tags:
+  - logs
+  - medium
+expected_output:
+  - 2024-12-12 The database at my.postgresql.com has become unavailable
+  - 2024-12-15 Syntax error for query fetch_user_logs
+  - 2024-12-19 SSL certificate expired
+
+evaluation:
+  correctness: 1
+
+# Default policy is to not mock (run live)
+mock_policy: never_mock
+
+# Override to mock logs and kubectl_find_resource
+mock_overrides:
+  kubernetes/logs: always_mock
+  #kubernetes/core: always_mock

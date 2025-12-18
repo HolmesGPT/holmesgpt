@@ -1,0 +1,21 @@
+user_prompt: "Whats wrong with backend-service pod in namespace-71?"
+tags:
+  - logs
+  - context_window
+  - medium
+expected_output:
+  - Backend service unable to handle requests due to database connection pool exhausted at 100/100 connections causing timeouts
+before_test: |
+  # Create namespace first since the secret depends on it (|| true ignores if it already exists)
+  kubectl create namespace namespace-71 || true
+  kubectl create secret generic backend-service-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n namespace-71 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./manifest.yaml
+  sleep 40
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret backend-service-logs-script -n namespace-71 --ignore-not-found
+  kubectl delete namespace namespace-71 --ignore-not-found
+evaluation:
+  correctness: 1

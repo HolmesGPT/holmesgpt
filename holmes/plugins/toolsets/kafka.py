@@ -27,13 +27,14 @@ from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
     Tool,
+    ToolInvokeContext,
     ToolParameter,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
-from holmes.plugins.toolsets.utils import get_param_or_raise
+from holmes.plugins.toolsets.utils import get_param_or_raise, toolset_name_for_one_liner
 
 
 class KafkaClusterConfig(BaseModel):
@@ -153,13 +154,13 @@ class ListKafkaConsumers(BaseKafkaTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
             client = self.get_kafka_client(kafka_cluster_name)
             if client is None:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="No admin_client on toolset. This toolset is misconfigured.",
                     params=params,
                 )
@@ -188,7 +189,7 @@ class ListKafkaConsumers(BaseKafkaTool):
             if errors_text:
                 result_text = result_text + "\n\n" + errors_text
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=result_text,
                 params=params,
             )
@@ -196,13 +197,14 @@ class ListKafkaConsumers(BaseKafkaTool):
             error_msg = f"Failed to list consumer groups: {str(e)}"
             logging.error(error_msg)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Listed all Kafka consumer groups in the cluster \"{params.get('kafka_cluster_name')}\""
+        cluster = params.get("kafka_cluster_name", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List Consumer Groups ({cluster})"
 
 
 class DescribeConsumerGroup(BaseKafkaTool):
@@ -225,14 +227,14 @@ class DescribeConsumerGroup(BaseKafkaTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         group_id = params["group_id"]
         try:
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
             client = self.get_kafka_client(kafka_cluster_name)
             if client is None:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="No admin_client on toolset. This toolset is misconfigured.",
                     params=params,
                 )
@@ -242,13 +244,13 @@ class DescribeConsumerGroup(BaseKafkaTool):
             if futures.get(group_id):
                 group_metadata = futures.get(group_id).result()
                 return StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
-                    data=yaml.dump(convert_to_dict(group_metadata)),
+                    status=StructuredToolResultStatus.SUCCESS,
+                    data=convert_to_dict(group_metadata),
                     params=params,
                 )
             else:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="Group not found",
                     params=params,
                 )
@@ -256,13 +258,14 @@ class DescribeConsumerGroup(BaseKafkaTool):
             error_msg = f"Failed to describe consumer group {group_id}: {str(e)}"
             logging.error(error_msg)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Described consumer group: {params['group_id']} in cluster \"{params.get('kafka_cluster_name')}\""
+        group_id = params.get("group_id", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Describe Consumer Group ({group_id})"
 
 
 class ListTopics(BaseKafkaTool):
@@ -280,34 +283,35 @@ class ListTopics(BaseKafkaTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
             client = self.get_kafka_client(kafka_cluster_name)
             if client is None:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="No admin_client on toolset. This toolset is misconfigured.",
                     params=params,
                 )
 
             topics = client.list_topics()
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
-                data=yaml.dump(convert_to_dict(topics)),
+                status=StructuredToolResultStatus.SUCCESS,
+                data=convert_to_dict(topics),
                 params=params,
             )
         except Exception as e:
             error_msg = f"Failed to list topics: {str(e)}"
             logging.error(error_msg)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Listed all Kafka topics in the cluster \"{params.get('kafka_cluster_name')}\""
+        cluster = params.get("kafka_cluster_name", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List Kafka Topics ({cluster})"
 
 
 class DescribeTopic(BaseKafkaTool):
@@ -335,14 +339,14 @@ class DescribeTopic(BaseKafkaTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         topic_name = params["topic_name"]
         try:
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
             client = self.get_kafka_client(kafka_cluster_name)
             if client is None:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="No admin_client on toolset. This toolset is misconfigured.",
                     params=params,
                 )
@@ -362,21 +366,24 @@ class DescribeTopic(BaseKafkaTool):
                 result["configuration"] = convert_to_dict(config)
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
-                data=yaml.dump(result),
+                status=StructuredToolResultStatus.SUCCESS,
+                data=result,
                 params=params,
             )
         except Exception as e:
             error_msg = f"Failed to describe topic {topic_name}: {str(e)}"
             logging.error(error_msg, exc_info=True)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Described topic: {params['topic_name']} in cluster \"{params.get('kafka_cluster_name')}\""
+        topic = params.get("topic_name", "")
+        return (
+            f"{toolset_name_for_one_liner(self.toolset.name)}: Describe Topic ({topic})"
+        )
 
 
 def group_has_topic(
@@ -455,14 +462,14 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         topic_name = params["topic_name"]
         try:
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
             client = self.get_kafka_client(kafka_cluster_name)
             if client is None:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error="No admin_client on toolset. This toolset is misconfigured.",
                     params=params,
                 )
@@ -514,7 +521,7 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
                 result_text = result_text + "\n\n" + errors_text
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=result_text,
                 params=params,
             )
@@ -524,13 +531,14 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
             )
             logging.error(error_msg)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Found consumer groups for topic: {params.get('topic_name')} in cluster \"{params.get('kafka_cluster_name')}\""
+        topic = params.get("topic_name", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Find Topic Consumers ({topic})"
 
 
 class ListKafkaClusters(BaseKafkaTool):
@@ -542,16 +550,16 @@ class ListKafkaClusters(BaseKafkaTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         cluster_names = list(self.toolset.clients.keys())
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS,
+            status=StructuredToolResultStatus.SUCCESS,
             data="Available Kafka Clusters:\n" + "\n".join(cluster_names),
             params=params,
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return "Listed all available Kafka clusters"
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List Kafka Clusters"
 
 
 class KafkaToolset(Toolset):
@@ -564,7 +572,7 @@ class KafkaToolset(Toolset):
             name="kafka/admin",
             description="Fetches metadata from multiple Kafka clusters",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            docs_url="https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kafka.html",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/kafka/",
             icon_url="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT-cR1JrBgJxB_SPVKUIRwtiHnR8qBvLeHXjQ&s",
             tags=[ToolsetTag.CORE],
             tools=[

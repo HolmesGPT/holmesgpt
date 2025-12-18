@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "user-profile-resources"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "user-profile-resources"}}
-stdout:
-default              user-profile-resources-659d4dd659-cq4kq                      0/1     Pending   0                3m16s   <none>        <none>                        <none>           <none>            app=user-profile-resources,pod-template-hash=659d4dd659
-
-stderr:

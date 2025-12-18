@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"MyResource","keyword":"my-resource-instance"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide MyResource | grep my-resource-instance", "params": {"kind": "MyResource", "keyword": "my-resource-instance"}}
-Error from server (Forbidden): myresources.example.com is forbidden: User "system:serviceaccount:default:robusta-holmes-service-account" cannot list resource "myresources" in API group "example.com" at the cluster scope

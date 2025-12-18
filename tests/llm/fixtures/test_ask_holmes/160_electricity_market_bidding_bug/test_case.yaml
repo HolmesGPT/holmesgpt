@@ -1,0 +1,52 @@
+user_prompt:
+# - "The energy bidding service in namespace app-160 is experiencing unusual bid patterns. Investigate why bid commitments have increased dramatically."
+- "Is there issues with the bidding rate in the bidding endpoint in namespace app-160? Check the recent metrics - note that the traffic test has already completed, so you'll see historical data that eventually drops to zero, which is expected."
+
+expected_output:
+  - The answer must identify that NordPool exchange has an abnormally high bid acceptance rate (close to 100%) compared to other exchanges (~10%)
+  - The answer should mention that this behavior started after a certain point in time or after a certain number of requests
+  - The answer should note the correlation with increased traffic from NordPool
+
+tags:
+  - kubernetes
+  - prometheus
+  - hard
+  - chain-of-causation
+
+port_forwards:
+  - namespace: app-160
+    service: prometheus
+    local_port: 10160
+    remote_port: 9090
+
+before_test: |
+  set -e  # Exit immediately if any command fails
+
+  echo "📁 Creating namespace..."
+  kubectl create namespace app-160 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+
+  echo "⚙️ Setting up Prometheus..."
+  kubectl apply -f prometheus-config.yaml -n app-160
+  kubectl apply -f ../../shared/prometheus.yaml -n app-160
+
+  echo "🚀 Deploying bidder service and k6 test..."
+  kubectl apply -f bidder-app.yaml -n app-160
+
+  echo "⏳ Waiting for pods to be ready..."
+  kubectl wait --for=condition=ready pod -l app=prometheus -n app-160 --timeout=60s
+  kubectl wait --for=condition=ready pod -l app=bidder -n app-160 --timeout=60s
+
+  echo "🔍 Running validation..."
+  ./run-bidder-check.sh
+
+  echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
+  kubectl delete job k6-energy-market -n app-160 --ignore-not-found=true
+  kubectl delete pods -n app-160 -l job-name=k6-energy-market --ignore-not-found=true
+
+  echo "✅ Test setup completed successfully"
+
+after_test: |
+  kubectl delete namespace app-160 || true
+
+include_files:
+  - bidding_system.md

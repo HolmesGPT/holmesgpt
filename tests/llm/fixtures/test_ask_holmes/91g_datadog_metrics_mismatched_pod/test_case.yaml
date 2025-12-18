@@ -1,0 +1,38 @@
+description: |
+  This test verifies Holmes behavior when Datadog has metrics for a specific pod name
+  that doesn't match any existing pods in the cluster. The test sends metrics to Datadog
+  for a hardcoded pod name (orbiter-monitor-77aac74f7c-hl4cd) that doesn't exist in the cluster,
+  while deploying a real deployment named orbiter-monitor whose pods have different random suffixes.
+  Holmes should still be able to query and display the metrics from Datadog even though
+  the exact pod name doesn't exist in Kubernetes.
+
+before_test: |
+  # Deploy the deployment to the cluster
+  kubectl apply -f manifest.yaml
+
+  # Wait for the pod to be running
+  kubectl wait --for=condition=ready pod -l app=orbiter-monitor -n orbit-91g --timeout=60s
+
+  # Send CPU and memory metrics to Datadog using a hardcoded pod name that won't exist
+  # This simulates historical data for a pod that may have been deleted/recreated
+  bash ../../shared/send_datadog_metrics.sh orbit-91g orbiter-monitor-77aac74f7c-hl4cd orbiter-monitor
+
+user_prompt:
+  - "Show me a cpu graph of the orbiter-monitor-77aac74f7c-hl4cd pod in namespace orbit-91g?"
+  - "Show me memory graph for orbiter-monitor-77aac74f7c-hl4cd in orbit-91g"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - datadog
+  - embeds
+
+after_test: |
+  # Cleanup the deployed resources
+  kubectl delete -f manifest.yaml --ignore-not-found=true

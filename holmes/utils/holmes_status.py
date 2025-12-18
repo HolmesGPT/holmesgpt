@@ -1,3 +1,4 @@
+import json
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.config import Config
 from holmes import get_version  # type: ignore
@@ -16,7 +17,7 @@ def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
     dal.upsert_holmes_status(
         {
             "cluster_id": config.cluster_name,
-            "model": config.get_models_list(),
+            "model": json.dumps(config.get_models_list()),
             "version": get_version(),
         }
     )

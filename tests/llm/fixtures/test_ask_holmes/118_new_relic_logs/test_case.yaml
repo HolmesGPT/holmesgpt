@@ -1,0 +1,26 @@
+description: "Test if holmes pulls logs reliably, expects env var NEW_RELIC_LICENSE_KEY"
+
+
+user_prompt:
+- fetch error logs for app payment-gateway-s1fdsa-231ds from newrelic
+
+expected_output:
+  -  mentiones "payment declined" error
+
+tags:
+  - newrelic
+  - logs
+
+# Custom timeout for setup (needs 5 min sleep + setup time)
+setup_timeout: 360  # 6 minutes total
+
+before_test: |
+  [ -n "${NEW_RELIC_ACCOUNT_ID:-}" ] && [ -n "${NEW_RELIC_API_KEY:-}" ] && [ -n "${NEW_RELIC_LICENSE_KEY:-}" ] || { for v in NEW_RELIC_ACCOUNT_ID NEW_RELIC_API_KEY NEW_RELIC_LICENSE_KEY; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+
+  kubectl create secret generic newrelickey --from-literal=key="${NEW_RELIC_LICENSE_KEY}"
+  kubectl apply -f ./nrlogger.yaml
+  sleep 300
+
+after_test: |
+  kubectl delete secret newrelickey
+  kubectl delete -f ./nrlogger.yaml

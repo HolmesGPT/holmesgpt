@@ -1,0 +1,11 @@
+user_prompt: "Why does the web-app pod keep restarting in namespace-77?"
+expected_output:
+  - Web app keeps restarting because liveness probe is configured on wrong port 8080 instead of 80 where nginx is listening
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  sleep 45  # Wait for probe failures and restarts
+after_test: |
+  kubectl delete -f ./manifest.yaml
+tags:
+  - medium
+  - kubernetes

@@ -1,14 +1,17 @@
 import logging
 from typing import Optional
 
+
 from holmes.common.env_vars import HOLMES_POST_PROCESSING_PROMPT
 from holmes.config import Config
 from holmes.core.investigation_structured_output import process_response_into_sections
 from holmes.core.issue import Issue
 from holmes.core.models import InvestigateRequest, InvestigationResult
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.utils.global_instructions import add_global_instructions_to_user_prompt
-from holmes.utils.robusta import load_robusta_api_key
+from holmes.core.tracing import DummySpan, SpanType
+from holmes.plugins.runbooks import RunbookCatalog
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.core.prompt import generate_user_prompt
 
 from holmes.core.investigation_structured_output import (
     DEFAULT_SECTIONS,
@@ -17,6 +20,7 @@ from holmes.core.investigation_structured_output import (
 )
 
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.utils import sentry_helper
 
 
 def investigate_issues(
@@ -24,8 +28,9 @@ def investigate_issues(
     dal: SupabaseDal,
     config: Config,
     model: Optional[str] = None,
+    trace_span=DummySpan(),
+    runbooks: Optional[RunbookCatalog] = None,
 ) -> InvestigationResult:
-    load_robusta_api_key(dal=dal, config=config)
     context = dal.get_issue_data(investigate_request.context.get("robusta_issue_id"))
 
     resource_instructions = dal.get_resource_instructions(
@@ -37,7 +42,12 @@ def investigate_issues(
     if context:
         raw_data["extra_context"] = context
 
+    # If config is not preinitilized
+    create_issue_investigator_span = trace_span.start_span(
+        "create_issue_investigator", SpanType.FUNCTION.value
+    )
     ai = config.create_issue_investigator(dal=dal, model=model)
+    create_issue_investigator_span.end()
 
     issue = Issue(
         id=context["id"] if context else "",
@@ -54,9 +64,14 @@ def investigate_issues(
         instructions=resource_instructions,
         global_instructions=global_instructions,
         sections=investigate_request.sections,
+        trace_span=trace_span,
+        runbooks=runbooks,
     )
 
     (text_response, sections) = process_response_into_sections(investigation.result)
+
+    if sections is None:
+        sentry_helper.capture_sections_none(content=investigation.result)
 
     logging.debug(f"text response: {text_response}")
     return InvestigationResult(
@@ -64,6 +79,7 @@ def investigate_issues(
         sections=sections,
         tool_calls=investigation.tool_calls or [],
         instructions=investigation.instructions,
+        metadata=investigation.metadata,
     )
 
 
@@ -73,7 +89,6 @@ def get_investigation_context(
     config: Config,
     request_structured_output_from_llm: Optional[bool] = None,
 ):
-    load_robusta_api_key(dal=dal, config=config)
     ai = config.create_issue_investigator(dal=dal, model=investigate_request.model)
 
     raw_data = investigate_request.model_dump()
@@ -89,18 +104,11 @@ def get_investigation_context(
         raw=raw_data,
     )
 
-    runbooks = ai.runbook_manager.get_instructions_for_issue(issue)
+    issue_instructions = ai.runbook_manager.get_instructions_for_issue(issue)
 
-    instructions = dal.get_resource_instructions(
+    resource_instructions = dal.get_resource_instructions(
         "alert", investigate_request.context.get("issue_type")
     )
-    if instructions is not None and instructions.instructions:
-        runbooks.extend(instructions.instructions)
-    if instructions is not None and len(instructions.documents) > 0:
-        docPrompts = []
-        for document in instructions.documents:
-            docPrompts.append(f"* fetch information from this URL: {document.url}\n")
-        runbooks.extend(docPrompts)
 
     # This section is about setting vars to request the LLM to return structured output.
     # It does not mean that Holmes will not return structured sections for investigation as it is
@@ -125,6 +133,7 @@ def get_investigation_context(
     else:
         logging.info("Structured output is disabled for this request")
 
+    runbook_catalog = config.get_runbook_catalog()
     system_prompt = load_and_render_prompt(
         investigate_request.prompt_template,
         {
@@ -132,21 +141,25 @@ def get_investigation_context(
             "sections": sections,
             "structured_output": request_structured_output_from_llm,
             "toolsets": ai.tool_executor.toolsets,
+            "cluster_name": config.cluster_name,
+            "runbooks_enabled": True if runbook_catalog else False,
         },
     )
-
-    user_prompt = ""
-    if runbooks:
-        for runbook_str in runbooks:
-            user_prompt += f"* {runbook_str}\n"
-
-        user_prompt = f'My instructions to check \n"""{user_prompt}"""'
+    base_user = ""
 
     global_instructions = dal.get_global_instructions_for_account()
-    user_prompt = add_global_instructions_to_user_prompt(
-        user_prompt, global_instructions
+    runbooks_ctx = generate_runbooks_args(
+        runbook_catalog=runbook_catalog,
+        global_instructions=global_instructions,
+        issue_instructions=issue_instructions,
+        resource_instructions=resource_instructions,
     )
 
-    user_prompt = f"{user_prompt}\n This is context from the issue {issue.raw}"
+    base_user = f"{base_user}\n #This is context from the issue:\n{issue.raw}"
 
-    return ai, system_prompt, user_prompt, response_format, sections, runbooks
+    user_prompt = generate_user_prompt(
+        base_user,
+        runbooks_ctx,
+    )
+
+    return ai, system_prompt, user_prompt, response_format, sections, issue_instructions

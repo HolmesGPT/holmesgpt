@@ -1,0 +1,148 @@
+# Shared Tempo deployment configuration for test fixtures
+# Apply with: kubectl apply -f tempo.yaml -n <namespace>
+# Note: Namespace must be created separately
+---
+# PersistentVolumeClaim for Tempo storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+---
+# Tempo deployment - with persistent storage and increased memory
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
+      containers:
+      - name: tempo
+        image: grafana/tempo:2.8.2
+        args:
+        - -config.file=/etc/tempo/tempo-config.yaml
+        - -target=all
+        ports:
+        - containerPort: 3200
+          name: http
+        - containerPort: 4317
+          name: otlp-grpc
+        - containerPort: 4318
+          name: otlp-http
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+        - name: storage
+          mountPath: /var/tempo
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "1Gi"
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+      - name: storage
+        persistentVolumeClaim:
+          claimName: tempo-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+spec:
+  selector:
+    app: tempo
+  ports:
+  - name: http
+    port: 3200
+    targetPort: 3200
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+data:
+  tempo-config.yaml: |
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    compactor:
+      compaction:
+        block_retention: 17520h  # 2 years (730 days * 24 hours)
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+        pool:
+          max_workers: 10
+          queue_depth: 100
+
+    querier:
+      frontend_worker:
+        frontend_address: 127.0.0.1:9095
+      max_concurrent_queries: 20 # Grafana docs says the default is 20
+
+    query_frontend:
+      max_batch_size: 5
+
+    metrics_generator:
+      ring:
+        kvstore:
+          store: inmemory
+      processor:
+        local_blocks:
+          filter_server_spans: false
+          flush_to_storage: true
+      storage:
+        path: /var/tempo/metrics
+      traces_storage:
+        path: /var/tempo/generator-wal
+
+    overrides:
+      max_traces_per_user: 10000
+      ingestion_rate_limit_bytes: 15000000
+      ingestion_burst_size_bytes: 20000000
+      max_bytes_per_trace: 5000000
+      max_search_duration: 168h  # 1 week - maximum time range for searches
+      max_metrics_duration: 168h  # 1 week - maximum time range for metrics queries
+      metrics_generator_processors:
+        - local-blocks

@@ -4,9 +4,7 @@ before_test: |
   kubectl apply -f./manifest.yaml
   sleep 10
 after_test: kubectl delete -f./manifest.yaml
-evaluation:
-  correctness: 0
 tags:
  - network
  - runbooks
- - missing-tool
+ - transparency

@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "db-certs-authenticator"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "db-certs-authenticator"}}
-stdout:
-default              db-certs-authenticator-757f89d977-4qfst                      1/1     Running   0                69s     10.244.0.56   grafana-cloud-control-plane   <none>           <none>            app=flask,pod-template-hash=757f89d977
-
-stderr:

@@ -1,0 +1,23 @@
+user_prompt: "What CPU metrics are available in this cluster? List all the CPU-related metrics that Prometheus is collecting."
+
+expected_output:
+  - "Must call get_metric_names tool with cpu related filters - this tool call must return non-empty results"
+  - "Must include the metric container_cpu_usage_seconds_total"
+
+tags:
+  - prometheus
+  - easy
+  - no-cicd
+
+include_tool_calls: true
+
+before_test: |
+  # this test assumes Prometheus already exists in the cluster in the default namespace
+  [ "$(kubectl get svc robusta-kube-prometheus-st-prometheus -n default -o jsonpath='{.spec.ports[?(@.port==9090)].port}' 2>/dev/null)" = "9090" ] \
+  || { echo "❌ Prometheus Service missing or port 9090 not found"; exit 1; }
+
+port_forwards:
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 10033
+    remote_port: 9090

@@ -1,0 +1,22 @@
+# The content of the mocks for this test don't matter but they should be generated
+# The point is to make holmes believe it has a tool but it's not really available
+user_prompt: |
+  You have access to the following tools:
+    - kubectl_describe
+    - kubectl_get_by_name
+    - kubectl_get_by_kind_in_namespace
+    - kubectl_get_by_kind_in_cluster
+    - kubectl_find_resource
+    - kubectl_get_yaml
+    - kubectl_events
+    - kubectl_logs
+    - kubectl_logs_grep
+  Each of these tool is the equivalent of the same kubectl command. For example, kubectl_describe runs `kubectl describe ...`
+
+  Call the function/tool `kubectl_logs` to fetch the logs for the pod robusta-holmes-549d55c578-7gnfn". Do not call any other tool but the tool that has this exact name: `kubectl_logs`.
+expected_output: "The answer should mention that the tool/function kubectl_logs does not exist, is not available or is not enabled. Any of these is a valid answer."
+
+mock_policy: always_mock
+evaluation:
+   # gpt-4o ignores the above request and calls get_pod_logs
+  correctness: 0

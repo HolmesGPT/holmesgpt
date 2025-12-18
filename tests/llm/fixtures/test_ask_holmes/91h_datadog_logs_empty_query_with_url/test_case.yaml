@@ -1,0 +1,9 @@
+description: Tests that empty Datadog logs query returns a URL in the tool result
+user_prompt: "Fetch logs from Datadog for the non-existent-pod-xyz in namespace kube-system"
+expected_output:
+  - "Result must include a tool call that includes a url to datadog"
+include_tool_calls: true
+tags:
+  - datadog
+  - logs
+  - transparency

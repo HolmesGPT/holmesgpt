@@ -1,0 +1,20 @@
+user_prompt: "Whats wrong with web-server pod in namespace-66"
+tags:
+  - logs
+  - context_window
+expected_output:
+  - Database connection timeout error occurred because could not acquire connection from pool after 30s
+before_test: |
+  # Create namespace first since the secret depends on it (|| true ignores if it already exists)
+  kubectl create namespace namespace-66 || true
+  kubectl create secret generic web-server-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n namespace-66 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./manifest.yaml
+  sleep 30
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret web-server-logs-script -n namespace-66 --ignore-not-found
+  kubectl delete namespace namespace-66 --ignore-not-found
+evaluation:
+  correctness: 1

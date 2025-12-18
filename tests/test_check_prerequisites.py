@@ -7,6 +7,7 @@ from unittest.mock import Mock, call, patch
 from holmes.core.tools import (
     CallablePrerequisite,
     StaticPrerequisite,
+    StructuredToolResult,
     Tool,
     Toolset,
     ToolsetCommandPrerequisite,
@@ -25,7 +26,9 @@ class DummyTool(Tool):
     name: str = "dummy_tool"
     description: str = "A dummy tool"
 
-    def _invoke(self, params: Dict) -> Any:
+    def _invoke(
+        self, params: dict, user_approved: bool = False
+    ) -> StructuredToolResult:
         pass
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
@@ -244,35 +247,67 @@ def test_check_prerequisites_multiple_all_types_success(mock_subprocess_run):
 
 
 @patch("subprocess.run")
-@patch.dict(os.environ, {"EXISTING_VAR": "value"}, clear=True)
 def test_check_prerequisites_stops_at_first_failure_command(mock_subprocess_run):
-    mock_subprocess_run.side_effect = subprocess.CalledProcessError(
-        1, "failing_cmd", "error output"
-    )
-    mock_callable_should_not_be_called = Mock(return_value=(True, ""))
+    # Track which commands were executed
+    executed_commands = []
+
+    def track_and_return(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args", [None])[0]
+        executed_commands.append(cmd)
+
+        if cmd == "first_command":
+            return Mock(stdout="success", returncode=0)
+        elif cmd == "second_command_fails":
+            raise subprocess.CalledProcessError(1, cmd, "command failed")
+        elif cmd == "third_command_should_not_run":
+            return Mock(stdout="should not see this", returncode=0)
+        else:
+            return Mock(stdout="", returncode=0)
+
+    mock_subprocess_run.side_effect = track_and_return
 
     prerequisites = [
-        StaticPrerequisite(enabled=True, disabled_reason=""),
-        ToolsetEnvironmentPrerequisite(env=["EXISTING_VAR"]),
-        ToolsetCommandPrerequisite(command="failing_cmd"),  # This one should fail
-        CallablePrerequisite(
-            callable=mock_callable_should_not_be_called
+        ToolsetCommandPrerequisite(command="first_command"),  # Should succeed
+        ToolsetCommandPrerequisite(command="second_command_fails"),  # Should fail
+        ToolsetCommandPrerequisite(
+            command="third_command_should_not_run"
         ),  # Should not be called
     ]
-    toolset = SampleToolset(prerequisites=prerequisites, config={})
+
+    toolset = SampleToolset(prerequisites=prerequisites)
     toolset.check_prerequisites()
 
     assert toolset.status == ToolsetStatusEnum.FAILED
-    assert toolset.error == "`failing_cmd` returned 1"
-    mock_subprocess_run.assert_called_once_with(
-        "failing_cmd",
-        shell=True,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    mock_callable_should_not_be_called.assert_not_called()
+    assert toolset.error == "`second_command_fails` returned 1"
+
+    # Verify execution order
+    assert executed_commands == ["first_command", "second_command_fails"]
+    # Third command should NOT have been executed
+    assert "third_command_should_not_run" not in executed_commands
+
+
+def test_check_prerequisites_stops_at_first_failure_callable():
+    mock_callable_1 = Mock(return_value=(True, ""))
+    mock_callable_2_fails = Mock(return_value=(False, "This callable failed"))
+    mock_callable_3_should_not_be_called = Mock(return_value=(True, ""))
+
+    prerequisites = [
+        CallablePrerequisite(callable=mock_callable_1),  # Should succeed
+        CallablePrerequisite(callable=mock_callable_2_fails),  # Should fail
+        CallablePrerequisite(
+            callable=mock_callable_3_should_not_be_called
+        ),  # Should not be called
+    ]
+    toolset = SampleToolset(prerequisites=prerequisites, config={"test": "config"})
+    toolset.check_prerequisites()
+
+    assert toolset.status == ToolsetStatusEnum.FAILED
+    assert toolset.error == "This callable failed"
+
+    # Verify execution order
+    mock_callable_1.assert_called_once_with({"test": "config"})
+    mock_callable_2_fails.assert_called_once_with({"test": "config"})
+    mock_callable_3_should_not_be_called.assert_not_called()
 
 
 def test_check_prerequisites_with_failing_callable():
@@ -290,3 +325,74 @@ def test_check_prerequisites_with_failing_callable():
         "Prerequisite call failed unexpectedly: Failure in callable prerequisite"
     )
     assert toolset.error == expected_error_message
+
+
+@patch.dict(os.environ, {"TEST_ENV": "exists"}, clear=False)
+def test_check_prerequisites_env_before_command():
+    """Test that environment prerequisites are checked before command prerequisites"""
+
+    # Track what gets executed
+    executed = []
+
+    # Mock that tracks when env is checked
+    class EnvTracker:
+        def __init__(self):
+            self.original_in = os.environ.__contains__
+
+        def __call__(self, key):
+            if key == "TEST_ENV":
+                if "env_check" not in executed:
+                    executed.append("env_check")
+            return self.original_in(key)
+
+    # Mock that tracks command execution
+    def mock_run(*args, **kwargs):
+        executed.append("command_check")
+        return Mock(stdout="", returncode=0)
+
+    prerequisites = [
+        ToolsetCommandPrerequisite(command="test_cmd"),  # This is listed first
+        ToolsetEnvironmentPrerequisite(
+            env=["TEST_ENV"]
+        ),  # But this should run first due to sorting
+    ]
+
+    toolset = SampleToolset(prerequisites=prerequisites, config={})
+
+    # Patch both env check and subprocess
+    env_tracker = EnvTracker()
+
+    with patch.object(os.environ.__class__, "__contains__", env_tracker):
+        with patch("subprocess.run", side_effect=mock_run):
+            toolset.check_prerequisites()
+
+    # Verify env was checked before command
+    assert executed == ["env_check", "command_check"]
+    assert toolset.status == ToolsetStatusEnum.ENABLED
+
+
+def test_check_prerequisites_static_checked_first():
+    """Test that static prerequisites are checked first and can short-circuit"""
+
+    # Create mocks that should NOT be called
+    mock_callable_should_not_run = Mock(return_value=(True, ""))
+
+    # Define prerequisites with static failure in the middle
+    prerequisites = [
+        ToolsetCommandPrerequisite(command="should_not_run"),
+        CallablePrerequisite(callable=mock_callable_should_not_run),
+        StaticPrerequisite(enabled=False, disabled_reason="Static check failed"),
+        ToolsetEnvironmentPrerequisite(env=["SOME_VAR"]),
+    ]
+
+    with patch("subprocess.run") as mock_run:
+        toolset = SampleToolset(prerequisites=prerequisites, config={})
+        toolset.check_prerequisites()
+
+    # Verify static prerequisite failed first
+    assert toolset.status == ToolsetStatusEnum.FAILED
+    assert toolset.error == "Static check failed"
+
+    # Verify nothing else was executed
+    mock_callable_should_not_run.assert_not_called()
+    mock_run.assert_not_called()

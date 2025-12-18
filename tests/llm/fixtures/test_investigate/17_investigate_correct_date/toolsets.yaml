@@ -1,0 +1,39 @@
+toolsets:
+  internet:
+    enabled: true
+  prometheus/metrics:
+    enabled: true
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  kubernetes/kube-lineage-extras:
+    enabled: false
+  bash:
+    enabled: false
+  helm/core:
+    enabled: false
+  kafka/admin:
+    enabled: false
+  aws/security:
+    enabled: false
+  aws/rds:
+    enabled: false
+  aks/core:
+    enabled: false
+  kubernetes/live-metrics:
+    enabled: false
+  kubernetes/kube-prometheus-stack:
+    enabled: false
+  runbook:
+    enabled: false
+  kubernetes/krew-extras:
+    enabled: false
+  aks/node-health:
+    enabled: false
+  docker/core:
+    enabled: false
+  confluence:
+    enabled: False
+  slab:
+    enabled: False

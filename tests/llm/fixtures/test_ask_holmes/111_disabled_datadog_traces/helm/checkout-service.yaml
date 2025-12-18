@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-111
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: checkout-scripts
+  namespace: app-111
+type: Opaque
+stringData:
+  checkout.sh: |
+    #!/bin/sh
+    echo "Checkout service starting..."
+    echo "Processing payment transactions..."
+    while true; do
+      echo "[$(date -Iseconds)] Processing payment for order_id=$(shuf -i 1000-9999 -n 1)"
+      echo "[$(date -Iseconds)] Payment gateway latency: $(shuf -i 500-3000 -n 1)ms"
+      echo "[$(date -Iseconds)] Database query time: $(shuf -i 50-200 -n 1)ms"
+      echo "[$(date -Iseconds)] Total transaction time: $(shuf -i 800-3500 -n 1)ms"
+      sleep 3
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-service
+  namespace: app-111
+  labels:
+    app: checkout
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+      annotations:
+        app.kubernetes.io/name: "checkout"
+        app.kubernetes.io/component: "payment-processing"
+    spec:
+      volumes:
+      - name: scripts
+        secret:
+          secretName: checkout-scripts
+          defaultMode: 0755
+      containers:
+      - name: checkout
+        image: busybox
+        command: ["/scripts/checkout.sh"]
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-service
+  namespace: app-111
+  labels:
+    app: checkout
+spec:
+  selector:
+    app: checkout
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  type: ClusterIP

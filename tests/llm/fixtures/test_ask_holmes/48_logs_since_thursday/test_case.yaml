@@ -1,9 +1,9 @@
 # Today is Thursday, ask for logs since last week mentioning specific day
-user_prompt: "Show me the logs for the pod `robusta-holmes` since last Thursday"
+user_prompt: "Show me the logs for the pod `robusta-holmes-7bfb7f85b7-2w9ck` since last Thursday"
 tags:
   - logs
   - datetime
-  - synthetic
+  - medium  # Holmes fetches data excluding Thurday and starting Friday in 5% of cases
 expected_output:
   - 2025-06-12 The database at my.postgresql.com has become unavailable
   - 2025-06-13 The application temporarily suffered from memory pressure
@@ -11,6 +11,4 @@ expected_output:
   - 2025-06-15 Syntax error for query fetch_user_logs
   - 2025-06-19 SSL certificate expired
 
-evaluation:
-  # Holmes fetches data excluding Thurday and starting Friday in 5% of cases
-  correctness: 0
+mock_policy: always_mock

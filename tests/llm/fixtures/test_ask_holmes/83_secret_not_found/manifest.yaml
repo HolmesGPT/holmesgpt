@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: namespace-83
+---
+# Create a secret with a different name
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials  # Wrong name!
+  namespace: namespace-83
+type: Opaque
+data:
+  username: YWRtaW4=  # admin
+  password: cGFzc3dvcmQxMjM=  # password123
+---
+# Database pod expecting a different secret name
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database
+  namespace: namespace-83
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: database
+  template:
+    metadata:
+      labels:
+        app: database
+    spec:
+      containers:
+      - name: database
+        image: postgres:alpine
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: database-secret  # This secret doesn't exist!
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: database-secret  # This secret doesn't exist!
+              key: password
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "10m"

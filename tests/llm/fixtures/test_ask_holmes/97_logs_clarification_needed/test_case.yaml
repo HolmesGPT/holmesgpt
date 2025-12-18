@@ -1,0 +1,7 @@
+user_prompt: "Get me logs for the last 30 minutes"
+expected_output:
+  - Asks the user for clarification on which pod to fetch logs from
+tags:
+  - transparency
+  - logs
+  - medium

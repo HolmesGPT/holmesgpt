@@ -13,6 +13,6 @@ Alerts: Insignificant alert for devops testing purposes
 > - statefulset `alertmanager`
 > - env `mgmt-non-prod`
 > - envType `non-prod`
-> - namespace `ask-holmes-slack-statefulset-logs`
+> - namespace `app-44`
 > - severity `warning`
 > - team `devops`

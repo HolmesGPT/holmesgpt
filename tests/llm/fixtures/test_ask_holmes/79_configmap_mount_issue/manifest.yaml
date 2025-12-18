@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: namespace-79
+---
+# Pod trying to mount a ConfigMap that doesn't exist
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-server
+  namespace: namespace-79
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-server
+  template:
+    metadata:
+      labels:
+        app: app-server
+    spec:
+      containers:
+      - name: app-server
+        image: busybox
+        command: ["/bin/sh"]
+        args: ["-c", "cat /config/app.properties && sleep 3600"]
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "10m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: app-config  # This ConfigMap doesn't exist!
+---
+# Create a different ConfigMap with wrong name to make it more realistic
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-configuration  # Wrong name! Pod expects "app-config"
+  namespace: namespace-79
+data:
+  app.properties: |
+    server.port=8080
+    database.url=localhost:5432
+    cache.enabled=true

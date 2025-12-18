@@ -1,0 +1,14 @@
+toolsets:
+  # Enable common toolsets
+  kubernetes/core:
+    enabled: true
+
+  kubernetes/logs:
+    enabled: true
+
+  # Explicitly disable all AWS toolsets
+  aws/security:
+    enabled: false
+
+  aws/rds:
+    enabled: false

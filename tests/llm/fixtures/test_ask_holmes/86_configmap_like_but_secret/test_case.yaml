@@ -1,0 +1,16 @@
+description: |
+  Test case similar to ConfigMap missing example from runbook but with Secret mount failure.
+  Uses similar deployment name (frontend) and namespace (production) but with 7 replicas
+  instead of 5, and the root cause is a missing Secret instead of ConfigMap.
+  Tests that LLM actually diagnoses the issue rather than pattern matching.
+user_prompt: "The frontend deployment in production namespace is showing issues. Can you investigate why some replicas are not running?"
+expected_output: |
+  The issue should be identified as a missing Secret mount (frontend-api-keys),
+before_test: |
+  kubectl apply -f manifest.yaml
+  sleep 30
+after_test: |
+  kubectl delete -f manifest.yaml
+tags:
+  - kubernetes
+  - easy

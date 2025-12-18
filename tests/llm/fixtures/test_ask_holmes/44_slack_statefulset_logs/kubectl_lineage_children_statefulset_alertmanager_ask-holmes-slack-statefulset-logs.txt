@@ -1,5 +1,5 @@
-{"toolset_name":"kubernetes/kube-lineage-extras","tool_name":"kubectl_lineage_children","match_params":{"kind":"statefulset","name":"alertmanager","namespace":"ask-holmes-slack-statefulset-logs"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kube-lineage statefulset alertmanager -n ask-holmes-slack-statefulset-logs", "params": {"kind": "statefulset", "name": "alertmanager", "namespace": "ask-holmes-slack-statefulset-logs"}}
+{"toolset_name":"kubernetes/kube-lineage-extras","tool_name":"kubectl_lineage_children","match_params":{"kind":"statefulset","name":"alertmanager","namespace":"app-44"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kube-lineage statefulset alertmanager -n app-44", "params": {"kind": "statefulset", "name": "alertmanager", "namespace": "app-44"}}
 NAME                                                    READY   STATUS    AGE
 StatefulSet/alertmanager                                1/1               4h45m
 ├── ControllerRevision/alertmanager-b99674b6d           -                 4h45m

@@ -1,7 +1,46 @@
-user_prompt: 'what is the command to port-forward to << { "type": "pod", "name": "my_grafana_4j981" } >>'
-#user_prompt: "what is the command to port-forward to my grafana service?"
+user_prompt: 'port forward to grafana pod in app-03'
 expected_output:
-  - A kubectl port-forward command
-  - The pod name in the port forward command must be my_grafana_4j981
-evaluation:
-  correctness: 1
+  - Must find the actual grafana pod name (grafana-7f8b9c6d5-x2m4n)
+  - Must include the correct port (3000)
+  - "Full kubectl port-forward command like: kubectl port-forward -n app-03 grafana-7f8b9c6d5-x2m4n 3000:3000"
+  - Should NOT just say "find grafana in your cluster" or give generic instructions
+tags:
+  - kubernetes
+  - medium
+  - question-answer
+setup_timeout: 360
+before_test: |
+  kubectl create namespace app-03
+  cat <<EOF | kubectl apply -f -
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: grafana-7f8b9c6d5-x2m4n
+    namespace: app-03
+    labels:
+      app: grafana
+  spec:
+    containers:
+    - name: grafana
+      image: busybox:1.35
+      command: ['sh', '-c', 'while true; do echo "HTTP/1.1 200 OK\n\nOK" | nc -l -p 3000; done']
+      ports:
+      - containerPort: 3000
+        name: http
+      resources:
+        requests:
+          memory: "16Mi"
+          cpu: "5m"
+        limits:
+          memory: "32Mi"
+          cpu: "10m"
+      readinessProbe:
+        tcpSocket:
+          port: 3000
+        initialDelaySeconds: 2
+        periodSeconds: 5
+  EOF
+  kubectl wait --for=condition=Ready pod/grafana-7f8b9c6d5-x2m4n -n app-03 --timeout=300s
+
+after_test: |
+  kubectl delete namespace app-03

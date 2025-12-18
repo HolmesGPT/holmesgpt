@@ -1,7 +1,7 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"pod","name":"fast-fail-pod","namespace":"ask-holmes-namespace-54b"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl describe pod fast-fail-pod -n ask-holmes-namespace-54b", "params": {"kind": "pod", "name": "fast-fail-pod", "namespace": "ask-holmes-namespace-54b"}}
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"pod","name":"fast-fail-pod","namespace":"namespace-54b"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl describe pod fast-fail-pod -n namespace-54b", "params": {"kind": "pod", "name": "fast-fail-pod", "namespace": "namespace-54b"}}
 Name:             fast-fail-pod
-Namespace:        ask-holmes-namespace-54b
+Namespace:        namespace-54b
 Priority:         0
 Service Account:  default
 Node:             pool-5rdd4oamz-gl4h4/10.114.0.5
@@ -47,7 +47,7 @@ Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists fo
 Events:
   Type     Reason     Age                 From               Message
   ----     ------     ----                ----               -------
-  Normal   Scheduled  116s                default-scheduler  Successfully assigned ask-holmes-namespace-54b/fast-fail-pod to pool-5rdd4oamz-gl4h4
+  Normal   Scheduled  116s                default-scheduler  Successfully assigned namespace-54b/fast-fail-pod to pool-5rdd4oamz-gl4h4
   Normal   Pulling    29s (x4 over 116s)  kubelet            Pulling image "totallynonexistentregistry12345.io/doesnotexist/invalid:latest"
   Warning  Failed     29s (x4 over 116s)  kubelet            Failed to pull image "totallynonexistentregistry12345.io/doesnotexist/invalid:latest": failed to pull and unpack image "totallynonexistentregistry12345.io/doesnotexist/invalid:latest": failed to resolve reference "totallynonexistentregistry12345.io/doesnotexist/invalid:latest": failed to do request: Head "https://totallynonexistentregistry12345.io/v2/doesnotexist/invalid/manifests/latest": dial tcp: lookup totallynonexistentregistry12345.io on 67.207.67.2:53: no such host
   Warning  Failed     29s (x4 over 116s)  kubelet            Error: ErrImagePull

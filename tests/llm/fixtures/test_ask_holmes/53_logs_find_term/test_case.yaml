@@ -1,12 +1,20 @@
 user_prompt: "Find 'query failed' in the logs of my-app-53"
+setup_timeout: 300
 tags:
   - logs
-  - reproducible
+  - easy
 expected_output: |
   A summary with the following errors in whichever order:
     1. DB query issues due to a syntax error
-    2. DB query issues due unicity constraint volation
-before_test: kubectl apply -f ./manifest.yaml && sleep 60
-after_test: kubectl delete -f ./manifest.yaml
-evaluation:
-  correctness: 0
+    2. DB query issues due unicity constraint violation
+before_test: |
+  kubectl create namespace ask-holmes-namespace-53 || true
+  kubectl create secret generic my-app-53-logs-script \
+    --from-file=generate_logs.py=./generate_logs.py \
+    -n ask-holmes-namespace-53 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./manifest.yaml
+  kubectl wait --for=condition=available deployment/my-app-53 -n ask-holmes-namespace-53 --timeout=180s
+
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret my-app-53-logs-script -n ask-holmes-namespace-53 --ignore-not-found

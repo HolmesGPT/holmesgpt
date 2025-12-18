@@ -1,7 +1,7 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"pod","name":"network-connector","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl describe pod network-connector -n default", "params": {"kind": "pod", "name": "network-connector", "namespace": "default"}}
-Name:             network-connector
-Namespace:        default
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"pod","name":"network-connector-f6cf57f75-99bhg","namespace":"app-20"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl describe pod network-connector-f6cf57f75-99bhg -n app-20", "params": {"kind": "pod", "name": "network-connector-f6cf57f75-99bhg", "namespace": "app-20"}}
+Name:             network-connector-f6cf57f75-99bhg
+Namespace:        app-20
 Priority:         0
 Service Account:  default
 Node:             kind-double-node-worker/172.18.0.3
@@ -15,12 +15,14 @@ IPs:
 Containers:
   network-connector:
     Container ID:  containerd://3f78168bb78ee47713e3c8387555997809027e2ce0559f329df8e0fcd8f1f643
-    Image:         busybox
+    Image:         python:3.9-slim
     Image ID:      docker.io/library/busybox@sha256:37f7b378a29ceb4c551b1b5582e27747b855bbfaa73fa11914fe0df028dc581f
     Port:          <none>
     Host Port:     <none>
     Command:
-      /bin/sh start.sh
+      python
+    Args:
+      /scripts/generate_logs.py
 
     State:          Running
       Started:      Tue, 13 May 2025 08:55:42 +0200
@@ -50,8 +52,8 @@ Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists fo
 Events:
   Type    Reason     Age    From               Message
   ----    ------     ----   ----               -------
-  Normal  Scheduled  4m18s  default-scheduler  Successfully assigned default/network-connector to kind-double-node-worker
-  Normal  Pulling    4m17s  kubelet            Pulling image "busybox"
-  Normal  Pulled     4m16s  kubelet            Successfully pulled image "busybox" in 878ms (878ms including waiting). Image size: 2156519 bytes.
+  Normal  Scheduled  4m18s  default-scheduler  Successfully assigned app-20/network-connector-f6cf57f75-99bhg to kind-double-node-worker
+  Normal  Pulling    4m17s  kubelet            Pulling image "python:3.9-slim"
+  Normal  Pulled     4m16s  kubelet            Successfully pulled image "python:3.9-slim" in 878ms (878ms including waiting). Image size: 2156519 bytes.
   Normal  Created    4m16s  kubelet            Created container network-connector
   Normal  Started    4m16s  kubelet            Started container network-connector

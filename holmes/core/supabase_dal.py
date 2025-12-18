@@ -1,13 +1,17 @@
 import base64
 import binascii
+import gzip
 import json
 import logging
 import os
 import threading
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from postgrest.base_request_builder import QueryArgs
+import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
 from postgrest._sync.request_builder import SyncQueryRequestBuilder
@@ -29,13 +33,20 @@ from holmes.core.resource_instruction import (
     ResourceInstructionDocument,
     ResourceInstructions,
 )
+from holmes.core.truncation.dal_truncation_utils import (
+    truncate_evidences_entities_if_necessary,
+)
+from holmes.plugins.runbooks import RobustaRunbookInstruction
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
+from holmes.utils.krr_utils import calculate_krr_savings
+from postgrest._sync import request_builder as supabase_request_builder
 
 SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 3600))
 
 ISSUES_TABLE = "Issues"
+GROUPED_ISSUES_TABLE = "GroupedIssues"
 EVIDENCE_TABLE = "Evidence"
 RUNBOOKS_TABLE = "HolmesRunbooks"
 SESSION_TOKENS_TABLE = "AuthTokens"
@@ -43,6 +54,31 @@ HOLMES_STATUS_TABLE = "HolmesStatus"
 HOLMES_TOOLSET = "HolmesToolsStatus"
 SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
+
+ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
+ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
+
+
+logging.info("Patching supabase_request_builder.pre_select")
+original_pre_select = supabase_request_builder.pre_select
+
+
+def pre_select_patched(*args, **kwargs):
+    query_args: QueryArgs = original_pre_select(*args, **kwargs)
+    if not query_args.json:
+        query_args = QueryArgs(
+            query_args.method, query_args.params, query_args.headers, None
+        )
+
+    return query_args
+
+
+supabase_request_builder.pre_select = pre_select_patched
+
+
+class FindingType(str, Enum):
+    ISSUE = "issue"
+    CONFIGURATION_CHANGE = "configuration_change"
 
 
 class RobustaToken(BaseModel):
@@ -53,12 +89,23 @@ class RobustaToken(BaseModel):
     password: str
 
 
+class SupabaseDnsException(Exception):
+    def __init__(self, error: Exception, url: str):
+        message = (
+            f"\n{error.__class__.__name__}: {error}\n"
+            f"Error connecting to <{url}>\n"
+            "This is often due to DNS issues or firewall policies - to troubleshoot run in your cluster:\n"
+            f"curl -I {url}\n"
+        )
+        super().__init__(message)
+
+
 class SupabaseDal:
     def __init__(self, cluster: str):
         self.enabled = self.__init_config()
         self.cluster = cluster
         if not self.enabled:
-            logging.info(
+            logging.debug(
                 "Not connecting to Robusta platform - robusta token not provided - using ROBUSTA_AI will not be possible"
             )
             return
@@ -66,6 +113,7 @@ class SupabaseDal:
             f"Initializing Robusta platform connection for account {self.account_id}"
         )
         options = ClientOptions(postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS)
+        sentry_sdk.set_tag("db_url", self.url)
         self.client = create_client(self.url, self.api_key, options)  # type: ignore
         self.user_id = self.sign_in()
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
@@ -116,7 +164,7 @@ class SupabaseDal:
                 )
 
         if not os.path.exists(config_file_path):
-            logging.info(f"No robusta config in {config_file_path}")
+            logging.debug(f"No robusta config in {config_file_path}")
             return None
 
         logging.info(f"loading config {config_file_path}")
@@ -130,7 +178,7 @@ class SupabaseDal:
                         raise Exception(
                             "No robusta token provided to Holmes.\n"
                             "Please set a valid Robusta UI token.\n "
-                            "See https://docs.robusta.dev/master/configuration/ai-analysis.html#choosing-and-configuring-an-ai-provider for instructions."
+                            "See https://holmesgpt.dev/ai-providers/ for instructions."
                         )
                     env_replacement_token = get_env_replacement(token)
                     if env_replacement_token:
@@ -142,7 +190,7 @@ class SupabaseDal:
                             "Ensure your Helm chart or environment variables are set correctly.\n "
                             "If you store the token in a secret, you must also pass "
                             "the environment variable ROBUSTA_UI_TOKEN to Holmes.\n "
-                            "See https://docs.robusta.dev/master/configuration/ai-analysis.html#configuring-holmesgpt-access-to-saas-data for instructions."
+                            "See https://holmesgpt.dev/data-sources/builtin-toolsets/robusta/ for instructions."
                         )
                     try:
                         decoded = base64.b64decode(token)
@@ -178,118 +226,237 @@ class SupabaseDal:
         return all([self.account_id, self.url, self.api_key, self.email, self.password])
 
     def sign_in(self) -> str:
-        logging.info("Supabase DAL login")
-        res = self.client.auth.sign_in_with_password(
-            {"email": self.email, "password": self.password}
-        )
-        if not res.session:
-            raise ValueError("Authentication failed: no session returned")
-        if not res.user:
-            raise ValueError("Authentication failed: no user returned")
-        self.client.auth.set_session(
-            res.session.access_token, res.session.refresh_token
-        )
-        self.client.postgrest.auth(res.session.access_token)
-        return res.user.id
+        logging.info("Supabase dal login")
+        try:
+            res = self.client.auth.sign_in_with_password(
+                {"email": self.email, "password": self.password}
+            )
+            if not res.session:
+                raise ValueError("Authentication failed: no session returned")
+            if not res.user:
+                raise ValueError("Authentication failed: no user returned")
+            self.client.auth.set_session(
+                res.session.access_token, res.session.refresh_token
+            )
+            self.client.postgrest.auth(res.session.access_token)
+            return res.user.id
+        except Exception as e:
+            error_msg = str(e).lower()
+            if any(
+                dns_indicator in error_msg
+                for dns_indicator in [
+                    "temporary failure in name resolution",
+                    "name resolution",
+                    "dns",
+                    "name or service not known",
+                    "nodename nor servname provided",
+                ]
+            ):
+                raise SupabaseDnsException(e, self.url) from e
+            raise
 
     def get_resource_recommendation(
-        self, name: str, namespace: str, kind
+        self,
+        limit: int = 10,
+        sort_by: str = "cpu_total",
+        namespace: Optional[str] = None,
+        name_pattern: Optional[str] = None,
+        kind: Optional[str] = None,
+        container: Optional[str] = None,
     ) -> Optional[List[Dict]]:
+        """
+        Fetch top N resource recommendations with optional filters and sorting.
+
+        Args:
+            limit: Maximum number of recommendations to return (default: 10)
+            sort_by: Field to sort by potential savings. Options:
+                - "cpu_total": Total CPU savings (requests + limits)
+                - "memory_total": Total memory savings (requests + limits)
+                - "cpu_requests": CPU requests savings
+                - "memory_requests": Memory requests savings
+                - "cpu_limits": CPU limits savings
+                - "memory_limits": Memory limits savings
+                - "priority": Use the priority field from the scan
+            namespace: Filter by Kubernetes namespace (exact match)
+            name_pattern: Filter by workload name (supports SQL LIKE pattern, e.g., '%app%')
+            kind: Filter by Kubernetes resource kind (e.g., Deployment, StatefulSet, DaemonSet, Job)
+            container: Filter by container name (exact match)
+
+        Returns:
+            List of recommendations sorted by the specified metric
+        """
         if not self.enabled:
             return []
 
-        try:
-            scans_meta_response = (
-                self.client.table(SCANS_META_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .eq("cluster_id", self.cluster)
-                .eq("latest", True)
-                .execute()
-            )
-            if not len(scans_meta_response.data):
-                return None
-
-            scans_results_response = (
-                self.client.table(SCANS_RESULTS_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .eq("cluster_id", self.cluster)
-                .eq("scan_id", scans_meta_response.data[0]["scan_id"])
-                .eq("name", name)
-                .eq("namespace", namespace)
-                .eq("kind", kind)
-                .execute()
-            )
-            if not len(scans_results_response.data):
-                return None
-
-            return scans_results_response.data
-        except Exception:
-            logging.exception("Supabase error while retrieving efficiency data")
+        scans_meta_response = (
+            self.client.table(SCANS_META_TABLE)
+            .select("*")
+            .eq("account_id", self.account_id)
+            .eq("cluster_id", self.cluster)
+            .eq("latest", True)
+            .execute()
+        )
+        if not len(scans_meta_response.data):
+            logging.warning("No scan metadata found for latest krr scan")
             return None
 
-    def get_configuration_changes(
-        self, start_datetime: str, end_datetime: str
+        scan_id = scans_meta_response.data[0]["scan_id"]
+
+        query = (
+            self.client.table(SCANS_RESULTS_TABLE)
+            .select("*")
+            .eq("account_id", self.account_id)
+            .eq("cluster_id", self.cluster)
+            .eq("scan_id", scan_id)
+        )
+
+        if namespace:
+            query = query.eq("namespace", namespace)
+        if name_pattern:
+            query = query.like("name", name_pattern)
+        if kind:
+            query = query.eq("kind", kind)
+        if container:
+            query = query.eq("container", container)
+
+        # For priority sorting, we can use the database's order
+        if sort_by == "priority":
+            query = query.order("priority", desc=True).limit(limit)
+
+        scans_results_response = query.execute()
+
+        if not len(scans_results_response.data):
+            return None
+
+        results = scans_results_response.data
+
+        if len(results) <= 1:
+            return results
+
+        # If sorting by priority, we already ordered and limited in the query
+        if sort_by == "priority":
+            return results
+
+        # Sort by calculated savings (descending)
+        results_with_savings = [
+            (result, calculate_krr_savings(result, sort_by)) for result in results
+        ]
+        results_with_savings.sort(key=lambda x: x[1], reverse=True)
+
+        return [result for result, _ in results_with_savings[:limit]]
+
+    def get_issues_metadata(
+        self,
+        start_datetime: str,
+        end_datetime: str,
+        limit: int = 100,
+        workload: Optional[str] = None,
+        ns: Optional[str] = None,
+        cluster: Optional[str] = None,
+        finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
         if not self.enabled:
             return []
-
+        if not cluster:
+            cluster = self.cluster
         try:
-            changes_response = (
+            query = (
                 self.client.table(ISSUES_TABLE)
-                .select("id", "subject_name", "subject_namespace", "description")
+                .select(
+                    "id",
+                    "title",
+                    "subject_name",
+                    "subject_namespace",
+                    "subject_type",
+                    "description",
+                    "starts_at",
+                    "ends_at",
+                )
                 .eq("account_id", self.account_id)
-                .eq("cluster", self.cluster)
-                .eq("finding_type", "configuration_change")
+                .eq("cluster", cluster)
                 .gte("creation_date", start_datetime)
                 .lte("creation_date", end_datetime)
-                .execute()
+                .limit(limit)
             )
-            if not len(changes_response.data):
+
+            query = query.eq("finding_type", finding_type.value)
+            if workload:
+                query.eq("subject_name", workload)
+            if ns:
+                query.eq("subject_namespace", ns)
+
+            res = query.execute()
+            if not res.data:
                 return None
 
         except Exception:
             logging.exception("Supabase error while retrieving change data")
             return None
 
-        changes_ids = [change["id"] for change in changes_response.data]
-        try:
-            change_data_response = (
-                self.client.table(EVIDENCE_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .in_("issue_id", changes_ids)
-                .execute()
-            )
-            if not len(change_data_response.data):
-                return None
-
-        except Exception:
-            logging.exception("Supabase error while retrieving change content")
-            return None
-
-        changes_data = []
-        change_data_map = {
-            change["issue_id"]: change for change in change_data_response.data
-        }
-
-        for change in changes_response.data:
-            change_content = change_data_map.get(change["id"])
-            if change_content:
-                changes_data.append(
-                    {
-                        "change": change_content["data"],
-                        "evidence_id": change_content["id"],
-                        **change,
-                    }
-                )
-
         logging.debug(
-            "Change history for %s-%s: %s", start_datetime, end_datetime, changes_data
+            "Change history metadata for %s-%s workload %s in ns %s: %s",
+            start_datetime,
+            end_datetime,
+            workload,
+            ns,
+            res.data,
         )
 
-        return changes_data
+        return res.data
+
+    def unzip_evidence_file(self, data):
+        try:
+            evidence_list = json.loads(data.get("data", "[]"))
+            if not evidence_list:
+                return data
+
+            evidence = evidence_list[0]
+            raw_data = evidence.get("data")
+
+            if evidence.get("type") != "gz" or not raw_data:
+                return data
+
+            # Strip "b'...'" or 'b"..."' markers if present
+            if raw_data.startswith("b'") and raw_data.endswith("'"):
+                raw_data = raw_data[2:-1]
+            elif raw_data.startswith('b"') and raw_data.endswith('"'):
+                raw_data = raw_data[2:-1]
+
+            gz_bytes = base64.b64decode(raw_data)
+            decompressed = gzip.decompress(gz_bytes).decode("utf-8")
+
+            evidence["data"] = decompressed
+            data["data"] = json.dumps([evidence])
+            return data
+
+        except Exception:
+            logging.exception(f"Unknown issue unzipping gz finding: {data}")
+            return data
+
+    def extract_relevant_issues(self, evidence):
+        data = [
+            enrich
+            for enrich in evidence.data
+            if enrich.get("enrichment_type") not in ENRICHMENT_BLACKLIST_SET
+        ]
+
+        unzipped_files = [
+            self.unzip_evidence_file(enrich)
+            for enrich in evidence.data
+            if enrich.get("enrichment_type") == "text_file"
+            or enrich.get("enrichment_type") == "alert_raw_data"
+        ]
+
+        data.extend(unzipped_files)
+        return data
+
+    def get_issue_from_db(self, issue_id: str, table: str) -> Optional[Dict]:
+        issue_response = (
+            self.client.table(table).select("*").filter("id", "eq", issue_id).execute()
+        )
+        if len(issue_response.data):
+            return issue_response.data[0]
+        return None
 
     def get_issue_data(self, issue_id: Optional[str]) -> Optional[Dict]:
         # TODO this could be done in a single atomic SELECT, but there is no
@@ -300,14 +467,11 @@ class SupabaseDal:
             return None
         issue_data = None
         try:
-            issue_response = (
-                self.client.table(ISSUES_TABLE)
-                .select("*")
-                .filter("id", "eq", issue_id)
-                .execute()
-            )
-            if len(issue_response.data):
-                issue_data = issue_response.data[0]
+            issue_data = self.get_issue_from_db(issue_id, ISSUES_TABLE)
+            if issue_data and issue_data["source"] == "prometheus":
+                logging.debug("Getting alert %s from GroupedIssuesTable", issue_id)
+                # This issue will have the complete alert duration information
+                issue_data = self.get_issue_from_db(issue_id, GROUPED_ISSUES_TABLE)
 
         except Exception:  # e.g. invalid id format
             logging.exception("Supabase error while retrieving issue data")
@@ -317,17 +481,14 @@ class SupabaseDal:
         evidence = (
             self.client.table(EVIDENCE_TABLE)
             .select("*")
-            .filter("issue_id", "eq", issue_id)
+            .eq("issue_id", issue_id)
+            .not_.in_("enrichment_type", ENRICHMENT_BLACKLIST)
             .execute()
         )
-        enrichment_blacklist = {"text_file", "graph", "ai_analysis", "holmes"}
-        data = [
-            enrich
-            for enrich in evidence.data
-            if enrich.get("enrichment_type") not in enrichment_blacklist
-        ]
+        relevant_evidence = self.extract_relevant_issues(evidence)
+        truncate_evidences_entities_if_necessary(relevant_evidence)
 
-        issue_data["evidence"] = data
+        issue_data["evidence"] = relevant_evidence
 
         # build issue investigation dates
         started_at = issue_data.get("starts_at")
@@ -350,6 +511,79 @@ class SupabaseDal:
             issue_data["end_timestamp_millis"] = int(end_timestamp.timestamp() * 1000)
 
         return issue_data
+
+    def get_runbook_catalog(self) -> Optional[List[RobustaRunbookInstruction]]:
+        if not self.enabled:
+            return None
+
+        try:
+            res = (
+                self.client.table(RUNBOOKS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("subject_type", "RunbookCatalog")
+                .execute()
+            )
+            if not res.data:
+                return None
+
+            instructions = []
+            for row in res.data:
+                id = row.get("runbook_id")
+                symptom = row.get("symptoms")
+                title = row.get("subject_name")
+                if not symptom:
+                    logging.warning("Skipping runbook with empty symptom: %s", id)
+                    continue
+                instructions.append(
+                    RobustaRunbookInstruction(id=id, symptom=symptom, title=title)
+                )
+            return instructions
+        except Exception:
+            logging.exception("Failed to fetch RunbookCatalog", exc_info=True)
+            return None
+
+    def get_runbook_content(
+        self, runbook_id: str
+    ) -> Optional[RobustaRunbookInstruction]:
+        if not self.enabled:
+            return None
+
+        res = (
+            self.client.table(RUNBOOKS_TABLE)
+            .select("*")
+            .eq("account_id", self.account_id)
+            .eq("subject_type", "RunbookCatalog")
+            .eq("runbook_id", runbook_id)
+            .execute()
+        )
+        if not res.data or len(res.data) != 1:
+            return None
+
+        row = res.data[0]
+        id = row.get("runbook_id")
+        symptom = row.get("symptoms")
+        title = row.get("subject_name")
+        raw_instruction = row.get("runbook").get("instructions")
+        # TODO: remove in the future when we migrate the table data
+        if isinstance(raw_instruction, list) and len(raw_instruction) == 1:
+            instruction = raw_instruction[0]
+        elif isinstance(raw_instruction, list) and len(raw_instruction) > 1:
+            # not currently used, but will be used in the future
+            instruction = "\n - ".join(raw_instruction)
+        elif isinstance(raw_instruction, str):
+            # not supported by the current UI, but will be supported in the future
+            instruction = raw_instruction
+        else:
+            # in case the format is unexpected, convert to string
+            logging.error(
+                f"Unexpected runbook instruction format for runbook_id={runbook_id}: {raw_instruction}"
+            )
+            instruction = str(raw_instruction)
+
+        return RobustaRunbookInstruction(
+            id=id, symptom=symptom, instruction=instruction, title=title
+        )
 
     def get_resource_instructions(
         self, type: str, name: Optional[str]
@@ -385,6 +619,9 @@ class SupabaseDal:
         return None
 
     def get_global_instructions_for_account(self) -> Optional[Instructions]:
+        if not self.enabled:
+            return None
+
         try:
             res = (
                 self.client.table(RUNBOOKS_TABLE)
@@ -467,16 +704,13 @@ class SupabaseDal:
                 self.client.table(EVIDENCE_TABLE)
                 .select("data, enrichment_type")
                 .in_("issue_id", unique_issues)
+                .not_.in_("enrichment_type", ENRICHMENT_BLACKLIST)
                 .execute()
             )
 
-            enrichment_blacklist = {"text_file", "graph", "ai_analysis", "holmes"}
-            data = [
-                evidence.get("data")
-                for evidence in res.data
-                if evidence.get("enrichment_type") not in enrichment_blacklist
-            ]
-            return data
+            relevant_issues = self.extract_relevant_issues(res)
+            truncate_evidences_entities_if_necessary(relevant_issues)
+            return relevant_issues
 
         except Exception:
             logging.exception("failed to fetch workload issues data", exc_info=True)

@@ -1,4 +1,4 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_kind_in_namespace","match_params":{"kind":"pod","namespace":"ask-holmes-namespace-54b"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide pod -n ask-holmes-namespace-54b", "params": {"kind": "pod", "namespace": "ask-holmes-namespace-54b"}}
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_kind_in_namespace","match_params":{"kind":"pod","namespace":"namespace-54b"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide pod -n namespace-54b", "params": {"kind": "pod", "namespace": "namespace-54b"}}
 NAME            READY   STATUS             RESTARTS   AGE    IP            NODE                   NOMINATED NODE   READINESS GATES   LABELS
 fast-fail-pod   0/1     ImagePullBackOff   0          116s   10.244.0.82   pool-5rdd4oamz-gl4h4   <none>           <none>            <none>

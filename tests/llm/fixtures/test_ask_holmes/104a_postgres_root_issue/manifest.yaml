@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-init
+  namespace: namespace-104a
+type: Opaque
+stringData:
+  init.sql: |
+    -- Enable pg_stat_statements
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+    -- Create users table without index on email
+    CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,
+      username VARCHAR(100) NOT NULL,
+      full_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT NOW(),
+      last_login TIMESTAMP,
+      status VARCHAR(50) DEFAULT 'active'
+    );
+
+    -- Insert 100k user records
+    INSERT INTO users (email, username, full_name, last_login)
+    SELECT
+      'user' || i || '@example.com',
+      'user' || i,
+      'User Number ' || i,
+      NOW() - INTERVAL '1 day' * (random() * 365)
+    FROM generate_series(1, 100000) i;
+
+    -- Add some indexes but specifically NOT on email
+    CREATE INDEX idx_username ON users(username);
+    CREATE INDEX idx_created_at ON users(created_at);
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: namespace-104a
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: postgres123
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: namespace-104a
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: namespace-104a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          value: userdb
+        ports:
+        - containerPort: 5432
+        command:
+        - postgres
+        - -c
+        - shared_preload_libraries=pg_stat_statements
+        - -c
+        - pg_stat_statements.track=all
+        - -c
+        - pg_stat_statements.max=10000
+        volumeMounts:
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: init-script
+        secret:
+          secretName: postgres-init
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: user-lookup-script
+  namespace: namespace-104a
+type: Opaque
+stringData:
+  lookup.sh: |
+    #!/bin/sh
+    echo "Waiting for PostgreSQL to be ready..."
+    until pg_isready -h postgres -p 5432; do
+      sleep 2
+    done
+    echo "Starting user lookup queries..."
+    while true; do
+      # Simulate API lookups by email (the slow query)
+      email="user$(shuf -i 1-100000 -n 1)@example.com"
+      psql -h postgres -U postgres -d userdb \
+        -c "SELECT id, username, full_name, last_login FROM users WHERE email = '$email';" \
+        >/dev/null 2>&1
+
+      # Occasionally do a fast query (using indexed column) for contrast
+      if [ $((RANDOM % 10)) -eq 0 ]; then
+        username="user$(shuf -i 1-100000 -n 1)"
+        psql -h postgres -U postgres -d userdb \
+          -c "SELECT id, email, full_name FROM users WHERE username = '$username';" \
+          >/dev/null 2>&1
+      fi
+
+      # Small delay between queries
+      sleep 0.2
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-lookup
+  namespace: namespace-104a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-lookup
+  template:
+    metadata:
+      labels:
+        app: user-lookup
+    spec:
+      containers:
+      - name: api
+        image: postgres:15-alpine
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        command: ["/bin/sh", "/scripts/lookup.sh"]
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: scripts
+        secret:
+          secretName: user-lookup-script
+          defaultMode: 0755

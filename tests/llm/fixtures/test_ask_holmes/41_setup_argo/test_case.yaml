@@ -1,7 +1,6 @@
 user_prompt: "How can I give you access to argo applications?"
 expected_output: |
-  Either the link https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/argocd.html should be in the answer
-  or the answer should explain how to get an argocd token and update the values yaml file for holmes to configure
-  argocd and then run something similar to `helm upgrade robusta robusta/robusta --values=generated_values.yaml`.
-evaluation:
-  correctness: 0
+  - The answer MUST include the link https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/
+tags:
+  - easy
+  - transparency

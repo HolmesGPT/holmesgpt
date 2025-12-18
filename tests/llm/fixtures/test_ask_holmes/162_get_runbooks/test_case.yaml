@@ -1,0 +1,31 @@
+user_prompt: "My signup service is failing and users can't register. What should I check to debug this issue?"
+tags:
+  - kubernetes
+  - runbooks
+
+# simulates loading runbooks and global instructions from a cluster environment
+test_type: cluster
+
+before_test: |
+  # Create namespace
+  kubectl create namespace app-162
+
+  # Deploy the scenario
+  kubectl apply -f app/secrets.yaml
+  kubectl apply -f app/signup-deployment.yaml
+  kubectl apply -f app/payments-deployment.yaml
+
+  # Wait for deployments to be ready
+  kubectl wait --for=condition=available --timeout=60s deployment/signup-service -n app-162
+  kubectl wait --for=condition=available --timeout=60s deployment/payments-service -n app-162
+
+  # Give services time to start and fail
+  sleep 10
+
+after_test: |
+  # Delete namespace
+  kubectl delete namespace app-162
+
+# verifies that the runbook is pulled from robusta and also global instructions are read and followed
+expected_output: |
+  The runbook provides systematic debugging steps for signup service issues, emphasizing the need to check the payments service dependency first. The runbook should specifically mention checking Stripe API key validation in the payments service, as this is the root cause of the signup failures. Mentions contacting the interlock team for assistance. There is no mention of the capricorn team

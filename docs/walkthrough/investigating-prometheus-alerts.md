@@ -1,6 +1,8 @@
 # Investigating Prometheus Alerts
 
-You can investigate Prometheus/AlertManager alerts using HolmesGPT by connecting it to your AlertManager instance. This allows you to run investigations on all active alerts or a specific alert and optionally send the results to a Slack channel.
+You can investigate Prometheus/AlertManager alerts using HolmesGPT by connecting it to your AlertManager instance. This allows you to run investigations on all active alerts or a specific alert.
+
+![Single Alert Investigation](../assets/alertmanager-single-alert-investigation.gif)
 
 ## Prerequisites
 
@@ -67,10 +69,7 @@ For our investigation, we will use the `--alertmanager-alertname` flag to focus 
 ```bash
 holmes investigate alertmanager --alertmanager-url http://localhost:9093 --alertmanager-alertname "KubePodCrashLooping"
 ```
-
-![Single Alert Investigation](../assets/alertmanager-single-alert-investigation.gif)
 Once the investigation is complete, HolmesGPT will provide the potential Root Cause, next steps, and more.
-
 
 ## Filtering Alerts
 

@@ -1,0 +1,9 @@
+{
+  "instructions": [
+    "Always check service dependencies first",
+    "Verify environment variables are set correctly",
+    "Check logs for error patterns before investigating further",
+    "Contact the interlock team on all issues that could be related to STRIPE or the Stripe API",
+    "On all other issues contact the capricorn team"
+  ]
+}

@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "analytics-exporter-fast"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "analytics-exporter-fast"}}
-stdout:
-default              analytics-exporter-fast-76897854c-jx42x                  0/1     CrashLoopBackOff             1 (5s ago)       10s    10.244.0.186   kind-control-plane   <none>           <none>            app=analytics-exporter-fast,pod-template-hash=76897854c
-
-stderr:

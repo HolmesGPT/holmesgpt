@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: service-code-secret
+stringData:
+  payment_processor.py: |
+      import os
+      import time
+      import requests
+      import logging
+      import random
+      import uuid
+
+      # -------- New Relic log handler (no tracing) --------
+      class NewRelicLogHandler(logging.Handler):
+          def __init__(self, license_key):
+              super().__init__()
+              self.license_key = license_key
+              self.log_endpoint = "https://log-api.newrelic.com/log/v1"
+
+          def emit(self, record):
+              log_entry = self.format(record)
+              try:
+                  payload = [
+                      {
+                          "common": {
+                              "attributes": {
+                                  "service.name": "payment-gateway-s1fdsa-231ds",
+                                  "app": "payment-gateway-s1fdsa-231ds"
+                              }
+                          },
+                          "logs": [
+                              {
+                                  "timestamp": int(time.time() * 1000),
+                                  "message": log_entry,
+                                  "level": record.levelname
+                              }
+                          ]
+                      }
+                  ]
+                  headers = {
+                      "Content-Type": "application/json",
+                      "X-License-Key": self.license_key
+                  }
+                  resp = requests.post(self.log_endpoint, json=payload, headers=headers, timeout=5)
+                  resp.raise_for_status()
+              except Exception as e:
+                  # Last resort: print locally to stdout so it's visible in pod logs
+                  print(f"Failed to send log to New Relic: {e}")
+
+      # -------- Configuration --------
+      NEW_RELIC_LICENSE_KEY = os.getenv("NEW_RELIC_LICENSE_KEY", "undefined")
+
+      logger = logging.getLogger("payment_processor")
+      logger.setLevel(logging.INFO)
+      nr_handler = NewRelicLogHandler(NEW_RELIC_LICENSE_KEY)
+      nr_handler.setLevel(logging.INFO)
+      nr_handler.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s - %(message)s'))
+      logger.addHandler(nr_handler)
+
+      # -------- Random log emitter --------
+      INFO_MESSAGES = [
+          lambda: f"Processed payment for order {random.randint(1000, 9999)} in {random.randint(50, 350)}ms",
+          lambda: f"Customer {random.randint(10_000, 99_999)} loyalty points updated",
+          lambda: f"Inventory check passed for SKU-{random.randint(10000, 99999)}"
+      ]
+
+      WARN_MESSAGES = [
+          lambda: f"Cache miss for customer {random.randint(10_000, 99_999)}; retrying",
+      ]
+
+      def emit_random_log():
+          logger.info(random.choice(INFO_MESSAGES)())
+
+
+      if __name__ == "__main__":
+          logger.info("payment-gateway started; emitting logs to New Relic")
+          # Ensure at least one required error is sent on startup
+          rss = random.randint(2048, 8192)
+          batch = uuid.uuid4().hex[:8]
+          logger.error(f"data refused due to high memory usage (batch_id={batch}, rss_mb={rss})")
+
+          # Keep emitting random logs
+
+          logger.warning(random.choice(WARN_MESSAGES)())
+          logger.error(f"Payment declined by gateway for order {random.randint(1000, 9999)}")
+          while True:
+              emit_random_log()
+              time.sleep(random.uniform(1.0, 3.0))
+              logger.error(f"Payment declined by gateway for order {random.randint(1000, 9999)}")
+
+
+  requirements.txt: |
+      requests>=2.24,<3.0
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: payment-gateway-s1fdsa-231ds
+  labels:
+    app: payment-gateway
+spec:
+  containers:
+    - name: payment-gateway
+      image: python:3.10
+      command: ["/bin/bash", "-c", "pip install --no-cache-dir -r /app/requirements.txt && python /app/payment_processor.py"]
+      env:
+        - name: NEW_RELIC_LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: newrelickey
+              key: key
+      volumeMounts:
+        - name: service-code
+          mountPath: /app
+  volumes:
+    - name: service-code
+      secret:
+        secretName: service-code-secret

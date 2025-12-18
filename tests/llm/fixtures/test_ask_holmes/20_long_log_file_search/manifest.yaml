@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-connector
+  namespace: app-20
+  labels:
+    app: network-connector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: network-connector
+  template:
+    metadata:
+      labels:
+        app: network-connector
+    spec:
+      containers:
+      - name: network-connector
+        image: python:3.9-slim
+        command: ["python"]
+        args: ["/scripts/generate_logs.py"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+      volumes:
+      - name: script-volume
+        secret:
+          secretName: network-connector-logs-script
+          defaultMode: 0755
+      restartPolicy: Always

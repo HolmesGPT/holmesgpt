@@ -1,12 +1,11 @@
-user_prompt: "Other services from outside the K8s cluster are unable to reach my-http-app-deployment, why?"
+user_prompt: "Other services from outside the K8s cluster are unable to reach app.example.com, why?"
 tags:
   - chain-of-causation
-  - reproducible
+  - network
+  - kubernetes
+  - hard
 expected_output:
   - The reason should be related to the ingress class
   - It should clearly state that example-ingress-class does not exist - saying it just might not exist is not good enough.
-before_test: kubectl apply -f./ingress_with_class.yaml
-after_test: kubectl delete -f./ingress_with_class.yaml
-evaluation:
-  # Note - this test is problematic, as the question the user would ask should probably be mentioning the ingress host 'app.example.com' and the investigation should unfold from that direction
-  correctness: 0
+before_test: kubectl apply -f ./ingress_with_class.yaml
+after_test: kubectl delete -f ./ingress_with_class.yaml

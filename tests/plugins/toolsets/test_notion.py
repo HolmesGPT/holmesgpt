@@ -80,5 +80,5 @@ def test_tool_one_liner(fetch_notion_tool):
     url = "https://www.notion.so/fake-url"
     assert (
         fetch_notion_tool.get_parameterized_one_liner({"url": url})
-        == f"fetched notion webpage {url}"
+        == f"Notion: Fetch Webpage {url}"
     )

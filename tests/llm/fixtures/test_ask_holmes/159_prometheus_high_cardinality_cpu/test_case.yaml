@@ -1,0 +1,80 @@
+user_prompt:
+- "Show me a graph of CPU usage per pod in the app-159 namespace over the last 5 minutes with 10 second resolution. Then tell me which pods are using the most CPU based on that prometheus graph data."
+- "Show me a graph of CPU usage per pod in the app-159 namespace"
+- "What pods are using the most CPU in the app-159 namespace based on Prometheus?"
+
+expected_output:
+#  - "Should execute a Prometheus query with topk() to limit the number of series"
+  - "Should identify the high CPU consumers (z-cpu-heavy pods) as the top users"
+#  - "Should mention that data was limited or aggregated due to high cardinality"
+  - "Should include a prometheus graph visualization"
+
+tags:
+  - kubernetes
+  - context_window
+  - medium
+  - prometheus
+
+# Custom timeout for setup (needs time for metrics + setup)
+setup_timeout: 480  # 8 minutes total (120s setup + 300s metrics + buffer)
+
+# Port forward configuration for Prometheus
+port_forwards:
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 10159
+    remote_port: 9090
+
+before_test: |
+  # this test assumes Prometheus already exists in the cluster in the default namespace
+  [ "$(kubectl get svc robusta-kube-prometheus-st-prometheus -n default -o jsonpath='{.spec.ports[?(@.port==9090)].port}' 2>/dev/null)" = "9090" ] \
+  || { echo "❌ Prometheus Service missing or port 9090 not found"; exit 1; }
+  
+  # Wait for prometheus to be available (should already be running)
+  kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n default --timeout=60s || true
+
+  # Deploy the high-cardinality pod setup
+  kubectl apply -f ./manifest.yaml
+
+  # Wait for all pods to be running
+  kubectl wait --for=condition=Ready pod -l test=high-cardinality -n app-159 --timeout=120s
+
+  # Wait for CPU metrics to accumulate (reduced from 5 to 3 minutes)
+  # Prometheus scrapes every 30s, so 3 minutes gives us 6 data points
+  echo "Waiting 3 minutes for CPU metrics to accumulate..."
+  sleep 180
+
+  # Verify metrics are available before proceeding (fail fast if empty)
+  echo "Verifying CPU metrics are available in Prometheus..."
+
+  # Run the kubectl/curl command and capture both output and exit code
+  METRICS_OUTPUT=$(kubectl run -n app-159 metric-check-$RANDOM --rm -i --restart=Never --image=curlimages/curl -- \
+    -s -G "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/query" \
+    --data-urlencode "query=sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"app-159\"}[2m]))" 2>&1)
+
+  EXIT_CODE=$?
+
+  # First check if kubectl/curl command failed
+  if [ $EXIT_CODE -ne 0 ]; then
+    echo "ERROR: Failed to query Prometheus (kubectl/curl exit code: $EXIT_CODE)" >&2
+    echo "Output: $METRICS_OUTPUT" >&2
+    exit 1
+  fi
+
+  # Check if Prometheus returned a success status
+  if ! echo "$METRICS_OUTPUT" | grep -q '"status":"success"'; then
+    echo "ERROR: Prometheus query did not return success status" >&2
+    echo "Response: $METRICS_OUTPUT" >&2
+    exit 1
+  fi
+
+  # Finally check if we have actual metrics (non-empty result)
+  if echo "$METRICS_OUTPUT" | grep -q '"result":\[\]'; then
+    echo "ERROR: No CPU metrics found for app-159 within the expected window." >&2
+    echo "Prometheus query returned empty result set" >&2
+    exit 1
+  fi
+
+  echo "✓ CPU metrics are present for app-159"
+
+after_test: kubectl delete namespace app-159 --ignore-not-found=true

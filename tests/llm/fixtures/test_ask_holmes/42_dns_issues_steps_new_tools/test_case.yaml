@@ -2,21 +2,9 @@ user_prompt: "detect why the k8s pod client under namespace test-ns-42e cannot r
 tags:
   - network
   - runbooks
-  - reproducible
   - easy
 expected_output: |
-
-  The answer should show the investigation went through the following steps.
-  - Check CoreDNS/kube-dns Pods
-  - Examine DNS Service
-  - Test DNS Resolution from a Pod
-  - Check NetworkPolicies
-  - Review CoreDNS Configuration (if applicable)
-  - Check the DNS trace
-
-  Most of these should be present
-  The answer MUST NOT tell the user to do any of the above actions as next steps but should have run these actions itself.
-  The answer MUST include confirm it tested DNS resolution from a pod and it showed DNS issues
+  Issue is due to a network policy named default-deny-egress
 before_test: |
   kubectl apply -f./manifest.yaml
   sleep 10

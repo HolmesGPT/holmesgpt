@@ -1,0 +1,28 @@
+.md-banner {
+  background: #000;
+  color: white;
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 0.25rem 1rem;
+  position: relative;
+  z-index: 1000;
+  border: none;
+}
+
+.md-banner__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.md-banner a {
+  color: #00d4aa;
+  text-decoration: none;
+  font-weight: 500;
+  margin-left: 0.5rem;
+}
+
+.md-banner a:hover {
+  color: #00bfa5;
+  text-decoration: underline;
+}

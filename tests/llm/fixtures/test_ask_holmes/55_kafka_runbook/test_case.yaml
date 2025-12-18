@@ -3,7 +3,11 @@ tags:
   - logs
   - kafka
   - runbooks
-  - reproducible
+  - medium # gpt-4o does not get to the root cause which is slower consumer due to email processing.
+
+skip: true
+skip_reason: this hangs when the port-forward is not set up correctly
+
 expected_output: |
   `invoices-app` is slow to process messages because email sending is slow
 # Manual port-forward is required:
@@ -15,6 +19,3 @@ before_test: |
 after_test: kubectl delete -f ./app/kafka-manifest.yaml
 include_files:
   - kafka_lag_instructions.md
-evaluation:
-  # gpt-4o does not get to the root cause which is slower consumer due to email processing.
-  correctness: 0

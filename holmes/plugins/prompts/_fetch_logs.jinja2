@@ -1,11 +1,19 @@
 {%- set loki_ts = toolsets | selectattr("name", "equalto", "grafana/loki") | first -%}
-{%- set coralogix_ts = toolsets | selectattr("name", "equalto", "coralogix/logs") | first -%}
+{%- set coralogix_ts = toolsets | selectattr("name", "equalto", "coralogix") | first -%}
 {%- set k8s_base_ts = toolsets | selectattr("name", "equalto", "kubernetes/logs") | selectattr("fetch_pod_logs", "defined") | first -%}
 {%- set k8s_yaml_ts = toolsets | selectattr("name", "equalto", "kubernetes/logs") | rejectattr("fetch_pod_logs", "defined") | first -%}
 {%- set opensearch_ts = toolsets | selectattr("name", "equalto", "opensearch/logs") | first -%}
 {%- set datadog_ts = toolsets | selectattr("name", "equalto", "datadog/logs") | first -%}
+{%- set openshift_ts = toolsets | selectattr("name", "equalto", "openshift/logs") | first -%}
+{%- set bash_ts = toolsets | selectattr("name", "equalto", "bash") | first -%}
 
-# Logs
+## Logs
+
+* IMPORTANT: ALWAYS inform the user about what logs you fetched. For example: "Here are pod logs for ..."
+* IMPORTANT: If logs commands have limits mention them. For example: "Showing last 100 lines of logs:"
+* IMPORTANT: If a filter was used, mention the filter. For example: "Logs filtered for 'error':"
+* IMPORTANT: If a date range was used (even if just the default one and you didn't specify the parameter, mention the date range. For example: "Logs from last 1 hour..."
+
 {% if loki_ts and loki_ts.status == "enabled" -%}
 * For any logs, including for investigating kubernetes problems, use Loki
 * Use the tool fetch_loki_logs_for_resource to get the logs of any kubernetes pod or node
@@ -15,26 +23,62 @@
 * If you have an issue id or finding id, use `fetch_finding_by_id` as it contains time information about the issue (`starts_at`, `updated_at` and `ends_at`).
 ** Then, defaults to `start_timestamp=-300` (5 minutes before end_timestamp) and `end_timestamp=<issue start_at time>`.
 ** If there are too many logs, or not enough, narrow or widen the timestamps
-* If you are not provided with time information. Ignore start_timestamp and end_timestamp. Loki will default to the latest logs.
+* If you are not provided with time information. Ignore start_timestamp and end_timestamp.
 {%- elif coralogix_ts and coralogix_ts.status == "enabled" -%}
+### coralogix
+#### Coralogix Toolset
+Tools to search and fetch logs, traces, metrics, and other telemetry data from Coralogix.
 {% include '_default_log_prompt.jinja2' %}
 {%- elif k8s_base_ts and k8s_base_ts.status == "enabled" -%}
 {% include '_default_log_prompt.jinja2' %}
 {%- elif datadog_ts and datadog_ts.status == "enabled" -%}
-{% include '_default_log_prompt.jinja2' %}
+* If you are not sure what is the pod namespace, search for the logs only by pod name.
+### datadog/logs
+#### Datadog Logs Toolset
+Tools to search and fetch logs from Datadog.
+* Use the tool `fetch_pod_logs` to access an application's logs.
+* Do fetch application logs yourself and DO not ask users to do so
+* If you have an alert/monitor try to figure out the time it fired
+** Then, use `start_time=-300` (5 minutes before `end_time`) and `end_time=<time monitor started firing>`  when calling `fetch_pod_logs`.
+** If there are too many logs, or not enough, narrow or widen the timestamps
+* If the user did not explicitly ask about a given timeframe, ignore the `start_time` and `end_time` so it will use the default.
+* IMPORTANT: ALWAYS inform the user about the actual time period fetched (e.g., "Looking at logs from the last <X> days")
+* IMPORTANT: If a limit was applied, ALWAYS tell the user how many logs were shown vs total (e.g., "Showing latest <Y> of <Z> logs")
+* IMPORTANT: If any filters were applied, ALWAYS mention them explicitly
+{%- elif openshift_ts and openshift_ts.status == "enabled" -%}
+### openshift/logs
+#### OpenShift Logs Toolset
+Tools to search and fetch logs from OpenShift.
+* Use the tool `oc_logs` to access an application's logs.
+* Do fetch application logs yourself and DO not ask users to do so
+* If you have an alert/monitor try to figure out the time it fired
+** If there are too many logs, or not enough, narrow or widen the timestamps
+* IMPORTANT: ALWAYS inform the user about the actual time period fetched (e.g., "Looking at logs from the last <X> days")
+* IMPORTANT: If a limit was applied, ALWAYS tell the user how many logs were shown vs total (e.g., "Showing latest <Y> of <Z> logs")
+* IMPORTANT: If any filters were applied, ALWAYS mention them explicitly
 {%- elif k8s_yaml_ts and k8s_yaml_ts.status == "enabled" -%}
+### Logs from newrelic
+* you can fetch logs from newrelic if this is toolset is enabled
+### kubernetes/logs
+#### Kubernetes Logs Toolset
+Tools to search and fetch logs from Kubernetes.
 * if the user wants to find a specific term in a pod's logs, use kubectl_logs_grep
 * use both kubectl_previous_logs and kubectl_logs when reading logs. Treat the output of both as a single unified logs stream
 * if a pod has multiple containers, make sure you fetch the logs for either all or relevant containers using one of the containers log functions like kubectl_logs_all_containers, kubectl_logs_all_containers_grep or any other.
 * Check both kubectl_logs and kubectl_previous_logs because a pod restart mean kubectl_logs may not have relevant logs
 {%- elif opensearch_ts and opensearch_ts.status == "enabled" -%}
 {% include '_default_log_prompt.jinja2' %}
+{%- elif bash_ts and bash_ts.status == "enabled" -%}
+Use the tool `run_bash_command` to run `kubectl logs` commands and fetch any relevant pod logs.
+DO NOT use `--tail` or `| tail` when calling `kubectl logs` because you may miss critical information.
 {%- else -%}
 * You have not been given access to tools to fetch kubernetes logs for nodes, pods, services or apps. This is likely a misconfiguration.
 * If you need logs to answer questions or investigate issues, tell the user to configure the documentation and enable one of these toolsets:
 ** 'kubernetes/logs'
 ** 'grafana/loki'
 ** 'opensearch/logs'
-** 'coralogix/logs'
+** 'coralogix'
 ** 'datadog/logs'
+** 'openshift/logs'
+** 'newrelic'
 {%- endif -%}

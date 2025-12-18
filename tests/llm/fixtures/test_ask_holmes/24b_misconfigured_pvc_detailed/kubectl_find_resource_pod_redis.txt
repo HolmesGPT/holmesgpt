@@ -1,0 +1,3 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"redis"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep redis", "params": {"kind": "pod", "keyword": "redis"}}
+default              redis-747ffc844f-f9ghd                                   0/1     Pending                 0                 6m44s   <none>        <none>                           <none>           <none>            app=redis,pod-template-hash=747ffc844f

@@ -4,19 +4,22 @@ from typing import Any, Dict, Tuple, List
 from holmes.core.tools import (
     CallablePrerequisite,
     Tool,
+    ToolInvokeContext,
     ToolParameter,
     Toolset,
     ToolsetTag,
 )
 
 from pydantic import BaseModel, PrivateAttr
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from requests.auth import HTTPDigestAuth  # type: ignore
 import gzip
 import io
 from datetime import datetime, timedelta, timezone
 import os
 from collections import Counter
+
+from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class MongoDBConfig(BaseModel):
@@ -39,7 +42,6 @@ class MongoDBAtlasToolset(Toolset):
     def __init__(self):
         super().__init__(
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            experimental=True,
             tools=[
                 ReturnProjectAlerts(toolset=self),
                 ReturnProjectProcesses(toolset=self),
@@ -64,8 +66,8 @@ class MongoDBAtlasToolset(Toolset):
                 {"Accept": "application/vnd.atlas.2025-03-12+json"}
             )
             self._session.auth = HTTPDigestAuth(
-                self.config.get("public_key"),
-                self.config.get("private_key"),
+                self.config.get("public_key"),  # type: ignore
+                self.config.get("private_key"),  # type: ignore
             )
             return True, ""
         except Exception:
@@ -88,21 +90,22 @@ class MongoDBAtlasBaseTool(Tool):
         if response.ok:
             res = response.json()
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS
+                status=StructuredToolResultStatus.SUCCESS
                 if res.get(field, [])
-                else ToolResultStatus.NO_DATA,
+                else StructuredToolResultStatus.NO_DATA,
                 data=res,
                 params=params,
             )
         else:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Failed {self.name}.\n{response.text}",
                 return_code=response.status_code,
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params) -> str:
+        # Default implementation - will be overridden by subclasses
         return f"MongoDB {self.name} project {self.toolset.config.get('project_id')} {params}"
 
 
@@ -111,7 +114,11 @@ class ReturnProjectAlerts(MongoDBAtlasBaseTool):
     name: str = "atlas_return_project_alerts"
     description: str = "Returns all project alerts. These alerts apply to all components in one project. You receive an alert when a monitored component meets or exceeds a value you set."
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def get_parameterized_one_liner(self, params) -> str:
+        project_id = self.toolset.config.get("project_id", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Project Alerts ({project_id})"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             url = "https://cloud.mongodb.com/api/atlas/v2/groups/{project_id}/alerts".format(
                 project_id=self.toolset.config.get("project_id")
@@ -121,7 +128,7 @@ class ReturnProjectAlerts(MongoDBAtlasBaseTool):
         except Exception as e:
             logging.exception(self.get_parameterized_one_liner(params))
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 data=f"Exception {self.name}: {str(e)}",
                 params=params,
             )
@@ -132,7 +139,11 @@ class ReturnProjectProcesses(MongoDBAtlasBaseTool):
     name: str = "atlas_return_project_processes"
     description: str = "Returns details of all processes for the specified project. Useful for getting logs and data for specific project"
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def get_parameterized_one_liner(self, params) -> str:
+        project_id = self.toolset.config.get("project_id", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Project Processes ({project_id})"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             url = "https://cloud.mongodb.com/api/atlas/v2/groups/{project_id}/processes".format(
                 project_id=self.toolset.config.get("project_id")
@@ -142,7 +153,7 @@ class ReturnProjectProcesses(MongoDBAtlasBaseTool):
         except Exception as e:
             logging.exception(self.get_parameterized_one_liner(params))
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
                 params=params,
             )
@@ -161,7 +172,11 @@ class ReturnProjectSlowQueries(MongoDBAtlasBaseTool):
         ),
     }
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def get_parameterized_one_liner(self, params) -> str:
+        process_id = params.get("process_id", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Slow Queries ({process_id})"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             url = self.url.format(
                 project_id=self.toolset.config.get("project_id"),
@@ -172,7 +187,7 @@ class ReturnProjectSlowQueries(MongoDBAtlasBaseTool):
         except Exception as e:
             logging.exception(self.get_parameterized_one_liner(params))
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
                 params=params,
             )
@@ -184,7 +199,11 @@ class ReturnEventsFromProject(MongoDBAtlasBaseTool):
     description: str = "Returns all events occurrences for the specified project. Events identify significant database, security activities or status changes. can only query the last 4 hours."
     url: str = "https://cloud.mongodb.com/api/atlas/v2/groups/{projectId}/events"
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def get_parameterized_one_liner(self, params) -> str:
+        project_id = self.toolset.config.get("project_id", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Project Events ({project_id})"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         params.update({"itemsPerPage": 500})
         try:
             now_utc = datetime.now(timezone.utc)
@@ -203,14 +222,14 @@ class ReturnEventsFromProject(MongoDBAtlasBaseTool):
                 )
                 data = f"last 4 hours eventTypeName and # of occurrences list: {events_counter} \n to get more information about a given eventTypeName call atlas_return_events_type_from_project"
                 status = (
-                    ToolResultStatus.SUCCESS
+                    StructuredToolResultStatus.SUCCESS
                     if events_counter
-                    else ToolResultStatus.NO_DATA
+                    else StructuredToolResultStatus.NO_DATA
                 )
                 return StructuredToolResult(status=status, data=data, params=params)
             else:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error=f"Failed {self.name}. \n{response.text}",
                     return_code=response.status_code,
                     params=params,
@@ -218,7 +237,7 @@ class ReturnEventsFromProject(MongoDBAtlasBaseTool):
         except Exception as e:
             logging.exception(self.get_parameterized_one_liner(params))
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
                 params=params,
             )
@@ -237,7 +256,11 @@ class ReturnLogsForProcessInProject(MongoDBAtlasBaseTool):
         ),
     }
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def get_parameterized_one_liner(self, params) -> str:
+        hostname = params.get("hostName", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Host Logs ({hostname})"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
         try:
             url = self.url.format(
@@ -254,11 +277,13 @@ class ReturnLogsForProcessInProject(MongoDBAtlasBaseTool):
                 with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as gz:
                     text_data = gz.read().decode("utf-8")
                 return StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS, data=text_data, params=params
+                    status=StructuredToolResultStatus.SUCCESS,
+                    data=text_data,
+                    params=params,
                 )
             else:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error=f"Failed {self.name}. \n{response.text}",
                     return_code=response.status_code,
                     params=params,
@@ -266,7 +291,7 @@ class ReturnLogsForProcessInProject(MongoDBAtlasBaseTool):
         except Exception as e:
             logging.exception(self.get_parameterized_one_liner(params))
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
                 params=params,
             )
@@ -285,7 +310,11 @@ class ReturnEventTypeFromProject(MongoDBAtlasBaseTool):
         ),
     }
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def get_parameterized_one_liner(self, params) -> str:
+        event_type = params.get("eventType", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Event Details ({event_type})"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             url = self.url.format(projectId=self.toolset.config.get("project_id"))
 
@@ -301,7 +330,7 @@ class ReturnEventTypeFromProject(MongoDBAtlasBaseTool):
         except Exception as e:
             logging.exception(self.get_parameterized_one_liner(params))
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
                 params=params,
             )

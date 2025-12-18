@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl-deployment
+  namespace: app-23
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: curl-app
+  template:
+    metadata:
+      labels:
+        app: curl-app
+    spec:
+      containers:
+      - name: curl-container
+        image: curlimages/curl:7.78.0
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            while true; do
+              echo "Checking endpoint http://meme-service:5000...";
+              curl -s http://meme-service:5000 || echo "Failed to reach http://meme-service:5000";
+              sleep 30;
+            done;

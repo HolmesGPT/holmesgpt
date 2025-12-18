@@ -1,0 +1,4 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"pod","name":"frontend-service","namespace":"default"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl get --show-labels -o wide pod frontend-service -n default", "params": {"kind": "pod", "name": "frontend-service", "namespace": "default"}, "icon_url": null}
+NAME               READY   STATUS             RESTARTS       AGE   IP           NODE                                NOMINATED NODE   READINESS GATES   LABELS
+frontend-service   0/1     CrashLoopBackOff   9 (104s ago)   23m   10.244.1.0   aks-agentpool-29949785-vmss000001   <none>           <none>            <none>

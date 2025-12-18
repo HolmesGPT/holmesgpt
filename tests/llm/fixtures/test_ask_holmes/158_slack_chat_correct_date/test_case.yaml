@@ -1,0 +1,17 @@
+user_prompt:
+- "**@user_U02T52YMHH9** • 2025-09-08T11:32:33Z • (in thread)
+
+  <@U08QARDG9LZ>
+  Investigate this alert and when did it happen
+  **Do not return an investigation without any relevant times/dates. This investigation is a failure without any dates explicitly listed**
+  "
+
+expected_output:
+  - This must mention the date 2025-08-23
+tags:
+  - prometheus
+port_forwards:
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 10158
+    remote_port: 9090

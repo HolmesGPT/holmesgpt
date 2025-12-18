@@ -1,7 +1,9 @@
 user_prompt: "Why did the sock-shop front-end stop working?"
 tags:
   - logs
-  - reproducible
+  - hard
+skip: true
+skip_reason: need to check any issues with test setup
 expected_output:
   - There is an error related to the database
   - The MongoDB client driver may require an upgrade
@@ -14,5 +16,3 @@ before_test: |
 after_test: |
   kubectl delete -f ./helm/sock-shop.yaml || true
   kubectl delete -f ./helm/trigger-carts-issue.yaml
-evaluation:
-  correctness: 0

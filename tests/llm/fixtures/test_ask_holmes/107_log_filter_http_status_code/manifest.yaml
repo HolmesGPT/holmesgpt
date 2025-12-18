@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-server-app
+  namespace: app-107
+type: Opaque
+stringData:
+  app.py: |
+    import time
+    from datetime import datetime, timezone
+    import random
+
+    def log_api(timestamp, level, method, endpoint, status, response_time, message):
+        """Generate HTTP log entry"""
+        print(f"{timestamp} [{level}] \"{method} {endpoint} HTTP/1.1\" {status} {response_time}ms - {message}", flush=True)
+
+    def main():
+        # Simulate HTTP logs with 503 errors on specific endpoint
+        now = datetime.now(timezone.utc)
+
+        # Lots of successful requests to various endpoints
+        log_api(f"{now.isoformat()}.001Z", "INFO", "GET", "/api/users/123", "200", "45", "Success")
+        log_api(f"{now.isoformat()}.002Z", "INFO", "GET", "/api/products", "200", "78", "Success")
+        log_api(f"{now.isoformat()}.003Z", "INFO", "POST", "/api/orders", "201", "156", "Order created")
+        log_api(f"{now.isoformat()}.004Z", "INFO", "GET", "/api/inventory/check", "200", "23", "Success")
+
+        # First 503 on report generation
+        log_api(f"{now.isoformat()}.005Z", "ERROR", "POST", "/api/reports/generate", "503", "30001", "Service timeout after 30s")
+
+        # More successful requests
+        endpoints = ["/api/users", "/api/products", "/api/orders", "/api/inventory", "/api/auth/verify"]
+        for i in range(6, 21):
+            ep = endpoints[i % 5]
+            log_api(f"{now.isoformat()}.0{i:02d}Z", "INFO", "GET", ep, "200", f"{20 + i}", "Success")
+
+        # Another 503 on same endpoint
+        log_api(f"{now.isoformat()}.021Z", "ERROR", "POST", "/api/reports/generate", "503", "30002", "Gateway timeout - upstream service not responding")
+
+        # Mix of other status codes
+        log_api(f"{now.isoformat()}.022Z", "WARN", "GET", "/api/users/999", "404", "12", "User not found")
+        log_api(f"{now.isoformat()}.023Z", "INFO", "GET", "/api/health", "200", "5", "Healthy")
+        log_api(f"{now.isoformat()}.024Z", "WARN", "POST", "/api/auth/login", "401", "34", "Invalid credentials")
+
+        # More successful traffic
+        for i in range(25, 41):
+            log_api(f"{now.isoformat()}.0{i}Z", "INFO", "GET", f"/api/data/{i}", "200", f"{30 + i}", "Success")
+
+        # Pattern emerges - more 503s on report endpoint
+        log_api(f"{now.isoformat()}.041Z", "ERROR", "POST", "/api/reports/generate", "503", "30000", "Upstream timeout: report service overloaded")
+        log_api(f"{now.isoformat()}.042Z", "INFO", "GET", "/api/reports/list", "200", "67", "Success")  # GET works fine
+        log_api(f"{now.isoformat()}.043Z", "ERROR", "POST", "/api/reports/generate", "503", "30003", "Report generation timeout")
+
+        # Other errors to create noise
+        log_api(f"{now.isoformat()}.044Z", "ERROR", "GET", "/api/invalid", "404", "8", "Endpoint not found")
+        log_api(f"{now.isoformat()}.045Z", "WARN", "POST", "/api/users", "400", "15", "Invalid request body")
+
+        # More normal traffic
+        for i in range(46, 61):
+            log_api(f"{now.isoformat()}.0{i}Z", "INFO", "GET", f"/api/products/{i}", "200", f"{40 + (i % 50)}", "Success")
+
+        # Another 503 cluster
+        log_api(f"{now.isoformat()}.061Z", "ERROR", "POST", "/api/reports/generate", "503", "30001", "Report service timeout")
+        log_api(f"{now.isoformat()}.062Z", "ERROR", "POST", "/api/reports/generate", "503", "30000", "Gateway timeout")
+
+        # Summary logs
+        print(f"{now.isoformat()}.070Z [WARN] Report generation service experiencing high latency", flush=True)
+        print(f"{now.isoformat()}.071Z [ERROR] 6 requests to /api/reports/generate resulted in 503 errors in the last minute", flush=True)
+        print(f"{now.isoformat()}.072Z [INFO] All 503 errors timeout after exactly 30 seconds", flush=True)
+        print(f"{now.isoformat()}.073Z [INFO] Other endpoints operating normally with avg response time 45ms", flush=True)
+
+        # Keep pod running
+        while True:
+            time.sleep(3600)
+
+    if __name__ == "__main__":
+        main()
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server
+  namespace: app-107
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-server
+  template:
+    metadata:
+      labels:
+        app: api-server
+    spec:
+      containers:
+      - name: api-server
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        secret:
+          secretName: api-server-app
+          defaultMode: 0755

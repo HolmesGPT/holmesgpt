@@ -1,18 +1,21 @@
 toolsets:
   argocd/core:
     description: "Set of tools to get argocd metadata like list of apps, repositories, projects, etc."
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/argocd.html"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/"
     icon_url: "https://argo-cd.readthedocs.io/en/stable/assets/logo.png"
     llm_instructions: |
       You have access to a set of ArgoCD tools for debugging Kubernetes application deployments.
       If an application's name does not exist in kubernetes, it may exist in argocd: call the tool `argocd_app_list` to find it.
+      IMPORTANT: If you are asked about health issues, ALWAYS check if the argo cd apps are in a healthy state.
+      If some resource is out of sync, ALWAYS show the diff, using the argocd_app_diff tool, between the desired state and the current state.
       These tools help you investigate issues with GitOps-managed applications in your Kubernetes clusters.
-      ALWAYS follow these steps:
+      In addition to the general investigation steps, ALWAYS follow these steps as well:
         1. List the applications
         2. Retrieve the application status and its config
         3. Retrieve the application's manifests for issues
         4. Compare the ArgoCD config with the kubernetes status using kubectl tools
         5. Check for resources mismatch between argocd and kubernetes
+        6. If an application is OutOfSync, pull the diff using the argocd_app_diff tool
       {% if tool_names|list|length > 0 %}
       The following commands are available to introspect into ArgoCD: {{ ", ".join(tool_names) }}
       {% endif %}

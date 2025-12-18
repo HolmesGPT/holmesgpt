@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-orders-for-medium
+  namespace: app-22
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: customer-orders-for-medium
+  template:
+    metadata:
+      labels:
+        app: customer-orders-for-medium
+    spec:
+      containers:
+        - name: fastapi-app
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/devel/rds-demo:v1
+          ports:
+            - containerPort: 8000
+            - containerPort: 8001
+          env:
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets-for-medium
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets-for-medium
+                  key: password
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets-for-medium
+                  key: host
+            - name: DB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets-for-medium
+                  key: database
+        - name: curl-sidecar
+          image: curlimages/curl
+          args:
+            - /bin/sh
+            - -c
+            - while true; do curl -s http://localhost:8000; sleep 1; done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-orders-service-for-medium
+  namespace: app-22
+  labels:
+    app: customer-orders-for-medium
+spec:
+  selector:
+    app: customer-orders-for-medium
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+      name: http
+  type: ClusterIP

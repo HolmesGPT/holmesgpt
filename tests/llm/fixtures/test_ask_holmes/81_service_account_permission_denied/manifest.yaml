@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: namespace-81
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitoring-sa
+  namespace: namespace-81
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: monitoring-role
+  namespace: namespace-81
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+- apiGroups:
+  - ''
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-rolebinding
+  namespace: namespace-81
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: monitoring-role
+subjects:
+- kind: ServiceAccount
+  name: monitoring-sa
+  namespace: namespace-81
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-agent
+  namespace: namespace-81
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitoring-agent
+  template:
+    metadata:
+      labels:
+        app: monitoring-agent
+    spec:
+      serviceAccountName: monitoring-sa
+      containers:
+      - name: monitoring-agent
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        args:
+        - -c
+        - "while true; do\n  echo \"Attempting to list pods in namespace...\"\n  if\
+          \ kubectl get pods -n namespace-81; then\n    echo \"Success: Listed pods\"\
+          \n  else\n    echo \"ERROR: Permission denied - cannot list pods\"\n  fi\n\
+          \  sleep 30\ndone\n"
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 10m
+          limits:
+            memory: 64Mi

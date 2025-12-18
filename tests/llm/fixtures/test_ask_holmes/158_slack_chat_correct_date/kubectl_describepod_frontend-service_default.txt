@@ -1,0 +1,72 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"pod","name":"frontend-service","namespace":"default"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl describe pod frontend-service -n default", "params": {"kind": "pod", "name": "frontend-service", "namespace": "default"}, "icon_url": null}
+Name:             frontend-service
+Namespace:        default
+Priority:         0
+Service Account:  default
+Node:             aks-agentpool-29949785-vmss000001/10.224.0.5
+Start Time:       Mon, 23 Aug 2025 15:02:32 +0300
+Labels:           <none>
+Annotations:      <none>
+Status:           Running
+IP:               10.244.1.0
+IPs:
+  IP:  10.244.1.0
+Containers:
+  stress:
+    Container ID:  containerd://286072467f3e5ad881fadf39700064eeba6ffec869d1881c314efeabef0d2293
+    Image:         jfusterm/stress
+    Image ID:      sha256:95c477f06eefebe5ab343ce1b2dc80313dc79559067304f72b10a5a82bfb9179
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      stress
+      --cpu
+      100
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    255
+      Started:      Mon, 23 Aug 2025 15:02:32 +0300
+      Finished:     Mon, 23 Aug 2025 15:02:32 +0300
+    Ready:          False
+    Restart Count:  7
+    Limits:
+      cpu:     10m
+      memory:  64Mi
+    Requests:
+      cpu:        10m
+      memory:     64Mi
+    Environment:  <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-5f9lc (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True
+  Initialized                 True
+  Ready                       False
+  ContainersReady             False
+  PodScheduled                True
+Volumes:
+  kube-api-access-5f9lc:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   Guaranteed
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/memory-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type     Reason     Age                   From               Message
+  ----     ------     ----                  ----               -------
+  Normal   Scheduled  13m                   default-scheduler  Successfully assigned default/frontend-service to aks-agentpool-29949785-vmss000001
+  Normal   Pulling    13m                   kubelet            Pulling image "jfusterm/stress"
+  Normal   Pulled     13m                   kubelet            Successfully pulled image "jfusterm/stress" in 2.901s (2.901s including waiting). Image size: 2355194 bytes.
+  Warning  BackOff    3m30s (x49 over 13m)  kubelet            Back-off restarting failed container stress in pod frontend-service_default(d5d64096-dfff-4596-a955-e3e4a1bc6a1d)
+  Normal   Created    2m34s (x8 over 13m)   kubelet            Created container: stress
+  Normal   Pulled     2m34s (x7 over 13m)   kubelet            Container image "jfusterm/stress" already present on machine
+  Normal   Started    2m33s (x8 over 13m)   kubelet            Started container stress

@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-limiter
+  namespace: namespace-69
+  labels:
+    app: api-limiter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-limiter
+  template:
+    metadata:
+      labels:
+        app: api-limiter
+    spec:
+      containers:
+      - name: api-limiter
+        image: python:3.9-slim
+        command: ["python"]
+        args: ["/scripts/generate_logs.py"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+      volumes:
+      - name: script-volume
+        secret:
+          secretName: api-limiter-logs-script
+          defaultMode: 0755
+      restartPolicy: Always

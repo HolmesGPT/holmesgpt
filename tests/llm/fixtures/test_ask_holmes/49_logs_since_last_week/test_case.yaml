@@ -4,7 +4,6 @@ user_prompt: "Show me the logs for the pod `robusta-holmes` since last week"
 tags:
   - logs
   - datetime
-  - synthetic
 expected_output:
   - 2025-06-12 The database at my.postgresql.com has become unavailable
   - 2025-06-13 The application temporarily suffered from memory pressure
@@ -15,3 +14,5 @@ expected_output:
 evaluation:
   # Sometimes Holmes fetches logs without specifying start time
   correctness: 0
+
+mock_policy: always_mock

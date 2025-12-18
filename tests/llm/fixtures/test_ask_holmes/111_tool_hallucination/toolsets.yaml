@@ -1,0 +1,41 @@
+toolsets:
+  kubernetes/core:
+    enabled: False
+  kubernetes/logs:
+    enabled: True
+  prometheus/metrics:
+    enabled: False
+  kubernetes/kube-lineage-extras:
+    enabled: False
+  aws/rds:
+    enabled: False
+  bash:
+    enabled: False
+  argocd/core:
+    enabled: False
+  aks/node-health:
+    enabled: False
+  confluence:
+    enabled: False
+  docker/core:
+    enabled: False
+  aws/security:
+    enabled: False
+  aks/core:
+    enabled: False
+  slab:
+    enabled: False
+  kubernetes/live-metrics:
+    enabled: False
+  kubernetes/kube-prometheus-stack:
+    enabled: False
+  kubernetes/krew-extras:
+    enabled: False
+  helm/core:
+    enabled: False
+  internet:
+    enabled: False
+  robusta:
+    enabled: False
+  runbook:
+    enabled: False

@@ -1,0 +1,71 @@
+user_prompt: "I got an alert about topic messages in Kafka in namespace app-156 having lags. Why?"
+setup_timeout: 420
+description: |
+  Test case demonstrating a chain of causation for Kafka latency:
+  1. Order service produces messages to Kafka topic
+  2. Analytics service consumes messages and writes them to OpenSearch
+  3. OpenSearch has aggressive index optimization enabled with background threads continuously optimizing indices
+  4. These optimization operations consume excessive CPU, making OpenSearch writes slow
+  5. Slow writes cause the analytics service to lag behind in consuming messages
+  6. This consumer lag manifests as Kafka high latency alerts
+tags:
+  - kafka
+  - chain-of-causation
+  - hard
+  - logs
+
+skip: true
+skip_reason: problems with test setup - needs fixing
+
+expected_output:
+- The Kafka high latency is caused by lag in the analytics-service consumer group.
+- The analytics service is slow because it's writing messages to OpenSearch
+- OpenSearch high CPU usage, causing writes to be extremely slow.
+- The output should specifically mention the high CPU on Opensearch to be a major issue.
+
+before_test: |
+  # Stage 1: Deploy namespace, ZooKeeper, and OpenSearch
+  kubectl apply -f ./app/stage1-base.yaml
+
+  # Stage 2: Deploy Kafka (depends on ZooKeeper)
+  kubectl apply -f ./app/stage2-kafka.yaml
+
+  # Stage 3: Deploy consumer (depends on Kafka and OpenSearch)
+  kubectl apply -f ./app/stage3-consumer.yaml
+
+  # Wait for deployments to be created before waiting for pods
+  sleep 5
+
+  # Wait for pods to exist (not necessarily ready)
+  echo "Waiting for pods to be scheduled..."
+  for i in {1..30}; do
+    POD_COUNT=$(kubectl get pods -n app-156 --no-headers 2>/dev/null | wc -l)
+    if [ "$POD_COUNT" -ge 4 ]; then
+      echo "Found $POD_COUNT pods, continuing..."
+      break
+    fi
+    echo "Waiting for pods to be created... ($i/30)"
+    sleep 2
+  done
+
+  # Wait for all pods in parallel (faster than sequential)
+  echo "Waiting for all pods to be ready..."
+  kubectl wait --for=condition=ready pod -l app=zookeeper -n app-156 --timeout=180s &
+  kubectl wait --for=condition=ready pod -l app=opensearch -n app-156 --timeout=180s &
+  kubectl wait --for=condition=ready pod -l app=kafka -n app-156 --timeout=180s &
+  kubectl wait --for=condition=ready pod -l app=analytics-service -n app-156 --timeout=180s &
+  wait
+
+  # deploying producer later so no lag will build up
+  # Stage 4: Deploy producer (depends only on Kafka)
+  kubectl apply -f ./app/stage4-producer.yaml
+  kubectl wait --for=condition=ready pod -l app=order-service -n app-156 --timeout=120s
+
+  # Verify setup (includes waiting for lag to build up)
+  ./verify_setup.sh
+
+after_test: |
+  kubectl delete -f ./app/stage4-producer.yaml || true
+  kubectl delete -f ./app/stage3-consumer.yaml || true
+  kubectl delete -f ./app/stage2-kafka.yaml || true
+  kubectl delete -f ./app/stage1-base.yaml || true

@@ -1,0 +1,411 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: service-code-secret
+  namespace: nr
+stringData:
+  telemetry.py: |
+    import os, time, socket, logging, requests
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+    from opentelemetry.trace import get_current_span, Status, StatusCode
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
+    def _current_ids_hex():
+      span = get_current_span()
+      ctx = getattr(span, "get_span_context", lambda: None)()
+      if ctx and getattr(ctx, "is_valid", False):
+        return f"{ctx.trace_id:032x}", f"{ctx.span_id:016x}"
+      return None, None
+
+    class NewRelicLogHandler(logging.Handler):
+      def __init__(self, license_key: str, service_name: str, app_name: str):
+        super().__init__()
+        self.license_key = license_key
+        self.service_name = service_name
+        self.app_name = app_name
+        self.log_endpoint = "https://log-api.newrelic.com/log/v1"
+
+      def emit(self, record):
+        log_entry = self.format(record)
+        try:
+          trace_id, span_id = _current_ids_hex()
+          attrs = {
+            "service.name": self.service_name,
+            "app": self.app_name,
+          }
+          ns = os.getenv("KUBERNETES_NAMESPACE")
+          pod = os.getenv("POD_NAME")
+          container = os.getenv("CONTAINER_NAME")
+          if ns: attrs["k8s.namespace.name"] = ns
+          if pod: attrs["k8s.pod.name"] = pod
+          if container: attrs["k8s.container.name"] = container
+          if trace_id and span_id:
+            attrs["trace.id"] = trace_id
+            attrs["span.id"] = span_id
+
+          payload = [{
+            "common": {"attributes": attrs},
+            "logs": [{
+              "timestamp": int(time.time() * 1000),
+              "message": log_entry,
+              "level": record.levelname
+            }]
+          }]
+          headers = {
+            "Content-Type": "application/json",
+            "X-License-Key": self.license_key
+          }
+          resp = requests.post(self.log_endpoint, json=payload, headers=headers, timeout=5)
+          resp.raise_for_status()
+        except Exception as e:
+          # Last resort: don't raise from logging
+          print(f"Failed to send log to New Relic: {e}")
+
+    def setup_telemetry(default_service_name: str, default_app_name: str):
+      license_key = os.getenv("NEW_RELIC_LICENSE_KEY", "undefined")
+      service_name = os.getenv("OTEL_SERVICE_NAME", default_service_name)
+      app_name = os.getenv("APP_NAME", default_app_name)
+      service_version = os.getenv("SERVICE_VERSION", "0.0.1")
+      deploy_env = os.getenv("DEPLOYMENT_ENV", "dev")
+      instance_id = os.getenv("POD_NAME", socket.gethostname())
+      ns = os.getenv("KUBERNETES_NAMESPACE", "nr")
+      container = os.getenv("CONTAINER_NAME", "")
+
+      resource = Resource.create({
+        "service.name": service_name,
+        "service.version": service_version,
+        "deployment.environment": deploy_env,
+        "service.instance.id": instance_id,
+        "k8s.namespace.name": ns,
+        "k8s.pod.name": instance_id,
+        "k8s.container.name": container,
+        "app": app_name
+      })
+
+      sample_ratio = float(os.getenv("TRACE_SAMPLE_RATIO", "1.0"))
+      provider = TracerProvider(
+        resource=resource,
+        sampler=ParentBased(TraceIdRatioBased(sample_ratio))
+      )
+      exporter = OTLPSpanExporter(
+        endpoint="https://otlp.nr-data.net:4317",
+        headers={"api-key": license_key}
+      )
+      provider.add_span_processor(BatchSpanProcessor(exporter))
+      trace.set_tracer_provider(provider)
+      tracer = trace.get_tracer(__name__)
+
+      # Auto-instrument outbound HTTP
+      RequestsInstrumentor().instrument()
+
+      # Configure logging with correlation
+      logger = logging.getLogger(app_name)
+      logger.setLevel(logging.INFO)
+      nrh = NewRelicLogHandler(license_key, service_name, app_name)
+      nrh.setLevel(logging.INFO)
+      logger.addHandler(nrh)
+
+      return tracer, logger
+
+    def record_exception_on_current_span(exc: Exception):
+      span = get_current_span()
+      try:
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+      except Exception:
+        # Don't let telemetry errors break the app
+        pass
+
+  payment_processor.py: |
+    import time, requests
+    from telemetry import setup_telemetry, record_exception_on_current_span
+
+    tracer, logger = setup_telemetry("payment-processor-atc", "payment-processor-service")
+    ORDER_URL = "http://order-management-service.nr.svc.cluster.local:5000/orders"
+
+    def handle_transaction():
+      with tracer.start_as_current_span("payments_cycle"):
+        logger.info("Processing payment...")
+        time.sleep(1)
+        try:
+          resp = requests.post(ORDER_URL, json={"order_id": 123}, timeout=5)
+          logger.info(f"Order Management responded: {resp.status_code} {resp.text}")
+        except Exception as e:
+          record_exception_on_current_span(e)
+          logger.exception("Error sending request to Order Management", exc_info=e)
+
+    if __name__ == "__main__":
+      while True:
+        handle_transaction()
+        time.sleep(10)
+
+  order_management.py: |
+    import time, random, requests
+    from flask import Flask, request, jsonify
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    from telemetry import setup_telemetry, record_exception_on_current_span
+    from opentelemetry import trace
+
+    tracer, logger = setup_telemetry("order-management-atc", "order-management-service")
+    app = Flask(__name__)
+    FlaskInstrumentor().instrument_app(app)
+    TM_URL = "http://transaction-monitoring-service.nr.svc.cluster.local:5000/monitor"
+
+    @app.route("/orders", methods=["POST"])
+    def manage_order():
+      # SERVER span is current; create a child span for business logic
+      with tracer.start_as_current_span("order_business"):
+        try:
+          data = request.get_json(silent=True) or {}
+          order_id = data.get("order_id", "unknown")
+          trace.get_current_span().add_event("order_received", {"order_id": str(order_id)})
+
+          wait_time = random.uniform(1, 5)
+          trace.get_current_span().add_event("rate_limit", {"wait_ms": int(wait_time * 1000)})
+          logger.warning(f"API rate limit reached for MailChimp integration. Waiting {wait_time:.2f}s before retry.")
+          time.sleep(wait_time)
+
+          resp = requests.post(TM_URL, json={"transaction_id": order_id}, timeout=5)
+          logger.info(f"Transaction Monitoring responded: {resp.status_code} {resp.text}")
+          return jsonify({"status": "success", "message": "Order processed"}), 200
+        except Exception as e:
+          record_exception_on_current_span(e)
+          logger.exception("Error processing order", exc_info=e)
+          return jsonify({"status": "error", "message": str(e)}), 500
+
+    if __name__ == "__main__":
+      app.run(host="0.0.0.0", port=5000)
+
+  transaction_monitoring.py: |
+    from flask import Flask, request, jsonify
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    from telemetry import setup_telemetry, record_exception_on_current_span
+    from opentelemetry import trace
+
+    tracer, logger = setup_telemetry("transaction-monitoring-atc", "transaction-monitoring-service")
+    app = Flask(__name__)
+    FlaskInstrumentor().instrument_app(app)
+
+    @app.route("/monitor", methods=["POST"])
+    def monitor_transaction():
+      # SERVER span is current; create a child span for business logic
+      with tracer.start_as_current_span("tm_business"):
+        try:
+          payload = request.get_json(silent=True) or {}
+          trace.get_current_span().add_event("monitoring_started", payload)
+          logger.info(f"Monitoring transaction: {payload}")
+          return jsonify({"status": "success", "message": "Transaction monitored"}), 200
+        except Exception as e:
+          record_exception_on_current_span(e)
+          logger.exception("Error monitoring transaction", exc_info=e)
+          return jsonify({"status": "error", "message": str(e)}), 500
+
+    if __name__ == "__main__":
+      app.run(host="0.0.0.0", port=5000)
+
+  requirements.txt: |
+    opentelemetry-sdk>=1.16,<2.0
+    opentelemetry-exporter-otlp>=1.16,<2.0
+    opentelemetry-instrumentation-flask>=0.36b0,<0.42
+    opentelemetry-instrumentation-requests>=0.36b0,<0.42
+    opentelemetry-instrumentation-logging>=0.36b0,<0.42
+    opentelemetry-semantic-conventions>=0.36b0,<0.42
+    requests>=2.24,<3.0
+    Flask>=2.2,<3.0
+
+
+  requirements.txt: |
+      opentelemetry-sdk>=1.16,<2.0          # Compatible with instrumentation libraries
+      opentelemetry-instrumentation-requests>=0.36b0,<0.42
+      opentelemetry-instrumentation-logging>=0.36b0,<0.42
+      opentelemetry-exporter-otlp>=1.16,<2.0  # Works with the OpenTelemetry SDK
+      opentelemetry-instrumentation-flask>=0.36b0,<0.42  # Stable for Flask tracing
+      opentelemetry-semantic-conventions>=0.36b0,<0.42  # Matches other OpenTelemetry libraries
+      requests>=2.24,<3.0                   # Flexible within the 2.x range
+      Flask>=2.2,<3.0                       # Modern Flask versions
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-processor-service
+  namespace: nr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-processor-service
+  template:
+    metadata:
+      labels:
+        app: payment-processor-service
+    spec:
+      containers:
+        - name: payment-processor
+          image: python:3.10
+          command: ["/bin/bash", "-c", "pip install -r /app/requirements.txt && python /app/payment_processor.py"]
+          volumeMounts:
+            - name: service-code
+              mountPath: /app
+          env:
+            - name: NEW_RELIC_LICENSE_KEY
+              valueFrom: { secretKeyRef: { name: newrelickey, key: key } }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: KUBERNETES_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: OTEL_SERVICE_NAME   # e.g., payment-processor-atc / order-management-atc / transaction-monitoring-atc
+              value: payment-processor-atc
+            - name: APP_NAME            # e.g., payment-processor-service / order-management-service / transaction-monitoring-service
+              value: payment-processor-service
+            - name: CONTAINER_NAME
+              value: payment-processor
+            - name: SERVICE_VERSION
+              value: "1.0.0"
+            - name: DEPLOYMENT_ENV
+              value: "dev"
+            - name: TRACE_SAMPLE_RATIO
+              value: "1.0"
+      volumes:
+        - name: service-code
+          secret:
+            secretName: service-code-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-management-service
+  namespace: nr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-management-service
+  template:
+    metadata:
+      labels:
+        app: order-management-service
+    spec:
+      containers:
+        - name: order-management
+          image: python:3.10
+          command: ["/bin/bash", "-c", "pip install -r /app/requirements.txt && python /app/order_management.py"]
+          env:
+            - name: NEW_RELIC_LICENSE_KEY
+              valueFrom: { secretKeyRef: { name: newrelickey, key: key } }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: KUBERNETES_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: OTEL_SERVICE_NAME
+              value: order-management-atc
+            - name: APP_NAME
+              value: order-management-service
+            - name: CONTAINER_NAME
+              value: payment-processor
+            - name: SERVICE_VERSION
+              value: "1.0.0"
+            - name: DEPLOYMENT_ENV
+              value: "dev"
+            - name: TRACE_SAMPLE_RATIO
+              value: "1.0"
+          volumeMounts:
+            - name: service-code
+              mountPath: /app
+      volumes:
+        - name: service-code
+          secret:
+            secretName: service-code-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-monitoring-service
+  namespace: nr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-monitoring-service
+  template:
+    metadata:
+      labels:
+        app: transaction-monitoring-service
+    spec:
+      containers:
+        - name: transaction-monitoring
+          image: python:3.10
+          command: ["/bin/bash", "-c", "pip install -r /app/requirements.txt && python /app/transaction_monitoring.py"]
+          env:
+            - name: NEW_RELIC_LICENSE_KEY
+              valueFrom: { secretKeyRef: { name: newrelickey, key: key } }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: KUBERNETES_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: OTEL_SERVICE_NAME
+              value: transaction-monitoring-atc
+            - name: APP_NAME
+              value: transaction-monitoring-service
+            - name: CONTAINER_NAME
+              value: payment-processor
+            - name: SERVICE_VERSION
+              value: "1.0.0"
+            - name: DEPLOYMENT_ENV
+              value: "dev"
+            - name: TRACE_SAMPLE_RATIO
+              value: "1.0"
+
+          volumeMounts:
+            - name: service-code
+              mountPath: /app
+      volumes:
+        - name: service-code
+          secret:
+            secretName: service-code-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-processor-service
+  namespace: nr
+spec:
+  selector:
+    app: payment-processor-service
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-management-service
+  namespace: nr
+spec:
+  selector:
+    app: order-management-service
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-monitoring-service
+  namespace: nr
+spec:
+  selector:
+    app: transaction-monitoring-service
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000

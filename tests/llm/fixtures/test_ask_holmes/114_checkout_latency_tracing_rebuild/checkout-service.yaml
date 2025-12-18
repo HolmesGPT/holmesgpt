@@ -1,0 +1,190 @@
+  # Simplified Checkout Service with Dummy SQL
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: checkout-app
+  type: Opaque
+  stringData:
+    app.py: |
+      import os
+      import time
+      import random
+      from flask import Flask, request, jsonify
+      from opentelemetry import trace
+      from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+      from opentelemetry.sdk.trace import TracerProvider
+      from opentelemetry.sdk.trace.export import BatchSpanProcessor
+      from opentelemetry.sdk.resources import Resource
+      from opentelemetry.instrumentation.flask import FlaskInstrumentor
+
+      # Configure OpenTelemetry
+      # Build resource attributes including K8s metadata from environment
+      resource_attributes = {
+          "service.name": "checkout-service",
+          "k8s.namespace.name": os.environ.get("K8S_NAMESPACE", "unknown"),
+          "k8s.deployment.name": "checkout",
+          "k8s.pod.name": os.environ.get("K8S_POD_NAME", "unknown"),
+          "k8s.node.name": os.environ.get("K8S_NODE_NAME", "unknown"),
+          "k8s.container.name": "checkout"
+      }
+      resource = Resource.create(resource_attributes)
+      provider = TracerProvider(resource=resource)
+      trace.set_tracer_provider(provider)
+
+      otlp_exporter = OTLPSpanExporter(
+          endpoint="tempo.app-114.svc.cluster.local:4317",
+          insecure=True
+      )
+      provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+
+      app = Flask(__name__)
+      FlaskInstrumentor().instrument_app(app)
+
+      tracer = trace.get_tracer(__name__)
+
+      @app.route('/health')
+      def health():
+          return 'OK'
+
+      @app.route('/checkout', methods=['POST'])
+      def checkout():
+          with tracer.start_as_current_span("process_checkout") as span:
+              data = request.json or {}
+
+              # Log the incoming request (without revealing the data)
+              print(f"[CHECKOUT] Processing checkout request for user {data.get('user_id', 'guest')}", flush=True)
+
+              # Extract parameters
+              user_id = data.get('user_id', 'guest')
+              zone_id = data.get('zone_id', 'us-west-1')
+              promo_code = data.get('promo_code')
+              items = data.get('items', [])
+
+              # Add span attributes
+              span.set_attribute("user.id", user_id)
+              span.set_attribute("zone.id", zone_id)
+              span.set_attribute("items.count", len(items))
+              if promo_code:
+                  span.set_attribute("promo.code", promo_code)
+
+              # Simulate database query for shipping calculation
+              with tracer.start_as_current_span("database_query") as db_span:
+                  db_span.set_attribute("db.system", "postgresql")
+                  db_span.set_attribute("db.operation", "SELECT")
+
+                  if promo_code:
+                      # Simulate slow query with promo_code
+                      query = "SELECT rate_per_kg, discount_percent FROM shipping_rates WHERE zone_id = ? AND promo_code = ? AND active = true"
+                      db_span.set_attribute("db.statement", query)
+                      # print(f"[DB] Executing shipping rate query", flush=True)
+                      sleep_time = random.uniform(1.5, 3.5)
+                      time.sleep(sleep_time) # Simulate slow query
+                      shipping_rate = 4.5
+                      discount = 15.0
+                  else:
+                      # Simulate fast query without promo_code
+                      query = "SELECT rate_per_kg, discount_percent FROM shipping_rates WHERE zone_id = ? AND active = true"
+                      db_span.set_attribute("db.statement", query)
+                      # print(f"[DB] Executing shipping rate query", flush=True)
+                      sleep_time = random.uniform(0.1, 0.2)
+                      time.sleep(sleep_time) # Simulate fast query
+                      shipping_rate = 5.0
+                      discount = 0.0
+
+                  # Calculate shipping cost
+                  total_weight = sum(item.get('weight', 1.0) for item in items)
+                  shipping_cost = total_weight * shipping_rate * (1 - discount/100)
+
+              # Calculate total
+              subtotal = sum(item.get('price', 0) for item in items)
+              total = subtotal + shipping_cost
+
+              response = {
+                  "order_id": f"ord-{random.randint(1000, 9999)}",
+                  "subtotal": subtotal,
+                  "shipping": round(shipping_cost, 2),
+                  "total": round(total, 2)
+              }
+
+              print(f"[CHECKOUT] Completed checkout request", flush=True)
+              return jsonify(response)
+
+      if __name__ == '__main__':
+          print("[CHECKOUT] Starting checkout service on port 8080", flush=True)
+          app.run(host='0.0.0.0', port=8080)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+      - name: checkout
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/app.py"]
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          capabilities:
+            add:
+            - SYS_PTRACE
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 60
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: app
+        secret:
+          secretName: checkout-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+spec:
+  selector:
+    app: checkout
+  ports:
+  - port: 8080
+    targetPort: 8080

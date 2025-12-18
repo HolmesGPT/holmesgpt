@@ -1,0 +1,17 @@
+user_prompt: "@holmes what’s wrong with the pod customer-relations-webapp on robusta-prod"
+cluster_name: robusta-prod
+tags:
+  - logs
+before_test: |
+  kubectl create namespace app-57 || true
+  kubectl apply -f manifest.yaml -n app-57
+  sleep 20
+after_test: |
+  kubectl delete -f manifest.yaml -n app-57
+  kubectl delete namespace app-57 || true
+expected_output: "failure to pull image `yourcompany/crw:latest`"
+evaluation:
+  correctness: 1
+generate_mocks: False
+
+test_type: server

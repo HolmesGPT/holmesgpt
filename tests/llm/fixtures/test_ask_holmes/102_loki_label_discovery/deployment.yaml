@@ -1,0 +1,109 @@
+# Promtail ConfigMap with pod_name label (test-specific to demonstrate label mismatch)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+data:
+  promtail-config.yaml: |
+    server:
+      http_listen_port: 9080
+    positions:
+      filename: /tmp/positions.yaml
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    scrape_configs:
+      - job_name: inventory
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: inventory-service
+              namespace: app-102
+              __path__: /var/log/*.log
+        pipeline_stages:
+          - json:
+              expressions:
+                timestamp: timestamp
+                level: level
+                message: message
+                service: service
+                pod_name: pod  # Note: using pod_name instead of pod
+          - timestamp:
+              source: timestamp
+              format: RFC3339
+          - labels:
+              level:
+              service:
+              pod_name:  # This creates the pod_name label
+---
+# Inventory Service deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-service
+  template:
+    metadata:
+      labels:
+        app: inventory-service
+    spec:
+      containers:
+      - name: inventory-service
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: app-script
+          mountPath: /app
+        - name: logs
+          mountPath: /var/log
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      # Promtail sidecar
+      - name: promtail
+        image: grafana/promtail:2.9.0
+        args:
+        - -config.file=/etc/promtail/promtail-config.yaml
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: promtail-config
+          mountPath: /etc/promtail
+        - name: logs
+          mountPath: /var/log
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+      volumes:
+      - name: app-script
+        secret:
+          secretName: inventory-service-script
+          defaultMode: 0755
+      - name: logs
+        emptyDir: {}
+      - name: promtail-config
+        configMap:
+          name: promtail-config

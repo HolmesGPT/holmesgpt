@@ -1,0 +1,28 @@
+before_test: |
+  # Send CPU and memory metrics to Datadog for a specific robusta-runner mentioned in conversation history
+  bash ../../shared/send_datadog_metrics.sh default robusta-runner-78599b764d-f847h robusta-runner
+
+user_prompt:
+  - "Can you show this as a graph?"
+  - "Could you visualize this data in a chart?"
+  - "Please generate a graph for these metrics"
+  - "Can you plot this information?"
+  - "Show me a visual representation of this data"
+  - "Could you create a chart from these metrics?"
+  - "Please display this as a time-series graph"
+  - "Can you turn this into a visualization?"
+  - "Graph these metrics for me"
+  - "Could you show this data visually?"
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - datadog
+  - embeds
+
+test_type: server

@@ -17,6 +17,3 @@ after_test: |
   kubectl delete namespace rabbitmq
 evaluation:
   correctness: 1
-
-tags:
-  - reproducible

@@ -1,0 +1,17 @@
+tags:
+  - compaction
+  - easy
+
+expected_output: |
+  The conversation history has been successfully compacted. The summary captures:
+  - The primary request to help debug a CrashLoopBackOff issue in a pod
+  - Key technical concepts including Kubernetes deployments, pod lifecycle, and container failures
+  - Resources examined (pod logs, events, and deployment specifications)
+  - Tool calls executed to gather diagnostic information
+  - Problem solving approaches taken to identify the root cause
+  - Current work focused on analyzing container exit codes and restart patterns
+
+description: |
+  Test basic conversation history compaction functionality with a simple debugging scenario.
+  This verifies that the LLM can create a concise, accurate summary of a multi-turn conversation
+  about troubleshooting a Kubernetes pod issue.

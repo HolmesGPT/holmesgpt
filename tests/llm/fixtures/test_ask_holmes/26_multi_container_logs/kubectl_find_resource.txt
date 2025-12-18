@@ -1,3 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "customer-orders-67889fd856-k94k7"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "customer-orders-67889fd856-k94k7"}}
-default              customer-orders-67889fd856-k94k7                          1/1     Running     0              16m   10.244.0.11   kind-control-plane   <none>           <none>            app=robusta-runner,pod-template-hash=746d848db9,robustaComponent=runner

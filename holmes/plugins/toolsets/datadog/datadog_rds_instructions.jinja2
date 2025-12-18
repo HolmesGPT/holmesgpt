@@ -1,0 +1,82 @@
+## Datadog RDS Performance Analysis Instructions
+
+You have access to tools for analyzing RDS database performance and identifying problematic instances using Datadog metrics.
+
+### Available Tools:
+
+1. **datadog_rds_performance_report** - Generate comprehensive performance report for a specific RDS instance
+   - Analyzes latency, resource utilization, and storage metrics
+   - Identifies performance issues and bottlenecks
+   - Provides actionable recommendations
+   - Returns formatted report with executive summary
+
+2. **datadog_rds_top_worst_performing** - Get summary of worst performing RDS instances
+   - Analyzes all RDS instances in the environment
+   - Ranks by latency, CPU, or composite performance score
+   - Shows top N worst performers with their key metrics
+   - Helps prioritize optimization efforts
+
+### Usage Guidelines:
+
+**For investigating a specific RDS instance:**
+```
+Use datadog_rds_performance_report with:
+- db_instance_identifier: "instance-name"
+- start_time: "-3600" (last hour)
+```
+
+**For finding problematic instances across the fleet:**
+```
+Use datadog_rds_top_worst_performing with:
+- top_n: 10 (show top 10 worst)
+- sort_by: "latency" (or "cpu", "composite")
+- start_time: "-3600"
+```
+
+### Key Performance Thresholds:
+
+The tools automatically flag issues based on these thresholds:
+- **Latency**: >10ms average (warning), >50ms peak (critical)
+- **CPU**: >70% average (warning), >90% peak (critical)
+- **Memory**: <100MB freeable memory (warning)
+- **Burst Balance**: <30% (warning, indicates I/O constraints)
+- **Disk Queue Depth**: >5 average (indicates I/O bottleneck)
+
+### Common Scenarios:
+
+1. **Application experiencing slow database queries:**
+   - Generate performance report for the specific RDS instance
+   - Look for latency spikes and resource constraints
+   - Follow recommendations for optimization
+
+2. **Proactive performance monitoring:**
+   - Use top worst performing to identify problem instances
+   - Generate detailed reports for the worst performers
+   - Plan capacity upgrades based on findings
+
+3. **Capacity planning:**
+   - Analyze resource utilization trends
+   - Identify instances approaching limits
+   - Plan upgrades before performance degradation
+
+### Interpreting Results:
+
+**Performance Report Sections:**
+- **Executive Summary**: High-level assessment and severity
+- **Metrics Tables**: Statistical analysis of each metric
+- **Issues**: Specific problems detected with thresholds exceeded
+- **Recommendations**: Prioritized actions to resolve issues
+
+**Top Worst Performing Report:**
+- **Rankings**: Instances sorted by selected metric
+- **Key Metrics**: Latency, CPU, burst balance for each instance
+- **Summary**: Overall patterns across the fleet
+
+### Example Responses:
+
+When asked about database performance issues:
+1. First use `datadog_rds_top_worst_performing` to identify problem instances
+2. Then use `datadog_rds_performance_report` on the worst performers
+3. Summarize findings and provide prioritized recommendations
+
+Always consider the time range - recent data (last hour) for current issues, longer ranges (last 24 hours) for trends.

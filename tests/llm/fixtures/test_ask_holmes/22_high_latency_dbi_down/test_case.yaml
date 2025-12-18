@@ -1,17 +1,79 @@
-# this requires first creating a secret w/ credentials for the RDS database
-# for instructions, see "Credentials for HolmesGPT RDS AI Test" in 1Password, but change the secret name to db-secrets-for-medium and the db to "promotions-db-for-medium"
+# for instructions, see "Medium Credentials for 22_high_latency_dbi_down" in 1Password
 user_prompt: "Why is there high latency with the customer-orders-for-medium deployment?"
 tags:
   - chain-of-causation
   - logs
-  - reproducible
+  - hard
+description: |
+  A pod fails because of a bad db access (rds).
+  The ai needs to use aws/rds tools to check the status of the db and see that it is down.
+  This requires first creating a the secret 'db-secrets-for-medium' in namespace app-22 w/ credentials for the RDS database.
 expected_output:
   - The reason for failure is promotions-db-for-medium.cp8rwothwarq.us-east-2.rds.amazonaws.com is stopped or stopping.
+  - The output states it checked/verified it, not just recommends to check it.
 before_test: |
+  # kubectl create namespace app-22
+  # Note - the tests assumes you created the db secret in namespace app-22
+
+  # Verify critical secret exists with required fields
+  echo "Verifying db-secrets-for-medium secret..."
+  kubectl get secret db-secrets-for-medium -n app-22 >/dev/null 2>&1 || { echo "ERROR: secret db-secrets-for-medium not found in app-22"; exit 1; }
+
+  kubectl get secret db-secrets-for-medium -n app-22 -o json \
+  | jq -e '
+      [.data.username, .data.password, .data.host, .data.database]
+      | map(select(. != null) | @base64d | select(length > 0))
+      | length == 4
+    ' >/dev/null \
+  || { echo "ERROR: secret missing required non-empty fields"; exit 1; }
+
+  # Stop RDS instance if not already stopped
   [ "$(aws rds describe-db-instances --db-instance-identifier promotions-db-for-medium --query "DBInstances[0].DBInstanceStatus" --output text)" != "stopped" ] && aws rds stop-db-instance --db-instance-identifier promotions-db-for-medium || echo "RDS instance is already stopped."
-  kubectl apply -f ./slow-rds-query-for-medium.yaml
-  sleep 60
+
+  # Apply deployment
+  kubectl apply -f ./manifest.yaml -n app-22
+
+  # Verify RDS instance is stopped or stopping
+  echo "Verifying RDS instance status..."
+  timeout=60
+  elapsed=0
+  while [ $elapsed -lt $timeout ]; do
+    status=$(aws rds describe-db-instances --db-instance-identifier promotions-db-for-medium --query "DBInstances[0].DBInstanceStatus" --output text)
+    if [ "$status" = "stopped" ] || [ "$status" = "stopping" ]; then
+      echo "RDS instance is $status"
+      break
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  if [ "$status" != "stopped" ] && [ "$status" != "stopping" ]; then
+    echo "ERROR: RDS instance status is $status, expected stopped or stopping"
+    exit 1
+  fi
+
+  # Wait for MySQL connection error in logs instead of fixed sleep
+  echo "Waiting for MySQL connection error in pod logs..."
+  timeout=60
+  elapsed=0
+  found=false
+  while [ $elapsed -lt $timeout ]; do
+    pod=$(kubectl get pods -n app-22 -l app=customer-orders-for-medium -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$pod" ]; then
+      if kubectl logs "$pod" -n app-22 2>/dev/null | grep -q "Can't connect to MySQL server on 'promotions-db-for-medium.cp8rwothwarq.us-east-2.rds.amazonaws.com"; then
+        echo "Found MySQL connection error in logs"
+        found=true
+        break
+      fi
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  if [ "$found" = "false" ]; then
+    echo "ERROR: Timeout waiting for MySQL connection error in logs"
+    exit 1
+  fi
 after_test: |
-  kubectl delete -f ./slow-rds-query-for-medium.yaml
-evaluation:
-  correctness: 0
+  kubectl delete -f ./manifest.yaml -n app-22
+  # kubectl delete namespace app-22

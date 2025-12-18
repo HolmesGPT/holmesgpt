@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-service
+  namespace: app-162
+  labels:
+    app: payments-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payments-service
+  template:
+    metadata:
+      labels:
+        app: payments-service
+    spec:
+      containers:
+      - name: payments-service
+        image: python:3.11-slim
+        command: ["python", "/app/payments_service.py"]
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: payments-secrets
+              key: database-url
+        - name: STRIPE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: payments-secrets
+              key: stripe-api-key
+        - name: PORT
+          value: "8080"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: app-code
+        secret:
+          secretName: payments-secrets
+          items:
+          - key: payments_service.py
+            path: payments_service.py
+            mode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-service
+  namespace: app-162
+spec:
+  selector:
+    app: payments-service
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP

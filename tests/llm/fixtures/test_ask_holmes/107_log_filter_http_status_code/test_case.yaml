@@ -1,0 +1,21 @@
+description: |
+  A web service is experiencing 503 errors but they're buried in successful
+  requests. Holmes needs to filter by status code and identify the pattern - all 503s
+  are happening on a specific endpoint during high load.
+
+user_prompt: "Troubleshoot 503 errors in api-server app-107 namespace"
+
+tags:
+  - logs
+  - medium
+
+before_test: |
+  kubectl create namespace app-107 || true
+  kubectl apply -f ./manifest.yaml -n app-107
+  kubectl wait --for=condition=ready pod -l app=api-server -n app-107 --timeout=60s || true
+
+after_test: |
+  kubectl delete namespace app-107 || true
+
+expected_output: |
+  503 status codes occur on the /api/reports/generate endpoint when requests take longer than 30 seconds.

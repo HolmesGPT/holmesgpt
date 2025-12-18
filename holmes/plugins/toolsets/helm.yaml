@@ -1,7 +1,7 @@
 toolsets:
   helm/core:
     description: "Read access to cluster's Helm charts and releases"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/helm.html"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/helm/"
     icon_url: "https://helm.sh/img/helm.svg"
     tags:
       - core

@@ -1,0 +1,214 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-117
+---
+# ============ INVENTORY ============
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  namespace: app-117
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: inventory }
+  template:
+    metadata:
+      labels: { app: inventory }
+    spec:
+      volumes:
+        - name: src
+          secret: { secretName: inventory-src }
+        - name: work
+          emptyDir: {}
+      initContainers:
+        - name: copy-src
+          image: busybox:1.36
+          command: ["sh","-c","cp -rL /src/* /work && ls -la /work"]
+          volumeMounts:
+            - { name: src,  mountPath: /src }
+            - { name: work, mountPath: /work }
+        - name: install-deps
+          image: node:20-alpine
+          workingDir: /work
+          command: ["sh","-c","npm ci --omit=dev || npm install --omit=dev"]
+          volumeMounts:
+            - { name: work, mountPath: /work }
+      containers:
+        - name: app
+          image: node:20-alpine
+          workingDir: /work
+          # New Relic instrumentation is injected via init containers and NODE_OPTIONS
+          # to ensure it loads before any other modules, including database drivers
+          command: ["node", "server.js"]
+          env:
+            - { name: PORT, value: "7000" }
+            - { name: LOG_LEVEL, value: "info" } # change/remove to mute
+          ports: [{ containerPort: 7000 }]
+          volumeMounts:
+            - { name: work, mountPath: /work }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 7000 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 7000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory
+  namespace: app-117
+spec:
+  selector: { app: inventory }
+  ports:
+    - name: http
+      port: 7000
+      targetPort: 7000
+---
+# ============ RISK ============
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk
+  namespace: app-117
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: risk }
+  template:
+    metadata:
+      labels: { app: risk }
+    spec:
+      volumes:
+        - name: src
+          secret: { secretName: risk-src }
+        - name: work
+          emptyDir: {}
+        - name: wheels
+          emptyDir: {}   # where pip installs
+      initContainers:
+        - name: copy-src
+          image: busybox:1.36
+          command: ["sh","-c","cp -rL /src/* /work && ls -la /work"]
+          volumeMounts:
+            - { name: src,  mountPath: /src }
+            - { name: work, mountPath: /work }
+        - name: install-deps
+          image: python:3.11-alpine
+          workingDir: /work
+          env:
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+          # Install Flask into /wheels, which we later add to PYTHONPATH
+          command: ["sh","-c","pip install -r requirements.txt -t /wheels && ls -la /wheels"]
+          volumeMounts:
+            - { name: work,   mountPath: /work }
+            - { name: wheels, mountPath: /wheels }
+      containers:
+        - name: app
+          image: python:3.11-alpine
+          workingDir: /work
+          env:
+            - { name: PORT, value: "8000" }
+            - { name: LOG_LEVEL, value: "INFO" } # change/remove to mute
+            - { name: PYTHONPATH, value: "/wheels" }
+          command: ["python","/work/app.py"]
+          ports: [{ containerPort: 8000 }]
+          volumeMounts:
+            - { name: work,   mountPath: /work }
+            - { name: wheels, mountPath: /wheels }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 6
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk
+  namespace: app-117
+spec:
+  selector: { app: risk }
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+# ============ CHECKOUT ============
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: app-117
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: checkout }
+  template:
+    metadata:
+      labels: { app: checkout }
+    spec:
+      volumes:
+        - name: src
+          secret: { secretName: checkout-src }
+        - name: work
+          emptyDir: {}
+      initContainers:
+        - name: copy-src
+          image: busybox:1.36
+          command: ["sh","-c","cp -rL /src/* /work && ls -la /work"]
+          volumeMounts:
+            - { name: src,  mountPath: /src }
+            - { name: work, mountPath: /work }
+        - name: install-deps
+          image: node:20-alpine
+          workingDir: /work
+          command: ["sh","-c","npm ci --omit=dev || npm install --omit=dev"]
+          volumeMounts:
+            - { name: work, mountPath: /work }
+      containers:
+        - name: app
+          image: node:20-alpine
+          workingDir: /work
+          env:
+            - { name: PORT, value: "3000" }
+            - { name: INVENTORY_BASE_URL, value: "http://inventory.app-117.svc.cluster.local:7000" }
+            - { name: RISK_BASE_URL,       value: "http://risk.app-117.svc.cluster.local:8000" }
+            - { name: TIMEOUT_MS, value: "400" }
+            - { name: LOG_LEVEL, value: "info" } # change/remove to mute
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+          # New Relic instrumentation is injected via init containers and NODE_OPTIONS
+          # to ensure it loads before any other modules, including database drivers
+          command: ["node", "server.js"]
+          ports: [{ containerPort: 3000 }]
+          volumeMounts:
+            - { name: work, mountPath: /work }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 3000 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 3000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: app-117
+spec:
+  selector: { app: checkout }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

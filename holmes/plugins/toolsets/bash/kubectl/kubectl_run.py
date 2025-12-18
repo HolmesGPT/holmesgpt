@@ -12,7 +12,7 @@ def validate_image_and_commands(
 ) -> None:
     """
     Validate that the image is in the whitelist and commands are allowed.
-    Raises ArgumentTypeError if validation fails.
+    Raises ValueError if validation fails.
     """
     if not config or not config.kubectl or not config.kubectl.allowed_images:
         raise ValueError(

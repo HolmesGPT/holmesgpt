@@ -8,12 +8,14 @@ from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
     Tool,
+    ToolInvokeContext,
     ToolParameter,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
+from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class OpenSearchHttpAuth(BaseModel):
@@ -92,17 +94,18 @@ class ListShards(BaseOpenSearchTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         client = get_client(self.toolset.clients, host=params.get("host", ""))
         shards = client.client.cat.shards()
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS,
+            status=StructuredToolResultStatus.SUCCESS,
             data=str(shards),
             params=params,
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"opensearch ListShards({params.get('host')})"
+        host = params.get("host", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List Shards ({host})"
 
 
 class GetClusterSettings(BaseOpenSearchTool):
@@ -120,19 +123,20 @@ class GetClusterSettings(BaseOpenSearchTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         client = get_client(self.toolset.clients, host=params.get("host"))
         response = client.client.cluster.get_settings(
             include_defaults=True, flat_settings=True
         )
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS,
+            status=StructuredToolResultStatus.SUCCESS,
             data=str(response),
             params=params,
         )
 
     def get_parameterized_one_liner(self, params) -> str:
-        return f"opensearch GetClusterSettings({params.get('host')})"
+        host = params.get("host", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Cluster Settings ({host})"
 
 
 class GetClusterHealth(BaseOpenSearchTool):
@@ -150,17 +154,18 @@ class GetClusterHealth(BaseOpenSearchTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         client = get_client(self.toolset.clients, host=params.get("host", ""))
         health = client.client.cluster.health()
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS,
+            status=StructuredToolResultStatus.SUCCESS,
             data=str(health),
             params=params,
         )
 
     def get_parameterized_one_liner(self, params) -> str:
-        return f"opensearch GetClusterHealth({params.get('host')})"
+        host = params.get("host", "")
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Check Cluster Health ({host})"
 
 
 class ListOpenSearchHosts(BaseOpenSearchTool):
@@ -172,16 +177,16 @@ class ListOpenSearchHosts(BaseOpenSearchTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         hosts = [host for client in self.toolset.clients for host in client.hosts]
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS,
+            status=StructuredToolResultStatus.SUCCESS,
             data=str(hosts),
             params=params,
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return "opensearch ListOpenSearchHosts()"
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List OpenSearch Hosts"
 
 
 class OpenSearchToolset(Toolset):
@@ -193,7 +198,7 @@ class OpenSearchToolset(Toolset):
             name="opensearch/status",
             enabled=False,
             description="Provide cluster metadata information like health, shards, settings.",
-            docs_url="https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/opensearch.html",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/opensearch-status/",
             icon_url="https://opensearch.org/assets/brand/PNG/Mark/opensearch_mark_default.png",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[

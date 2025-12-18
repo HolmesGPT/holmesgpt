@@ -5,7 +5,7 @@ from holmes.core.safeguards import (
     _has_previous_unfiltered_pod_logs_call,
 )
 from holmes.core.tool_calling_llm import ToolCallResult
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.logging_utils.logging_api import POD_LOGGING_TOOL_NAME
 
 
@@ -18,7 +18,7 @@ class TestRedundantFetchPodLogs:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     params={
                         "pod_name": "notification-consumer",
                         "namespace": "services",
@@ -55,7 +55,7 @@ class TestRedundantFetchPodLogs:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     params={
                         "pod_name": "notification-consumer",
                         "namespace": "services",
@@ -86,7 +86,7 @@ class TestRedundantFetchPodLogs:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data="foobar",
                     params={
                         "pod_name": "notification-consumer",
@@ -122,7 +122,7 @@ class TestRedundantFetchPodLogs:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     params={
                         "pod_name": "other-pod",
                         "namespace": "services",
@@ -153,7 +153,7 @@ class TestRedundantFetchPodLogs:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     params={
                         "pod_name": "notification-consumer",
                         "namespace": "services",
@@ -196,7 +196,7 @@ class TestHasPreviousUnfilteredPodLogsCall:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     params={
                         "pod_name": "my-pod",
                         "namespace": "default",
@@ -225,7 +225,7 @@ class TestHasPreviousUnfilteredPodLogsCall:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params={
                         "pod_name": "my-pod",
                         "namespace": "default",
@@ -253,7 +253,7 @@ class TestHasPreviousUnfilteredPodLogsCall:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     params={
                         "pod_name": "my-pod",
                         "namespace": "other-namespace",
@@ -288,7 +288,7 @@ class TestHasPreviousExactSameToolCall:
                 tool_name="my_tool",
                 description="Test tool",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params=params,
                 ),
             ).as_tool_result_response()
@@ -306,7 +306,7 @@ class TestHasPreviousExactSameToolCall:
                 tool_name="my_tool",
                 description="Test tool",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params={"different": "params"},
                 ),
             ).as_tool_result_response()
@@ -334,7 +334,7 @@ class TestHasPreviousExactSameToolCall:
                 tool_name="different_tool",
                 description="Test tool",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params=params,
                 ),
             ).as_tool_result_response()
@@ -356,7 +356,7 @@ class TestPreventOverlyRepeatedToolCall:
                 tool_name="my_tool",
                 description="Test tool",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params=params,
                 ),
             ).as_tool_result_response()
@@ -367,7 +367,7 @@ class TestPreventOverlyRepeatedToolCall:
         )
 
         assert result is not None
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         assert "already been called" in result.error
 
     def test_prevent_overly_repeated_tool_call_redundant_pod_logs(self):
@@ -378,7 +378,7 @@ class TestPreventOverlyRepeatedToolCall:
                 tool_name=POD_LOGGING_TOOL_NAME,
                 description="Fetch pod logs",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.NO_DATA,
+                    status=StructuredToolResultStatus.NO_DATA,
                     params={
                         "pod_name": "my-pod",
                         "namespace": "default",
@@ -399,7 +399,7 @@ class TestPreventOverlyRepeatedToolCall:
         )
 
         assert result is not None
-        assert result.status == ToolResultStatus.ERROR
+        assert result.status == StructuredToolResultStatus.ERROR
         assert result.error
         assert "without filter has already run" in result.error
 
@@ -422,7 +422,7 @@ class TestPreventOverlyRepeatedToolCall:
                 tool_name="my_tool",
                 description="Test tool",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params={"different": "params"},
                 ),
             ).as_tool_result_response()
@@ -453,7 +453,7 @@ class TestEdgeCases:
                 tool_name="other_tool",
                 description="Other tool",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params={"different": "params"},
                 ),
             ).as_tool_result_response(),
@@ -462,7 +462,7 @@ class TestEdgeCases:
                 tool_name="my_tool",
                 description="My tool",
                 result=StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     params={"pod_name": "my-pod"},
                 ),
             ).as_tool_result_response(),

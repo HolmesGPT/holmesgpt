@@ -5,8 +5,11 @@ before_test: |
   sleep 20
 after_test: |
   kubectl delete -f ./helm/sock-shop.yaml || true
-evaluation:
-  correctness: 1
-
 tags:
-  - reproducible
+  - medium
+  - kubernetes
+  - logs
+skip: true
+skip_reason: "very resource-intensive (cpu and memory requests) to setup - needs some work"
+
+test_type: server

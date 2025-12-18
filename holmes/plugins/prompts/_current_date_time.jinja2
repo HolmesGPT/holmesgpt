@@ -1,1 +1,2 @@
 When querying tools, always query for the relevant time period. The current UTC date and time are {{ now }}. The current UTC timestamp in seconds is {{ now_timestamp_seconds }}.
+When users mention dates without years (e.g., 'March 25th', 'last May', etc.), assume they either mean the current year ({{ current_year }}) unless context suggests otherwise.

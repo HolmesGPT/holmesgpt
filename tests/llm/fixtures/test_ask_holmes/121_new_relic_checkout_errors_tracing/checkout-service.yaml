@@ -1,0 +1,356 @@
+# ✅ New Relic–ready version of your "Simplified Checkout Service"
+# - Sends traces to New Relic OTLP (US by default; set NEW_RELIC_REGION=EU for EU endpoints)
+# - Correlates logs to traces and ships them directly to New Relic Logs API
+# - Uses the same env style as your first snippet (NEW_RELIC_LICENSE_KEY, OTEL_SERVICE_NAME, etc.)
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: checkout-app
+type: Opaque
+stringData:
+  telemetry.py: |
+    import os, time, socket, logging, requests
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+    from opentelemetry.trace import get_current_span, Status, StatusCode
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
+    def _current_ids_hex():
+      span = get_current_span()
+      ctx = getattr(span, "get_span_context", lambda: None)()
+      if ctx and getattr(ctx, "is_valid", False):
+        return f"{ctx.trace_id:032x}", f"{ctx.span_id:016x}"
+      return None, None
+
+    def _nr_endpoints():
+      # Allow overriding endpoints; default to region-aware New Relic endpoints
+      explicit_otlp = os.getenv("NEW_RELIC_OTLP_ENDPOINT")
+      explicit_logs = os.getenv("NEW_RELIC_LOGS_ENDPOINT")
+      region = os.getenv("NEW_RELIC_REGION", "US").strip().lower()
+
+      if explicit_otlp:
+        otlp = explicit_otlp
+      else:
+        otlp = "https://otlp.eu01.nr-data.net:4317" if region == "eu" else "https://otlp.nr-data.net:4317"
+
+      if explicit_logs:
+        logs = explicit_logs
+      else:
+        logs = "https://log-api.eu.newrelic.com/log/v1" if region == "eu" else "https://log-api.newrelic.com/log/v1"
+
+      return otlp, logs
+
+    class NewRelicLogHandler(logging.Handler):
+      def __init__(self, license_key: str, service_name: str, app_name: str, logs_endpoint: str):
+        super().__init__()
+        self.license_key = license_key
+        self.service_name = service_name
+        self.app_name = app_name
+        self.log_endpoint = logs_endpoint
+
+      def emit(self, record):
+        log_entry = self.format(record)
+        try:
+          trace_id, span_id = _current_ids_hex()
+          attrs = {
+            "service.name": self.service_name,
+            "app": self.app_name,
+          }
+          # Support both styles (K8S_* and KUBERNETES_*)
+          ns = os.getenv("KUBERNETES_NAMESPACE") or os.getenv("K8S_NAMESPACE")
+          pod = os.getenv("POD_NAME") or os.getenv("K8S_POD_NAME")
+          container = os.getenv("CONTAINER_NAME") or os.getenv("K8S_CONTAINER_NAME") or ""
+          if ns: attrs["k8s.namespace.name"] = ns
+          if pod: attrs["k8s.pod.name"] = pod
+          if container: attrs["k8s.container.name"] = container
+          if trace_id and span_id:
+            attrs["trace.id"] = trace_id
+            attrs["span.id"] = span_id
+
+          payload = [{
+            "common": {"attributes": attrs},
+            "logs": [{
+              "timestamp": int(time.time() * 1000),
+              "message": log_entry,
+              "level": record.levelname
+            }]
+          }]
+          headers = {
+            "Content-Type": "application/json",
+            "X-License-Key": self.license_key
+          }
+          resp = requests.post(self.log_endpoint, json=payload, headers=headers, timeout=5)
+          resp.raise_for_status()
+        except Exception as e:
+          # Last resort: don't raise from logging
+          print(f"Failed to send log to New Relic: {e}")
+
+    def setup_telemetry(default_service_name: str, default_app_name: str):
+      license_key = os.getenv("NEW_RELIC_LICENSE_KEY", "undefined")
+      service_name = os.getenv("OTEL_SERVICE_NAME", default_service_name)
+      app_name = os.getenv("APP_NAME", default_app_name)
+      service_version = os.getenv("SERVICE_VERSION", "1.0.0")
+      deploy_env = os.getenv("DEPLOYMENT_ENV", "dev")
+
+      # Prefer Kubernetes pod name if provided
+      instance_id = os.getenv("POD_NAME") or os.getenv("K8S_POD_NAME") or socket.gethostname()
+      ns = os.getenv("KUBERNETES_NAMESPACE") or os.getenv("K8S_NAMESPACE") or "default"
+      container = os.getenv("CONTAINER_NAME") or "checkout"
+
+      resource = Resource.create({
+        "service.name": service_name,
+        "service.version": service_version,
+        "deployment.environment": deploy_env,
+        "service.instance.id": instance_id,
+        "k8s.namespace.name": ns,
+        "k8s.pod.name": instance_id,
+        "k8s.container.name": container,
+        "app": app_name,
+      })
+
+      sample_ratio = float(os.getenv("TRACE_SAMPLE_RATIO", "1.0"))
+      provider = TracerProvider(
+        resource=resource,
+        sampler=ParentBased(TraceIdRatioBased(sample_ratio))
+      )
+
+      otlp_endpoint, logs_endpoint = _nr_endpoints()
+      exporter = OTLPSpanExporter(
+        endpoint=otlp_endpoint,
+        headers={"api-key": license_key}
+      )
+      provider.add_span_processor(BatchSpanProcessor(exporter))
+      trace.set_tracer_provider(provider)
+      tracer = trace.get_tracer(__name__)
+
+      # Auto-instrument outbound HTTP (handy if you add calls later)
+      RequestsInstrumentor().instrument()
+
+      # Configure logging with New Relic handler for correlation
+      logger = logging.getLogger(app_name)
+      logger.setLevel(logging.INFO)
+      nrh = NewRelicLogHandler(license_key, service_name, app_name, logs_endpoint)
+      nrh.setLevel(logging.INFO)
+      logger.addHandler(nrh)
+
+      # Also add console handler so logs appear in stdout
+      console_handler = logging.StreamHandler()
+      console_handler.setLevel(logging.INFO)
+      formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+      console_handler.setFormatter(formatter)
+      logger.addHandler(console_handler)
+
+      return tracer, logger
+
+    def record_exception_on_current_span(exc: Exception):
+      span = get_current_span()
+      try:
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+      except Exception:
+        pass
+
+  app.py: |
+    import os, time, random
+    from flask import Flask, request, jsonify
+    from opentelemetry import trace
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    from opentelemetry.trace import Status, StatusCode
+    from telemetry import setup_telemetry, record_exception_on_current_span
+
+    # Configure telemetry for New Relic
+    tracer, logger = setup_telemetry("checkout-atc", "checkout-service")
+
+    app = Flask(__name__)
+    FlaskInstrumentor().instrument_app(app)
+    tracer = trace.get_tracer(__name__)
+
+    @app.route('/health')
+    def health():
+      return 'OK'
+
+    @app.route('/checkout', methods=['POST'])
+    def checkout():
+      with tracer.start_as_current_span("process_checkout") as span:
+        data = request.get_json(silent=True) or {}
+
+        user_id = data.get('user_id', 'guest')
+        zone_id = data.get('zone_id', 'us-west-1')
+        promo_code = data.get('promo_code')
+        items = data.get('items', [])
+
+        # Attributes for better filtering in New Relic
+        span.set_attribute("user.id", user_id)
+        span.set_attribute("zone.id", zone_id)
+        span.set_attribute("items.count", len(items))
+        if promo_code:
+          span.set_attribute("promo.code", promo_code)
+
+        logger.info(f"Processing checkout request for user {user_id}")
+
+        # Simulated DB query span
+        with tracer.start_as_current_span("database_query") as db_span:
+          db_span.set_attribute("db.system", "postgresql")
+          db_span.set_attribute("db.operation", "SELECT")
+
+          if promo_code:
+            query = "SELECT rate_per_kg, discount_percent FROM shipping_rates WHERE zone_id = ? AND promo_code = ? AND active = true"
+            db_span.set_attribute("db.statement", query)
+
+            # Small delay then a simulated error
+            time.sleep(random.uniform(0.05, 0.1))
+            err_msg = "ERROR: duplicate key value violates unique constraint 'promo_codes_pkey'"
+            exc = Exception(err_msg)
+
+            db_span.record_exception(exc)
+            db_span.set_status(Status(StatusCode.ERROR, err_msg))
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, "Database error"))
+            logger.exception("Checkout failed due to DB error", exc_info=exc)
+
+            return jsonify({"error": "Internal server error", "message": "Request failed"}), 500
+          else:
+            query = "SELECT rate_per_kg, discount_percent FROM shipping_rates WHERE zone_id = ? AND active = true"
+            db_span.set_attribute("db.statement", query)
+            time.sleep(random.uniform(0.05, 0.1))
+            shipping_rate = 5.0
+            discount = 0.0
+
+        # Compute totals for success path
+        total_weight = sum(item.get('weight', 1.0) for item in items)
+        shipping_cost = total_weight * shipping_rate * (1 - discount/100)
+        subtotal = sum(item.get('price', 0) for item in items)
+        total = subtotal + shipping_cost
+
+        response = {
+          "order_id": f"ord-{random.randint(1000, 9999)}",
+          "subtotal": subtotal,
+          "shipping": round(shipping_cost, 2),
+          "total": round(total, 2)
+        }
+
+        logger.info("Checkout completed successfully")
+        return jsonify(response)
+
+    if __name__ == '__main__':
+      logger.info("Starting checkout service on port 8080")
+      app.run(host='0.0.0.0', port=8080)
+
+  requirements.txt: |
+    opentelemetry-api==1.20.0
+    opentelemetry-sdk==1.20.0
+    opentelemetry-exporter-otlp-proto-grpc==1.20.0
+    opentelemetry-proto==1.20.0
+    opentelemetry-semantic-conventions==0.41b0
+    opentelemetry-instrumentation-flask==0.41b0
+    opentelemetry-instrumentation-requests==0.41b0
+    requests==2.32.5
+    Flask==2.3.3
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+      - name: checkout
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/app.py"]
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+
+        # 🔑 New Relic credentials
+        - name: NEW_RELIC_LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: newrelickey   # existing secret with your New Relic ingest key
+              key: key
+
+        # 🌍 Choose region/endpoints (optional). Defaults: US.
+        # Set NEW_RELIC_REGION=EU for EU endpoints, or override directly:
+        # - NEW_RELIC_OTLP_ENDPOINT=https://otlp.eu01.nr-data.net:4317
+        # - NEW_RELIC_LOGS_ENDPOINT=https://log-api.eu.newrelic.com/log/v1
+        #- name: NEW_RELIC_REGION
+        #  value: "EU"
+
+        # 🏷️ Telemetry resource attributes & sampling
+        - name: OTEL_SERVICE_NAME
+          value: checkout-atc
+        - name: APP_NAME
+          value: checkout-service
+        - name: CONTAINER_NAME
+          value: checkout
+        - name: SERVICE_VERSION
+          value: "1.0.0"
+        - name: DEPLOYMENT_ENV
+          value: "dev"
+        - name: TRACE_SAMPLE_RATIO
+          value: "1.0"
+
+        # 🧭 Kubernetes metadata (both styles supported by telemetry.py)
+        - name: POD_NAME
+          valueFrom: { fieldRef: { fieldPath: metadata.name } }
+        - name: KUBERNETES_NAMESPACE
+          valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+
+        securityContext:
+          capabilities:
+            add:
+            - SYS_PTRACE
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 60
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: app
+        secret:
+          secretName: checkout-app
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+spec:
+  selector:
+    app: checkout
+  ports:
+  - port: 8080
+    targetPort: 8080

@@ -309,7 +309,7 @@ def test_parse_logs_basic(logs, container_name, expected):
     ],
 )
 def test_filter_logs_basic_scenarios(logs, params, expected_count, expected_contents):
-    result = filter_logs(logs, params)
+    result, _, _, _, _, _ = filter_logs(logs, params)
     assert len(result) == expected_count
     assert [log.content for log in result] == expected_contents
 
@@ -384,7 +384,10 @@ def test_filter_logs_basic_scenarios(logs, params, expected_count, expected_cont
             ],
             None,
             "2021-01-02T23:59:59",
-            ["2021-01-02-match"],  # 1 hrs before end
+            [
+                "2021-01-02-excluded",
+                "2021-01-02-match",
+            ],  # With 7-day default, both are included
         ),
         # Test with None timestamp logs and time filter
         (
@@ -411,7 +414,7 @@ def test_filter_logs_time_filtering(logs, start_time, end_time, expected_content
         start_time=start_time,
         end_time=end_time,
     )
-    result = filter_logs(logs, params)
+    result, _, _, _, _, _ = filter_logs(logs, params)
     assert [log.content for log in result] == expected_contents
 
 
@@ -453,7 +456,7 @@ def test_filter_logs_all_filters_combined():
         limit=2,
     )
 
-    result = filter_logs(logs, params)
+    result, _, _, _, _, _ = filter_logs(logs, params)
     # Should filter by time (days 2-4), then by match (only errors), then limit to last 2
     assert len(result) == 2
     assert [log.content for log in result] == ["error: day 3", "error: day 4"]
@@ -491,7 +494,7 @@ def test_filter_logs_edge_case_exact_boundaries():
         end_time="2021-01-03T00:00:00",
     )
 
-    result = filter_logs(logs, params)
+    result, _, _, _, _, _ = filter_logs(logs, params)
     # Should include logs at start and end boundaries
     print(result)
     assert [log.content for log in result] == ["exactly at start", "exactly at end"]

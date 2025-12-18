@@ -1,5 +1,10 @@
 user_prompt: "Why is my Digital ocean droplet not working fine"
 expected_output:
-  - The answer should prompt the user to add a Holmes Digital Ocean integration to access droplets
+  - The answer should indicate Holmes doesn't have access to Digital Ocean
+  - The answer should include a link to https://holmesgpt.dev/data-sources/custom-toolsets/ or https://holmesgpt.dev/data-sources/remote-mcp-servers/
+  - The answer should NOT imply that a Digital Ocean integration already exists
 evaluation:
   correctness: 0
+tags:
+  - medium
+  - transparency

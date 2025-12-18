@@ -1,3 +1,3 @@
 {"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"network-connector"}}
 {"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep network-connector", "params": {"kind": "pod", "keyword": "network-connector"}}
-default              network-connector                                        1/1     Running     0              4m17s   10.244.1.47   kind-double-node-worker          <none>           <none>            <none>
+app-20               network-connector-f6cf57f75-99bhg                       1/1     Running     0              4m17s   10.244.1.47   kind-double-node-worker          <none>           <none>            app=network-connector

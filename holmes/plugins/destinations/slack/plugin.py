@@ -85,10 +85,13 @@ class SlackDestination(DestinationPlugin):
         text = "*AI used info from alert and the following tools:*"
         for tool in result.tool_calls:
             file_response = self.client.files_upload_v2(
-                content=tool.result, title=f"{tool.description}"
+                content=tool.result.get_stringified_data(), title=f"{tool.description}"
             )
-            permalink = file_response["file"]["permalink"]
-            text += f"\n• `<{permalink}|{tool.description}>`"
+            if file_response and "file" in file_response:
+                permalink = file_response["file"]["permalink"]
+                text += f"\n• `<{permalink}|{tool.description}>`"
+            else:
+                text += f"\n• {tool.description} (file upload failed)"
 
         self.client.chat_postMessage(
             channel=self.channel,
@@ -108,10 +111,13 @@ class SlackDestination(DestinationPlugin):
 
         text = "*🐞 DEBUG: messages with OpenAI*"
         file_response = self.client.files_upload_v2(
-            content=result.prompt, title="ai-prompt"
+            content=str(result.prompt) if result.prompt else "", title="ai-prompt"
         )
-        permalink = file_response["file"]["permalink"]
-        text += f"\n`<{permalink}|ai-prompt>`"
+        if file_response and "file" in file_response:
+            permalink = file_response["file"]["permalink"]
+            text += f"\n`<{permalink}|ai-prompt>`"
+        else:
+            text += "\nai-prompt (file upload failed)"
 
         self.client.chat_postMessage(
             channel=self.channel,
@@ -132,9 +138,13 @@ class SlackDestination(DestinationPlugin):
         filename = f"{issue.name}"
         issue_json = issue.model_dump_json()
         file_response = self.client.files_upload_v2(content=issue_json, title=filename)
-        permalink = file_response["file"]["permalink"]
-        text = issue.presentation_all_metadata
-        text += f"\n<{permalink}|{filename}>\n"
+        if file_response and "file" in file_response:
+            permalink = file_response["file"]["permalink"]
+            text = issue.presentation_all_metadata
+            text += f"\n<{permalink}|{filename}>\n"
+        else:
+            text = issue.presentation_all_metadata
+            text += f"\n{filename} (file upload failed)\n"
 
         self.client.chat_postMessage(
             channel=self.channel,

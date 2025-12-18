@@ -1,0 +1,71 @@
+# Shared Prometheus deployment configuration for test fixtures
+# Apply with: kubectl apply -f prometheus.yaml -n <namespace>
+# Note: Namespace must be created separately
+# Note: Requires a ConfigMap named 'prometheus-config' to be created separately
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: prometheus }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        args:
+          - "--config.file=/etc/prometheus/prometheus.yml"
+          - "--storage.tsdb.path=/prom"
+        ports:
+        - containerPort: 9090
+          name: http
+        volumeMounts:
+        - name: cfg
+          mountPath: /etc/prometheus
+        - name: data
+          mountPath: /prom
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: 8
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: 8
+          periodSeconds: 8
+          timeoutSeconds: 2
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          periodSeconds: 3
+          failureThreshold: 40   # ~120s max startup
+      volumes:
+      - name: cfg
+        configMap:
+          name: prometheus-config
+      - name: data
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  selector: { app: prometheus }
+  ports:
+  - name: http
+    port: 9090
+    targetPort: http

@@ -1,0 +1,4 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"persistentvolumeclaim","name":"redis-standard-pvc","namespace":"app-24a"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide persistentvolumeclaim redis-standard-pvc -n app-24a", "params": {"kind": "persistentvolumeclaim", "name": "redis-standard-pvc", "namespace": "app-24a"}}
+NAME                 STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE   VOLUMEMODE   LABELS
+redis-standard-pvc   Pending                                      standard-v2    <unset>                 12m   Filesystem   <none>

@@ -1,0 +1,21 @@
+user_prompt: "Show me logs from the pod deep-diver in namespace app-103"
+
+expected_output: |
+  Holmes should:
+  1. Show logs from the pod
+  2. Communicate that logs are truncated: mentions showing "100" logs out of a larger total
+  3. Should use phrases like "showing last 100", "truncated", or indicate there are more logs available
+  4. Should still show the actual log content including various log levels (ERROR, INFO, WARN)
+
+before_test: |
+  kubectl create namespace app-103 || true
+  kubectl apply -f ./manifest.yaml
+
+after_test: |
+  kubectl delete -f ./manifest.yaml --ignore-not-found
+  kubectl delete namespace app-103 --ignore-not-found
+
+tags:
+  - logs
+  - transparency
+  - medium

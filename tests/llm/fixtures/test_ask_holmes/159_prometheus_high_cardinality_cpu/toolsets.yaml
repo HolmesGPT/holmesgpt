@@ -1,0 +1,17 @@
+# Toolsets configuration for high cardinality test
+# Configure Prometheus to use port-forwarded connection
+
+toolsets:
+  kubernetes/core:
+    enabled: true
+
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:10159
+      fetch_metadata_with_series_api: true
+      fetch_labels_with_labels_api: false
+      tool_calls_return_data: true
+
+  kubernetes/logs:
+    enabled: true

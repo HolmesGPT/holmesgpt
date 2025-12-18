@@ -1,0 +1,74 @@
+user_prompt: "Fetch me the logs for the inventory-service pod in namespace app-102"
+
+description: |
+  This test verifies that the agent can discover and handle Loki label mismatches.
+  The Promtail configuration uses 'pod_name' as the label, but the Grafana/Loki
+  toolset defaults to 'pod'. The agent should be able to discover this mismatch
+  and either work around it or clearly explain why logs cannot be fetched.
+
+  NOTE: This is a toolset limitation test. The current Loki toolset cannot
+  automatically discover available labels in Loki. It assumes standard labels
+  like 'pod', 'namespace', etc. When non-standard labels are used (like 'pod_name'
+  instead of 'pod'), the toolset has no mechanism to detect this mismatch or
+  query for available labels. This requires improvement in the toolset itself,
+  not in the model's intelligence.
+
+expected_output: |
+  - Inventory item ITEM-1234 checked - stock level: 45 units
+  - Order ORD-5678 processed - 3 units of ITEM-1234
+  - Stock updated for ITEM-1234 - new level: 42 units
+  - Low stock warning for ITEM-9999 - current level: 5 units
+  - Inventory reconciliation completed - 127 items verified
+
+tags:
+  - logs
+  - kubernetes
+  - toolset-limitation
+  - loki
+
+port_forwards:
+  - namespace: app-102
+    service: loki
+    local_port: 3102
+    remote_port: 3100
+
+before_test: |
+  # Create namespace
+  kubectl create namespace app-102 || true
+
+  # Deploy Loki from shared config
+  kubectl apply -f ../../shared/loki.yaml -n app-102
+
+  # Create secret and deploy test-specific resources
+  kubectl create secret generic inventory-service-script \
+    --from-file=app.py=./app.py \
+    -n app-102 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f deployment.yaml -n app-102
+
+  # Wait for pods to be ready
+  kubectl wait --for=condition=ready pod -l app=loki -n app-102 --timeout=60s
+  kubectl wait --for=condition=ready pod -l app=inventory-service -n app-102 --timeout=60s
+
+  # Wait for Loki ingester to be ready
+  for i in {1..30}; do
+    if kubectl exec -n app-102 deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
+      break
+    fi
+    [ $i -eq 30 ] && echo "ERROR: Loki not ready" && exit 1
+    sleep 1
+  done
+
+  # Wait for logs to appear in Loki
+  sleep 5  # Let Promtail initialize
+  for i in {1..30}; do
+    LOG_COUNT=$(kubectl exec -n app-102 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-102"}&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    if [ "$LOG_COUNT" -gt "0" ]; then
+      echo "Logs ready in Loki"
+      break
+    fi
+    [ $i -eq 30 ] && echo "ERROR: No logs in Loki" && exit 1
+    sleep 1
+  done
+
+after_test: |
+  kubectl delete namespace app-102 --wait=false || true

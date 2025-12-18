@@ -1,0 +1,13 @@
+user_prompt: "What is wrong with data-processor in the app-157 namespace??"
+expected_output:
+  - Application in crashloop because the disk is full for PVC
+  - The PVC only has 100Mi
+  - To fix, increase the PVC size
+tags:
+  - storage
+before_test: |
+  kubectl create namespace app-157 || true
+  kubectl apply -f manifest.yaml -n app-157
+  kubectl wait --for=jsonpath='{.status.containerStatuses[0].state.waiting.reason}'=CrashLoopBackOff pod -l app=data-processor -n app-157 --timeout=300s
+after_test: |
+  kubectl delete namespace app-157 --force --grace-period=0

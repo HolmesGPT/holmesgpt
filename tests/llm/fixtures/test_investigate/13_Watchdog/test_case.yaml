@@ -4,4 +4,5 @@ expected_output:
   - This alert should always be firing, and if it stops, it indicates a problem with the alerting system.
 evaluation:
   correctness: 1
+mock_policy: always_mock
 # Success rate 97% for 100 evals

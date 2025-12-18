@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meme-deployment
+  namespace: app-23
+  labels:
+    app: meme-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: meme-app
+  template:
+    metadata:
+      labels:
+        app: meme-app
+    spec:
+      containers:
+        - name: meme-app
+        # meme-generator source code available here: https://github.com/robusta-dev/Hello-DevOps-Project/tree/demo/code/meme-generator
+          image: pavangudiwada/meme-generator:latest
+          ports:
+            - containerPort: 5000
+              protocol: TCP
+          envFrom:
+          - configMapRef:
+              name: meme-generator-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meme-service
+  namespace: app-23
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+  selector:
+    app: meme-app

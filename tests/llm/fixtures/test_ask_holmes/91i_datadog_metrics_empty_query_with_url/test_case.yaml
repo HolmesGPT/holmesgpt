@@ -1,0 +1,9 @@
+description: Tests that empty Datadog metrics query returns a URL in the tool result
+user_prompt: "Query Datadog metrics for container.memory.usage{pod_name:payment-processor-7d8f9c6b5-xyz99} for the last hour"
+expected_output: "Result must include a tool call that includes a url to datadog"
+skip: true
+skip_reason: it's surprisingly hard to generate deep links to metrics explorer in datadog, so we didn't implement it yet
+include_tool_calls: true
+tags:
+  - datadog
+  - transparency

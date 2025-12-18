@@ -1,4 +1,7 @@
-# Adding Permissions for Additional Resources
+# Adding Permissions for Additional Resources (In-Cluster Deployments)
+
+!!! note "In-Cluster Only"
+    This page applies only to HolmesGPT running **inside** a Kubernetes cluster via Helm. For local CLI deployments, permissions are managed through your kubeconfig file.
 
 HolmesGPT may require access to additional Kubernetes resources or CRDs for specific analyses. Permissions can be extended by modifying the ClusterRole rules. The default configuration has limited resource access.
 
@@ -13,7 +16,26 @@ To enable HolmesGPT to analyze ArgoCD applications and projects, you need to add
 
 ### Steps to Add Permissions
 
-1. **Update `generated_values.yaml` with custom cluster role rules:**
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    customClusterRoleRules:
+      - apiGroups: ["argoproj.io"]
+        resources: ["applications", "appprojects"]
+        verbs: ["get", "list", "watch"]
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes holmes/holmes --values=values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml` (note: add the `holmes:` prefix):
 
     ```yaml
     enableHolmesGPT: true
@@ -24,7 +46,7 @@ To enable HolmesGPT to analyze ArgoCD applications and projects, you need to add
           verbs: ["get", "list", "watch"]
     ```
 
-2. **Apply configuration using Helm:**
+    Apply the configuration:
 
     ```bash
     helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>

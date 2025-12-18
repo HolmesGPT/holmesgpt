@@ -1,3 +1,0 @@
-toolsets:
-  helm/core:
-    enabled: false

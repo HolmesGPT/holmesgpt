@@ -1,0 +1,165 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: whalewatchers.ocean.io
+spec:
+  group: ocean.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              whaleType:
+                type: string
+              location:
+                type: string
+              depth:
+                type: integer
+          status:
+            type: object
+            properties:
+              observationCount:
+                type: integer
+              lastSeen:
+                type: string
+              phase:
+                type: string
+  scope: Namespaced
+  names:
+    plural: whalewatchers
+    singular: whalewatcher
+    kind: WhaleWatcher
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: whale-operator
+  namespace: app-96
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: whale-operator
+rules:
+- apiGroups: ["ocean.io"]
+  resources: ["whalewatchers"]
+  verbs: ["get", "list", "watch"]
+# Missing "update" and "patch" verbs - operator can't update status
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: whale-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: whale-operator
+subjects:
+- kind: ServiceAccount
+  name: whale-operator
+  namespace: app-96
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: whale-operator
+  namespace: app-96
+type: Opaque
+stringData:
+  operator.py: |
+    import time
+    import json
+    from datetime import datetime
+
+    print(f"[{datetime.now()}] Starting whale-watcher operator...")
+    print(f"[{datetime.now()}] Watching for WhaleWatcher resources...")
+
+    # Simulate operator behavior
+    while True:
+        print(f"[{datetime.now()}] Checking for WhaleWatcher resources in all namespaces...")
+
+        # Simulate finding resources
+        print(f"[{datetime.now()}] Found 2 WhaleWatcher resources")
+        print(f"[{datetime.now()}] Processing WhaleWatcher app-96/blue-whale")
+        print(f"[{datetime.now()}] Processing WhaleWatcher app-96/humpback-whale")
+
+        # Simulate RBAC error when trying to update status
+        print(f"[{datetime.now()}] ERROR: Failed to update WhaleWatcher app-96/blue-whale status")
+        print(f"[{datetime.now()}] ERROR: whalewatchers.ocean.io \"blue-whale\" is forbidden: User \"system:serviceaccount:app-96:whale-operator\" cannot update resource \"whalewatchers\" in API group \"ocean.io\" in the namespace \"app-96\"")
+        print(f"[{datetime.now()}] ERROR: Reconciliation failed due to permission error")
+
+        time.sleep(30)  # Reconciliation loop interval
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whale-operator
+  namespace: app-96
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whale-operator
+  template:
+    metadata:
+      labels:
+        app: whale-operator
+    spec:
+      serviceAccountName: whale-operator
+      containers:
+      - name: operator
+        image: python:3.9-slim
+        command: ["python", "/app/operator.py"]
+        env:
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: operator-code
+          mountPath: /app
+      volumes:
+      - name: operator-code
+        secret:
+          secretName: whale-operator
+          defaultMode: 0755
+
+---
+apiVersion: ocean.io/v1
+kind: WhaleWatcher
+metadata:
+  name: blue-whale
+  namespace: app-96
+spec:
+  whaleType: "blue"
+  location: "Pacific Ocean"
+  depth: 200
+
+---
+apiVersion: ocean.io/v1
+kind: WhaleWatcher
+metadata:
+  name: humpback-whale
+  namespace: app-96
+spec:
+  whaleType: "humpback"
+  location: "Atlantic Ocean"
+  depth: 150

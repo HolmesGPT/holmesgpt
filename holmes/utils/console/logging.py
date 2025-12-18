@@ -41,8 +41,13 @@ def suppress_noisy_logs():
     warnings.filterwarnings("ignore", category=UserWarning, module="slack_sdk.*")
 
 
-def init_logging(verbose_flags: Optional[List[bool]] = None):
+def init_logging(verbose_flags: Optional[List[bool]] = None, log_costs: bool = False):
     verbosity = cli_flags_to_verbosity(verbose_flags)  # type: ignore
+
+    # Setup cost logger if requested
+    if log_costs:
+        cost_logger = logging.getLogger("holmes.costs")
+        cost_logger.setLevel(logging.DEBUG)
 
     if verbosity == Verbosity.VERY_VERBOSE:
         logging.basicConfig(

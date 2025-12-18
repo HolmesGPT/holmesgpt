@@ -8,49 +8,84 @@ import tempfile
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, OrderedDict, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    OrderedDict,
+    Tuple,
+    Union,
+)
 
 from jinja2 import Template
-from pydantic import BaseModel, ConfigDict, Field, FilePath, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FilePath,
+    model_validator,
+    PrivateAttr,
+)
 from rich.console import Console
 
+from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.core.transformers import (
+    registry,
+    TransformerError,
+    Transformer,
+)
+
+if TYPE_CHECKING:
+    from holmes.core.transformers import BaseTransformer
+from holmes.utils.config_utils import merge_transformers
 import time
 from rich.table import Table
 
+logger = logging.getLogger(__name__)
 
-class ToolResultStatus(str, Enum):
+
+class StructuredToolResultStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
     NO_DATA = "no_data"
+    APPROVAL_REQUIRED = "approval_required"
 
     def to_color(self) -> str:
-        if self == ToolResultStatus.SUCCESS:
+        if self == StructuredToolResultStatus.SUCCESS:
             return "green"
-        elif self == ToolResultStatus.ERROR:
+        elif self == StructuredToolResultStatus.ERROR:
             return "red"
+        elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
+            return "yellow"
         else:
             return "white"
 
     def to_emoji(self) -> str:
-        if self == ToolResultStatus.SUCCESS:
+        if self == StructuredToolResultStatus.SUCCESS:
             return "✔"
-        elif self == ToolResultStatus.ERROR:
+        elif self == StructuredToolResultStatus.ERROR:
             return "❌"
+        elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
+            return "⚠️"
         else:
             return "⚪️"
 
 
 class StructuredToolResult(BaseModel):
     schema_version: str = "robusta:v1.0.0"
-    status: ToolResultStatus
+    status: StructuredToolResultStatus
     error: Optional[str] = None
     return_code: Optional[int] = None
     data: Optional[Any] = None
     url: Optional[str] = None
     invocation: Optional[str] = None
     params: Optional[Dict] = None
+    icon_url: Optional[str] = None
 
     def get_stringified_data(self) -> str:
         if self.data is None:
@@ -61,9 +96,11 @@ class StructuredToolResult(BaseModel):
         else:
             try:
                 if isinstance(self.data, BaseModel):
-                    return self.data.model_dump_json(indent=2)
+                    return self.data.model_dump_json()
                 else:
-                    return json.dumps(self.data, indent=2)
+                    return json.dumps(
+                        self.data, separators=(",", ":"), ensure_ascii=False
+                    )
             except Exception:
                 return str(self.data)
 
@@ -121,6 +158,20 @@ class ToolParameter(BaseModel):
     description: Optional[str] = None
     type: str = "string"
     required: bool = True
+    properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
+    items: Optional["ToolParameter"] = None  # For array item schemas
+    enum: Optional[List[str]] = None  # For restricting to specific values
+
+
+class ToolInvokeContext(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    tool_number: Optional[int] = None
+    user_approved: bool = False
+    llm: LLM
+    max_token_count: int
+    tool_call_id: str
+    tool_name: str
 
 
 class Tool(ABC, BaseModel):
@@ -131,37 +182,186 @@ class Tool(ABC, BaseModel):
         None  # templated string to show to the user describing this tool invocation (not seen by llm)
     )
     additional_instructions: Optional[str] = None
+    icon_url: Optional[str] = Field(
+        default=None,
+        description="The URL of the icon for the tool, if None will get toolset icon",
+    )
+    transformers: Optional[List[Transformer]] = None
 
-    def get_openai_format(self):
+    # Private attribute to store initialized transformer instances for performance
+    _transformer_instances: Optional[List["BaseTransformer"]] = PrivateAttr(
+        default=None
+    )
+
+    def model_post_init(self, __context) -> None:
+        """Initialize transformer instances once during tool creation for better performance."""
+        logger.debug(
+            f"Tool '{self.name}' model_post_init: creating transformer instances"
+        )
+
+        if self.transformers:
+            logger.debug(
+                f"Tool '{self.name}' has {len(self.transformers)} transformers to initialize"
+            )
+            self._transformer_instances = []
+            for transformer in self.transformers:
+                if not transformer:
+                    continue
+                logger.debug(
+                    f"  Initializing transformer '{transformer.name}' with config: {transformer.config}"
+                )
+                try:
+                    # Create transformer instance once and cache it
+                    transformer_instance = registry.create_transformer(
+                        transformer.name, transformer.config
+                    )
+                    self._transformer_instances.append(transformer_instance)
+                    logger.debug(
+                        f"Initialized transformer '{transformer.name}' for tool '{self.name}'"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to initialize transformer '{transformer.name}' for tool '{self.name}': {e}"
+                    )
+                    # Continue with other transformers, don't fail the entire initialization
+                    continue
+        else:
+            logger.debug(f"Tool '{self.name}' has no transformers")
+            self._transformer_instances = None
+
+    def get_openai_format(self, target_model: str):
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
             tool_description=self.description,
             tool_parameters=self.parameters,
+            target_model=target_model,
         )
 
     def invoke(
-        self, params: Dict, tool_number: Optional[int] = None
+        self,
+        params: Dict,
+        context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        tool_number_str = f"#{tool_number} " if tool_number else ""
-        logging.info(
+        tool_number_str = f"#{context.tool_number} " if context.tool_number else ""
+        logger.info(
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
         start_time = time.time()
-        result = self._invoke(params)
+        result = self._invoke(params=params, context=context)
+        result.icon_url = self.icon_url
+
+        # Apply transformers to the result
+        transformed_result = self._apply_transformers(result)
         elapsed = time.time() - start_time
         output_str = (
-            result.get_stringified_data()
-            if hasattr(result, "get_stringified_data")
-            else str(result)
+            transformed_result.get_stringified_data()
+            if hasattr(transformed_result, "get_stringified_data")
+            else str(transformed_result)
         )
-        show_hint = f"/show {tool_number}" if tool_number else "/show"
-        logging.info(
-            f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters - {show_hint} to view contents[/dim]"
+        show_hint = f"/show {context.tool_number}" if context.tool_number else "/show"
+        line_count = output_str.count("\n") + 1 if output_str else 0
+        logger.info(
+            f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
+        return transformed_result
+
+    def _apply_transformers(self, result: StructuredToolResult) -> StructuredToolResult:
+        """
+        Apply configured transformers to the tool result.
+
+        Args:
+            result: The original tool result
+
+        Returns:
+            The tool result with transformed data, or original result if transformation fails
+        """
+        if (
+            not self._transformer_instances
+            or result.status != StructuredToolResultStatus.SUCCESS
+        ):
+            return result
+
+        # Get the output string to transform
+        original_data = result.get_stringified_data()
+        if not original_data:
+            return result
+
+        transformed_data = original_data
+        transformers_applied = []
+
+        # Use cached transformer instances instead of creating new ones
+        for transformer_instance in self._transformer_instances:
+            try:
+                # Check if transformer should be applied
+                if not transformer_instance.should_apply(transformed_data):
+                    logger.debug(
+                        f"Transformer '{transformer_instance.name}' skipped for tool '{self.name}' (conditions not met)"
+                    )
+                    continue
+
+                # Apply transformation
+                pre_transform_size = len(transformed_data)
+                transform_start_time = time.time()
+                original_data = transformed_data  # Keep a copy for potential reversion
+                transformed_data = transformer_instance.transform(transformed_data)
+                transform_elapsed = time.time() - transform_start_time
+
+                # Check if this is llm_summarize and revert if summary is not smaller
+                post_transform_size = len(transformed_data)
+                if (
+                    transformer_instance.name == "llm_summarize"
+                    and post_transform_size >= pre_transform_size
+                ):
+                    # Revert to original data if summary is not smaller
+                    transformed_data = original_data
+                    logger.debug(
+                        f"Transformer '{transformer_instance.name}' reverted for tool '{self.name}' "
+                        f"(output size {post_transform_size:,} >= input size {pre_transform_size:,})"
+                    )
+                    continue  # Don't mark as applied
+
+                transformers_applied.append(transformer_instance.name)
+
+                # Generic logging - transformers can override this with their own specific metrics
+                size_change = post_transform_size - pre_transform_size
+                logger.info(
+                    f"Applied transformer '{transformer_instance.name}' to tool '{self.name}' output "
+                    f"in {transform_elapsed:.2f}s (size: {pre_transform_size:,} → {post_transform_size:,} chars, "
+                    f"change: {size_change:+,})"
+                )
+
+            except TransformerError as e:
+                logger.warning(
+                    f"Transformer '{transformer_instance.name}' failed for tool '{self.name}': {e}"
+                )
+                # Continue with other transformers, don't fail the entire chain
+                continue
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error applying transformer '{transformer_instance.name}' to tool '{self.name}': {e}"
+                )
+                # Continue with other transformers
+                continue
+
+        # If any transformers were applied, update the result
+        if transformers_applied:
+            # Create a copy of the result with transformed data
+            result_dict = result.model_dump(exclude={"data"})
+            result_dict["data"] = transformed_data
+            return StructuredToolResult(**result_dict)
+
         return result
 
     @abstractmethod
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(
+        self,
+        params: dict,
+        context: ToolInvokeContext,
+    ) -> StructuredToolResult:
+        """
+        params: the tool params
+        user_approved: whether the tool call is approved by the user. Can be used to confidently execute unsafe actions.
+        """
         pass
 
     @abstractmethod
@@ -206,21 +406,27 @@ class YAMLTool(Tool, BaseModel):
         context = {**params}
         return context
 
-    def _get_status(self, return_code: int, raw_output: str) -> ToolResultStatus:
+    def _get_status(
+        self, return_code: int, raw_output: str
+    ) -> StructuredToolResultStatus:
         if return_code != 0:
-            return ToolResultStatus.ERROR
+            return StructuredToolResultStatus.ERROR
         if raw_output == "":
-            return ToolResultStatus.NO_DATA
-        return ToolResultStatus.SUCCESS
+            return StructuredToolResultStatus.NO_DATA
+        return StructuredToolResultStatus.SUCCESS
 
-    def _invoke(self, params) -> StructuredToolResult:
+    def _invoke(
+        self,
+        params: dict,
+        context: ToolInvokeContext,
+    ) -> StructuredToolResult:
         if self.command is not None:
             raw_output, return_code, invocation = self.__invoke_command(params)
         else:
             raw_output, return_code, invocation = self.__invoke_script(params)  # type: ignore
 
         if self.additional_instructions and return_code == 0:
-            logging.info(
+            logger.info(
                 f"Applying additional instructions: {self.additional_instructions}"
             )
             output_with_instructions = self.__apply_additional_instructions(raw_output)
@@ -255,7 +461,7 @@ class YAMLTool(Tool, BaseModel):
             )
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
-            logging.error(
+            logger.error(
                 f"Failed to apply additional instructions: {self.additional_instructions}. "
                 f"Error: {e.stderr}"
             )
@@ -290,7 +496,7 @@ class YAMLTool(Tool, BaseModel):
 
     def __execute_subprocess(self, cmd) -> Tuple[str, int]:
         try:
-            logging.debug(f"Running `{cmd}`")
+            logger.debug(f"Running `{cmd}`")
             result = subprocess.run(
                 cmd,
                 shell=True,
@@ -303,7 +509,7 @@ class YAMLTool(Tool, BaseModel):
 
             return result.stdout.strip(), result.returncode
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"An unexpected error occurred while running '{cmd}': {e}",
                 exc_info=True,
             )
@@ -355,6 +561,7 @@ class Toolset(BaseModel):
     config: Optional[Any] = None
     is_default: bool = False
     llm_instructions: Optional[str] = None
+    transformers: Optional[List[Transformer]] = None
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
@@ -380,13 +587,85 @@ class Toolset(BaseModel):
     @model_validator(mode="before")
     def preprocess_tools(cls, values):
         additional_instructions = values.get("additional_instructions", "")
+        transformers = values.get("transformers", None)
         tools_data = values.get("tools", [])
+
+        # Convert raw dict transformers to Transformer objects BEFORE merging
+        if transformers:
+            converted_transformers = []
+            for t in transformers:
+                if isinstance(t, dict):
+                    try:
+                        transformer_obj = Transformer(**t)
+                        # Check if transformer is registered
+                        from holmes.core.transformers import registry
+
+                        if not registry.is_registered(transformer_obj.name):
+                            logger.warning(
+                                f"Invalid toolset transformer configuration: Transformer '{transformer_obj.name}' is not registered"
+                            )
+                            continue  # Skip invalid transformer
+                        converted_transformers.append(transformer_obj)
+                    except Exception as e:
+                        # Log warning and skip invalid transformer
+                        logger.warning(
+                            f"Invalid toolset transformer configuration: {e}"
+                        )
+                        continue
+                else:
+                    # Already a Transformer object
+                    converted_transformers.append(t)
+            transformers = converted_transformers if converted_transformers else None
+
         tools = []
         for tool in tools_data:
             if isinstance(tool, dict):
                 tool["additional_instructions"] = additional_instructions
+
+                # Convert tool-level transformers to Transformer objects
+                tool_transformers = tool.get("transformers")
+                if tool_transformers:
+                    converted_tool_transformers = []
+                    for t in tool_transformers:
+                        if isinstance(t, dict):
+                            try:
+                                transformer_obj = Transformer(**t)
+                                # Check if transformer is registered
+                                from holmes.core.transformers import registry
+
+                                if not registry.is_registered(transformer_obj.name):
+                                    logger.warning(
+                                        f"Invalid tool transformer configuration: Transformer '{transformer_obj.name}' is not registered"
+                                    )
+                                    continue  # Skip invalid transformer
+                                converted_tool_transformers.append(transformer_obj)
+                            except Exception as e:
+                                # Log warning and skip invalid transformer
+                                logger.warning(
+                                    f"Invalid tool transformer configuration: {e}"
+                                )
+                                continue
+                        else:
+                            # Already a Transformer object
+                            converted_tool_transformers.append(t)
+                    tool_transformers = (
+                        converted_tool_transformers
+                        if converted_tool_transformers
+                        else None
+                    )
+
+                # Merge toolset-level transformers with tool-level configs
+                tool["transformers"] = merge_transformers(
+                    base_transformers=transformers,
+                    override_transformers=tool_transformers,
+                )
             if isinstance(tool, Tool):
                 tool.additional_instructions = additional_instructions
+                # Merge toolset-level transformers with tool-level configs
+                tool.transformers = merge_transformers(  # type: ignore
+                    base_transformers=transformers,
+                    override_transformers=tool.transformers,
+                )
             tools.append(tool)
         values["tools"] = tools
 
@@ -408,7 +687,26 @@ class Toolset(BaseModel):
     def check_prerequisites(self):
         self.status = ToolsetStatusEnum.ENABLED
 
-        for prereq in self.prerequisites:
+        # Sort prerequisites by type to fail fast on missing env vars before
+        # running slow commands (e.g., ArgoCD checks that timeout):
+        # 1. Static checks (instant)
+        # 2. Environment variable checks (instant, often required by commands)
+        # 3. Callable checks (variable speed)
+        # 4. Command checks (slowest - may timeout or hang)
+        def prereq_priority(prereq):
+            if isinstance(prereq, StaticPrerequisite):
+                return 0
+            elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
+                return 1
+            elif isinstance(prereq, CallablePrerequisite):
+                return 2
+            elif isinstance(prereq, ToolsetCommandPrerequisite):
+                return 3
+            return 4  # Unknown types go last
+
+        sorted_prereqs = sorted(self.prerequisites, key=prereq_priority)
+
+        for prereq in sorted_prereqs:
             if isinstance(prereq, ToolsetCommandPrerequisite):
                 try:
                     command = self.interpolate_command(prereq.command)
@@ -456,11 +754,11 @@ class Toolset(BaseModel):
                 self.status == ToolsetStatusEnum.DISABLED
                 or self.status == ToolsetStatusEnum.FAILED
             ):
-                logging.info(f"❌ Toolset {self.name}: {self.error}")
+                logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
                 return
 
-        logging.info(f"✅ Toolset {self.name}")
+        logger.info(f"✅ Toolset {self.name}")
 
     @abstractmethod
     def get_example_config(self) -> Dict[str, Any]:
@@ -472,6 +770,16 @@ class Toolset(BaseModel):
             prompt=jinja_template,
             context={"tool_names": tool_names, "config": self.config},
         )
+
+    def _load_llm_instructions_from_file(self, file_dir: str, filename: str) -> None:
+        """Helper method to load LLM instructions from a jinja2 template file.
+
+        Args:
+            file_dir: Directory where the template file is located (typically os.path.dirname(__file__))
+            filename: Name of the jinja2 template file (e.g., "toolset_grafana_dashboard.jinja2")
+        """
+        template_file_path = os.path.abspath(os.path.join(file_dir, filename))
+        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
 
 
 class YAMLToolset(Toolset):

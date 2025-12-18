@@ -1,0 +1,11 @@
+user_prompt: "Why is the monitoring-agent getting permission denied errors in namespace-81?"
+tags:
+  - kubernetes
+  - medium # failed 1/20 - https://www.braintrust.dev/app/robustadev/p/HolmesGPT/experiments/natan-all-easy-ask3?c=github-16532477432.2600.1&r=43781150-6d83-4682-893e-30e0a9a1ad9b&s=013ffb74-2805-42a7-bec9-3f20ec250010
+expected_output:
+  - Monitoring agent getting permission denied because its service account role only has get verb for pods but is missing list verb
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  sleep 30
+after_test: |
+  kubectl delete -f ./manifest.yaml

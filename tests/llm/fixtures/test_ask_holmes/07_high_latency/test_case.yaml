@@ -6,5 +6,4 @@ before_test: kubectl apply -f ./helm/manifest.yaml
 after_test: kubectl delete -f ./helm/manifest.yaml
 evaluation:
   correctness: 1
-tags:
-  - reproducible
+tags: []

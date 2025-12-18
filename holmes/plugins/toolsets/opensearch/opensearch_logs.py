@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Set
 
 import requests  # type: ignore
 from requests import RequestException  # type: ignore
@@ -8,14 +8,16 @@ from urllib.parse import urljoin
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     BasePodLoggingToolset,
     FetchPodLogsParams,
+    LoggingCapability,
     PodLoggingTool,
     process_time_parameters,
+    DEFAULT_TIME_SPAN_SECONDS,
 )
 from holmes.plugins.toolsets.opensearch.opensearch_utils import (
     OpenSearchLoggingConfig,
@@ -31,20 +33,25 @@ LOGS_FIELDS_CACHE_KEY = "cached_logs_fields"
 class OpenSearchLogsToolset(BasePodLoggingToolset):
     """Implementation of the unified logging API for OpenSearch logs"""
 
+    @property
+    def supported_capabilities(self) -> Set[LoggingCapability]:
+        """OpenSearch only supports phrase matching, not regex or exclude filters"""
+        return set()  # No regex support, no exclude filter
+
     def __init__(self):
         super().__init__(
             name="opensearch/logs",
             description="OpenSearch integration to fetch logs",
-            docs_url="https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/opensearch_logs.html",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/opensearch-logs/",
             icon_url="https://opensearch.org/wp-content/uploads/2025/01/opensearch_mark_default.png",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            tools=[
-                PodLoggingTool(self),
-            ],
+            tools=[],  # Initialize with empty tools first
             tags=[
                 ToolsetTag.CORE,
             ],
         )
+        # Now that parent is initialized and self.name exists, create the tool
+        self.tools = [PodLoggingTool(self)]
 
     def get_example_config(self) -> Dict[str, Any]:
         example_config = OpenSearchLoggingConfig(
@@ -72,7 +79,7 @@ class OpenSearchLogsToolset(BasePodLoggingToolset):
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
         if not self.opensearch_config:
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error="Missing OpenSearch configuration",
                 params=params.model_dump(),
             )
@@ -82,7 +89,7 @@ class OpenSearchLogsToolset(BasePodLoggingToolset):
             end_time = None
             if params.start_time or params.end_time:
                 start_time, end_time = process_time_parameters(
-                    params.start_time, params.end_time
+                    params.start_time, params.end_time, DEFAULT_TIME_SPAN_SECONDS
                 )
 
             query = build_query(
@@ -119,13 +126,13 @@ class OpenSearchLogsToolset(BasePodLoggingToolset):
                     config=self.opensearch_config,
                 )
                 return StructuredToolResult(
-                    status=ToolResultStatus.SUCCESS,
+                    status=StructuredToolResultStatus.SUCCESS,
                     data=logs,
                     params=params.model_dump(),
                 )
             else:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     return_code=logs_response.status_code,
                     error=logs_response.text,
                     params=params.model_dump(),
@@ -134,21 +141,21 @@ class OpenSearchLogsToolset(BasePodLoggingToolset):
         except requests.Timeout:
             logging.warning("Timeout while fetching OpenSearch logs", exc_info=True)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error="Request timed out while fetching OpenSearch logs",
                 params=params.model_dump(),
             )
         except RequestException as e:
             logging.warning("Failed to fetch OpenSearch logs", exc_info=True)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Network error while fetching OpenSearch logs: {str(e)}",
                 params=params.model_dump(),
             )
         except Exception as e:
             logging.warning("Failed to process OpenSearch logs", exc_info=True)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Unexpected error: {str(e)}",
                 params=params.model_dump(),
             )

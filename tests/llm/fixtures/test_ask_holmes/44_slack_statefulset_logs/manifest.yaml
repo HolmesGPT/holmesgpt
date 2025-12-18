@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ask-holmes-slack-statefulset-logs
+  name: app-44
 
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: alertmanager-config
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
 data:
   config.yml: |
     global:
@@ -67,7 +67,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: alertmanager # Must match StatefulSet.spec.serviceName
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
   labels:
     app.kubernetes.io/name: alertmanager
 spec:
@@ -88,7 +88,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: alertmanager-ui
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
   labels:
     app.kubernetes.io/name: alertmanager
 spec:
@@ -106,7 +106,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: alertmanager
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
   labels:
     app.kubernetes.io/name: alertmanager
 spec:
@@ -143,11 +143,10 @@ spec:
           mountPath: /alertmanager
         resources: # Optional: Adjust based on your needs
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 10m
+            memory: 32Mi
           limits:
-            cpu: 500m
-            memory: 256Mi
+            memory: 128Mi
         readinessProbe:
           httpGet:
             path: /-/ready
@@ -180,7 +179,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: alertmanager-operator
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
 
 ---
 # Role for alertmanager-operator (namespace-scoped)
@@ -188,7 +187,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: alertmanager-operator
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
 rules:
 - apiGroups: [""]
   resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
@@ -209,7 +208,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: alertmanager-operator
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -217,7 +216,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: alertmanager-operator
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
 
 ---
 # Headless service for alertmanager-operator StatefulSet
@@ -225,7 +224,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: alertmanager-operator
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
   labels:
     app.kubernetes.io/name: alertmanager-operator
 spec:
@@ -243,7 +242,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: alertmanager-operator-metrics
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
   labels:
     app.kubernetes.io/name: alertmanager-operator
 spec:
@@ -261,7 +260,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: alertmanager-operator
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
   labels:
     app.kubernetes.io/name: alertmanager-operator
 spec:
@@ -287,7 +286,7 @@ spec:
           - "--kubelet-service=kube-system/kubelet"
           - "--log-level=info"
           - "--prometheus-config-reloader=quay.io/prometheus-operator/prometheus-config-reloader:v0.68.0"
-          - "--namespaces=ask-holmes-slack-statefulset-logs"
+          - "--namespaces=app-44"
         env:
         - name: GOGC
           value: "30"
@@ -295,11 +294,10 @@ spec:
           value: "200MiB"
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 10m
+            memory: 32Mi
           limits:
-            cpu: 500m
-            memory: 256Mi
+            memory: 128Mi
         ports:
         - name: metrics
           containerPort: 8080
@@ -324,10 +322,16 @@ apiVersion: monitoring.coreos.com/v1
 kind: Alertmanager
 metadata:
   name: alertmanager
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
 spec:
   replicas: 1
   configSecret: alertmanager-config-secret
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
   storage:
     volumeClaimTemplate:
       spec:
@@ -347,7 +351,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: alertmanager-config-secret
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
 type: Opaque
 stringData:
   alertmanager.yaml: |

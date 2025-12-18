@@ -7,8 +7,9 @@ from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
     Tool,
+    ToolInvokeContext,
     ToolParameter,
-    ToolResultStatus,
+    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
@@ -21,6 +22,7 @@ from holmes.plugins.toolsets.rabbitmq.api import (
     get_cluster_status,
     make_request,
 )
+from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class RabbitMQConfig(BaseModel):
@@ -62,7 +64,7 @@ class ListConfiguredClusters(BaseRabbitMQTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.config:
             raise ValueError("RabbitMQ is not configured.")
 
@@ -76,11 +78,13 @@ class ListConfiguredClusters(BaseRabbitMQTool):
             if c.connection_status == ClusterConnectionStatus.SUCCESS
         ]
         return StructuredToolResult(
-            status=ToolResultStatus.SUCCESS, data=available_clusters
+            status=StructuredToolResultStatus.SUCCESS, data=available_clusters
         )
 
     def get_parameterized_one_liner(self, params) -> str:
-        return "list configured RabbitMQ clusters"
+        return (
+            f"{toolset_name_for_one_liner(self.toolset.name)}: List RabbitMQ Clusters"
+        )
 
 
 class GetRabbitMQClusterStatus(BaseRabbitMQTool):
@@ -98,25 +102,30 @@ class GetRabbitMQClusterStatus(BaseRabbitMQTool):
             toolset=toolset,
         )
 
-    def _invoke(self, params: Any) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             # Fetch node details which include partition info
             cluster_config = self._get_cluster_config(
                 cluster_id=params.get("cluster_id")
             )
             result = get_cluster_status(cluster_config)
-            return StructuredToolResult(status=ToolResultStatus.SUCCESS, data=result)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.SUCCESS, data=result
+            )
 
         except Exception as e:
             logging.info("Failed to process RabbitMQ cluster status", exc_info=True)
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Unexpected error fetching RabbitMQ cluster status: {str(e)}",
                 data=None,
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        return "get RabbitMQ cluster status and partition information"
+        cluster_id = params.get("cluster_id", "")
+        if cluster_id:
+            return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Cluster Status ({cluster_id})"
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get Cluster Status"
 
 
 class RabbitMQToolset(Toolset):
@@ -124,7 +133,7 @@ class RabbitMQToolset(Toolset):
         super().__init__(
             name="rabbitmq/core",
             description="Provides tools to interact with RabbitMQ to diagnose cluster health, node status, and specifically network partitions (split-brain).",
-            docs_url="https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/rabbitmq.html",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/rabbitmq/",
             icon_url="https://cdn.worldvectorlogo.com/logos/rabbitmq.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[

@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task-scheduler
+  namespace: namespace-73a
+  labels:
+    app: task-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: task-scheduler
+  template:
+    metadata:
+      labels:
+        app: task-scheduler
+    spec:
+      containers:
+      - name: task-scheduler
+        image: python:3.9-slim
+        command: ["python"]
+        args: ["/scripts/generate_logs.py"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+      volumes:
+      - name: script-volume
+        secret:
+          secretName: task-scheduler-logs-script
+          defaultMode: 0755
+      restartPolicy: Always

@@ -1,0 +1,50 @@
+description: |
+  This test verifies that Holmes can query and display CPU/memory metrics from Datadog for a historical pod.
+  The namespace and deployment exist in Kubernetes with current pods running, but Holmes is asked about
+  a different pod name (representing a historical pod that was already deleted/replaced). The test sends
+  metrics to Datadog for the historical pod name, then asks Holmes to display graphs for that specific pod.
+  Holmes should use the Datadog metrics API to retrieve and display the metrics for the historical pod,
+  even though different pods are currently running in the deployment.
+
+before_test: |
+  # Deploy the actual deployment with current pods
+  kubectl apply -f manifest.yaml
+  kubectl wait --for=condition=available --timeout=60s deployment/telemetry-processor -n app-91d
+
+  # Get the actual pod names that are running (for reference)
+  echo "Current pods in deployment:"
+  kubectl get pods -n app-91d -l app=telemetry-processor
+
+  # Send CPU and memory metrics to Datadog for HISTORICAL pod names
+  # These simulate pods that existed previously but were deleted/replaced during a rollout
+  # Using realistic pod name format: deployment-name-<replicaset-hash>-<pod-id>
+  bash ../../shared/send_datadog_metrics.sh app-91d telemetry-processor-5f9d8b7c4d-x2km9 telemetry-processor
+  bash ../../shared/send_datadog_metrics.sh app-91d telemetry-processor-5f9d8b7c4d-p7nz3 telemetry-processor
+
+user_prompt:
+  - "Can you show me a cpu graph of the telemetry-processor-5f9d8b7c4d-x2km9 pod in namespace app-91d?"
+  - "Show me CPU metrics for telemetry-processor-5f9d8b7c4d-x2km9 in app-91d"
+  - "Display telemetry-processor-5f9d8b7c4d-x2km9 pod CPU usage graph from app-91d namespace"
+  - "I need to see the memory usage for telemetry-processor-5f9d8b7c4d-x2km9 in app-91d"
+  - "What's the CPU utilization of telemetry-processor-5f9d8b7c4d-x2km9 in namespace app-91d?"
+  - "Generate a memory graph for telemetry-processor-5f9d8b7c4d-x2km9 in app-91d"
+  - "Show CPU and memory charts for telemetry-processor-5f9d8b7c4d-x2km9 in namespace app-91d"
+  - "How much CPU is telemetry-processor-5f9d8b7c4d-x2km9 consuming in app-91d namespace?"
+  - "Plot memory consumption of telemetry-processor-5f9d8b7c4d-x2km9 over time in app-91d"
+  - "Can you visualize the resource usage for telemetry-processor-5f9d8b7c4d-x2km9 pod in the app-91d namespace?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - datadog
+  - embeds
+
+after_test: |
+  # Cleanup Kubernetes resources
+  kubectl delete -f manifest.yaml --ignore-not-found

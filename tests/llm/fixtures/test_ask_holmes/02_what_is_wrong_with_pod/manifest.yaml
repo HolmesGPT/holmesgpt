@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: giant-narwhal-6958c5bdd8-69gtn
+  namespace: app-02
+  labels:
+    app: ocean-explorer
+spec:
+  containers:
+  - name: main
+    image: busybox:1.35
+    command: ["sh", "-c", "tail /dev/zero"]
+    resources:
+      limits:
+        memory: "50Mi"
+      requests:
+        memory: "50Mi"

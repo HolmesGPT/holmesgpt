@@ -1,17 +1,17 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_yaml","match_params":{"kind":"statefulset","name":"alertmanager","namespace":"ask-holmes-slack-statefulset-logs"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -o yaml statefulset alertmanager -n ask-holmes-slack-statefulset-logs", "params": {"kind": "statefulset", "name": "alertmanager", "namespace": "ask-holmes-slack-statefulset-logs"}}
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_yaml","match_params":{"kind":"statefulset","name":"alertmanager","namespace":"app-44"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -o yaml statefulset alertmanager -n app-44", "params": {"kind": "statefulset", "name": "alertmanager", "namespace": "app-44"}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   annotations:
     kubectl.kubernetes.io/last-applied-configuration: |
-      {"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"annotations":{},"labels":{"app.kubernetes.io/name":"alertmanager"},"name":"alertmanager","namespace":"ask-holmes-slack-statefulset-logs"},"spec":{"replicas":1,"selector":{"matchLabels":{"app.kubernetes.io/name":"alertmanager"}},"serviceName":"alertmanager","template":{"metadata":{"labels":{"app.kubernetes.io/name":"alertmanager"}},"spec":{"containers":[{"args":["--config.file=/etc/alertmanager/config.yml","--storage.path=/alertmanager","--web.listen-address=:9093"],"image":"prom/alertmanager:v0.27.0","livenessProbe":{"failureThreshold":10,"httpGet":{"path":"/-/healthy","port":"web"},"initialDelaySeconds":30,"timeoutSeconds":5},"name":"alertmanager","ports":[{"containerPort":9093,"name":"web","protocol":"TCP"}],"readinessProbe":{"httpGet":{"path":"/-/ready","port":"web"},"initialDelaySeconds":10,"timeoutSeconds":5},"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}},"volumeMounts":[{"mountPath":"/etc/alertmanager","name":"config-volume"},{"mountPath":"/alertmanager","name":"storage-volume"}]}],"securityContext":{"fsGroup":2000,"runAsNonRoot":true,"runAsUser":1000},"volumes":[{"configMap":{"name":"alertmanager-config"},"name":"config-volume"}]}},"volumeClaimTemplates":[{"metadata":{"name":"storage-volume"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"2Gi"}}}}]}}
+      {"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"annotations":{},"labels":{"app.kubernetes.io/name":"alertmanager"},"name":"alertmanager","namespace":"app-44"},"spec":{"replicas":1,"selector":{"matchLabels":{"app.kubernetes.io/name":"alertmanager"}},"serviceName":"alertmanager","template":{"metadata":{"labels":{"app.kubernetes.io/name":"alertmanager"}},"spec":{"containers":[{"args":["--config.file=/etc/alertmanager/config.yml","--storage.path=/alertmanager","--web.listen-address=:9093"],"image":"prom/alertmanager:v0.27.0","livenessProbe":{"failureThreshold":10,"httpGet":{"path":"/-/healthy","port":"web"},"initialDelaySeconds":30,"timeoutSeconds":5},"name":"alertmanager","ports":[{"containerPort":9093,"name":"web","protocol":"TCP"}],"readinessProbe":{"httpGet":{"path":"/-/ready","port":"web"},"initialDelaySeconds":10,"timeoutSeconds":5},"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}},"volumeMounts":[{"mountPath":"/etc/alertmanager","name":"config-volume"},{"mountPath":"/alertmanager","name":"storage-volume"}]}],"securityContext":{"fsGroup":2000,"runAsNonRoot":true,"runAsUser":1000},"volumes":[{"configMap":{"name":"alertmanager-config"},"name":"config-volume"}]}},"volumeClaimTemplates":[{"metadata":{"name":"storage-volume"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"2Gi"}}}}]}}
   creationTimestamp: "2025-06-12T08:41:53Z"
   generation: 1
   labels:
     app.kubernetes.io/name: alertmanager
   name: alertmanager
-  namespace: ask-holmes-slack-statefulset-logs
+  namespace: app-44
   resourceVersion: "1837002"
   uid: 81079d90-aa3b-4900-a9b5-9708ba3100b1
 spec:

@@ -1,0 +1,46 @@
+description: |
+  This test verifies that Holmes can query and display CPU/memory metrics from Datadog
+  when the pod actually exists in the cluster. The test deploys a real pod to the cluster,
+  sends historical metrics to Datadog using their API, then asks Holmes to display graphs
+  for that pod. Holmes should find the pod in Kubernetes and use the Datadog metrics API
+  to retrieve and display the metrics.
+
+before_test: |
+  # Deploy the actual pod to the cluster
+  kubectl apply -f manifest.yaml
+
+  # Wait for the pod to be running
+  kubectl wait --for=condition=ready pod -l app=metrics-app -n metrics-91b --timeout=60s
+
+  # Send CPU and memory metrics to Datadog using their API
+  bash ../../shared/send_datadog_metrics.sh metrics-91b metrics-app
+
+user_prompt:
+  - "Can you show me a cpu graph of the metrics-app pod in namespace metrics-91b?"
+  - "Show me CPU metrics for metrics-app in metrics-91b"
+  - "Display metrics-app pod CPU usage graph from metrics-91b namespace"
+  - "I need to see the memory usage for metrics-app in metrics-91b"
+  - "What's the CPU utilization of the metrics-app pod in namespace metrics-91b?"
+  - "Generate a memory graph for metrics-app pods in metrics-91b"
+  - "Show CPU and memory charts for metrics-app in namespace metrics-91b"
+  - "How much CPU is metrics-app consuming in metrics-91b namespace?"
+  - "Plot memory consumption of metrics-app over time in metrics-91b"
+  - "Can you visualize the resource usage for metrics-app pod in the metrics-91b namespace?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - datadog
+  - embeds
+
+test_type: server
+
+after_test: |
+  # Cleanup the deployed resources
+  kubectl delete -f manifest.yaml --ignore-not-found=true

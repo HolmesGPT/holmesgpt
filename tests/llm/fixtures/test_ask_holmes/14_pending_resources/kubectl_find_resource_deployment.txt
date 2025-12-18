@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "deployment", "keyword": "user-profile-resources"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "deployment", "keyword": "user-profile-resources"}}
-stdout:
-default              user-profile-resources                      0/1     1            0           4m56s   profile-getter                                        nginx                                                                                                       app=user-profile-resources                                                                    <none>
-
-stderr:

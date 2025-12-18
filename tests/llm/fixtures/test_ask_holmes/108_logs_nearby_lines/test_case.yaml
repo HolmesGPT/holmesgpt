@@ -1,0 +1,20 @@
+description: |
+  A service has "Connection refused" errors
+  The cause is a configuration change
+  To understand what happened, holmes needs to see logs immediate BEFORE the first occurrence
+
+user_prompt: "What is causing connection refused errors in api-service namespace app-108?"
+
+tags:
+  - logs
+  - medium
+
+before_test: |
+  kubectl create namespace app-108 || true
+  kubectl apply -f ./manifest.yaml -n app-108
+  kubectl wait --for=condition=ready pod -l app=api-service -n app-108 --timeout=60s || true
+
+after_test: |
+  kubectl delete namespace app-108 || true
+
+expected_output: The first Connection refused errors started after a config reload that loaded staging database settings in production.

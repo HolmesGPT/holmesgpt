@@ -1,0 +1,31 @@
+user_prompt: "Fetch and list all logs from arctic-fox pod in app-27b namespace?"
+expected_output: |
+  logs mention all of the following
+  - "web container"
+  - "API requests"
+  - "sidecar container"
+  - "metrics"
+  - "CPU usage"
+
+before_test: |
+  # Create namespace
+  kubectl create namespace app-27b || true
+  # Create secret with the logs script
+  kubectl create secret generic arctic-fox-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n app-27b --dry-run=client -o yaml | kubectl apply -f -
+  # Deploy the multi-container pod
+  kubectl apply -f ./manifest.yaml
+  kubectl wait --for=condition=Ready pod/arctic-fox -n app-27b --timeout=60s
+  # Let it generate some logs
+  sleep 10
+
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret arctic-fox-logs-script -n app-27b --ignore-not-found
+  kubectl delete namespace app-27b --ignore-not-found
+
+tags:
+  - logs
+  - kubernetes
+  - medium

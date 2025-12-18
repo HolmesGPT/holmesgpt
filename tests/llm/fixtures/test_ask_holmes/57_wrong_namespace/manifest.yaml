@@ -38,8 +38,7 @@ spec:
           while true; do sleep 3600; done
         resources:
           requests:
-            memory: "32Mi"
-            cpu: "50m"
+            memory: "64Mi"
+            cpu: "10m"
           limits:
-            memory: "32Mi"
-            cpu: "50m"
+            memory: "64Mi"

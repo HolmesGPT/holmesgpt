@@ -1,14 +1,17 @@
-user_prompt: "What is the issue with job java-api-checker"
+user_prompt: "What is the issue with job java-api-checker in namespace app-12"
 expected_output:
   - The `java-api-checker` job repeatedly fails to connect to the database at `prod-db:3333`
 before_test: |
-  kubectl delete -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/job_failure/job_crash.yaml || true
-  kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/job_failure/job_crash.yaml
+  # Create namespace first since the secret depends on it (|| true ignores if it already exists)
+  kubectl create namespace app-12 || true
+  kubectl create secret generic java-api-checker-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n app-12 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./job.yaml
   sleep 40
 after_test: |
-  kubectl delete -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/job_failure/job_crash.yaml
-evaluation:
-  correctness: 1
-
+  kubectl delete -f ./job.yaml
+  kubectl delete secret java-api-checker-logs-script -n app-12 --ignore-not-found
+  kubectl delete namespace app-12 --ignore-not-found
 tags:
-  - reproducible
+  - hard

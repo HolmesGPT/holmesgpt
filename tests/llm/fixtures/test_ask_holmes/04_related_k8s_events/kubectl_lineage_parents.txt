@@ -1,7 +1,0 @@
-{"toolset_name": "kubernetes/extras", "tool_name": "kubectl_lineage_parents", "match_params": {"kind": "pod", "name": "nginx-6958c5bdd8-69gtn", "namespace": "default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_lineage_parents command", "params": {"kind": "pod", "name": "nginx-6958c5bdd8-69gtn", "namespace": "default"}}
-Command `kube-lineage pod nginx-6958c5bdd8-69gtn -n default -D` failed with return code 127
-stdout:
-
-stderr:
-/bin/sh: 1: kube-lineage: not found

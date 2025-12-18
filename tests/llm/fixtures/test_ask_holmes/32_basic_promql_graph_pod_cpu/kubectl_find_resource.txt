@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "robusta-holmes"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "robusta-holmes"}}
-stdout:
-default              robusta-holmes-7956c6bbc7-v5krl                              1/1     Running                 0                  63m    10.244.0.97   grafana-cloud-control-plane   <none>           <none>            app=holmes,pod-template-hash=7956c6bbc7
-
-stderr:

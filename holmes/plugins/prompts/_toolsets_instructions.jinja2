@@ -1,3 +1,5 @@
+# Toolset Setup and Configuration Instructions
+
 {%- set enabled_toolsets_with_instructions = [] -%}
 {%- set disabled_toolsets = [] -%}
 
@@ -9,8 +11,10 @@
   {%- endif -%}
 {%- endfor -%}
 
-{% if enabled_toolsets_with_instructions|list -%}
 # Available Toolsets
+{% include '_fetch_logs.jinja2' %}
+
+{% if enabled_toolsets_with_instructions|list %}
 {%- for toolset in enabled_toolsets_with_instructions -%}
 {% if toolset.llm_instructions %}
 
@@ -19,13 +23,13 @@
 {%- endif -%}
 {%- endfor -%}
 {%- endif -%}
-{% if disabled_toolsets %}
-# Disabled & failed Toolsets
 
+# Disabled & failed Toolsets
+{% if disabled_toolsets %}
 The following toolsets are either disabled or failed to initialize:
 {% for toolset in disabled_toolsets %}
 * toolset "{{ toolset.name }}": {{ toolset.description }}
-    {%- if toolset.status == "failed" %}
+    {%- if toolset.status.value == "failed" %}
     *  status: The toolset is enabled but misconfigured and failed to initialize.
       {%- if toolset.error %}
     *  error: {{ toolset.error }}
@@ -37,20 +41,24 @@ The following toolsets are either disabled or failed to initialize:
     *  setup instructions: {{ toolset.docs_url }}
     {%- endif -%}
 {%- endfor %}
+{% else %}
+<no toolsets are disabled or failed>
+{% endif %}
 
 If you need a toolset to access a system that you don't otherwise have access to:
   - Check the list of toolsets above and see if any loosely match the needs
   - If the toolset has `status: failed`: Tell the user and copy the error in your response for the user to see
-  - If the toolset has `status: disabled`: Ask the user to configure the it.
+  - If the toolset has `status: disabled`: Ask the user to configure it.
     - Share the setup instructions URL with the user
-    - Invoke the tool fetch_webpage on the toolset URL and summarize setup steps
-  - If there are no relevant toolsets in the list below, tell the user that you are missing an integration to access XYZ:
-    you should give an answer similar to "I don't have access to <system>. Please add a Holmes integration for <system> so
-    that I can investigate this."
-{% else %}
+  - If there are no relevant toolsets in the list above, tell the user that you are missing an integration to access XYZ:
+    You should give an answer similar to "I don't have access to <system>. To add a HolmesGPT integration for <system> you can [connect an MCP server](https://holmesgpt.dev/data-sources/remote-mcp-servers/) or add a [custom toolset](https://holmesgpt.dev/data-sources/custom-toolsets/)."
 
-# Disabled & failed Toolsets
+Likewise, if users ask about setting up or configuring integrations (e.g., "How can I give you access to ArgoCD applications?"):
+ALWAYS check if there's a disabled or failed toolset that matches what the user is asking about. If you find one:
+1. If the toolset has a specific documentation URL (toolset.docs_url), ALWAYS direct them to that URL first
+2. If no specific documentation exists, then direct them to the general Holmes documentation:
+   - For all toolset configurations: https://holmesgpt.dev/data-sources/
+   - For custom toolsets: https://holmesgpt.dev/data-sources/custom-toolsets/
+   - For remote MCP servers: https://holmesgpt.dev/data-sources/remote-mcp-servers/
 
-If you need a toolset to access a system that you don't otherwise have access to, tell the user that you are missing an integration to access XYZ.
-You should give an answer similar to "I don't have access to <system>. Please add a Holmes integration for <system> so that I can investigate this."
-{%- endif -%}
+When providing configuration guidance, always prefer the specific toolset documentation URL when available.

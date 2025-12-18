@@ -1,10 +1,16 @@
-user_prompt: 'What kubernetes events are related to << { "type": "pod", "name": "nginx-6958c5bdd8-69gtn", "namespace": "default" } >>'
-#user_prompt: "What kubernetes events are related to the nginx pod >>"
+user_prompt: "What kubernetes events are related to the nginx pod in app-04?"
 expected_output:
-  - "Scheduled: Successfully assigned to node `aks-nodepool1-26081864-vmss000004`"
-  - "Pulling: Pulling image `nginx`"
-  - "Pulled: Successfully pulled image `nginx`"
-  - "Created: Created container `nginxreplica`"
-  - "Started: Started container `nginxreplica`"
-evaluation:
-  correctness: 1
+  - "Container is failing or crashing (CrashLoopBackOff or similar restart events)"
+  - "Events showing repeated container restarts or failures"
+  - "BackOff events indicating container restart delays"
+  - "May see events about pulling image, creating container, and then container exiting with error"
+before_test: |
+  kubectl apply -f manifest.yaml
+  # Wait for the pod to crash at least once to generate events
+  sleep 30
+after_test: |
+  kubectl delete -f manifest.yaml
+tags:
+  - easy
+  - kubernetes
+  - question-answer

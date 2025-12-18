@@ -1,0 +1,65 @@
+ # Start Loki stack
+  docker compose -p 102a_loki_logs_transparency up -d
+
+  # Wait for Loki to be ready
+  echo "Waiting for Loki to be ready..."
+  while ! curl -fs http://localhost:3100/ready >/dev/null; do sleep 1; done
+  echo "Loki is ready!"
+
+  # Deploy nginx to Kubernetes
+  kubectl create namespace app-102a --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f nginx.yaml -n app-102a
+
+  # Wait for pod to be ready
+  echo "Waiting for nginx pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=nginx -n app-102a --timeout=5s 2>/dev/null; then
+      echo "✅ Nginx pod is ready!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Pod not ready yet, waiting 3s..."
+      sleep 3
+    fi
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Pod failed to become ready after 180 seconds"
+    kubectl get pods -n app-102a
+    exit 1
+  fi
+
+  # Get the pod name
+  POD_NAME=$(kubectl get pods -n app-102a -l app=nginx -o jsonpath='{.items[0].metadata.name}')
+  echo "Found pod: $POD_NAME"
+
+  echo "Pushing logs for pod: $POD_NAME "
+
+    # Build log entries for this pod
+    TIMESTAMP_NS=$(date +%s)000000000
+    LOG_ENTRIES=""
+    for i in $(seq 1 100); do
+        # Increment timestamp for each log
+        TS=$((TIMESTAMP_NS - (100-i) * 100000000000))
+        STATUS_CODES=(200 200 200 200 201 204)
+        STATUS=${STATUS_CODES[$((RANDOM % ${#STATUS_CODES[@]}))]}
+        ENDPOINTS=("/api/v1/users" "/api/v1/products" "/api/v1/orders" "/api/v1/inventory" "/health")
+        ENDPOINT=${ENDPOINTS[$((RANDOM % ${#ENDPOINTS[@]}))]}
+        RESPONSE_TIME=$((50 + RANDOM % 150))
+
+        LOG_LINE="{\\\"level\\\":\\\"INFO\\\",\\\"message\\\":\\\"HTTP request completed\\\",\\\"method\\\":\\\"GET\\\",\\\"path\\\":\\\"${ENDPOINT}\\\",\\\"status\\\":${STATUS},\\\"response_time_ms\\\":${RESPONSE_TIME},\\\"client_ip\\\":\\\"10.0.$((RANDOM % 256)).$((RANDOM % 256))\\\"}"
+
+        if [ -n "$LOG_ENTRIES" ]; then
+        LOG_ENTRIES="${LOG_ENTRIES},[\"${TS}\",\"${LOG_LINE}\"]"
+        else
+        LOG_ENTRIES="[\"${TS}\",\"${LOG_LINE}\"]"
+        fi
+    done
+
+    # Push logs to Loki
+    PAYLOAD="{\"streams\":[{\"stream\":{\"job\":\"nginx\",\"namespace\":\"app-102a\",\"pod\":\"${POD_NAME}\",\"app\":\"nginx\"},\"values\":[${LOG_ENTRIES}]}]}"
+    LOKI_URL="http://localhost:3100/loki/api/v1/push"
+    curl -s -X POST "${LOKI_URL}" \
+        -H "Content-Type: application/json" \
+        -d "${PAYLOAD}" && echo "✅ Pushed 100 logs for ${POD_NAME}"

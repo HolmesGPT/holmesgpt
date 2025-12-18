@@ -1,0 +1,33 @@
+user_prompt:
+- "The /checkout endpoint in namespace app-124 is experiencing high latency. Investigate why."
+
+expected_output:
+  - The answer must explicitly state that queries that include a promo code are slow or all slow requests include promo code.
+  - Including a query that mentions promo code is not sufficient.
+
+tags:
+  - kubernetes
+  - hard
+  - chain-of-causation
+  - prometheus
+
+port_forwards:
+  - namespace: app-124
+    service: prometheus
+    local_port: 10124
+    remote_port: 9090
+
+before_test: |
+  set -e  # Exit immediately if any command fails
+  kubectl create namespace app-124 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl apply -f prometheus-config.yaml -n app-124
+  kubectl apply -f ../../shared/prometheus.yaml -n app-124
+  kubectl apply -f holmes-all-in-one-fast.yaml -n app-124
+  ./run-holmes-check-curl-jq.sh
+  echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
+  kubectl delete job k6-coupon-split -n app-124 --ignore-not-found=true
+  kubectl delete pods -n app-124 -l job-name=k6-coupon-split --ignore-not-found=true
+  echo "✅ Test setup completed successfully"
+
+after_test: |
+  kubectl delete namespace app-124 || true

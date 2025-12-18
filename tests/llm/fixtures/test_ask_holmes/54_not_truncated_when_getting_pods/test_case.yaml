@@ -1,11 +1,10 @@
-user_prompt: "can you please check what is going on in ask-holmes-namespace-54b namespace on the robusta-prod cluster?"
+user_prompt: "can you please check what is going on in namespace-54b namespace on the robusta-prod cluster?"
 expected_output: |
   - mention fast-fail-pod failing because of image issues.
   - doesn't mention any other pod or any other problem
-before_test: kubectl apply -f ./manifest.yaml && ./check_replicas.sh  massive-pod-deployment-with-very-long-name 2000 ask-holmes-namespace-54a
-after_test: kubectl delete -f ./manifest.yaml && ./check_replicas.sh  massive-pod-deployment-with-very-long-name 0 ask-holmes-namespace-54a
-evaluation:
-  correctness: 1
-
+before_test: kubectl apply -f ./manifest.yaml && ./wait_for_replicas.sh  massive-pod-deployment-with-very-long-name 2000 namespace-54a
+after_test: kubectl delete -f ./manifest.yaml && ./wait_for_replicas.sh  massive-pod-deployment-with-very-long-name 0 namespace-54a
 tags:
-  - reproducible
+  - easy
+  - kubernetes
+  - context_window

@@ -1,0 +1,13 @@
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: true
+  grafana/loki:
+    enabled: true
+    config:
+      url: http://localhost:3101
+      api_key: ""  # No auth needed for local Loki
+      labels:
+        pod: pod_name  # Match the label used by Promtail
+        namespace: namespace

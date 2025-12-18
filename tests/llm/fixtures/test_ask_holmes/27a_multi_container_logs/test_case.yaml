@@ -1,0 +1,31 @@
+user_prompt: "Fetch logs from both containers in the llama pod in app-27a namespace?"
+expected_output: |
+  logs mention all of the following
+  - "web container"
+  - "API requests"
+  - "sidecar container"
+  - "metrics"
+  - "CPU usage"
+
+before_test: |
+  # Create namespace
+  kubectl create namespace app-27a || true
+  # Create secret with the logs script
+  kubectl create secret generic llama-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n app-27a --dry-run=client -o yaml | kubectl apply -f -
+  # Deploy the multi-container pod
+  kubectl apply -f ./manifest.yaml
+  kubectl wait --for=condition=Ready pod/llama -n app-27a --timeout=60s
+  # Let it generate some logs
+  sleep 10
+
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret llama-logs-script -n app-27a --ignore-not-found
+  kubectl delete namespace app-27a --ignore-not-found
+
+tags:
+  - logs
+  - kubernetes
+  - medium

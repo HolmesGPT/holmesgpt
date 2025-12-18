@@ -1,0 +1,18 @@
+user_prompt: "Show me the logs for the pod time-traveler in namespace app-99 from the last 24 hours"
+expected_output:
+  Quotes or summarizes logs.
+  Explicitly says logs are for time period of last 24 hours!
+
+before_test: |
+  kubectl create namespace app-99 || true
+  kubectl apply -f ./manifest.yaml
+
+after_test: |
+  kubectl delete -f ./manifest.yaml --ignore-not-found
+  kubectl delete namespace app-99 --ignore-not-found
+
+tags:
+  - logs
+  - transparency
+  - datetime
+  - medium

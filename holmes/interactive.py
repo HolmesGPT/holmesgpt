@@ -19,17 +19,39 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.shortcuts.prompt import CompleteStyle
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
+from pygments.lexers import guess_lexer
 from rich.console import Console
 from rich.markdown import Markdown, Panel
+from rich.markup import escape
 
+from holmes.common.env_vars import ENABLE_CLI_TOOL_APPROVAL
+from holmes.core.config import config_path_dir
+from holmes.core.feedback import (
+    PRIVACY_NOTICE_BANNER,
+    Feedback,
+    FeedbackCallback,
+    UserFeedback,
+)
 from holmes.core.prompt import build_initial_ask_messages
-from holmes.core.tool_calling_llm import ToolCallingLLM, ToolCallResult
-from holmes.core.tools import pretty_print_toolset_status
-from holmes.version import check_version_async
+from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
+from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
+from holmes.utils.file_utils import write_json_file
 from holmes.core.tracing import DummyTracer
+from holmes.utils.colors import (
+    AI_COLOR,
+    ERROR_COLOR,
+    HELP_COLOR,
+    STATUS_COLOR,
+    TOOLS_COLOR,
+    USER_COLOR,
+)
+from holmes.utils.console.consts import agent_name
+from holmes.version import check_version_async
+import re
 
 
 class SlashCommands(Enum):
@@ -49,19 +71,25 @@ class SlashCommands(Enum):
     )
     CONTEXT = ("/context", "Show conversation context size and token count")
     SHOW = ("/show", "Show specific tool output in scrollable view")
+    FEEDBACK = ("/feedback", "Provide feedback on the agent's response")
 
     def __init__(self, command, description):
         self.command = command
         self.description = description
 
 
-SLASH_COMMANDS_REFERENCE = {cmd.command: cmd.description for cmd in SlashCommands}
-ALL_SLASH_COMMANDS = [cmd.command for cmd in SlashCommands]
-
-
 class SlashCommandCompleter(Completer):
-    def __init__(self):
-        self.commands = SLASH_COMMANDS_REFERENCE
+    def __init__(self, unsupported_commands: Optional[List[str]] = None):
+        # Build commands dictionary, excluding unsupported commands
+        all_commands = {cmd.command: cmd.description for cmd in SlashCommands}
+        if unsupported_commands:
+            self.commands = {
+                cmd: desc
+                for cmd, desc in all_commands.items()
+                if cmd not in unsupported_commands
+            }
+        else:
+            self.commands = all_commands
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
@@ -139,14 +167,49 @@ class ConditionalExecutableCompleter(Completer):
                         )
 
 
-USER_COLOR = "#DEFCC0"  # light green
-AI_COLOR = "#00FFFF"  # cyan
-TOOLS_COLOR = "magenta"
-HELP_COLOR = "cyan"  # same as AI_COLOR for now
-ERROR_COLOR = "red"
-STATUS_COLOR = "yellow"
+class ShowCommandCompleter(Completer):
+    """Completer that provides suggestions for /show command based on tool call history"""
 
-WELCOME_BANNER = f"[bold {HELP_COLOR}]Welcome to HolmesGPT:[/bold {HELP_COLOR}] Type '{SlashCommands.EXIT.command}' to exit, '{SlashCommands.HELP.command}' for commands."
+    def __init__(self):
+        self.tool_calls_history = []
+
+    def update_history(self, tool_calls_history: List[ToolCallResult]):
+        """Update the tool calls history for completion suggestions"""
+        self.tool_calls_history = tool_calls_history
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+
+        # Only provide completion if the line starts with /show
+        if text.startswith("/show "):
+            # Extract the argument part after "/show "
+            show_part = text[6:]  # Remove "/show "
+
+            # Don't complete if there are already multiple words
+            words = show_part.split()
+            if len(words) > 1:
+                return
+
+            # Provide completions based on available tool calls
+            if self.tool_calls_history:
+                for i, tool_call in enumerate(self.tool_calls_history):
+                    tool_index = str(i + 1)  # 1-based index
+                    tool_description = tool_call.description
+
+                    # Complete tool index numbers (show all if empty, or filter by what user typed)
+                    if (
+                        not show_part
+                        or tool_index.startswith(show_part)
+                        or show_part.lower() in tool_description.lower()
+                    ):
+                        yield Completion(
+                            tool_index,
+                            start_position=-len(show_part),
+                            display=f"{tool_index} - {tool_description}",
+                        )
+
+
+WELCOME_BANNER = f"[bold {HELP_COLOR}]Welcome to {agent_name}:[/bold {HELP_COLOR}] Type '{SlashCommands.EXIT.command}' to exit, '{SlashCommands.HELP.command}' for commands."
 
 
 def format_tool_call_output(
@@ -183,6 +246,35 @@ def format_tool_call_output(
 def build_modal_title(tool_call: ToolCallResult, wrap_status: str) -> str:
     """Build modal title with navigation instructions."""
     return f"{tool_call.description} (exit: q, nav: ↑↓/j/k/g/G/d/u/f/b/space, wrap: w [{wrap_status}])"
+
+
+def strip_ansi_codes(text: str) -> str:
+    ansi_escape_pattern = re.compile(
+        r"\x1b\[[0-9;]*[a-zA-Z]|\033\[[0-9;]*[a-zA-Z]|\^\[\[[0-9;]*[a-zA-Z]"
+    )
+    return ansi_escape_pattern.sub("", text)
+
+
+def detect_lexer(content: str) -> Optional[PygmentsLexer]:
+    """
+    Detect appropriate lexer for content using Pygments' built-in detection.
+
+    Args:
+        content: String content to analyze
+
+    Returns:
+        PygmentsLexer instance if content type is detected, None otherwise
+    """
+    if not content.strip():
+        return None
+
+    try:
+        # Use Pygments' built-in lexer guessing
+        lexer = guess_lexer(content)
+        return PygmentsLexer(lexer.__class__)
+    except Exception:
+        # If detection fails, return None for no syntax highlighting
+        return None
 
 
 def handle_show_command(
@@ -244,7 +336,11 @@ def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
     try:
         # Get the full output
         output = tool_call.result.get_stringified_data()
+        output = strip_ansi_codes(output)
         title = build_modal_title(tool_call, "off")  # Word wrap starts disabled
+
+        # Detect appropriate syntax highlighting
+        lexer = detect_lexer(output)
 
         # Create text area with the output
         text_area = TextArea(
@@ -253,6 +349,7 @@ def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
             scrollbar=True,
             line_numbers=False,
             wrap_lines=False,  # Disable word wrap by default
+            lexer=lexer,
         )
 
         # Create header
@@ -275,15 +372,18 @@ def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
         # Create key bindings
         bindings = KeyBindings()
 
-        # Exit commands
+        # Track exit state to prevent double exits
+        exited = False
+
+        # Exit commands (q, escape, or ctrl+c to exit)
         @bindings.add("q")
         @bindings.add("escape")
-        def _(event):
-            event.app.exit()
-
         @bindings.add("c-c")
         def _(event):
-            event.app.exit()
+            nonlocal exited
+            if not exited:
+                exited = True
+                event.app.exit()
 
         # Vim/less-like navigation
         @bindings.add("j")
@@ -390,10 +490,14 @@ def handle_context_command(messages, ai: ToolCallingLLM, console: Console) -> No
         return
 
     # Calculate context statistics
-    total_tokens = ai.llm.count_tokens_for_message(messages)
+    tokens_metadata = ai.llm.count_tokens(
+        messages
+    )  # TODO: pass tools to also count tokens used by input tools
     max_context_size = ai.llm.get_context_window_size()
     max_output_tokens = ai.llm.get_maximum_output_token()
-    available_tokens = max_context_size - total_tokens - max_output_tokens
+    available_tokens = (
+        max_context_size - tokens_metadata.total_tokens - max_output_tokens
+    )
 
     # Analyze token distribution by role and tool calls
     role_token_usage: DefaultDict[str, int] = defaultdict(int)
@@ -402,19 +506,21 @@ def handle_context_command(messages, ai: ToolCallingLLM, console: Console) -> No
 
     for msg in messages:
         role = msg.get("role", "unknown")
-        msg_tokens = ai.llm.count_tokens_for_message([msg])
-        role_token_usage[role] += msg_tokens
+        message_tokens = ai.llm.count_tokens(
+            [msg]
+        )  # TODO: pass tools to also count tokens used by input tools
+        role_token_usage[role] += message_tokens.total_tokens
 
         # Track individual tool usage
         if role == "tool":
             tool_name = msg.get("name", "unknown_tool")
-            tool_token_usage[tool_name] += msg_tokens
+            tool_token_usage[tool_name] += message_tokens.total_tokens
             tool_call_counts[tool_name] += 1
 
     # Display context information
     console.print(f"[bold {STATUS_COLOR}]Conversation Context:[/bold {STATUS_COLOR}]")
     console.print(
-        f"  Context used: {total_tokens:,} / {max_context_size:,} tokens ({(total_tokens / max_context_size) * 100:.1f}%)"
+        f"  Context used: {tokens_metadata.total_tokens:,} / {max_context_size:,} tokens ({(tokens_metadata.total_tokens / max_context_size) * 100:.1f}%)"
     )
     console.print(
         f"  Space remaining: {available_tokens:,} for input ({(available_tokens / max_context_size) * 100:.1f}%) + {max_output_tokens:,} reserved for output ({(max_output_tokens / max_context_size) * 100:.1f}%)"
@@ -425,7 +531,11 @@ def handle_context_command(messages, ai: ToolCallingLLM, console: Console) -> No
     for role in ["system", "user", "assistant", "tool"]:
         if role in role_token_usage:
             tokens = role_token_usage[role]
-            percentage = (tokens / total_tokens) * 100 if total_tokens > 0 else 0
+            percentage = (
+                (tokens / tokens_metadata.total_tokens) * 100
+                if tokens_metadata.total_tokens > 0
+                else 0
+            )
             role_name = {
                 "system": "system prompt",
                 "user": "user messages",
@@ -506,6 +616,53 @@ def prompt_for_llm_sharing(
         return user_input
 
     return None
+
+
+def handle_tool_approval(
+    command: Optional[str],
+    error_message: Optional[str],
+    style: Style,
+    console: Console,
+) -> tuple[bool, Optional[str]]:
+    """
+    Handle user approval for potentially sensitive commands.
+
+    Args:
+        command: The command that needs approval
+        error_message: The error message explaining why approval is needed
+        session: PromptSession for user input
+        style: Style for prompts
+        console: Rich console for output
+
+    Returns:
+        Tuple of (approved: bool, feedback: Optional[str])
+        - approved: True if user approves, False if denied
+        - feedback: User's optional feedback message when denying
+    """
+    console.print("\n[bold yellow]⚠️  Command Approval Required[/bold yellow]")
+    console.print(f"[yellow]Command:[/yellow] {command or 'unknown'}")
+    console.print(f"[yellow]Reason:[/yellow] {error_message or 'unknown'}")
+    console.print()
+
+    # Create a temporary session without history for approval prompts
+    temp_session = PromptSession(history=InMemoryHistory())  # type: ignore
+
+    approval_prompt = temp_session.prompt(
+        [("class:prompt", "Do you want to approve and execute this command? (y/N): ")],
+        style=style,
+    )
+
+    if approval_prompt.lower().startswith("y"):
+        return True, None
+    else:
+        # Ask for optional feedback when denying
+        feedback_prompt = temp_session.prompt(
+            [("class:prompt", "Optional feedback for the AI (press Enter to skip): ")],
+            style=style,
+        )
+
+        feedback = feedback_prompt.strip() if feedback_prompt.strip() else None
+        return False, feedback
 
 
 def handle_run_command(
@@ -596,7 +753,7 @@ def handle_shell_command(
         Formatted user input string if user chooses to share, None otherwise
     """
     console.print(
-        f"[bold {STATUS_COLOR}]Starting interactive shell. Type 'exit' to return to HolmesGPT.[/bold {STATUS_COLOR}]"
+        f"[bold {STATUS_COLOR}]Starting interactive shell. Type 'exit' to return to {agent_name}.[/bold {STATUS_COLOR}]"
     )
     console.print(
         "[dim]Shell session will be recorded and can be shared with LLM when you exit.[/dim]"
@@ -687,6 +844,88 @@ def handle_last_command(
         )
 
 
+def handle_feedback_command(
+    style: Style,
+    console: Console,
+    feedback: Feedback,
+    feedback_callback: FeedbackCallback,
+) -> None:
+    """Handle the /feedback command to collect user feedback."""
+    try:
+        # Create a temporary session without history for feedback prompts
+        temp_session = PromptSession(history=InMemoryHistory())  # type: ignore
+        # Prominent privacy notice to users
+        console.print(
+            f"[bold {HELP_COLOR}]Privacy Notice:[/bold {HELP_COLOR}] {PRIVACY_NOTICE_BANNER}"
+        )
+        # A "Cancel" button of equal discoverability to "Sent" or "Submit" buttons must be made available
+        console.print(
+            "[bold yellow]💡 Tip: Press Ctrl+C at any time to cancel feedback[/bold yellow]"
+        )
+
+        # Ask for thumbs up/down rating with validation
+        while True:
+            rating_prompt = temp_session.prompt(
+                [("class:prompt", "Was this response useful to you? 👍(y)/👎(n): ")],
+                style=style,
+            )
+
+            rating_lower = rating_prompt.lower().strip()
+            if rating_lower in ["y", "n"]:
+                break
+            else:
+                console.print(
+                    "[bold red]Please enter only 'y' for yes or 'n' for no.[/bold red]"
+                )
+
+        # Determine rating
+        is_positive = rating_lower == "y"
+
+        # Ask for additional comments
+        comment_prompt = temp_session.prompt(
+            [
+                (
+                    "class:prompt",
+                    "Do you want to provide any additional comments for feedback? (press Enter to skip):\n",
+                )
+            ],
+            style=style,
+        )
+
+        comment = comment_prompt.strip() if comment_prompt.strip() else None
+
+        # Create UserFeedback object
+        user_feedback = UserFeedback(is_positive, comment)
+
+        if comment:
+            console.print(
+                f'[bold green]✓ Feedback recorded (rating={user_feedback.rating_emoji}, "{escape(comment)}")[/bold green]'
+            )
+        else:
+            console.print(
+                f"[bold green]✓ Feedback recorded (rating={user_feedback.rating_emoji}, no comment)[/bold green]"
+            )
+
+        # Final confirmation before submitting
+        final_confirmation = temp_session.prompt(
+            [("class:prompt", "\nDo you want to submit this feedback? (Y/n): ")],
+            style=style,
+        )
+
+        # If user says no, cancel the feedback
+        if final_confirmation.lower().strip().startswith("n"):
+            console.print("[dim]Feedback cancelled.[/dim]")
+            return
+
+        feedback.user_feedback = user_feedback
+        feedback_callback(feedback)
+        console.print("[bold green]Thank you for your feedback! 🙏[/bold green]")
+
+    except KeyboardInterrupt:
+        console.print("[dim]Feedback cancelled.[/dim]")
+        return
+
+
 def display_recent_tool_outputs(
     tool_calls: List[ToolCallResult],
     console: Console,
@@ -699,7 +938,10 @@ def display_recent_tool_outputs(
     for tool_call in tool_calls:
         tool_index = find_tool_index_in_history(tool_call, all_tool_calls_history)
         preview_output = format_tool_call_output(tool_call, tool_index)
-        title = f"{tool_call.result.status.to_emoji()} {tool_call.description} -> returned {tool_call.result.return_code}"
+        title = (
+            f"{tool_call.result.status.to_emoji()} {tool_call.description} -> "
+            f"returned {tool_call.result.return_code}"
+        )
 
         console.print(
             Panel(
@@ -711,15 +953,52 @@ def display_recent_tool_outputs(
         )
 
 
+def save_conversation_to_file(
+    json_output_file: str,
+    messages: List,
+    all_tool_calls_history: List[ToolCallResult],
+    console: Console,
+) -> None:
+    """Save the current conversation to a JSON file."""
+    try:
+        # Create LLMResult-like structure for consistency with non-interactive mode
+        conversation_result = LLMResult(
+            messages=messages,
+            tool_calls=all_tool_calls_history,
+            result=None,  # No single result in interactive mode
+            total_cost=0.0,  # TODO: Could aggregate costs from all responses if needed
+            total_tokens=0,
+            prompt_tokens=0,
+            completion_tokens=0,
+            metadata={
+                "session_type": "interactive",
+                "total_turns": len([m for m in messages if m.get("role") == "user"]),
+            },
+        )
+        write_json_file(json_output_file, conversation_result.model_dump())
+        console.print(
+            f"[bold {STATUS_COLOR}]Conversation saved to {json_output_file}[/bold {STATUS_COLOR}]"
+        )
+    except Exception as e:
+        logging.error(f"Failed to save conversation: {e}", exc_info=e)
+        console.print(
+            f"[bold {ERROR_COLOR}]Failed to save conversation: {e}[/bold {ERROR_COLOR}]"
+        )
+
+
 def run_interactive_loop(
     ai: ToolCallingLLM,
     console: Console,
-    system_prompt_rendered: str,
     initial_user_input: Optional[str],
     include_files: Optional[List[Path]],
     post_processing_prompt: Optional[str],
     show_tool_output: bool,
     tracer=None,
+    runbooks=None,
+    system_prompt_additions: Optional[str] = None,
+    check_version: bool = True,
+    feedback_callback: Optional[FeedbackCallback] = None,
+    json_output_file: Optional[str] = None,
 ) -> None:
     # Initialize tracer - use DummyTracer if no tracer provided
     if tracer is None:
@@ -733,21 +1012,44 @@ def run_interactive_loop(
         }
     )
 
-    # Create merged completer with slash commands, conditional executables, and smart paths
-    slash_completer = SlashCommandCompleter()
+    # Set up approval callback for potentially sensitive commands
+    def approval_handler(
+        tool_call_result: StructuredToolResult,
+    ) -> tuple[bool, Optional[str]]:
+        return handle_tool_approval(
+            command=tool_call_result.invocation,
+            error_message=tool_call_result.error,
+            style=style,
+            console=console,
+        )
+
+    if ENABLE_CLI_TOOL_APPROVAL:
+        ai.approval_callback = approval_handler
+
+    # Create merged completer with slash commands, conditional executables, show command, and smart paths
+    # TODO: remove unsupported_commands support once we implement feedback callback
+    unsupported_commands = []
+    if feedback_callback is None:
+        unsupported_commands.append(SlashCommands.FEEDBACK.command)
+    slash_completer = SlashCommandCompleter(unsupported_commands)
     executable_completer = ConditionalExecutableCompleter()
+    show_completer = ShowCommandCompleter()
     path_completer = SmartPathCompleter()
 
     command_completer = merge_completers(
-        [slash_completer, executable_completer, path_completer]
+        [slash_completer, executable_completer, show_completer, path_completer]
     )
 
     # Use file-based history
-    history_file = os.path.expanduser("~/.holmes/history")
+    history_file = os.path.join(config_path_dir, "history")
+
     os.makedirs(os.path.dirname(history_file), exist_ok=True)
     history = FileHistory(history_file)
     if initial_user_input:
         history.append_string(initial_user_input)
+
+    feedback = Feedback()
+    feedback.metadata.update_llm(ai.llm)
 
     # Create custom key bindings for Ctrl+C behavior
     bindings = KeyBindings()
@@ -816,11 +1118,20 @@ def run_interactive_loop(
     )  # type: ignore
 
     # Start background version check
-    check_version_async(on_version_check_complete)
+    if check_version:
+        check_version_async(on_version_check_complete)
 
     input_prompt = [("class:prompt", "User: ")]
 
-    console.print(WELCOME_BANNER)
+    # TODO: merge the /feedback command description to WELCOME_BANNER once we implement feedback callback
+    welcome_banner = WELCOME_BANNER
+    if feedback_callback:
+        welcome_banner = (
+            welcome_banner.rstrip(".")
+            + f", '{SlashCommands.FEEDBACK.command}' to share your thoughts."
+        )
+    console.print(welcome_banner)
+
     if initial_user_input:
         console.print(
             f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {initial_user_input}"
@@ -842,34 +1153,50 @@ def run_interactive_loop(
             if user_input.startswith("/"):
                 original_input = user_input.strip()
                 command = original_input.lower()
-
                 # Handle prefix matching for slash commands
-                matches = [cmd for cmd in ALL_SLASH_COMMANDS if cmd.startswith(command)]
+                matches = [
+                    cmd
+                    for cmd in slash_completer.commands.keys()
+                    if cmd.startswith(command)
+                ]
                 if len(matches) == 1:
                     command = matches[0]
                 elif len(matches) > 1:
                     console.print(
-                        f"[bold {ERROR_COLOR}]Ambiguous command '{command}'. Matches: {', '.join(matches)}[/bold {ERROR_COLOR}]"
+                        f"[bold {ERROR_COLOR}]Ambiguous command '{command}'. "
+                        f"Matches: {', '.join(matches)}[/bold {ERROR_COLOR}]"
                     )
                     continue
 
                 if command == SlashCommands.EXIT.command:
+                    console.print(
+                        f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
+                    )
                     return
                 elif command == SlashCommands.HELP.command:
                     console.print(
                         f"[bold {HELP_COLOR}]Available commands:[/bold {HELP_COLOR}]"
                     )
-                    for cmd, description in SLASH_COMMANDS_REFERENCE.items():
+                    for cmd, description in slash_completer.commands.items():
+                        # Only show feedback command if callback is available
+                        if (
+                            cmd == SlashCommands.FEEDBACK.command
+                            and feedback_callback is None
+                        ):
+                            continue
                         console.print(f"  [bold]{cmd}[/bold] - {description}")
                     continue
                 elif command == SlashCommands.CLEAR.command:
                     console.clear()
                     console.print(
-                        f"[bold {STATUS_COLOR}]Screen cleared and context reset. You can now ask a new question.[/bold {STATUS_COLOR}]"
+                        f"[bold {STATUS_COLOR}]Screen cleared and context reset. "
+                        f"You can now ask a new question.[/bold {STATUS_COLOR}]"
                     )
                     messages = None
                     last_response = None
                     all_tool_calls_history.clear()
+                    # Reset the show completer history
+                    show_completer.update_history([])
                     continue
                 elif command == SlashCommands.TOOLS_CONFIG.command:
                     pretty_print_toolset_status(ai.tool_executor.toolsets, console)
@@ -907,6 +1234,12 @@ def run_interactive_loop(
                     if shared_input is None:
                         continue  # User chose not to share or no output, continue to next input
                     user_input = shared_input
+                elif (
+                    command == SlashCommands.FEEDBACK.command
+                    and feedback_callback is not None
+                ):
+                    handle_feedback_command(style, console, feedback, feedback_callback)
+                    continue
                 else:
                     console.print(f"Unknown command: {command}")
                     continue
@@ -915,7 +1248,12 @@ def run_interactive_loop(
 
             if messages is None:
                 messages = build_initial_ask_messages(
-                    console, system_prompt_rendered, user_input, include_files
+                    console,
+                    user_input,
+                    include_files,
+                    ai.tool_executor,
+                    runbooks,
+                    system_prompt_additions,
                 )
             else:
                 messages.append({"role": "user", "content": user_input})
@@ -941,9 +1279,12 @@ def run_interactive_loop(
 
             messages = response.messages  # type: ignore
             last_response = response
+            feedback.metadata.add_llm_response(user_input, response.result)
 
             if response.tool_calls:
                 all_tool_calls_history.extend(response.tool_calls)
+                # Update the show completer with the latest tool call history
+                show_completer.update_history(all_tool_calls_history)
 
             if show_tool_output and response.tool_calls:
                 display_recent_tool_outputs(
@@ -959,18 +1300,28 @@ def run_interactive_loop(
                 )
             )
 
-            if trace_url:
-                console.print(f"🔍 View trace: {trace_url}")
-
             console.print("")
+
+            # Save conversation after each AI response
+            if json_output_file and messages:
+                save_conversation_to_file(
+                    json_output_file, messages, all_tool_calls_history, console
+                )
         except typer.Abort:
+            console.print(
+                f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
+            )
             break
         except EOFError:  # Handle Ctrl+D
+            console.print(
+                f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
+            )
             break
         except Exception as e:
             logging.error("An error occurred during interactive mode:", exc_info=e)
             console.print(f"[bold {ERROR_COLOR}]Error: {e}[/bold {ERROR_COLOR}]")
-
-    console.print(
-        f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
-    )
+        finally:
+            # Print trace URL for debugging (works for both success and error cases)
+            trace_url = tracer.get_trace_url()
+            if trace_url:
+                console.print(f"🔍 View trace: {trace_url}")

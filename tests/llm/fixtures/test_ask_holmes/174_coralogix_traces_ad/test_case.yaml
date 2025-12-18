@@ -1,0 +1,136 @@
+user_prompt:
+  - "The ad-serving service in namespace app-174 is showing slow requests."
+
+expected_output:
+  - The answer must identify a long-duration trace involving a database query
+  - The answer must mention database slowness/connection issues causing the latency
+
+tags:
+  - kubernetes
+  - traces
+  - coralogix
+
+setup_timeout: 900
+
+before_test: |
+  # Validate required Coralogix environment variables
+  [ -n "${CORALOGIX_API_KEY:-}" ] && [ -n "${CORALOGIX_DOMAIN:-}" ] && [ -n "${CORALOGIX_TEAM_HOSTNAME:-}" ] || { for v in CORALOGIX_API_KEY CORALOGIX_DOMAIN CORALOGIX_TEAM_HOSTNAME; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+
+  echo "🚀 Setting up test 174 - Creating namespace app-174"
+  kubectl create namespace app-174 || true
+  echo "✅ Namespace app-174 created successfully!"
+
+  echo "🔐 Creating ad-service secret from shared coralogix_app.py"
+  kubectl create secret generic ad-service-app \
+    --from-file=app.py=../../shared/coralogix/coralogix_app.py \
+    -n app-174 --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "🔐 Creating ad traffic-generator secret from shared traffic_generator.py"
+  kubectl create secret generic ad-generator-app \
+    --from-file=traffic_generator.py=../../shared/coralogix/traffic_generator.py \
+    -n app-174 --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "📦 Deploying ad service"
+  kubectl apply -f ad-service.yaml -n app-174
+
+  echo "⏳ Waiting for ad-service pod to exist"
+  for i in {1..60}; do
+    if kubectl get pod -l app=ad-service -n app-174 2>/dev/null | grep -q ad-service; then
+      echo "✅ ad-service pod exists"
+      break
+    fi
+    echo "Waiting for ad-service pod to be created... ($i/60)"
+    sleep 2
+  done
+
+  echo "⏳ Waiting for ad-service pod to be ready (timeout 780s)"
+  AD_POD_READY=false
+  for i in {1..156}; do
+    if kubectl wait --for=condition=ready pod -l app=ad-service -n app-174 --timeout=5s 2>/dev/null; then
+      echo "✅ ad-service pod is ready!"
+      AD_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/156: ad-service pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$AD_POD_READY" = false ]; then
+    echo "❌ ad-service pod failed to become ready after 780 seconds"
+    kubectl get pods -n app-174 -l app=ad-service
+    exit 1
+  fi
+
+  echo "🔍 Checking ad-service deployment status"
+  kubectl get pods -n app-174 -l app=ad-service
+
+  echo "🚦 Deploying ad traffic generator"
+  kubectl apply -f ad-traffic-generator.yaml -n app-174
+
+  echo "⏳ Waiting for ad-generator pod to exist"
+  for i in {1..60}; do
+    if kubectl get pod -l app=ad-generator -n app-174 2>/dev/null | grep -q ad-generator; then
+      echo "✅ ad-generator pod exists"
+      break
+    fi
+    echo "Waiting for ad-generator pod to be created... ($i/60)"
+    sleep 2
+  done
+
+  echo "⏳ Waiting for ad-generator pod to be ready (timeout 780s)"
+  TRAFFIC_POD_READY=false
+  for i in {1..156}; do
+    if kubectl wait --for=condition=ready pod -l app=ad-generator -n app-174 --timeout=5s 2>/dev/null; then
+      echo "✅ ad-generator pod is ready!"
+      TRAFFIC_POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/156: ad-generator pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$TRAFFIC_POD_READY" = false ]; then
+    echo "❌ ad-generator pod failed to become ready after 780 seconds"
+    kubectl get pods -n app-174 -l app=ad-generator
+    exit 1
+  fi
+
+  echo "🔍 Checking all pods status"
+  kubectl get pods -n app-174
+
+  echo "⏰ Waiting for ad traffic to produce traces..."
+  TRAFFIC_READY=false
+
+  echo "⏳ Waiting for at least 10 traces in Coralogix (poll every 5s)"
+  TRACES_READY=false
+  for i in {1..60}; do
+    TRACE_COUNT=$(curl -s -X POST "https://ng-api-http.${CORALOGIX_DOMAIN}/api/v1/dataprime/query" \
+      -H "Authorization: Bearer ${CORALOGIX_API_KEY}" \
+      -H "Content-Type: application/json" \
+      -d '{"query": "source spans | lucene '\''app-174 AND ad-service'\'' | limit 50"}' \
+      | grep -o 'traceID' | wc -l)
+
+    if [ "$TRACE_COUNT" -ge 10 ]; then
+      echo "✅ Found $TRACE_COUNT traces in Coralogix"
+      TRACES_READY=true
+      break
+    fi
+
+    echo "⏳ Attempt $i/60: traces found=$TRACE_COUNT"
+    sleep 5
+  done
+
+  if [ "$TRACES_READY" = false ]; then
+    echo "❌ Did not see 10 traces in Coralogix within timeout"
+    exit 1
+  fi
+
+  # Delete ad-generator so the ai won't cheat
+  kubectl delete -f ad-traffic-generator.yaml -n app-174
+
+  echo "✅ Test setup complete!"
+
+after_test: |
+  kubectl delete namespace app-174 || true

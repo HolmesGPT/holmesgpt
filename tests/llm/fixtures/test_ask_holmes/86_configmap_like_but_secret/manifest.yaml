@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: production
+spec:
+  replicas: 7
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: company.io/frontend:v3.2.1
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        volumeMounts:
+        - name: api-credentials
+          mountPath: /etc/app-secrets
+          readOnly: true
+      volumes:
+      - name: api-credentials
+        secret:
+          secretName: frontend-api-keys
+          optional: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-api-keys
+  namespace: production
+type: Opaque
+data:
+  api-key: YXBpLWtleS12YWx1ZQ==
+  client-id: Y2xpZW50LWlkLXZhbHVl
+  client-secret: Y2xpZW50LXNlY3JldC12YWx1ZQ==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: database-credentials
+  namespace: production
+type: Opaque
+data:
+  username: ZGJ1c2Vy
+  password: ZGJwYXNzd29yZA==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tls-certificates
+  namespace: production
+type: kubernetes.io/tls
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi4uLgotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0t
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCi4uLgotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0t

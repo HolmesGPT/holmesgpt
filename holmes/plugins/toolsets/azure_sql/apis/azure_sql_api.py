@@ -179,7 +179,7 @@ class AzureSQLAPIClient:
             server_name=server_name,
             database_name=database_name,
         )
-        return tuning.as_dict()
+        return dict(tuning.as_dict())
 
     def get_top_cpu_queries(
         self,

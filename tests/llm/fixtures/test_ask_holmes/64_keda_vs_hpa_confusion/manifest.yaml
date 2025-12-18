@@ -28,11 +28,10 @@ spec:
         - containerPort: 8080
         resources:
           requests:
-            cpu: 50m
-            memory: 32Mi
+            memory: "64Mi"
+            cpu: "10m"
           limits:
-            cpu: 50m
-            memory: 32Mi
+            memory: "64Mi"
         command: ["/bin/sh"]
         args:
         - -c

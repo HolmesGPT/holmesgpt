@@ -1,19 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-25
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: my-http-app-deployment
+  name: web-server
+  namespace: app-25
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: my-http-app
+      app: web-server
   template:
     metadata:
       labels:
-        app: my-http-app
+        app: web-server
     spec:
       containers:
-      - name: my-http-app
+      - name: web-server
         image: nginx
         ports:
         - containerPort: 80
@@ -21,7 +27,8 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: my-http-ingress
+  name: web-ingress
+  namespace: app-25
 spec:
   ingressClassName: example-ingress-class
   rules:
@@ -32,17 +39,18 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: my-http-service
+            name: web-service
             port:
               number: 80
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: my-http-service
+  name: web-service
+  namespace: app-25
 spec:
   selector:
-    app: my-http-app
+    app: web-server
   ports:
     - protocol: TCP
       port: 80

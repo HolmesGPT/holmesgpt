@@ -1,0 +1,283 @@
+toolsets:
+  openshift/core:
+    description: "Read access to OpenShift cluster resources including projects, routes, and deployment configs"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/openshift/"
+    tags:
+      - core
+    prerequisites:
+      - command: "oc version --client"
+
+    # Note: Many tools in this toolset use transformers with llm_summarize
+    # to automatically summarize large oc outputs when a fast model is configured.
+    # This reduces context window usage while preserving key information for debugging.
+
+    tools:
+      - name: "oc_describe"
+        description: >
+          Run oc describe <kind> <name> -n <namespace>,
+          call this when users ask for description,
+          for example when a user asks
+            - 'describe pod xyz-123'
+            - 'show service xyz-123 in namespace my-ns'
+            - 'describe route my-route'
+            - 'show deployment config xyz'
+        command: "oc describe {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this oc describe output focusing on:
+                - What needs attention or immediate action
+                - Resource status and health indicators
+                - Any errors, warnings, or non-standard states
+                - Key configuration details that could affect functionality
+                - OpenShift-specific features like routes, image streams, or security context constraints
+                - When possible, mention exact field names so the user can grep for specific details
+                - Be concise: aim for ≤ 50% of the original length; avoid repeating defaults/healthy/unchanged details
+                - Prefer aggregates and counts; list only outliers and actionable items
+                - Keep grep-friendly: include exact field names/values that matter``
+
+      - name: "oc_get_by_name"
+        description: "Run `oc get <kind> <name> --show-labels`"
+        command: "oc get --show-labels -o wide {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
+
+      - name: "oc_get_by_kind_in_namespace"
+        description: "Run `oc get <kind> -n <namespace> --show-labels` to get all resources of a given type in namespace"
+        command: "oc get --show-labels -o wide {{ kind }} -n {{ namespace }}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this oc output focusing on:
+                - What needs attention or immediate action
+                - Group similar resources into aggregate descriptions
+                - Make sure to mention outliers, errors, and non-standard states
+                - List healthy resources as aggregate descriptions
+                - When listing unhealthy resources, also try to use aggregate descriptions when possible
+                - When possible, mention exact keywords so the user can rerun the command with | grep <keyword> and drill down
+                - Be concise and avoid expansion: target ≤ 50% of input size; prefer counts + outliers over full listings
+
+      - name: "oc_get_by_kind_in_cluster"
+        description: "Run `oc get -A <kind> --show-labels` to get all resources of a given type in the cluster"
+        command: "oc get -A --show-labels -o wide {{ kind }}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this oc output focusing on:
+                - What needs attention or immediate action
+                - Group similar resources into a single line and description
+                - Make sure to mention outliers, errors, and non-standard states
+                - List healthy resources as aggregate descriptions
+                - When listing unhealthy resources, also try to use aggregate descriptions when possible
+                - When possible, mention exact keywords so the user can rerun the command with | grep <keyword> and drill down on the parts they care about
+                - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
+
+      - name: "oc_find_resource"
+        description: "Run `oc get {{ kind }} -A --show-labels | grep {{ keyword }}` to find a resource where you know a substring of the name, IP, namespace, or labels"
+        command: "oc get -A --show-labels -o wide {{ kind }} | grep {{ keyword }}"
+
+      - name: "oc_get_yaml"
+        description: "Run `oc get -o yaml` on a single OpenShift resource"
+        command: "oc get -o yaml {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
+
+      - name: "oc_events"
+        description: "Retrieve the events for a specific OpenShift resource. `resource_type` can be any kubernetes resource type: 'pod', 'service', 'deployment', 'deploymentconfig', 'route', etc."
+        command: "oc get events --field-selector involvedObject.kind={{ resource_type }},involvedObject.name={{ resource_name }}{% if namespace %} -n {{ namespace }}{% endif %}"
+
+      - name: "oc_projects"
+        description: "List all projects (namespaces) in the OpenShift cluster"
+        command: "oc get projects"
+
+      - name: "oc_project_current"
+        description: "Show the current project (namespace) context"
+        command: "oc project"
+
+      - name: "oc_routes"
+        description: "List all routes in a specific namespace or cluster-wide"
+        command: "oc get routes{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide"
+
+      - name: "oc_route_describe"
+        description: "Describe a specific route to see its configuration and status"
+        command: "oc describe route {{ route_name }}{% if namespace %} -n {{ namespace }}{% endif %}"
+
+      - name: "oc_imagestreams"
+        description: "List image streams in a namespace or cluster-wide"
+        command: "oc get imagestreams{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide"
+
+      - name: "oc_deploymentconfigs"
+        description: "List deployment configs in a namespace or cluster-wide"
+        command: "oc get deploymentconfigs{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide"
+
+      - name: "oc_buildconfigs"
+        description: "List build configs in a namespace or cluster-wide"
+        command: "oc get buildconfigs{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide"
+
+      - name: "oc_builds"
+        description: "List builds in a namespace or cluster-wide"
+        command: "oc get builds{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide"
+
+      - name: "oc_adm_openshift_audit_logs"
+        description: "Get OpenShift audit logs from a specified node"
+        command: "oc adm node-logs {{ node_name }} --path=openshift-apiserver/audit.log"
+
+      - name: "oc_adm_openshift_audit_logs_with_filter"
+        description: "Get OpenShift audit logs from a specified node with an applied filter"
+        command: "oc adm node-logs {{ node_name }} --path=openshift-apiserver/audit.log | grep {{ grep_filter }}"
+
+      - name: "oc_build_logs"
+        description: "Get logs from a specific build"
+        command: "oc logs build/{{ build_name }}{% if namespace %} -n {{ namespace }}{% endif %}"
+
+      - name: "openshift_jq_query"
+        user_description: "Query OpenShift Resources: oc get {{kind}}  -n {{ namespace }} -o json | jq -r {{jq_expr}}"
+        description: >
+          Use oc to get json for all resources of a specific kind pipe the results to jq to filter them. Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give. e.g. give an expression like .items[] | .spec.containers[].image | select(test("^registry.redhat.io/") | not)
+        command: oc get {{ kind }} --all-namespaces -o json | jq -r {{ jq_expr }}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize this jq query output focusing on:
+                - Key patterns and commonalities in the data
+                - Notable outliers, anomalies, or items that need attention
+                - Group similar results into aggregate descriptions when possible
+                - Highlight any empty results, null values, or missing data
+                - When applicable, mention specific resource names, namespaces, or values that stand out
+                - Organize findings in a structured way that helps with troubleshooting
+                - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
+                - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
+
+  openshift/logs:
+    description: "Read pod logs using oc command"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/openshift/"
+    tags:
+      - core
+    prerequisites:
+      - command: "oc version --client"
+
+    # Note: Log tools use transformers with llm_summarize to automatically
+    # summarize large log outputs when a fast model is configured. This helps
+    # focus on errors, patterns, and key information while reducing context usage.
+
+    tools:
+      - name: "oc_previous_logs"
+        description: "Run `oc logs --previous` on a single pod. Used to fetch logs for a pod that crashed and see logs from before the crash. Never give a deployment name or a resource that is not a pod."
+        command: "oc logs {{pod_name}} -n {{ namespace }} --previous"
+
+      - name: "oc_previous_logs_all_containers"
+        description: "Run `oc logs --previous` on a single pod. Used to fetch logs for a pod that crashed and see logs from before the crash."
+        command: "oc logs {{pod_name}} -n {{ namespace }} --previous --all-containers"
+
+      - name: "oc_container_previous_logs"
+        description: "Run `oc logs --previous` on a single container of a pod. Used to fetch logs for a pod that crashed and see logs from before the crash."
+        command: "oc logs {{pod_name}} -c {{container_name}} -n {{ namespace }} --previous"
+
+      - name: "oc_logs"
+        description: "Run `oc logs` on a single pod. Never give a deployment name or a resource that is not a pod."
+        command: "oc logs {{pod_name}} -n {{ namespace }}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize these pod logs focusing on:
+                - Errors, exceptions, and warning messages
+                - Recent activity patterns and trends
+                - Any authentication, connection, or startup issues
+                - Performance indicators (response times, throughput)
+                - Group similar log entries together
+                - When possible, mention exact error codes or keywords for easier searching
+                - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
+                - Include grep-ready keys/values; avoid repeating entire logs or unchanged defaults
+
+      - name: "oc_logs_all_containers"
+        description: "Run `oc logs` on all containers within a single pod."
+        command: "oc logs {{pod_name}} -n {{ namespace }} --all-containers"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 1000
+              prompt: |
+                Summarize these multi-container pod logs focusing on:
+                - Errors, exceptions, and warning messages by container
+                - Inter-container communication patterns
+                - Any authentication, connection, or startup issues
+                - Performance indicators and resource usage patterns
+                - Group similar log entries together by container
+                - When possible, mention exact error codes or keywords for easier searching
+                - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
+                - Prioritize aggregates and actionable outliers over comprehensive details
+
+      - name: "oc_container_logs"
+        description: "Run `oc logs` on a single container within a pod. This is to get the logs of a specific container in a multi-container pod."
+        command: "oc logs {{pod_name}} -c {{container_name}} -n {{ namespace }} "
+
+      - name: "oc_logs_grep"
+        description: "Search for a specific term in the logs of a single pod. Only provide a pod name, not a deployment or other resource."
+        command: "oc logs {{ pod_name }} -n {{ namespace }} | grep {{ search_term }}"
+
+      - name: "oc_logs_all_containers_grep"
+        description: "Search for a specific term in the logs of a single pod across all of its containers. Only provide a pod name, not a deployment or other resource."
+        command: "oc logs {{pod_name}} -n {{ namespace }} --all-containers | grep {{ search_term }}"
+
+  openshift/live-metrics:
+    description: "Provides real-time metrics for pods and nodes using oc"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/openshift/"
+    llm_instructions: |
+      The oc_top_pods or oc_top_nodes do not return time series data or metrics that can be used for graphs
+      Do NOT use oc_top_pods or oc_top_nodes for graph generation - it only shows current snapshot data
+      oc_top_pods or oc_top_nodes are for current status checks, not historical graphs
+    tags:
+      - core
+    prerequisites:
+      - command: "oc adm top nodes"
+    tools:
+      - name: "oc_top_pods"
+        description: "Retrieves real-time CPU and memory usage for each pod in the cluster."
+        command: >
+          oc adm top pods -A
+      - name: "oc_top_nodes"
+        description: "Retrieves real-time CPU and memory usage for each node in the cluster."
+        command: >
+          oc adm top nodes
+
+  openshift/security:
+    description: "OpenShift security-related resources and configurations"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/openshift/"
+    tags:
+      - core
+    prerequisites:
+      - command: "oc version --client"
+    tools:
+      - name: "oc_scc"
+        description: "List Security Context Constraints (SCCs) in the cluster"
+        command: "oc get scc{% if scc_name %} {{ scc_name }}{% endif %} -o wide"
+
+      - name: "oc_scc_describe"
+        description: "Describe a specific Security Context Constraint"
+        command: "oc describe scc {{ scc_name }}"
+
+      - name: "oc_policy_who_can"
+        description: "Check who can perform a specific action on a resource"
+        command: "oc policy who-can {{ verb }} {{ resource }}{% if namespace %} -n {{ namespace }}{% endif %}"
+
+      - name: "oc_policy_can_i"
+        description: "Check if the current user can perform a specific action"
+        command: "oc policy can-i {{ verb }} {{ resource }}{% if namespace %} -n {{ namespace }}{% endif %}"
+
+      - name: "oc_serviceaccounts"
+        description: "List service accounts in a namespace or cluster-wide"
+        command: "oc get serviceaccounts{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide"
+
+      - name: "oc_rolebindings"
+        description: "List role bindings in a namespace or cluster-wide"
+        command: "oc get rolebindings{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide"
+
+      - name: "oc_clusterrolebindings"
+        description: "List cluster role bindings"
+        command: "oc get clusterrolebindings -o wide"

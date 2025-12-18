@@ -1,0 +1,20 @@
+user_prompt: "Fetch the Datadog traces for the checkout service to analyze the payment processing latency"
+expected_output:
+  - The link https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/ should be in the answer
+  - Holmes should explain that it needs the Datadog traces toolset to fetch traces
+  - Holmes should mention that the Datadog integration needs to be connected/enabled
+tags:
+  - medium
+  - transparency
+before_test: |
+  echo "Setting up checkout service for eval 111..."
+  kubectl apply -f helm/checkout-service.yaml
+
+  echo "Waiting for checkout service pods to be ready..."
+  kubectl wait --for=condition=ready pod -l app=checkout -n app-111 --timeout=60s
+
+  echo "Note: Datadog APM integration would normally be collecting traces from this service"
+  echo "Note: Datadog traces toolset is disabled for this test"
+after_test: |
+  echo "Cleaning up test 111..."
+  kubectl delete namespace app-111 --ignore-not-found=true

@@ -1,3 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "params": {"kind": "pod", "keyword": "robusta-runner"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "robusta-runner"}}
-default       robusta-runner-6958c5bdd8-69gtn                          1/1     Running                        0                 45h   172.31.25.172   ip-172-31-21-139.us-east-2.compute.internal   <none>           <none>            app=robusta-runner,pod-template-hash=6958c5bdd8,robustaComponent=runner

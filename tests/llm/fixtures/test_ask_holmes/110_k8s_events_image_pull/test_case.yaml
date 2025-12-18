@@ -1,0 +1,16 @@
+user_prompt: "Fetch all kubernetes events for the data-processor deployment and its pods in namespace app-110"
+tags:
+  - easy
+  - kubernetes
+expected_output:
+  - Should list events showing image pull failures
+  - Must mention the specific image "my-private-registry.io/data-processor:v2.5.0" that failed to pull
+  - Should show ErrImagePull and/or ImagePullBackOff events
+  - Events should be from the data-processor deployment pods
+before_test: |
+  kubectl create namespace app-110 || true
+  kubectl apply -f deployment.yaml -n app-110
+  # Wait for the deployment to create pods and generate image pull events
+  timeout 30 bash -c 'until kubectl get events -n app-110 --field-selector involvedObject.kind=Pod | grep -q "ErrImagePull\|ImagePullBackOff"; do sleep 1; done' || echo "Warning: Image pull events not detected"
+after_test: |
+  kubectl delete namespace app-110 --wait=false

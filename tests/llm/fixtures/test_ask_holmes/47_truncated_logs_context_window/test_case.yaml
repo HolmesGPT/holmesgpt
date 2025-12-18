@@ -2,6 +2,8 @@ user_prompt: "Why did the `long-logs-app` app in the `ask-holmes-namespace-47` n
 tags:
   - logs
   - context_window
+skip: true
+skip_reason: "Natan: I don't understand this eval - I don't see anything in the logs (either in mock data or the live pod logs) that implies a database issue"
 expected_output:
   - database ran out of free connections
 before_test: kubectl apply -f ./manifest.yaml

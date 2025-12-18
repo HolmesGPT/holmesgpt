@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deep-diver-app
+  namespace: app-103
+type: Opaque
+stringData:
+  app.py: |
+    import time
+    from datetime import datetime
+
+    def main():
+        print("Pod deep-diver starting...", flush=True)
+
+        # Generate a mix of log levels
+        for i in range(1, 3000):
+            timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+            if i % 4 == 0:
+                print(f"{timestamp} ERROR Database connection failed: timeout after 30s (entry {i})", flush=True)
+            elif i % 4 == 1:
+                print(f"{timestamp} INFO Processing request {i} successfully", flush=True)
+            elif i % 4 == 2:
+                print(f"{timestamp} ERROR Authentication token expired for user{i}", flush=True)
+            else:  # i % 4 == 3
+                print(f"{timestamp} WARN High memory usage detected: 78% (entry {i})", flush=True)
+
+            time.sleep(0.1)
+
+        # Add final logs
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{timestamp} ERROR Critical: Service mesh connectivity lost", flush=True)
+        print(f"{timestamp} INFO Service startup complete, entering main loop", flush=True)
+
+        # Keep container running
+        while True:
+            time.sleep(3600)
+
+    if __name__ == "__main__":
+        main()
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deep-diver
+  namespace: app-103
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deep-diver
+  template:
+    metadata:
+      labels:
+        app: deep-diver
+    spec:
+      containers:
+      - name: deep-diver
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        secret:
+          secretName: deep-diver-app
+          defaultMode: 0755

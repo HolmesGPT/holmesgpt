@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"service","name":"meme-service","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide service meme-service -n default", "params": {"kind": "service", "name": "meme-service", "namespace": "default"}}
-NAME           TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)    AGE   SELECTOR       LABELS
-meme-service   ClusterIP   10.96.38.41   <none>        5000/TCP   22h   app=meme-app   <none>

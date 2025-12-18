@@ -177,6 +177,18 @@ def pre_format_sections(response: Any) -> Any:
         # In that case it gets parsed once to get rid of the first level of marshalling
         with suppress(Exception):
             response = json.loads(response)
+
+    # Try to find any embedded code block with or without "json" label and parse it
+    # This has been seen a lot in newer bedrock models
+    # This is a more robust check for patterns like ```json\n{...}\n``` or ```\n{...}\n```
+    matches = re.findall(r"```(?:json)?\s*\n(.*?)\n```", response, re.DOTALL)
+    for block in matches:
+        with suppress(Exception):
+            parsed = json.loads(block)
+            if isinstance(parsed, dict):
+                logging.info("Extracted and parsed embedded JSON block successfully.")
+                return json.dumps(parsed)
+
     return response
 
 

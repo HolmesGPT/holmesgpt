@@ -1,0 +1,11 @@
+user_prompt: "Why isn't the golden-eagle deployment scaling despite high CPU usage in namespace-85?"
+tags:
+  - kubernetes
+  - medium
+expected_output:
+  - Golden-eagle deployment not scaling because HPA cannot calculate CPU metrics without resource requests defined in pod spec
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  sleep 30
+after_test: |
+  kubectl delete -f ./manifest.yaml

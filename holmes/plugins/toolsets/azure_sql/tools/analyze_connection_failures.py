@@ -2,7 +2,12 @@ import logging
 from typing import Dict, Tuple
 from datetime import datetime, timezone
 
-from holmes.core.tools import StructuredToolResult, ToolParameter, ToolResultStatus
+from holmes.core.tools import (
+    StructuredToolResult,
+    ToolInvokeContext,
+    ToolParameter,
+    StructuredToolResultStatus,
+)
 from holmes.plugins.toolsets.azure_sql.azure_base_toolset import (
     BaseAzureSQLTool,
     BaseAzureSQLToolset,
@@ -12,6 +17,7 @@ from holmes.plugins.toolsets.azure_sql.apis.azure_sql_api import AzureSQLAPIClie
 from holmes.plugins.toolsets.azure_sql.apis.connection_failure_api import (
     ConnectionFailureAPI,
 )
+from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class AnalyzeConnectionFailures(BaseAzureSQLTool):
@@ -212,7 +218,7 @@ class AnalyzeConnectionFailures(BaseAzureSQLTool):
 
         return "\n".join(report_sections)
 
-    def _invoke(self, params: Dict) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             # Get configuration
             db_config = self.toolset.database_config()
@@ -239,7 +245,7 @@ class AnalyzeConnectionFailures(BaseAzureSQLTool):
             # Check for errors
             if "error" in analysis_data:
                 return StructuredToolResult(
-                    status=ToolResultStatus.ERROR,
+                    status=StructuredToolResultStatus.ERROR,
                     error=analysis_data["error"],
                     params=params,
                 )
@@ -250,7 +256,7 @@ class AnalyzeConnectionFailures(BaseAzureSQLTool):
             )
 
             return StructuredToolResult(
-                status=ToolResultStatus.SUCCESS,
+                status=StructuredToolResultStatus.SUCCESS,
                 data=report_text,
                 params=params,
             )
@@ -260,15 +266,14 @@ class AnalyzeConnectionFailures(BaseAzureSQLTool):
                 f"Error in analyze_connection_failures: {str(e)}", exc_info=True
             )
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to analyze connection failures: {str(e)}",
                 params=params,
             )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         db_config = self.toolset.database_config()
-        hours_back = params.get("hours_back", 24)
-        return f"Analyze connection failures for {db_config.server_name}/{db_config.database_name} over {hours_back} hours"
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Analyze Connection Failures ({db_config.server_name}/{db_config.database_name})"
 
     @staticmethod
     def validate_config(

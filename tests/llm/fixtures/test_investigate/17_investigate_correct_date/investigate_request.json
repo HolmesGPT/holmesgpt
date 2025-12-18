@@ -1,0 +1,22 @@
+{
+  "source": "prometheus",
+  "title": "KubeCPUOvercommit",
+  "description": "",
+  "subject": {
+    "name": null,
+    "namespace": null,
+    "kind": "Node",
+    "node": "aks-agentpool-29949785-vmss000000",
+    "container": null,
+    "cluster": null
+  },
+  "context": {
+    "issue_type": "KubeCPUOvercommit",
+    "robusta_issue_id": "5d46d94d-a769-4076-9998-7d056a5a7ae0",
+    "source": "prometheus"
+  },
+  "source_instance_id": "ApiRequest",
+  "include_tool_calls": true,
+  "include_tool_call_results": true,
+  "prompt_template": "builtin://generic_investigation.jinja2"
+}

@@ -1,0 +1,45 @@
+user_prompt: "The order-lookup deployment in namespace-104c is very slow. Customers are experiencing delays when checking their orders."
+expected_output:
+  - Database queries slow due to missing index on orders.customer_email
+  - Sequential scan on 75k orders table for email lookups
+  - EXPLAIN shows Seq Scan with high cost and execution time
+#  - CREATE INDEX idx_customer_email ON orders(customer_email) needed
+tags:
+  - hard
+  - database
+
+skip: true
+skip_reason: setup needs fixing, the database has other issues right now that the llm correctly finds
+
+description: |
+  This eval provides a minimal PostgreSQL setup focusing on basic EXPLAIN analysis.
+
+  Setup:
+  - Simple PostgreSQL instance (no pg_stat_statements needed)
+  - Orders table with 75k records, no index on customer_email
+  - Order lookup service querying by email
+  - Focus on using EXPLAIN and EXPLAIN ANALYZE
+
+  Expected troubleshooting steps:
+  1. Connect to database: kubectl exec -it postgres-pod -- psql -U postgres -d orderdb
+  2. Identify the slow query from application context
+  3. Run EXPLAIN on the query:
+     EXPLAIN SELECT * FROM orders WHERE customer_email = 'test@example.com';
+  4. See "Seq Scan on orders" with rows=75000
+  5. Run EXPLAIN ANALYZE for actual timings:
+     EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_email = 'test@example.com';
+  6. See execution time of 50-150ms
+  7. Check existing indexes: \d orders
+  8. Notice customer_email has no index
+  9. Conclude missing index is the issue
+
+  This is the most straightforward approach using basic PostgreSQL tools.
+before_test: |
+  kubectl create namespace namespace-104c
+  kubectl apply -f ./manifest.yaml -n namespace-104c
+  kubectl wait --for=condition=ready pod -l app=postgres -n namespace-104c --timeout=60s
+  sleep 25  # Let database initialize and queries run
+
+after_test: |
+  kubectl delete -f ./manifest.yaml -n namespace-104c
+  kubectl delete namespace namespace-104c

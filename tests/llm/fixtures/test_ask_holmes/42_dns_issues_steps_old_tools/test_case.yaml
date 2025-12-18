@@ -2,7 +2,6 @@ user_prompt: "detect why the k8s pod client under namespace test-ns-42f cannot r
 tags:
   - network
   - runbooks
-  - reproducible
 expected_output: |
 
   The answer should show the investigation went through the following steps.

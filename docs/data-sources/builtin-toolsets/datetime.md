@@ -6,9 +6,9 @@ By enabling this toolset, HolmesGPT will be able to get the current UTC date and
 
 The following built-in toolsets depend on `datetime`:
 
-* Grafana Loki
+* Loki
 * Prometheus
-* Coralogix logs
+* Coralogix
 
 ## Configuration
 

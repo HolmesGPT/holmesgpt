@@ -1,0 +1,18 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"PersistentVolumeClaim","name":"redis-standard-pvc","namespace":"app-24b"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl describe PersistentVolumeClaim redis-standard-pvc -n app-24b", "params": {"kind": "PersistentVolumeClaim", "name": "redis-standard-pvc", "namespace": "default"}}
+Name:          redis-standard-pvc
+Namespace:     app-24b
+StorageClass:  standard-v2
+Status:        Pending
+Volume:
+Labels:        <none>
+Annotations:   <none>
+Finalizers:    [kubernetes.io/pvc-protection]
+Capacity:
+Access Modes:
+VolumeMode:    Filesystem
+Used By:       redis-747ffc844f-f9ghd
+Events:
+  Type     Reason              Age                   From                         Message
+  ----     ------              ----                  ----                         -------
+  Warning  ProvisioningFailed  21s (x26 over 6m35s)  persistentvolume-controller  storageclass.storage.k8s.io "standard-v2" not found

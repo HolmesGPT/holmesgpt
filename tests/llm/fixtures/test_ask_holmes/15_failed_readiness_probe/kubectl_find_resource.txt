@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "search-engine-service"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "search-engine-service"}}
-stdout:
-default              search-engine-service                                    0/1     Running   0                35s     10.244.0.195   kind-control-plane   <none>           <none>            <none>
-
-stderr:

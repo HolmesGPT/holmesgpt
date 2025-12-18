@@ -1,14 +1,13 @@
 # Bash commands
 
-The tool `run_bash_command` allows you to run many kubectl commands:
+The tool `run_bash_command` allows you to run the following commands:
+- `kubectl get|describe|logs|top|events [options]`
+- `aws <service> <operation> [options]` (read-only)
+- `az|docker|helm|argocd [options]`
+- `grep|cut|sort|uniq|head|tail|wc|tr|base64|jq|sed [options]`
 
-- `kubectl get ...`
-- `kubectl describe ...`
-- `kubectl events ...`
-- `kubectl top ...`
+Commands can be piped with `|`. No `&&` support.
 
-It is also possible to combine `kubectl` with `grep`. For example:
-- `kubectl get pods | grep holmes`
 
 The tool `kubectl_run_image` will run an image:
 - `kubectl run <name> --image=<image> --rm --attach --restart=Never --i --tty -- <command>`

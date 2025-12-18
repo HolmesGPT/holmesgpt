@@ -1,0 +1,37 @@
+description: |
+  This test verifies that Holmes can discover and query custom application metrics from Datadog.
+  The test deploys a pod (myapp) that sends custom cache hit ratio metrics to Datadog.
+  Holmes should be able to discover these non-standard metrics and display them when asked
+  about cache performance, without the user specifying the exact metric name.
+
+before_test: |
+  # Deploy the myapp pod to the cluster
+  kubectl apply -f manifest.yaml
+
+  # Wait for the pod to be running
+  kubectl wait --for=condition=ready pod -l app=myapp -n cache-91e --timeout=60s
+
+  # Send custom cache hit ratio metrics to Datadog
+  bash send_custom_metrics.sh
+
+user_prompt:
+  - "Show me the cache performance metrics for myapp in namespace cache-91e"
+  - "Can you display a graph of cache hit statistics for the myapp pod in cache-91e?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "XXXX"}>>
+
+  The response should indicate that Holmes discovered and queried the custom metric myapp.cache.hit.ratio
+
+  Output must NOT say it cannot find metrics or that no cache metrics are available
+
+tags:
+  - datadog
+  - embeds
+
+test_type: server
+
+after_test: |
+  # Cleanup the deployed resources
+  kubectl delete -f manifest.yaml --ignore-not-found=true

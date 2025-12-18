@@ -1,0 +1,25 @@
+tags:
+  - compaction
+  - easy
+
+expected_output: |
+  The conversation captures a cascading failure investigation starting from frontend API errors.
+  The root cause chain identified was:
+  1. Frontend service returning 504 Gateway Timeout errors
+  2. Caused by backend API timing out after 30 seconds waiting for database queries
+  3. Database queries running slowly due to high disk I/O latency (over 500ms)
+  4. Disk I/O saturation caused by a runaway log aggregation process consuming 95% disk bandwidth
+
+  Key evidence preserved:
+  - Frontend error rate: 45% of requests failing with 504 errors
+  - Backend timeout configuration: 30 seconds (from DB_TIMEOUT env var)
+  - Database query latency: average 28 seconds for SELECT queries
+  - Disk I/O wait: 95% utilization, 500-800ms latency
+  - Root process: filebeat consuming 2.1GB/s disk write throughput
+
+  The investigation followed the chain through 4 services/components with specific evidence at each level.
+
+description: |
+  Test compaction with a cascading failure scenario where the root cause propagates through
+  multiple layers: Frontend → Backend → Database → Disk I/O. This tests the ability to
+  preserve causal chains and specific evidence at each level of the cascade.

@@ -1,3 +1,3 @@
-{"toolset_name":"kubernetes/logs","tool_name":"fetch_pod_logs","match_params":{"namespace":"default","pod_name":"network-connector","filter":"Peer down"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"namespace": "default", "pod_name": "network-connector", "start_time": null, "end_time": null, "filter_pattern": "Peer down", "limit": 2000}}
+{"toolset_name":"kubernetes/logs","tool_name":"fetch_pod_logs","match_params":{"namespace":"app-20","pod_name":"network-connector","filter":"Peer down"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"namespace": "app-20", "pod_name": "network-connector", "start_time": null, "end_time": null, "filter_pattern": "Peer down", "limit": 2000}}
 Peer down

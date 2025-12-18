@@ -1,0 +1,46 @@
+description: |
+  This test verifies that Holmes can query and display CPU/memory metrics from Datadog
+  when using a Deployment (not a standalone pod). The test deploys a real deployment to the cluster,
+  dynamically gets the actual pod name, sends historical metrics to Datadog using their API with
+  the correct pod name, then asks Holmes to display graphs for that deployment. Holmes should find
+  the deployment's pods in Kubernetes and use the Datadog metrics API to retrieve and display the metrics.
+
+before_test: |
+  # Deploy the deployment to the cluster
+  kubectl apply -f manifest.yaml
+
+  # Wait for the pod to be running
+  kubectl wait --for=condition=ready pod -l app=metrics-deployment -n deploy-91c --timeout=60s
+
+  # Send CPU and memory metrics to Datadog using their API
+  # The script will dynamically get the actual pod name from the deployment
+  POD_NAME=$(kubectl get pods -n deploy-91c -l app=metrics-deployment -o jsonpath='{.items[0].metadata.name}')
+  bash ../../shared/send_datadog_metrics.sh deploy-91c "$POD_NAME" metrics-deployment
+
+user_prompt:
+  - "Can you show me a cpu graph of the metrics-deployment in namespace deploy-91c?"
+  - "Show me CPU metrics for metrics-deployment pods in deploy-91c"
+  - "Display metrics-deployment CPU usage graph from deploy-91c namespace"
+  - "I need to see the memory usage for metrics-deployment in deploy-91c"
+  - "What's the CPU utilization of the metrics-deployment deployment in namespace deploy-91c?"
+  - "Generate a memory graph for metrics-deployment pods in deploy-91c"
+  - "Show CPU and memory charts for metrics-deployment in namespace deploy-91c"
+  - "How much CPU is metrics-deployment consuming in deploy-91c namespace?"
+  - "Plot memory consumption of metrics-deployment over time in deploy-91c"
+  - "Can you visualize the resource usage for metrics-deployment pods in the deploy-91c namespace?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - datadog
+  - embeds
+
+after_test: |
+  # Cleanup the deployed resources
+  kubectl delete -f manifest.yaml --ignore-not-found=true

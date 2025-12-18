@@ -1,9 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_events", "match_params": {"resource_type": "pod", "pod_name": "nginx-6958c5bdd8-69gtn", "namespace": "default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_events command", "params": {"resource_type": "pod", "pod_name": "nginx-6958c5bdd8-69gtn", "namespace": "default"}}
-Type	Reason     Age	From           	Message
-----	------     ----   ----           	-------
-Normal  Scheduled  4m28s  default-scheduler  Successfully assigned default/nginxreplica to aks-nodepool1-26081864-vmss000004
-Normal  Pulling    4m28s  kubelet        	Pulling image "nginx"
-Normal  Pulled     4m28s  kubelet        	Successfully pulled image "nginx" in 272.563572ms
-Normal  Created    4m28s  kubelet        	Created container nginxreplica
-Normal  Started    4m28s  kubelet        	Started container nginxreplica<

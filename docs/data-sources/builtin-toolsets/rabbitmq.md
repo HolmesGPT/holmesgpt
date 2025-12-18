@@ -9,40 +9,17 @@ This toolset follows a two-step process to detect partition:
 
 ## Configuration
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        rabbitmq/core:
-          enabled: true
-          config:
-            clusters:
-              - id: rabbitmq # must be unique across all configured clusters
-                username: <user>
-                password: <password>
-                management_url: <http://rabbitmq.rabbitmq:15672>
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
-
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      rabbitmq/core:
-        enabled: true
-        config:
-          clusters:
-            - id: rabbitmq # must be unique across all configured clusters
-              username: <user>
-              password: <password>
-              management_url: <http://rabbitmq.rabbitmq:15672>
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
+```yaml-toolset-config
+toolsets:
+  rabbitmq/core:
+    enabled: true
+    config:
+      clusters:
+        - id: rabbitmq # must be unique across all configured clusters
+          username: <user>
+          password: <password>
+          management_url: <http://rabbitmq.rabbitmq:15672>
+```
 
 ## Advanced configuration
 

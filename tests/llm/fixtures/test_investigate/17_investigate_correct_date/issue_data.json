@@ -1,0 +1,38 @@
+{
+  "id": "5d46d94d-a769-4076-9998-7d056a5a7ae0",
+  "description": "Your cluster is currently OK, but if a single node fails then some pods might not be scheduled. Add more CPU to your cluster to increase resilience.",
+  "source": "prometheus",
+  "category": null,
+  "priority": "LOW",
+  "account_id": "16ecba1a-7993-4dd1-a98c-d201462ccba7",
+  "subject_type": "Unresolved",
+  "subject_name": null,
+  "service_key": null,
+  "subject_namespace": null,
+  "cluster": "ui-test-cluster-krr",
+  "creation_date": "2025-09-08T00:51:29",
+  "title": "Cluster has overcommitted CPU resource requests.",
+  "aggregation_key": "KubeCPUOvercommit",
+  "finding_type": "issue",
+  "failure": true,
+  "group_id": null,
+  "subject_node": "aks-agentpool-29949785-vmss000000",
+  "starts_at": "2025-08-25T05:50:00+00:00",
+  "ends_at": null,
+  "updated_at": "2028-11-08T00:08:12+00:00",
+  "fingerprint": "980dcf8459295136",
+  "video_links": null,
+  "firing": true,
+  "labels": {
+    "severity": "warning",
+    "alertname": "KubeCPUOvercommit",
+    "prometheus": "monitoring/robusta-kube-prometheus-st-prometheus"
+  },
+  "annotations": {
+    "summary": "Cluster has overcommitted CPU resource requests.",
+    "description": "Cluster  has overcommitted CPU resource requests for Pods by 0.86 CPU shares and cannot tolerate node failure.",
+    "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubecpuovercommit"
+  },
+  "start_timestamp": "2025-08-25T05:40:00.000000Z",
+  "start_timestamp_millis": 1756100400000
+}

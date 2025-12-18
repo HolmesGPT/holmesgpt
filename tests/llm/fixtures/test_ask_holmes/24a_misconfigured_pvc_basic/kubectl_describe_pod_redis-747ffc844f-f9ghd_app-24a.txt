@@ -1,0 +1,60 @@
+{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"pod","name":"redis-747ffc844f-f9ghd","namespace":"app-24a"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl describe pod redis-747ffc844f-f9ghd -n app-24a", "params": {"kind": "pod", "name": "redis-747ffc844f-f9ghd", "namespace": "default"}}
+Name:             redis-747ffc844f-f9ghd
+Namespace:     app-24a
+Priority:         0
+Service Account:  default
+Node:             <none>
+Labels:           app=redis
+                  pod-template-hash=747ffc844f
+Annotations:      <none>
+Status:           Pending
+IP:
+IPs:              <none>
+Controlled By:    ReplicaSet/redis-747ffc844f
+Containers:
+  redis:
+    Image:      redis:6.2.6
+    Port:       6379/TCP
+    Host Port:  0/TCP
+    Command:
+      redis-server
+      --save
+      60
+      1
+      --stop-writes-on-bgsave-error
+      no
+      --dir
+      /data
+    Limits:
+      cpu:     500m
+      memory:  2Gi
+    Requests:
+      cpu:        100m
+      memory:     256Mi
+    Environment:  <none>
+    Mounts:
+      /data from redis-storage (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-vdbtm (ro)
+Conditions:
+  Type           Status
+  PodScheduled   False
+Volumes:
+  redis-storage:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  redis-standard-pvc
+    ReadOnly:   false
+  kube-api-access-vdbtm:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type     Reason            Age                   From               Message
+  ----     ------            ----                  ----               -------
+  Warning  FailedScheduling  100s (x2 over 6m45s)  default-scheduler  0/2 nodes are available: pod has unbound immediate PersistentVolumeClaims. preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.

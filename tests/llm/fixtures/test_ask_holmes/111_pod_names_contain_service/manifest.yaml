@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-111
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: search-engine-service
+  namespace: app-111
+spec:
+  containers:
+  - name: get-details
+    image: busybox
+    command: ["sh", "-c", "while true; do echo 'Running...'; sleep 5; done"]
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - "exit 1"
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      failureThreshold: 3

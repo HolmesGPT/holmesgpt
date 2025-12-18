@@ -1,14 +1,12 @@
 user_prompt: "How many pods are running in the test-61 namespace?"
 description: "This tests exact matches vs substring matches, and verifies that pods in the test-611 namespace are NOT counted"
 expected_output:
-  - 6 pods are running in the test-61 namespace
+  - either 6, 6 pods, etc.
 before_test: |
   kubectl apply -f manifests.yaml
   sleep 60
 after_test: |
   kubectl delete -f manifests.yaml
-evaluation:
-  correctness: 1
 tags:
   - counting
-  - reproducible
+  - easy

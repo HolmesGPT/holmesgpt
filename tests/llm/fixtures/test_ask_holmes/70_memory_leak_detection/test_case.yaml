@@ -1,0 +1,18 @@
+user_prompt: "What's wrong with the data-processor pod in namespace-70?"
+tags:
+  - logs
+  - context_window
+expected_output:
+  - Data processor experiencing memory leak with usage increasing from 100MB to 4096MB resulting in OutOfMemoryError
+before_test: |
+  # Create namespace first since the secret depends on it (|| true ignores if it already exists)
+  kubectl create namespace namespace-70 || true
+  kubectl create secret generic data-processor-logs-script \
+  --from-file=generate_logs.py=./generate_logs.py \
+  -n namespace-70 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./manifest.yaml
+  sleep 40
+after_test: |
+  kubectl delete -f ./manifest.yaml
+  kubectl delete secret data-processor-logs-script -n namespace-70 --ignore-not-found
+  kubectl delete namespace namespace-70 --ignore-not-found

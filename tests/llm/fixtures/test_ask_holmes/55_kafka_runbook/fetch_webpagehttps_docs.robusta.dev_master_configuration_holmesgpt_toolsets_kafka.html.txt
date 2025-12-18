@@ -1,5 +1,5 @@
-{"toolset_name":"internet","tool_name":"fetch_webpage","match_params":{"url":"https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kafka.html"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"url": "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/kafka.html"}}
+{"toolset_name":"internet","tool_name":"fetch_webpage","match_params":{"url":"https://holmesgpt.dev/data-sources/builtin-toolsets/kafka"}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"url": "https://holmesgpt.dev/data-sources/builtin-toolsets/kafka"}}
 [â](#)
 
 Kafka - Robusta documentation

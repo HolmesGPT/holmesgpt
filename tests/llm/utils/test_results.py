@@ -14,37 +14,29 @@ class TestResult:
     logs: str
     test_type: str = ""
     error_message: Optional[str] = None
+    user_prompt: Optional[str] = None
     execution_time: Optional[float] = None
     expected_correctness_score: float = 1.0
     actual_correctness_score: float = 0.0
     mock_data_failure: bool = False
 
     @property
-    def test_id(self) -> str:
-        """Extract test ID from pytest nodeid.
+    def test_case_name(self) -> str:
+        """Extract full test case name from pytest nodeid.
 
-        Example: 'test_ask_holmes[01_how_many_pods]' -> '01'
+        Example: 'test_ask_holmes[01_how_many_pods]' -> '01_how_many_pods'
+        Example: 'test_ask_holmes[01_how_many_pods0]' -> '01_how_many_pods' (removes iteration)
         """
         if "[" in self.nodeid and "]" in self.nodeid:
             test_case = self.nodeid.split("[")[1].split("]")[0]
-            # Extract number from start of test case name
-            return test_case.split("_")[0] if "_" in test_case else test_case
-        return "unknown"
-
-    @property
-    def test_name(self) -> str:
-        """Extract readable test name from pytest nodeid.
-
-        Example: 'test_ask_holmes[01_how_many_pods]' -> 'how_many_pods'
-        """
-        try:
-            if "[" in self.nodeid and "]" in self.nodeid:
-                test_case = self.nodeid.split("[")[1].split("]")[0]
-                # Remove number prefix and convert underscores to spaces
-                parts = test_case.split("_")[1:] if "_" in test_case else [test_case]
-                return "_".join(parts)
-        except (IndexError, AttributeError):
-            pass
+            # Remove trailing digits (iteration numbers added by pytest)
+            while test_case and test_case[-1].isdigit():
+                # But keep digits that are part of the test name (e.g., "113_" in "113_checkout")
+                # Check if removing this digit would leave us with underscore or nothing
+                if len(test_case) == 1 or test_case[-2] == "_":
+                    break
+                test_case = test_case[:-1]
+            return test_case
         return self.nodeid.split("::")[-1] if "::" in self.nodeid else self.nodeid
 
 
@@ -55,6 +47,13 @@ class TestStatus:
         self.actual_score = int(result.get("actual_correctness_score", 0))
         self.expected_score = int(result.get("expected_correctness_score", 1))
         self.is_mock_failure = result.get("mock_data_failure", False)
+        self.status = result.get(
+            "status", ""
+        )  # pytest status (passed, failed, skipped, etc.)
+        self.is_setup_failure = result.get("is_setup_failure", False)
+        # Throttling flags
+        self.failed_due_to_throttling = result.get("failed_due_to_throttling", False)
+        self.encountered_throttling = result.get("encountered_throttling", False)
 
     @property
     def passed(self) -> bool:
@@ -63,8 +62,18 @@ class TestStatus:
         )  # TODO: possibly add `and not self.is_mock_failure`
 
     @property
+    def is_skipped(self) -> bool:
+        return self.status == "skipped"
+
+    @property
     def is_regression(self) -> bool:
-        if self.passed or self.is_mock_failure:
+        if (
+            self.is_skipped
+            or self.passed
+            or self.is_mock_failure
+            or self.is_setup_failure
+            or self.failed_due_to_throttling
+        ):
             return False
         # Known failure (expected to fail)
         if self.actual_score == 0 and self.expected_score == 0:
@@ -73,7 +82,13 @@ class TestStatus:
 
     @property
     def markdown_symbol(self) -> str:
-        if self.is_mock_failure:
+        if self.failed_due_to_throttling:
+            return ":no_entry_sign:"
+        elif self.is_skipped:
+            return ":minus:"
+        elif self.is_setup_failure:
+            return ":construction:"
+        elif self.is_mock_failure:
             return ":wrench:"
         elif self.passed:
             return ":white_check_mark:"
@@ -84,7 +99,13 @@ class TestStatus:
 
     @property
     def console_status(self) -> str:
-        if self.is_mock_failure:
+        if self.failed_due_to_throttling:
+            return "[red]THROTTLED[/red]"
+        elif self.is_skipped:
+            return "[cyan]SKIPPED[/cyan]"
+        elif self.is_setup_failure:
+            return "[magenta]SETUP FAIL[/magenta]"
+        elif self.is_mock_failure:
             return "[yellow]MOCK FAILURE[/yellow]"
         elif self.passed:
             return "[green]PASS[/green]"
@@ -93,7 +114,13 @@ class TestStatus:
 
     @property
     def short_status(self) -> str:
-        if self.is_mock_failure:
+        if self.failed_due_to_throttling:
+            return "THROTTLED"
+        elif self.is_skipped:
+            return "SKIPPED"
+        elif self.is_setup_failure:
+            return "SETUP FAILURE"
+        elif self.is_mock_failure:
             return "MOCK FAILURE"
         elif self.passed:
             return "PASS"

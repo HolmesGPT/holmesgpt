@@ -1,7 +1,7 @@
 toolsets:
   confluence:
     description: "Fetch confluence pages"
-    docs_url: "https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/confluence.html"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/"
     icon_url: "https://platform.robusta.dev/demos/confluence.svg"
     tags:
       - core
@@ -14,6 +14,6 @@ toolsets:
 
     tools:
       - name: "fetch_confluence_url"
-        description: "Fetch a page in confluence.  Use this to fetch confluence runbooks if they are present before starting your investigation."
+        description: "Fetch a page in confluence."
         user_description: "fetch confluence page {{ confluence_page_id }}"
         command: "curl -u ${CONFLUENCE_USER}:${CONFLUENCE_API_KEY} -X GET -H 'Content-Type: application/json' ${CONFLUENCE_BASE_URL}/wiki/rest/api/content/{{ confluence_page_id }}?expand=body.storage"

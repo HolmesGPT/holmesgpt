@@ -2,6 +2,15 @@
 
 Run HolmesGPT from your terminal as a standalone CLI tool.
 
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden;">
+  <iframe src="https://www.youtube.com/embed/JwMqqh6LQQI" 
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" 
+          frameborder="0" 
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+          allowfullscreen>
+  </iframe>
+</div>
+
 ## Installation Options
 
 === "Homebrew (Mac/Linux)"
@@ -48,7 +57,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 
     2. Install HolmesGPT:
        ```bash
-       git clone https://github.com/robusta-dev/holmesgpt.git
+       git clone https://github.com/HolmesGPT/holmesgpt.git
        cd holmesgpt
        poetry install --no-root
        ```
@@ -72,20 +81,21 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
       us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes ask "what pods are unhealthy and why?"
     ```
 
-    > **Note:** Pass environment variables using `-e` flags. An example for OpenAI is shown above. Adjust it for other AI providers by passing `-e GEMINI_API_KEY`, `-e ANTHROPIC_API_KEY`, etc.
+    > **Note:** Use `-e` flags to pass API keys for your provider (e.g., `-e ANTHROPIC_API_KEY`, `-e GEMINI_API_KEY`). See [Environment Variables Reference](../reference/environment-variables.md) for the complete list.
 
 ## Quick Start
 
-After installation, choose your AI provider and follow the steps below. See supported [AI Providers](../ai-providers/index.md) for more details.
+Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
 
-=== "OpenAI (Default)"
+!!! tip "Which Model to Use"
+We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
+
+=== "Anthropic Claude"
 
     1. **Set up API key**:
         ```bash
-        export OPENAI_API_KEY="your-api-key"
+        export ANTHROPIC_API_KEY="your-api-key"
         ```
-
-        See [OpenAI Configuration](../ai-providers/openai.md) for more details.
 
     2. **Create a test pod** to investigate:
         ```bash
@@ -94,8 +104,35 @@ After installation, choose your AI provider and follow the steps below. See supp
 
     3. **Ask your first question**:
         ```bash
-        holmes ask "what is wrong with the user-profile-import pod?"
+        holmes ask "what is wrong with the user-profile-import pod?" --model="anthropic/claude-sonnet-4-5-20250929"
         ```
+
+    **Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
+
+    See [Anthropic Configuration](../ai-providers/anthropic.md) for more details.
+
+=== "OpenAI"
+
+    1. **Set up API key**:
+        ```bash
+        export OPENAI_API_KEY="your-api-key"
+        ```
+
+    2. **Create a test pod** to investigate:
+        ```bash
+        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
+        ```
+
+    3. **Ask your first question**:
+        ```bash
+        # Uses gpt-4.1 by default (fairly fast, decent results)
+        holmes ask "what is wrong with the user-profile-import pod?"
+
+        # Or specify a different model
+        holmes ask "what is wrong with the user-profile-import pod?" --model="gpt-5"
+        ```
+
+    See [OpenAI Configuration](../ai-providers/openai.md) for more details.
 
 === "Azure OpenAI"
 
@@ -105,8 +142,6 @@ After installation, choose your AI provider and follow the steps below. See supp
         export AZURE_API_BASE="https://your-resource.openai.azure.com"
         export AZURE_API_KEY="your-azure-api-key"
         ```
-
-        See [Azure OpenAI Configuration](../ai-providers/azure-openai.md) for more details.
 
     2. **Create a test pod** to investigate:
         ```bash
@@ -118,6 +153,8 @@ After installation, choose your AI provider and follow the steps below. See supp
         holmes ask "what is wrong with the user-profile-import pod?" --model="azure/<your-model-name>"
         ```
 
+    See [Azure OpenAI Configuration](../ai-providers/azure-openai.md) for more details.
+
 === "AWS Bedrock"
 
     1. **Set up API key**:
@@ -127,40 +164,26 @@ After installation, choose your AI provider and follow the steps below. See supp
         export AWS_DEFAULT_REGION="your-region"
         ```
 
-        See [AWS Bedrock Configuration](../ai-providers/aws-bedrock.md) for more details.
+    2. **Install boto3**:
+        ```bash
+        pip install "boto3>=1.28.57"
+        ```
 
-    2. **Create a test pod** to investigate:
+    3. **Create a test pod** to investigate:
         ```bash
         kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
         ```
 
-    3. **Ask your first question**:
+    4. **Ask your first question**:
         ```bash
+        # Recommended: Use Sonnet 4.0 or Sonnet 4.5 for best results
+        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
+
+        # Or use another model
         holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/<your-model-name>"
         ```
 
-        **Note**: You must install `boto3>=1.28.57` and replace `<your-model-name>` with an actual model name like `anthropic.claude-3-5-sonnet-20240620-v1:0`. See [Finding Available Models](../ai-providers/aws-bedrock.md#finding-available-models) for instructions.
-
-    Ask follow-up questions to refine your investigation
-
-=== "Anthropic Claude"
-
-    1. **Set up API key**:
-        ```bash
-        export ANTHROPIC_API_KEY="your-api-key"
-        ```
-
-        See [Anthropic Configuration](../ai-providers/anthropic.md) for more details.
-
-    2. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    3. **Ask your first question**:
-        ```bash
-        holmes ask "what is wrong with the user-profile-import pod?" --model="anthropic/<your-model-name>"
-        ```
+    See [AWS Bedrock Configuration](../ai-providers/aws-bedrock.md) for more details.
 
 === "Google Gemini"
 
@@ -168,8 +191,6 @@ After installation, choose your AI provider and follow the steps below. See supp
         ```bash
         export GEMINI_API_KEY="your-gemini-api-key"
         ```
-
-        See [Google Gemini Configuration](../ai-providers/gemini.md) for more details.
 
     2. **Create a test pod** to investigate:
         ```bash
@@ -181,6 +202,8 @@ After installation, choose your AI provider and follow the steps below. See supp
         holmes ask "what is wrong with the user-profile-import pod?" --model="gemini/<your-gemini-model>"
         ```
 
+    See [Google Gemini Configuration](../ai-providers/gemini.md) for more details.
+
 === "Google Vertex AI"
 
     1. **Set up credentials**:
@@ -189,8 +212,6 @@ After installation, choose your AI provider and follow the steps below. See supp
         export VERTEXAI_LOCATION="us-central1"
         export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account-key.json"
         ```
-
-        See [Google Vertex AI Configuration](../ai-providers/google-vertex-ai.md) for more details.
 
     2. **Create a test pod** to investigate:
         ```bash
@@ -202,12 +223,12 @@ After installation, choose your AI provider and follow the steps below. See supp
         holmes ask "what is wrong with the user-profile-import pod?" --model="vertex_ai/<your-vertex-model>"
         ```
 
+    See [Google Vertex AI Configuration](../ai-providers/google-vertex-ai.md) for more details.
+
 === "Ollama"
 
     1. **Set up API key**:
         No API key required for local Ollama installation.
-
-        See [Ollama Configuration](../ai-providers/ollama.md) for more details.
 
     2. **Create a test pod** to investigate:
         ```bash
@@ -219,15 +240,68 @@ After installation, choose your AI provider and follow the steps below. See supp
         holmes ask "what is wrong with the user-profile-import pod?" --model="ollama/<your-model-name>"
         ```
 
-    > **Note:** Only LiteLLM supported Ollama models work with HolmesGPT. Check the [LiteLLM Ollama documentation](https://docs.litellm.ai/docs/providers/ollama#ollama-models){:target="_blank"} for supported models.
+        For troubleshooting and advanced options, see [Ollama Configuration](../ai-providers/ollama.md).
+
+    > **Warning:** Ollama can be tricky to configure correctly. We recommend trying HolmesGPT with a hosted model first (like Claude or OpenAI) to ensure everything works before switching to Ollama.
+
+_After running the command, HolmesGPT begins its automated investigation, as shown below._
+![image](../assets/cli-installation/cli-in-progress.png)
+
+_Once the analysis completes, HolmesGPT provides a clear root-cause summary and fix suggestions._
+![image](../assets/cli-installation/cli-analysis-result.png)
+
+## Using Model Lists
+
+You can define multiple models in a YAML file and reference them by name in the CLI. This is useful when you have multiple model configurations with different API keys, endpoints, or parameters.
+
+**1. Create a model list file:**
+
+```yaml
+# model_list.yaml
+sonnet:
+  aws_access_key_id: 'your-access-key'
+  aws_region_name: us-east-1
+  aws_secret_access_key: 'your-secret-key'
+  model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  temperature: 1
+  thinking:
+    budget_tokens: 10000
+    type: enabled
+
+azure-5:
+  api_base: https://your-resource.openai.azure.com
+  api_key: 'your-api-key'
+  api_version: 2025-01-01-preview
+  model: azure/gpt-5
+  temperature: 0
+```
+
+**2. Set the environment variable:**
+
+```bash
+export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
+```
+
+**3. Use models by name:**
+
+```bash
+holmes ask "what pods are failing?" --model=sonnet --no-interactive
+holmes ask "analyze deployment" --model=azure-5 --no-interactive
+```
+
+When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
+
+**Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
+
+See [Environment Variables Reference](../reference/environment-variables.md) for more details.
 
 ## Next Steps
 
-- **[Add Data Sources](../data-sources/index.md)** - Use built-in toolsets to connect with ArgoCD, Confluence, and monitoring tools
-- **[Connect Remote MCP Servers](../data-sources/remote-mcp-servers.md)** - Extend capabilities with external MCP servers
+-   **[Add Data Sources](../data-sources/index.md)** - We encourage you to use built-in toolsets to connect with [AWS](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/), [Prometheus](https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/), [Loki](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/), [NewRelic](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/), [DataDog](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/), [ArgoCD](https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/), [Confluence](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/), and other monitoring tools.
+-   **[Connect MCP Servers](../data-sources/remote-mcp-servers.md)** - Extend capabilities with external MCP servers.
 
 ## Need Help?
 
-- **[Join our Slack](https://bit.ly/robusta-slack){:target="_blank"}** - Get help from the community
-- **[Request features on GitHub](https://github.com/robusta-dev/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
-- **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions
+-   **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="\_blank"}** - Get help from the community
+-   **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="\_blank"}** - Suggest improvements or report bugs.
+-   **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions.

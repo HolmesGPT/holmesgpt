@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from holmes.common.env_vars import TOOL_CALL_SAFEGUARDS_ENABLED
 from holmes.plugins.toolsets.logging_utils.logging_api import POD_LOGGING_TOOL_NAME
-from holmes.core.tools import StructuredToolResult, ToolResultStatus
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
 
 
@@ -39,7 +39,7 @@ def _has_previous_unfiltered_pod_logs_call(
             result = tool_call.get("result", {})
             if (
                 tool_call.get("tool_name") == POD_LOGGING_TOOL_NAME
-                and result.get("status") == ToolResultStatus.NO_DATA
+                and result.get("status") == StructuredToolResultStatus.NO_DATA
                 and result.get("params")
             ):
                 params = FetchPodLogsParams(**result.get("params"))
@@ -94,7 +94,7 @@ def prevent_overly_repeated_tool_call(
                 For example if Holmes checks if a resource is deployed, runs a command to deploy it and then checks again if it has deployed properly.
             """
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=(
                     "Refusing to run this tool call because it has already been called during this session with the exact same parameters.\n"
                     "Move on with your investigation to a different tool or change the parameter values."
@@ -106,7 +106,7 @@ def prevent_overly_repeated_tool_call(
             tool_name=tool_name, tool_params=tool_params, tool_calls=tool_calls
         ):
             return StructuredToolResult(
-                status=ToolResultStatus.ERROR,
+                status=StructuredToolResultStatus.ERROR,
                 error=(
                     f"Refusing to run this tool call because the exact same {POD_LOGGING_TOOL_NAME} tool call without filter has already run and returned no data.\n"
                     "This tool call would also have returned no data.\n"

@@ -1,0 +1,29 @@
+tags:
+  - compaction
+  - easy
+
+expected_output: |
+  The conversation captures an investigation into deployment failures after a configuration change.
+
+  **Root Cause:** Environment variable change in the auth-service deployment broke authentication.
+
+  **Specific Configuration Change:**
+  - Variable: JWT_TOKEN_EXPIRY
+  - Previous value: 3600 (1 hour in seconds)
+  - New value: 60 (changed to 60 seconds instead of 60 minutes)
+  - Changed at: 2025-10-08 14:45:00 UTC
+  - Changed by: deployment manifest update in commit abc123f
+
+  **Impact:**
+  - User sessions expiring after 60 seconds instead of 1 hour
+  - Users getting "401 Unauthorized" errors after 1 minute
+  - Authentication service logs showing "Token expired" errors
+  - 78% of API requests failing with authentication errors
+
+  **Evidence:**
+  The deployment diff showed JWT_TOKEN_EXPIRY changed from "3600" to "60", and the timing of the change (14:45 UTC) correlates exactly with when authentication errors started appearing in logs.
+
+description: |
+  Test compaction with a configuration change scenario where specific values must be preserved.
+  The test verifies that the LLM can identify and preserve exact before/after configuration
+  values, timestamps, and the correlation between the change and observed issues.

@@ -97,10 +97,10 @@ It will perform HTTP calls to collect data when investigating problems - the exa
 We bump the major release number only on breaking changes. Minor releases are done about monthly, when there are substantial new features. Bug fixes are done as needed with a patch release.
 
 **Describe how the project is installed and initialized, e.g. a minimal install with a few lines of code or does it require more complex integration and configuration?**
-Please refer to https://robusta-dev.github.io/holmesgpt/installation/cli-installation/
+Please refer to https://holmesgpt.dev/installation/cli-installation/
 
 **How does an adopter test and validate the installation?**
-Please refer to https://robusta-dev.github.io/holmesgpt/walkthrough/
+Please refer to https://holmesgpt.dev/walkthrough/
 
 ### Security
 
@@ -120,7 +120,7 @@ This is extremely relevant for us, given the risk that AI models can hallucinate
 * Security limitations of a system are explainable - Holmes reports permission issues when encountered
 
 **How do you recommend users alter security defaults in order to "loosen" the security of the project? Please link to any documentation the project has written concerning these use cases.**
-https://robusta-dev.github.io/holmesgpt/data-sources/permissions/
+https://holmesgpt.dev/data-sources/permissions/
 
 **Security Hygiene**
 We discuss security implications of features at the design phase, when working on new features. Where warranted there are dedicated discussions around security related aspects. Code reviews function as the final review, but very few issues reach that stage due to thinking about security earlier in the process.

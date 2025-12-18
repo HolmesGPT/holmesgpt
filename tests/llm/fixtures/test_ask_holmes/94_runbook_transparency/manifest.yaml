@@ -1,0 +1,181 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: blue-whale-app
+  namespace: app-94
+type: Opaque
+stringData:
+  app.py: |
+    import time
+    import random
+    from datetime import datetime
+    import socket
+
+    class DatabaseApp:
+        def __init__(self):
+            self.connection_pool = []
+            self.failed_connections = 0
+            self.successful_connections = 0
+            print(f"[{datetime.now()}] Starting blue-whale application...")
+            print(f"[{datetime.now()}] Database connection pool: min=5, max=20")
+            print(f"[{datetime.now()}] Connection timeout: 30s")
+
+        def connect_to_database(self):
+            # Simulate connection attempt
+            start_time = time.time()
+
+            # 80% chance of timeout after initial connections
+            if self.successful_connections > 5 and random.random() < 0.8:
+                # Simulate connection timeout
+                timeout_duration = random.uniform(25, 35)
+                print(f"[{datetime.now()}] Attempting database connection to postgres.app-94.svc.cluster.local:5432...")
+                time.sleep(min(timeout_duration, 30))  # Simulate waiting for timeout
+                elapsed = time.time() - start_time
+
+                self.failed_connections += 1
+                error_messages = [
+                    f"ERROR: Connection timeout after {elapsed:.1f}s - could not connect to server: Connection timed out",
+                    f"ERROR: Database connection failed - timeout waiting for response from postgres.app-94.svc.cluster.local:5432",
+                    f"ERROR: psycopg2.OperationalError: could not connect to server: Connection timed out (after {elapsed:.1f}s)",
+                ]
+                print(f"[{datetime.now()}] {random.choice(error_messages)}")
+
+                # Log connection pool status
+                if self.failed_connections % 5 == 0:
+                    print(f"[{datetime.now()}] WARNING: Connection pool exhausted - 20/20 connections in use")
+                    print(f"[{datetime.now()}] WARNING: {self.failed_connections} failed connection attempts in last 5 minutes")
+
+                return False
+            else:
+                # Successful connection
+                time.sleep(random.uniform(0.1, 0.5))
+                self.successful_connections += 1
+                print(f"[{datetime.now()}] Successfully connected to database (connection #{self.successful_connections})")
+                return True
+
+        def process_request(self, request_id):
+            print(f"[{datetime.now()}] Processing request {request_id}")
+
+            # Try to get database connection
+            if not self.connect_to_database():
+                print(f"[{datetime.now()}] Request {request_id} failed due to database connection timeout")
+                return False
+
+            # Simulate query execution
+            time.sleep(random.uniform(0.1, 0.3))
+            print(f"[{datetime.now()}] Request {request_id} completed successfully")
+
+            # Occasionally log network diagnostics
+            if request_id % 20 == 0:
+                print(f"[{datetime.now()}] Network diagnostics:")
+                print(f"[{datetime.now()}]   DNS resolution: postgres.app-94.svc.cluster.local -> 10.96.123.45")
+                print(f"[{datetime.now()}]   Ping to database: <1ms")
+                print(f"[{datetime.now()}]   Active connections: {len(self.connection_pool)}/20")
+
+            return True
+
+    def main():
+        app = DatabaseApp()
+        request_id = 0
+
+        # Initial successful connections
+        print(f"[{datetime.now()}] Initializing connection pool...")
+        for i in range(5):
+            app.connect_to_database()
+
+        while True:
+            request_id += 1
+            try:
+                success = app.process_request(request_id)
+
+                # Add delay between requests
+                if success:
+                    time.sleep(0.5)
+                else:
+                    time.sleep(2)  # Back off on failures
+
+                # Log application metrics periodically
+                if request_id % 50 == 0:
+                    success_rate = (app.successful_connections / (app.successful_connections + app.failed_connections)) * 100
+                    print(f"[{datetime.now()}] Application metrics:")
+                    print(f"[{datetime.now()}]   Total requests: {request_id}")
+                    print(f"[{datetime.now()}]   Connection success rate: {success_rate:.1f}%")
+                    print(f"[{datetime.now()}]   Failed connections: {app.failed_connections}")
+
+            except Exception as e:
+                print(f"[{datetime.now()}] ERROR: Unexpected error in request {request_id}: {e}")
+                time.sleep(1)
+
+    if __name__ == "__main__":
+        main()
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blue-whale
+  namespace: app-94
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blue-whale
+  template:
+    metadata:
+      labels:
+        app: blue-whale
+    spec:
+      containers:
+      - name: blue-whale
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        env:
+        - name: DB_HOST
+          value: "postgres.app-94.svc.cluster.local"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_CONNECTION_TIMEOUT
+          value: "30"
+        - name: DB_POOL_SIZE
+          value: "20"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        secret:
+          secretName: blue-whale-app
+          defaultMode: 0755
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blue-whale
+  namespace: app-94
+spec:
+  selector:
+    app: blue-whale
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# Simulated database service (not actually running)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: app-94
+spec:
+  selector:
+    app: postgres-db  # No pods match this selector
+  ports:
+  - port: 5432
+    targetPort: 5432

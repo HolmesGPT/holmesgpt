@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-26
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ocean-breeze
+  namespace: app-26
+  labels:
+    app: checkout-service
+spec:
+  containers:
+  - name: web
+    image: python:3.9-slim
+    command: ["python", "/scripts/generate_logs.py"]
+    volumeMounts:
+    - name: script-volume
+      mountPath: /scripts
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "10m"
+  volumes:
+  - name: script-volume
+    secret:
+      secretName: ocean-breeze-logs-script
+      defaultMode: 0755

@@ -1,9 +1,9 @@
 expected_output:
   - The frontend-service pod in the default namespace is experiencing 100% CPU throttling for the stress container
   - Suggest increasing the CPU limit
-before-test: |
+before_test: |
   kubectl apply -f manifest.yaml
   sleep 60
-after-test: kubectl delete -f manifest.yaml
+after_test: kubectl delete -f manifest.yaml
 evaluation:
   correctness: 1

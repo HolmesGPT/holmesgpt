@@ -1,0 +1,241 @@
+# ------------------------------------------------------------------------------
+# Holmes AI Test Environment (all-in-one, single namespace)
+#
+# This manifest sets up a complete synthetic test to validate that
+# **only API calls with a "Promotions" coupon code are slower**.
+#
+# Components:
+# - Namespace: holmes-test
+# - SUT (checkout app): Tiny Python/Flask app from Secret
+#     * /checkout endpoint with simulated latency
+#       - normal calls: fast (~30–50ms)
+#       - coupon=Promotions calls: slower (~500ms, simulating missing index)
+#     * /metrics endpoint (Prometheus client histogram with coupon label)
+#     * /healthz endpoint for readiness
+# - Prometheus: Single bare deployment
+#     * 5s scrape interval
+#     * health probes (/-/healthy, /-/ready)
+#     * scrapes checkout service
+# - k6 Job:
+#     * Waits for checkout + Prometheus before starting
+#     * Runs 10 VUs for ~60s
+#     * 50/50 split of coupon vs. no-coupon requests
+#     * Tags each request with coupon=promotions|none
+#     * Defines thresholds so promo requests may be slower but baseline stays fast
+#
+# After running:
+# - Use Prometheus queries to compare p95 latency:
+#     histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{coupon="promotions"}[1m]))
+#     histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{coupon="none"}[1m]))
+#
+# Holmes should conclude:
+#   "Only API calls with a coupon code are slower."
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-124
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: checkout-app
+  namespace: app-124
+type: Opaque
+stringData:
+  app.py: |
+    import os, time, json, random, logging
+    from flask import Flask, request, jsonify
+    from prometheus_client import Histogram, Counter, generate_latest, CONTENT_TYPE_LATEST
+
+    # LOGGING CONTROL - Set to True to enable logs, False to disable
+    ENABLE_LOGGING = False
+
+    app = Flask(__name__)
+
+    # Configure logging based on ENABLE_LOGGING flag
+    if not ENABLE_LOGGING:
+        log = logging.getLogger('werkzeug')
+        log.setLevel(logging.ERROR)
+        app.logger.disabled = True
+
+    BASE_MEAN = 0.03
+    BASE_JITTER = 0.02
+    PROMO_EXTRA = 0.5
+
+    REQ_LAT = Histogram(
+      "http_request_duration_seconds",
+      "Latency of HTTP requests",
+      ["route", "method", "coupon"],
+      buckets=[0.02,0.05,0.1,0.2,0.3,0.5,0.75,1,1.5,2]
+    )
+    REQ_COUNT = Counter(
+      "http_requests_total",
+      "Total HTTP requests",
+      ["route","method","coupon","code"]
+    )
+
+    @app.route("/metrics")
+    def metrics():
+      return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+
+    @app.get("/healthz")
+    def healthz():
+      return "ok", 200
+
+    @app.post("/checkout")
+    def checkout():
+      start = time.perf_counter()
+      coupon_raw = (request.args.get("coupon") or
+                    (request.is_json and (request.json.get("coupon"))) or
+                    "")
+      coupon_label = "promotions" if str(coupon_raw).lower() == "promotions" else "none"
+      delay = max(0.0, random.uniform(BASE_MEAN-BASE_JITTER, BASE_MEAN+BASE_JITTER))
+      if coupon_label == "promotions":
+        delay += PROMO_EXTRA
+      time.sleep(delay)
+      dur = time.perf_counter() - start
+      REQ_LAT.labels("/checkout","POST",coupon_label).observe(dur)
+      REQ_COUNT.labels("/checkout","POST",coupon_label,"200").inc()
+      return jsonify({"ok": True, "coupon": coupon_raw or ""}), 200
+
+    if __name__ == "__main__":
+      app.run(host="0.0.0.0", port=8080)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: app-124
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: checkout }
+  template:
+    metadata:
+      labels: { app: checkout }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+      - name: app
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh","-c"]
+        args:
+          - pip install --no-cache-dir flask prometheus_client && python /app/app.py
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        readinessProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+        livenessProbe:
+          httpGet: { path: /metrics, port: 8080 }
+          initialDelaySeconds: 6
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+      volumes:
+      - name: app-code
+        secret:
+          secretName: checkout-app
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: app-124
+  labels: { app: checkout }
+spec:
+  selector: { app: checkout }
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k6-script
+  namespace: app-124
+type: Opaque
+stringData:
+  test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+
+    export const options = {
+      vus: 10,
+      duration: '60s',
+      thresholds: {
+        'http_req_duration{coupon:promotions}': ['p(95)<1200'],
+        'http_req_duration{coupon:none}': ['p(95)<200'],
+      },
+      tags: { suite: 'coupon-split-fast' },
+    };
+
+    function doCheckout(isPromo) {
+      const coupon = isPromo ? 'Promotions' : '';
+      const url = `http://checkout.app-124.svc.cluster.local/checkout?coupon=${coupon}`;
+      const res = http.post(
+        url,
+        JSON.stringify({ items: [1, 2, 3], coupon }),
+        {
+          headers: { 'Content-Type': 'application/json' },
+          tags: { coupon: isPromo ? 'promotions' : 'none' },
+        }
+      );
+      check(res, { 'status is 200': (r) => r.status === 200 });
+    }
+
+    export default function () {
+      const isPromo = Math.random() < 0.5;
+      doCheckout(isPromo);
+      sleep(0.05);
+    }
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-coupon-split
+  namespace: app-124
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+      - name: wait-for-checkout
+        image: curlimages/curl:8.8.0
+        args: ["sh","-lc",'until curl -fsS http://checkout.app-124.svc.cluster.local/healthz; do echo waiting checkout; sleep 2; done']
+      - name: wait-for-prometheus
+        image: curlimages/curl:8.8.0
+        args: ["sh","-lc",'until curl -fsS http://prometheus.app-124.svc.cluster.local:9090/-/ready; do echo waiting prometheus; sleep 2; done']
+      containers:
+      - name: k6
+        image: grafana/k6:0.49.0
+        args: ["run", "/scripts/test.js"]
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+      volumes:
+      - name: script
+        secret:
+          secretName: k6-script
+          items:
+          - key: test.js
+            path: test.js
