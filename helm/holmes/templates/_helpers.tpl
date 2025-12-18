@@ -10,3 +10,12 @@ Return the service account name to use
 default
 {{- end -}}
 {{- end -}}
+
+
+{{- define "holmes.isSelfHosted" -}}
+  {{- range .Values.additionalEnvVars -}}
+    {{- if eq .name "ROBUSTA_API_ENDPOINT" -}}
+      true
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
