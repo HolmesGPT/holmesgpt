@@ -37,8 +37,9 @@ from holmes.core.feedback import (
     UserFeedback,
 )
 from holmes.core.prompt import build_initial_ask_messages
-from holmes.core.tool_calling_llm import ToolCallingLLM, ToolCallResult
+from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
 from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
+from holmes.utils.file_utils import write_json_file
 from holmes.core.tracing import DummyTracer
 from holmes.utils.colors import (
     AI_COLOR,
@@ -952,6 +953,39 @@ def display_recent_tool_outputs(
         )
 
 
+def save_conversation_to_file(
+    json_output_file: str,
+    messages: List,
+    all_tool_calls_history: List[ToolCallResult],
+    console: Console,
+) -> None:
+    """Save the current conversation to a JSON file."""
+    try:
+        # Create LLMResult-like structure for consistency with non-interactive mode
+        conversation_result = LLMResult(
+            messages=messages,
+            tool_calls=all_tool_calls_history,
+            result=None,  # No single result in interactive mode
+            total_cost=0.0,  # TODO: Could aggregate costs from all responses if needed
+            total_tokens=0,
+            prompt_tokens=0,
+            completion_tokens=0,
+            metadata={
+                "session_type": "interactive",
+                "total_turns": len([m for m in messages if m.get("role") == "user"]),
+            },
+        )
+        write_json_file(json_output_file, conversation_result.model_dump())
+        console.print(
+            f"[bold {STATUS_COLOR}]Conversation saved to {json_output_file}[/bold {STATUS_COLOR}]"
+        )
+    except Exception as e:
+        logging.error(f"Failed to save conversation: {e}", exc_info=e)
+        console.print(
+            f"[bold {ERROR_COLOR}]Failed to save conversation: {e}[/bold {ERROR_COLOR}]"
+        )
+
+
 def run_interactive_loop(
     ai: ToolCallingLLM,
     console: Console,
@@ -964,6 +998,7 @@ def run_interactive_loop(
     system_prompt_additions: Optional[str] = None,
     check_version: bool = True,
     feedback_callback: Optional[FeedbackCallback] = None,
+    json_output_file: Optional[str] = None,
 ) -> None:
     # Initialize tracer - use DummyTracer if no tracer provided
     if tracer is None:
@@ -1134,6 +1169,9 @@ def run_interactive_loop(
                     continue
 
                 if command == SlashCommands.EXIT.command:
+                    console.print(
+                        f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
+                    )
                     return
                 elif command == SlashCommands.HELP.command:
                     console.print(
@@ -1263,9 +1301,21 @@ def run_interactive_loop(
             )
 
             console.print("")
+
+            # Save conversation after each AI response
+            if json_output_file and messages:
+                save_conversation_to_file(
+                    json_output_file, messages, all_tool_calls_history, console
+                )
         except typer.Abort:
+            console.print(
+                f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
+            )
             break
         except EOFError:  # Handle Ctrl+D
+            console.print(
+                f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
+            )
             break
         except Exception as e:
             logging.error("An error occurred during interactive mode:", exc_info=e)
@@ -1275,7 +1325,3 @@ def run_interactive_loop(
             trace_url = tracer.get_trace_url()
             if trace_url:
                 console.print(f"🔍 View trace: {trace_url}")
-
-    console.print(
-        f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
-    )

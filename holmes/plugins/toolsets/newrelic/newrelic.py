@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
-import yaml
 
 
 def _build_newrelic_query_url(
@@ -148,7 +147,6 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
             "data": result,
             "is_eu": self._toolset.is_eu_datacenter,
         }
-        final_result = yaml.dump(result_with_key, default_flow_style=False)
 
         # Build New Relic query URL
         explore_url = _build_newrelic_query_url(
@@ -159,7 +157,7 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
-            data=final_result,
+            data=result_with_key,
             params=params,
             url=explore_url,
         )

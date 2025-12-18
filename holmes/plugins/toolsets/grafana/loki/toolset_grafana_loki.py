@@ -169,7 +169,7 @@ class LokiQuery(Tool):
             if data:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
-                    data=json.dumps(data),
+                    data=data,
                     params=params,
                     url=explore_url,
                 )

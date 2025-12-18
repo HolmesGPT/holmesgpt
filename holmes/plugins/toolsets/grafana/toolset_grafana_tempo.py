@@ -5,8 +5,6 @@ import uuid
 from urllib.parse import quote
 from typing import Any, Dict, Tuple, cast, List, Optional
 
-import yaml  # type: ignore
-
 from holmes.common.env_vars import load_bool, MAX_GRAPH_POINTS
 from holmes.core.tools import (
     StructuredToolResult,
@@ -442,7 +440,7 @@ Examples:
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False, sort_keys=False),
+                data=result,
                 params=params,
                 url=explore_url,
             )
@@ -544,7 +542,7 @@ class SearchTracesByQuery(Tool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
                 url=explore_url,
             )
@@ -637,7 +635,7 @@ class SearchTracesByTags(Tool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
                 url=explore_url,
             )
@@ -704,7 +702,7 @@ class QueryTraceById(Tool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(trace_data, default_flow_style=False),
+                data=trace_data,
                 params=params,
                 url=explore_url,
             )
@@ -790,7 +788,7 @@ class SearchTagNames(Tool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
                 url=explore_url,
             )
@@ -875,7 +873,7 @@ class SearchTagValues(Tool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
                 url=explore_url,
             )
@@ -959,7 +957,7 @@ class QueryMetricsInstant(Tool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
                 url=explore_url,
             )
@@ -1064,7 +1062,7 @@ class QueryMetricsRange(Tool):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=yaml.dump(result, default_flow_style=False),
+                data=result,
                 params=params,
                 url=explore_url,
             )

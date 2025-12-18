@@ -126,6 +126,32 @@ aggregate_datadog_spans(
 - Keep fetch_datadog_spans limit low (5-10) to avoid too much data
 - aggregate_datadog_spans can handle higher limits (50+) for group_by facets
 
+### CRITICAL: Cursor Usage Rules
+**NEVER parallelize cursor-based calls or reuse cursor values!**
+
+Cursors are stateful pointers - each one is single-use and represents a unique position in the data stream.
+
+**WRONG (causes duplicate data):**
+```
+Batch 1 → cursor_A
+Then call Batch 2, 3, 4 ALL with cursor_A in parallel ❌
+Result: Duplicate data, incomplete results
+```
+
+**CORRECT (sequential pagination):**
+```
+Batch 1 → cursor_A
+Wait for response → use cursor_A for Batch 2 → cursor_B  
+Wait for response → use cursor_B for Batch 3 → cursor_C
+Result: Complete unique data ✅
+```
+
+**Key Rules:**
+- Each response provides a NEW cursor for the NEXT request
+- NEVER reuse the same cursor value multiple times
+- NEVER make parallel calls with the same cursor
+- Always wait for response before using the returned cursor
+
 ### Compact Mode Strategy:
 
 The `compact` parameter reduces output size by returning only essential fields. Use this strategy:
