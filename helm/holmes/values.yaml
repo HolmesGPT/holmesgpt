@@ -5,6 +5,7 @@ additionalEnvVars: []
 additional_env_vars: []
 imagePullSecrets: []
 podAnnotations: {}
+commonLabels: {}
 
 replicas: 1
 

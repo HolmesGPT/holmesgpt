@@ -4,7 +4,7 @@ metadata:
   name: {{ .Release.Name }}-holmes
   namespace: {{ .Release.Namespace }}
   labels:
-    app: holmes
+    {{- include "holmes.labels" . | nindent 4 }}
 spec:
   {{- if (not .Values.autoscaling.enabled) }}
   replicas: {{ .Values.replicas }}
@@ -12,11 +12,11 @@ spec:
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
-      app: holmes
+      {{- include "holmes.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: holmes
+        {{- include "holmes.labels" . | nindent 8 }}
       annotations:
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
@@ -128,10 +128,10 @@ metadata:
   name: {{ .Release.Name }}-holmes
   namespace: {{ .Release.Namespace }}
   labels:
-    app: holmes
+    {{- include "holmes.labels" . | nindent 4 }}
 spec:
   selector:
-    app: holmes
+    {{- include "holmes.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       protocol: TCP
