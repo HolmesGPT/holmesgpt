@@ -40,7 +40,7 @@ for eval_name in args.eval_names:
             data = yaml.safe_load(f)
 
         if section in data:
-            result = subprocess.run(data[section], shell=True)
+            result = subprocess.run(data[section], shell=True, executable="/bin/bash")
             if result.returncode != 0:
                 print(f"⚠️  {section} failed with exit code {result.returncode}")
         else:

@@ -157,6 +157,7 @@ def _invoke_command(
             command,
             shell=True,
             capture_output=True,
+            executable="/bin/bash",
             text=True,
             check=True,
             stdin=subprocess.DEVNULL,
