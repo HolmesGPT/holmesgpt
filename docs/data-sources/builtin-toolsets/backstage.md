@@ -18,4 +18,4 @@ Below is a short walkthrough of the HolmesGPT–Backstage integration. It demons
 </div>
 
 If you’re already running Backstage and want to bring AI-driven diagnostics directly into your developer portal, reach out to us via
-[email](arik@robusta.dev) or [slack](robustacommunity.slack.com). You can also use the [this form](https://robusta-dev.typeform.com/to/xhyQYgLx) to register your interest.
+[email](arik@robusta.dev) or [slack](robustacommunity.slack.com). You can also use [this form](https://robusta-dev.typeform.com/to/xhyQYgLx) to register your interest.
