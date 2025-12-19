@@ -1,0 +1,8 @@
+{"toolset_name": "flux/core", "tool_name": "flux_get_sources_git", "match_params": {}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "flux_get_sources_git command", "params": {}}
+stdout:
+NAME            REVISION        SUSPENDED       READY   MESSAGE
+webapp-infra                    False           False   failed to checkout and determine revision: unable to clone 'ssh://git@github.com/myorg/webapp-infra.git': ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain
+flux-system     main@sha1:abc   False           True    stored artifact for revision 'main@sha1:abc123def456'
+
+stderr:

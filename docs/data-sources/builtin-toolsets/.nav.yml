@@ -12,6 +12,7 @@ nav:
   - DataDog: datadog.md
   - Datetime: datetime.md
   - Docker: docker.md
+  - Flux CD: flux.md
   - GitHub: github.md
   - Grafana Dashboards: grafanadashboards.md
   - Loki: grafanaloki.md

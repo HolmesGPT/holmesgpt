@@ -9,6 +9,7 @@ from holmes.plugins.toolsets.bash.kubectl import KubectlCommand
 from holmes.plugins.toolsets.bash.aws import AWSCommand
 from holmes.plugins.toolsets.bash.azure import AzureCommand
 from holmes.plugins.toolsets.bash.argocd import ArgocdCommand
+from holmes.plugins.toolsets.bash.flux import FluxCommand
 from holmes.plugins.toolsets.bash.docker import DockerCommand
 from holmes.plugins.toolsets.bash.helm import HelmCommand
 
@@ -33,6 +34,7 @@ AVAILABLE_COMMANDS: list[BashCommand] = [
     AWSCommand(),
     AzureCommand(),
     ArgocdCommand(),
+    FluxCommand(),
     DockerCommand(),
     HelmCommand(),
     GrepCommand(),

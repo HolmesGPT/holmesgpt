@@ -18,6 +18,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-datadog:{ .lg .middle } **Datadog**](datadog.md)
 -   [:material-clock:{ .lg .middle } **Datetime**](datetime.md)
 -   [:simple-docker:{ .lg .middle } **Docker**](docker.md)
+-   [:material-source-branch:{ .lg .middle } **Flux CD**](flux.md)
 -   [:material-github:{ .lg .middle } **GitHub**](github.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)

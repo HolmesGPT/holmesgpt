@@ -1,0 +1,6 @@
+user_prompt: "why is my flux kustomization not syncing?"
+expected_output:
+  - Mention of GitRepository authentication failure or SSH key issue
+  - Reference to flux-system namespace or webapp-infra source
+evaluation:
+  correctness: 1
