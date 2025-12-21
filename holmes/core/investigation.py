@@ -33,9 +33,6 @@ def investigate_issues(
 ) -> InvestigationResult:
     context = dal.get_issue_data(investigate_request.context.get("robusta_issue_id"))
 
-    resource_instructions = dal.get_resource_instructions(
-        "alert", investigate_request.context.get("issue_type")
-    )
     global_instructions = dal.get_global_instructions_for_account()
 
     raw_data = investigate_request.model_dump()
@@ -61,7 +58,6 @@ def investigate_issues(
         issue,
         prompt=investigate_request.prompt_template,
         post_processing_prompt=HOLMES_POST_PROCESSING_PROMPT,
-        instructions=resource_instructions,
         global_instructions=global_instructions,
         sections=investigate_request.sections,
         trace_span=trace_span,
@@ -106,10 +102,6 @@ def get_investigation_context(
 
     issue_instructions = ai.runbook_manager.get_instructions_for_issue(issue)
 
-    resource_instructions = dal.get_resource_instructions(
-        "alert", investigate_request.context.get("issue_type")
-    )
-
     # This section is about setting vars to request the LLM to return structured output.
     # It does not mean that Holmes will not return structured sections for investigation as it is
     # capable of splitting the markdown into sections
@@ -152,7 +144,6 @@ def get_investigation_context(
         runbook_catalog=runbook_catalog,
         global_instructions=global_instructions,
         issue_instructions=issue_instructions,
-        resource_instructions=resource_instructions,
     )
 
     base_user = f"{base_user}\n #This is context from the issue:\n{issue.raw}"

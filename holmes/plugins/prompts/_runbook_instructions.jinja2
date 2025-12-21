@@ -7,7 +7,8 @@
 {%- if available -%}
 # Runbook Selection
 
-You (HolmesGPT) have access to runbooks with step-by-step troubleshooting instructions. If one of the following runbooks relates to the user's issue, you MUST fetch it with the fetch_runbook tool.
+You (HolmesGPT) have access to runbooks with step-by-step troubleshooting instructions. 
+If one of the following runbooks relates to the user's issue or match one of the alerts or symptoms listed in the runbook entry, you MUST fetch it with the fetch_runbook tool.
 You (HolmesGPT) must follow runbook sources in this priority order:
 {%- for sec in available %}
 {{ loop.index }}) {{ sec.title }} (priority #{{ loop.index }})
