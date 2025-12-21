@@ -9,32 +9,18 @@ HolmesGPT may require access to additional Kubernetes resources or CRDs for spec
 
 HolmesGPT includes read-only permissions for common Kubernetes operators and tools by default. These can be individually enabled or disabled:
 
-| CRD Permission | Default | Description |
-|----------------|---------|-------------|
-| `argo` | `true` | Argo CD, Workflows, Rollouts, Events |
-| `flux` | `true` | Flux CD GitOps toolkit |
-| `kafka` | `true` | Strimzi Kafka operator |
-| `keda` | `true` | KEDA autoscaling |
-| `crossplane` | `true` | Crossplane compositions and providers |
-| `istio` | `true` | Istio service mesh |
-| `gatewayApi` | `true` | Kubernetes Gateway API |
-| `velero` | `true` | Velero backup and restore |
-
-### Disabling Unused CRD Permissions
-
-You can disable these permissions using the following configuration example:
 === "Holmes Helm Chart"
 
     ```yaml
     crdPermissions:
       argo: true
       flux: true
-      kafka: false      # Disable if not using Strimzi Kafka
-      keda: false       # Disable if not using KEDA
-      crossplane: false # Disable if not using Crossplane
-      istio: false      # Disable if not using Istio
-      gatewayApi: false # Disable if not using Gateway API
-      velero: false     # Disable if not using Velero
+      kafka: true
+      keda: true 
+      crossplane: true
+      istio: true 
+      gatewayApi: true
+      velero: true
     ```
 
 === "Robusta Helm Chart"
@@ -45,12 +31,12 @@ You can disable these permissions using the following configuration example:
       crdPermissions:
         argo: true
         flux: true
-        kafka: false
-        keda: false
-        crossplane: false
-        istio: false
-        gatewayApi: false
-        velero: false
+        kafka: true
+        keda: true
+        crossplane: true
+        istio: true
+        gatewayApi: true
+        velero: true
     ```
 
 ## Adding Custom Permissions
