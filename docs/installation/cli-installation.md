@@ -293,7 +293,7 @@ When using `--model`, specify the model name (key) from your YAML file, not the 
 
 **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
 
-See [Environment Variables Reference](../reference/environment-variables.md#model_list_file_location) for more details.
+See [Environment Variables Reference](../reference/environment-variables.md) for more details.
 
 ## Next Steps
 

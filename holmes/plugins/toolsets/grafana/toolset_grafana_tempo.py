@@ -148,22 +148,17 @@ class BaseGrafanaTempoToolset(BaseGrafanaToolset):
     def grafana_config(self) -> GrafanaTempoConfig:
         return cast(GrafanaTempoConfig, self._grafana_config)
 
-    def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
-        """Check Tempo connectivity using the echo endpoint."""
-        # First call parent to validate config
-        success, msg = super().prerequisites_callable(config)
-        if not success:
-            return success, msg
-
-        # Then check Tempo-specific echo endpoint
+    def health_check(self) -> Tuple[bool, str]:
+        """Test a dummy query to check if service available."""
         try:
-            api = GrafanaTempoAPI(self.grafana_config)
-            if api.query_echo_endpoint():
-                return True, "Successfully connected to Tempo"
-            else:
-                return False, "Failed to connect to Tempo echo endpoint"
+            _ = GrafanaTempoAPI(self.grafana_config).search_traces_by_query(
+                q='{ .service.name = "test-endpoint" }',
+                limit=1,
+            )
         except Exception as e:
-            return False, f"Failed to connect to Tempo: {str(e)}"
+            return False, f"Unable to connect to Tempo.\n{str(e)}"
+
+        return True, ""
 
     def build_k8s_filters(
         self, params: Dict[str, Any], use_exact_match: bool

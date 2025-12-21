@@ -54,7 +54,6 @@ DEFAULT_METADATA_TIME_WINDOW_HRS = 1
 class PrometheusConfig(BaseModel):
     # URL is optional because it can be set with an env var
     prometheus_url: Optional[str]
-    healthcheck: str = "-/healthy"
 
     # New config for default time window for metadata APIs
     default_metadata_time_window_hrs: int = DEFAULT_METADATA_TIME_WINDOW_HRS  # Default: only show metrics active in the last hour
@@ -128,9 +127,6 @@ class PrometheusConfig(BaseModel):
             )
         # If openshift is enabled, and the user didn't configure auth headers, we will try to load the token from the service account.
         if IS_OPENSHIFT:
-            if self.healthcheck == "-/healthy":
-                self.healthcheck = "api/v1/query?query=up"
-
             if self.headers.get("Authorization"):
                 return self
 
@@ -150,7 +146,6 @@ class AMPConfig(PrometheusConfig):
     aws_secret_access_key: Optional[str] = None
     aws_region: str
     aws_service_name: str = "aps"
-    healthcheck: str = "api/v1/query?query=up"
     prometheus_ssl_enabled: bool = False
     assume_role_arn: Optional[str] = None
 
@@ -1584,7 +1579,7 @@ class PrometheusToolset(Toolset):
                 f"Toolset {self.name} failed to initialize because prometheus is not configured correctly",
             )
 
-        url = urljoin(self.config.prometheus_url, self.config.healthcheck)
+        url = urljoin(self.config.prometheus_url, "api/v1/query?query=up")
         try:
             response = do_request(
                 config=self.config,

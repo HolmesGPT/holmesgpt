@@ -80,7 +80,7 @@ toolsets:
     enabled: true
     config:
       prometheus_url: http://<prometheus-host>:9090
-      healthcheck: "-/healthy"  # Path for health checking (default: -/healthy)
+      healthcheck: "/api/v1/query?query=up"  # Default path for health checking.
       headers:
         Authorization: "Basic <base_64_encoded_string>"
 
@@ -105,7 +105,7 @@ toolsets:
 **Config option explanations:**
 
 - `prometheus_url`: The base URL for Prometheus. Should include protocol and port.
-- `healthcheck`: Path used for health checking Prometheus or Mimir/Cortex endpoint. Defaults to `-/healthy` for Prometheus, use `/ready` for Grafana Mimir.
+- `healthcheck`: Path used for health checking Prometheus or Mimir/Cortex endpoint. Defaults to `"/api/v1/query?query=up"`.
 - `headers`: Extra headers for all Prometheus HTTP requests (e.g., for authentication).
 - `default_metadata_time_window_hrs`: Time window (in hours) for metadata/discovery APIs to look for active metrics. Default: 1 hour.
 - `query_response_size_limit`: Maximum number of characters in a query response before truncation. Set to `null` to disable. Default: 20000.
@@ -159,7 +159,6 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
         prometheus/metrics:
           enabled: true
           config:
-            healthcheck: "/api/v1/query?query=up"  # This is important for Coralogix
             prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
             headers:
               token: "{{ env.CORALOGIX_API_KEY }}"
