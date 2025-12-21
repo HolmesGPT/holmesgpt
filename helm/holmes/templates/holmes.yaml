@@ -68,7 +68,7 @@ spec:
           - name: ENABLE_TELEMETRY
             value: {{ .Values.enableTelemetry | quote }}
           - name: SENTRY_DSN
-            value: {{ if (include "holmes.isSelfHosted" .) }}""{{ else }}{{ .Values.sentryDSN }}{{ end }}
+            value: {{ include "holmes.sentryDSN" . }}
           {{ if .Values.certificate -}}
           - name: CERTIFICATE
             value: {{ .Values.certificate }}
