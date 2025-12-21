@@ -10,9 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: 'write'
+      contents: 'read'
       id-token: 'write'
-      pull-requests: 'write'
 
     steps:
     - uses: actions/checkout@v4
@@ -78,48 +77,3 @@ jobs:
     - name: Upload helm chart
       run: |
         cd helm && ./upload_chart.sh
-
-    - name: Comment with image details
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const owner = context.repo.owner;
-          const repo = context.repo.repo;
-          const tag = context.ref.replace('refs/tags/', '');
-
-          const registryLink = 'https://console.cloud.google.com/artifacts/docker/genuine-flight-317411/us-central1/devel/holmes?project=genuine-flight-317411';
-          const tagName = context.ref_name;
-
-          const message = [
-            `Release Docker image built for tag **${tagName}**:`,
-            '',
-            `- [us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${tagName}](${registryLink})`,
-            `- [robustadev/holmes:${tagName}](https://hub.docker.com/r/robustadev/holmes/tags)`,
-            '',
-            'Latest tag was also pushed (when applicable).'
-          ].join('\\n');
-
-          const prs = await github.paginate(github.rest.pulls.list, {
-            owner,
-            repo,
-            state: 'open',
-            head: `${owner}:${tag}`,
-          });
-
-          if (prs.length > 0) {
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: prs[0].number,
-              body: message,
-            });
-            core.info(`Commented on PR #${prs[0].number}`);
-          } else {
-            await github.rest.repos.createCommitComment({
-              owner,
-              repo,
-              commit_sha: context.sha,
-              body: message,
-            });
-            core.info('Commented on commit');
-          }
