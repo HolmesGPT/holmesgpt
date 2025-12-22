@@ -1,7 +1,10 @@
 import logging
 import os
 from contextlib import contextmanager
+from typing import Optional
+
 import pytest
+import requests
 from pytest_shared_session_scope import (
     shared_session_scope_json,
     SetupToken,
@@ -49,6 +52,34 @@ DEBUG_SEPARATOR = "=" * 80
 LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate", "test_workload_health"]
 
 
+def _fetch_additional_system_prompt(url: str) -> Optional[str]:
+    """Fetch optional additional system prompt from a URL.
+
+    Accepts either plain text or JSON with an "additional_system_prompt" field.
+    """
+
+    if not url:
+        return None
+
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+
+    try:
+        data = response.json()
+        if isinstance(data, dict) and "additional_system_prompt" in data:
+            prompt = data["additional_system_prompt"]
+            if not isinstance(prompt, str):
+                raise ValueError("'additional_system_prompt' must be a string")
+            return prompt
+        if isinstance(data, str):
+            return data
+    except ValueError:
+        # Not JSON or malformed; fall back to raw text
+        pass
+
+    return response.text
+
+
 def is_llm_test(nodeid: str) -> bool:
     """Check if a test nodeid is for an LLM test."""
     return any(
@@ -90,6 +121,22 @@ def mock_generation_config(request):
         mode = MockMode.MOCK
 
     return MockGenerationConfig(generate_mocks, regenerate_all_mocks, mode)
+
+
+@pytest.fixture(scope="session")
+def additional_system_prompt(request) -> Optional[str]:
+    """Optionally load an additional system prompt for evals from a URL."""
+
+    url = request.config.getoption("--additional-system-prompt-url")
+    if not url:
+        return None
+
+    try:
+        return _fetch_additional_system_prompt(url)
+    except Exception as e:  # pragma: no cover - defensive error propagation
+        raise pytest.UsageError(
+            f"Failed to fetch additional system prompt from {url}: {e}"
+        )
 
 
 # Handles before_test and after_test
