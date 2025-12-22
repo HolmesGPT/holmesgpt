@@ -28,6 +28,16 @@ from holmes.core.tools import (
 _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
 
+# Whitelist of JSON-serializable context fields from ToolInvokeContext
+# Excludes 'llm' (non-serializable) and other complex objects
+SERIALIZABLE_CONTEXT_FIELDS = {
+    "tool_number",
+    "user_approved",
+    "max_token_count",
+    "tool_call_id",
+    "tool_name",
+}
+
 
 def get_server_lock(url: str) -> threading.Lock:
     """Get or create a lock for a specific MCP server URL."""
@@ -47,6 +57,7 @@ class MCPConfig(BaseModel):
     url: AnyUrl
     mode: MCPMode = MCPMode.SSE
     headers: Optional[Dict[str, str]] = None
+    context_fields: Optional[List[str]] = None
 
     def get_lock_string(self) -> str:
         return str(self.url)
@@ -57,6 +68,7 @@ class StdioMCPConfig(BaseModel):
     command: str
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
+    context_fields: Optional[List[str]] = None
 
     def get_lock_string(self) -> str:
         return str(self.command)
@@ -116,8 +128,12 @@ class RemoteMCPTool(Tool):
                 raise ValueError("MCP config not initialized")
 
             lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
+
+            # Inject context into params instead of headers for universal transport support
+            params_with_context = self._inject_tool_context(params, context)
+
             with lock:
-                return asyncio.run(self._invoke_async(params))
+                return asyncio.run(self._invoke_async(params_with_context))
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -125,6 +141,50 @@ class RemoteMCPTool(Tool):
                 params=params,
                 invocation=f"MCPtool {self.name} with params {params}",
             )
+
+    def _inject_tool_context(self, params: dict, context: ToolInvokeContext) -> dict:
+        """Inject _tool_context into params for universal transport support (stdio/SSE/http)."""
+        context_fields = self.toolset.get_context_fields()
+        context_dict = self._serialize_context(context, context_fields)
+
+        if not context_dict:
+            return params
+
+        # Create a copy of params and inject _tool_context
+        params_with_context = params.copy()
+        params_with_context["_tool_context"] = context_dict
+        return params_with_context
+
+    def _serialize_context(
+        self, context: ToolInvokeContext, fields: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        default_fields = []
+
+        fields_to_serialize = fields if fields is not None else default_fields
+
+        # Validate requested fields against whitelist
+        if fields_to_serialize:
+            invalid_fields = [
+                f for f in fields_to_serialize if f not in SERIALIZABLE_CONTEXT_FIELDS
+            ]
+            if invalid_fields:
+                logging.warning(
+                    f"MCP toolset '{self.toolset.name}': Invalid or non-serializable "
+                    f"context fields configured: {invalid_fields}. "
+                    f"Valid fields: {sorted(SERIALIZABLE_CONTEXT_FIELDS)}"
+                )
+
+        result = {}
+        for field in fields_to_serialize:
+            # Skip non-whitelisted fields
+            if field not in SERIALIZABLE_CONTEXT_FIELDS:
+                continue
+
+            value = getattr(context, field, None)
+            if value is not None:
+                result[field] = value
+
+        return result
 
     @staticmethod
     def _is_content_error(content: str) -> bool:
@@ -199,6 +259,13 @@ class RemoteMCPToolset(Toolset):
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
+
+    def get_context_fields(self) -> Optional[List[str]]:
+        if isinstance(self._mcp_config, MCPConfig):
+            return self._mcp_config.context_fields
+        elif isinstance(self._mcp_config, StdioMCPConfig):
+            return self._mcp_config.context_fields
+        return None
 
     def model_post_init(self, __context: Any) -> None:
         self.prerequisites = [
@@ -287,5 +354,6 @@ class RemoteMCPToolset(Toolset):
             url=AnyUrl("http://example.com:8000/mcp/messages"),
             mode=MCPMode.STREAMABLE_HTTP,
             headers={"Authorization": "Bearer YOUR_TOKEN"},
+            context_fields=[],
         )
         return example_config.model_dump()

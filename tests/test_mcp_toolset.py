@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
+from holmes.core.llm import LLM
 from holmes.core.tools import (
     StructuredToolResultStatus,
+    ToolInvokeContext,
     ToolParameter,
 )
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
@@ -1129,3 +1131,206 @@ class TestStdio:
 
         # Verify the tools loaded in the toolset match what we got from list_tools
         assert len(toolset.tools) == len(list_result.tools)
+
+
+class TestContextPassing:
+    """Test context passing via _tool_context parameter"""
+
+    def test_context_serialization_with_default_fields(
+        self, suppress_migration_warnings
+    ):
+        """Test that default fields are empty by default"""
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        mock_toolset._mcp_config = MCPConfig(
+            url="http://localhost:1234", mode=MCPMode.SSE
+        )
+
+        tool = RemoteMCPTool(
+            name="test_tool",
+            description="Test tool",
+            toolset=mock_toolset,
+        )
+
+        mock_llm = AsyncMock(spec=LLM)
+        context = ToolInvokeContext(
+            tool_number=1,
+            user_approved=True,
+            llm=mock_llm,
+            max_token_count=8000,
+            tool_call_id="call_123",
+            tool_name="test_tool",
+        )
+
+        serialized = tool._serialize_context(context, fields=None)
+
+        # Default fields are now empty, so serialized should be empty
+        assert serialized == {}
+        assert "user_approved" not in serialized
+        assert "max_token_count" not in serialized
+        assert "tool_name" not in serialized
+        assert "llm" not in serialized
+
+    def test_context_serialization_with_custom_fields(
+        self, suppress_migration_warnings
+    ):
+        """Test that custom fields are serialized correctly"""
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "context_fields": ["tool_name", "tool_number"],
+            },
+        )
+        mock_toolset._mcp_config = MCPConfig(
+            url="http://localhost:1234",
+            mode=MCPMode.SSE,
+            context_fields=["tool_name", "tool_number"],
+        )
+
+        tool = RemoteMCPTool(
+            name="test_tool",
+            description="Test tool",
+            toolset=mock_toolset,
+        )
+
+        mock_llm = AsyncMock(spec=LLM)
+        context = ToolInvokeContext(
+            tool_number=5,
+            user_approved=True,
+            llm=mock_llm,
+            max_token_count=8000,
+            tool_call_id="call_123",
+            tool_name="test_tool",
+        )
+
+        custom_fields = ["tool_name", "tool_number"]
+        serialized = tool._serialize_context(context, fields=custom_fields)
+
+        assert "tool_name" in serialized
+        assert serialized["tool_name"] == "test_tool"
+        assert "tool_number" in serialized
+        assert serialized["tool_number"] == 5
+        assert "user_approved" not in serialized
+        assert "max_token_count" not in serialized
+        assert "llm" not in serialized
+
+    def test_inject_tool_context_with_custom_fields(self, suppress_migration_warnings):
+        """Test that _tool_context is injected into params correctly"""
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "context_fields": ["tool_name", "max_token_count"],
+            },
+        )
+        mock_toolset._mcp_config = MCPConfig(
+            url="http://localhost:1234",
+            mode=MCPMode.SSE,
+            context_fields=["tool_name", "max_token_count"],
+        )
+
+        tool = RemoteMCPTool(
+            name="test_tool",
+            description="Test tool",
+            toolset=mock_toolset,
+        )
+
+        mock_llm = AsyncMock(spec=LLM)
+        context = ToolInvokeContext(
+            tool_number=1,
+            user_approved=False,
+            llm=mock_llm,
+            max_token_count=8000,
+            tool_call_id="call_123",
+            tool_name="test_tool",
+        )
+
+        params = {"operation": "test"}
+        params_with_context = tool._inject_tool_context(params, context)
+
+        assert "_tool_context" in params_with_context
+        context_data = params_with_context["_tool_context"]
+        assert "tool_name" in context_data
+        assert context_data["tool_name"] == "test_tool"
+        assert "max_token_count" in context_data
+        assert context_data["max_token_count"] == 8000
+        # Original params should still be present
+        assert "operation" in params_with_context
+        assert params_with_context["operation"] == "test"
+
+    def test_inject_tool_context_empty_when_no_fields(
+        self, suppress_migration_warnings
+    ):
+        """Test that _tool_context is not added when no serializable fields have values"""
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "context_fields": ["tool_number"],
+            },
+        )
+        mock_toolset._mcp_config = MCPConfig(
+            url="http://localhost:1234",
+            mode=MCPMode.SSE,
+            context_fields=["tool_number"],
+        )
+
+        tool = RemoteMCPTool(
+            name="test_tool",
+            description="Test tool",
+            toolset=mock_toolset,
+        )
+
+        mock_llm = AsyncMock(spec=LLM)
+        context = ToolInvokeContext(
+            tool_number=None,
+            user_approved=False,
+            llm=mock_llm,
+            max_token_count=8000,
+            tool_call_id="call_123",
+            tool_name="test_tool",
+        )
+
+        params = {"operation": "test"}
+        params_with_context = tool._inject_tool_context(params, context)
+
+        # When context is empty, _tool_context should not be added
+        assert "_tool_context" not in params_with_context
+        assert params_with_context == params
+
+    def test_context_fields_config_loaded(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Test that context_fields configuration is loaded correctly"""
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "context_fields": ["tool_name", "tool_number", "tool_call_id"],
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        assert mcp_toolset._mcp_config.context_fields == [
+            "tool_name",
+            "tool_number",
+            "tool_call_id",
+        ]
+        assert mcp_toolset.get_context_fields() == [
+            "tool_name",
+            "tool_number",
+            "tool_call_id",
+        ]
