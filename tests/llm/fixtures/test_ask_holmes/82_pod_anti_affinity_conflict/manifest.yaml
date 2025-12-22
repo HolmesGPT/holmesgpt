@@ -10,7 +10,7 @@ metadata:
   name: silver-puffin
   namespace: app-82
 spec:
-  replicas: 20  # Trying to schedule 8 pods with anti-affinity (enough to demonstrate the issue)
+  replicas: 20  # Trying to more pods than nodes
   selector:
     matchLabels:
       app: silver-puffin
