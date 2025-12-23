@@ -152,5 +152,7 @@ COPY ./holmes /app/holmes
 COPY ./server.py /app/server.py
 COPY ./holmes_cli.py /app/holmes_cli.py
 
+# RUN apt-get update && apt-get install -y procps tcpdump && rm -rf /var/lib/apt/lists/*
+
 ENTRYPOINT ["python", "holmes_cli.py"]
 #CMD ["http://docker.for.mac.localhost:9093"]

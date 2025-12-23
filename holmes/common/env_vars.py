@@ -113,3 +113,6 @@ RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION = load_bool(
 )
 
 SSE_READ_TIMEOUT = float(os.environ.get("SSE_READ_TIMEOUT", "120"))
+
+
+LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "120"))
