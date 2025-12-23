@@ -1,4 +1,4 @@
-user_prompt: "Were there issues with the task-scheduler pod in namespace-73a?"
+user_prompt: "Were there issues with the task-scheduler pod in app-73a?"
 tags:
   - logs
   - context_window
@@ -8,11 +8,38 @@ expected_output:
   - Task scheduler pod experienced temporary issues between when it could not connect to an external API possibly due to a maintenance window
 before_test: |
   # Create namespace first since the secret depends on it (|| true ignores if it already exists)
-  kubectl create namespace namespace-73a || true
-  kubectl create secret generic task-scheduler-logs-script --from-file=generate_logs.py=./generate_logs.py -n namespace-73a --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-73a || true
+  kubectl create secret generic task-scheduler-logs-script --from-file=generate_logs.py=./generate_logs.py -n app-73a --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f ./manifest.yaml
-  sleep 50
+  # Wait for pod and all required log lines to appear (60s total) - MUST succeed or test fails
+  LOGS_READY=false
+  for i in {1..20}; do
+    # First check if pod exists and is ready
+    if kubectl wait --for=condition=ready pod -l app=task-scheduler -n app-73a --timeout=1s 2>/dev/null; then
+      # Pod is ready, now get its name and check for all three required log lines
+      POD_NAME=$(kubectl get pods -n app-73a -l app=task-scheduler -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+      if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "Detected repeated failures during 03:00-03:05 window" && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "System health check passed" && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "Job executed successfully in 167ms\."; then
+        echo "✅ All required log lines detected!"
+        LOGS_READY=true
+        break
+      else
+        echo "⏳ Attempt $i/20: pod ready but not all log lines found yet, checking in 3s..."
+      fi
+    else
+      echo "⏳ Attempt $i/20: waiting for pod to be ready, checking in 3s..."
+    fi
+    sleep 3
+  done
+  if [ "$LOGS_READY" = false ]; then
+    echo "❌ Required log lines not found after 60s"
+    POD_NAME=$(kubectl get pods -n app-73a -l app=task-scheduler -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$POD_NAME" ]; then
+      kubectl logs "$POD_NAME" -n app-73a --tail=50
+    fi
+    kubectl get pods -n app-73a
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./manifest.yaml
-  kubectl delete secret task-scheduler-logs-script -n namespace-73a --ignore-not-found
-  kubectl delete namespace namespace-73a --ignore-not-found
+  kubectl delete secret task-scheduler-logs-script -n app-73a --ignore-not-found
+  kubectl delete namespace app-73a --ignore-not-found
