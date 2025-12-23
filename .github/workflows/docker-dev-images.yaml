@@ -68,9 +68,10 @@ jobs:
           const fullTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${sha}`;
           const shortTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
           const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
+          const marker = 'Dev Docker images are ready for this commit:';
 
           const message = [
-            'Dev Docker images are ready for this commit:',
+            marker,
             '',
             `- [${fullTag}](${registryLink})`,
             `- [${shortTag}](${registryLink})`,
@@ -97,19 +98,54 @@ jobs:
           });
 
           if (prs.length > 0) {
-            await github.rest.issues.createComment({
+            const issue_number = prs[0].number;
+            const existingComments = await github.paginate(github.rest.issues.listComments, {
               owner,
               repo,
-              issue_number: prs[0].number,
-              body: message,
+              issue_number,
             });
-            core.info(`Commented on PR #${prs[0].number}`);
+            const existing = existingComments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: message,
+              });
+              core.info(`Updated existing PR comment #${existing.id}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: message,
+              });
+              core.info(`Commented on PR #${issue_number}`);
+            }
           } else {
-            await github.rest.repos.createCommitComment({
+            const commitComments = await github.paginate(github.rest.repos.listCommentsForCommit, {
               owner,
               repo,
               commit_sha: sha,
-              body: message,
             });
-            core.info('Commented on commit');
+            const existing = commitComments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.repos.updateCommitComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: message,
+              });
+              core.info(`Updated existing commit comment #${existing.id}`);
+            } else {
+              await github.rest.repos.createCommitComment({
+                owner,
+                repo,
+                commit_sha: sha,
+                body: message,
+              });
+              core.info('Commented on commit');
+            }
           }
