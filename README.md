@@ -4,6 +4,7 @@
 HolmesGPT is an AI agent for investigating problems in your cloud, finding the root cause, and suggesting remediations. It has dozens of built-in integrations for cloud providers, observability tools, and on-call systems.
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11586/badge)](https://www.bestpractices.dev/projects/11586)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FHolmesGPT%2Fholmesgpt.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FHolmesGPT%2Fholmesgpt?ref=badge_shield)
 
 >🎉 **HolmesGPT is now a CNCF Sandbox Project!**  
 HolmesGPT was originally created by [Robusta.Dev](https://home.robusta.dev/) and is a CNCF sandbox project.
@@ -197,6 +198,9 @@ Because HolmesGPT relies on LLMs, it relies on [a suite of pytest based evaluati
 ## License
 Distributed under the Apache 2.0 License. See [LICENSE](https://github.com/HolmesGPT/holmesgpt/blob/master/LICENSE) for more information.
 <!-- Change License -->
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FHolmesGPT%2Fholmesgpt.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FHolmesGPT%2Fholmesgpt?ref=badge_large)
 
 ## Community
 
