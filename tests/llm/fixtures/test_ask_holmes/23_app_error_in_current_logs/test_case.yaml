@@ -11,16 +11,24 @@ before_test: |
 
   # Wait for curl pod to generate some error logs (replaces fixed 30s sleep)
   echo "Waiting for curl pod to generate DNS error logs..."
+  ERROR_FOUND=false
   for i in {1..30}; do
-    if kubectl logs -n app-23 -l app=curl-app --tail=5 2>/dev/null | grep -q "Failed to reach"; then
+    if kubectl logs -n app-23 -l app=curl-app 2>/dev/null | grep -q "Failed to reach"; then
       echo "✅ Error logs detected after $i seconds"
+      ERROR_FOUND=true
       break
     fi
     echo "⏳ Attempt $i/30: Waiting for error logs..."
     sleep 1
   done
+  if [ "$ERROR_FOUND" = false ]; then
+    echo "❌ No error logs found after 30 seconds"
+    kubectl logs -n app-23 -l app=curl-app
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./manifests/
+  kubectl delete namespace app-23 || true
 tags:
   - medium
   - kubernetes
