@@ -65,7 +65,6 @@ jobs:
           const sha = context.sha;
           const shortSha = `${{ steps.short_sha.outputs.sha_short }}`;
 
-          const fullTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${sha}`;
           const shortTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
           const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
           const marker = 'Dev Docker images are ready for this commit:';
@@ -73,10 +72,9 @@ jobs:
           const message = [
             marker,
             '',
-            `- [${fullTag}](${registryLink})`,
             `- [${shortTag}](${registryLink})`,
             '',
-            'Use either tag to pull the image for testing.',
+            'Use this tag to pull the image for testing.',
             '',
             '⚠️ Temporary images are deleted after 30 days. Copy to a permanent registry before using them:',
             '```bash',
