@@ -89,11 +89,32 @@ toolsets:
       - name: "kubernetes_jq_query"
         user_description: "Query Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -r {{jq_expr}}"
         description: >
-          Use kubectl to get json for all resources of a specific kind pipe the results to jq to filter them.
-          IMPORTANT: When possible, always prefer using kubernetes_jsonpath_query which is more efficient memory and data wise.
-          WARNING: On large clusters, this loads ALL resources into memory and may cause OOM errors. Consider using kubernetes_jsonpath_query for memory-efficient filtering.
-          Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give. e.g. give an expression like .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
-        command: kubectl get {{ kind }} --all-namespaces -o json | jq -r {{ jq_expr }}
+          Use kubectl to get json for all resources of a specific kind and filter with jq.
+          Do not worry about escaping the jq_expr - it will be done by the system.
+          Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
+        script: |
+          #!/bin/bash
+          set -e
+
+          echo "Executing query for {{ kind }} resources..."
+          echo "Expression: {{ jq_expr }}"
+          echo "---"
+
+          # Use temp file to avoid memory issues on large clusters
+          # Cross-platform temp file creation
+          if command -v mktemp >/dev/null 2>&1; then
+            TEMP_FILE=$(mktemp -t holmes_k8s_XXXXXX.json)
+          else
+            # Fallback for Windows/systems without mktemp
+            TEMP_FILE="${TEMP:-/tmp}/holmes_k8s_$$.json"
+          fi
+          trap "rm -f $TEMP_FILE" EXIT
+
+          # Stream to disk (constant memory usage regardless of cluster size)
+          kubectl get {{ kind }} --all-namespaces -o json > "$TEMP_FILE"
+
+          # Process from disk with jq (jq efficiently handles files without loading all into memory)
+          jq -r {{ jq_expr }} "$TEMP_FILE"
         transformers:
           - name: llm_summarize
             config:
@@ -109,33 +130,40 @@ toolsets:
                 - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
                 - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
 
-      - name: "kubernetes_jsonpath_query"
-        user_description: "Memory-efficient Kubernetes query using JSONPath: kubectl get {{kind}} --all-namespaces -o jsonpath='{{jsonpath_expr}}'"
+      - name: "kubernetes_tabular_query"
+        user_description: "Tabular output of specific fields: kubectl get {{kind}} --all-namespaces -o custom-columns={{columns}}"
         description: >
-          Use kubectl with JSONPath to efficiently query specific fields from Kubernetes resources.
-          This is more memory-efficient than jq for large clusters as it filters data at the source instead of loading all resources into memory.
-          JSONPath expressions use the syntax {.field} for simple fields and {range .items[*]}...{end} for iterations.
-          Example expressions:
-          - Get all pod names: {range .items[*]}{.metadata.name}{"\n"}{end}
-          - Get node names for pods with specific label: {range .items[?(@.metadata.labels.kafka-role)]}{.spec.nodeName}{"\n"}{end}
-          - Get all container images: {range .items[*].spec.containers[*]}{.image}{"\n"}{end}
-          - Get pods in specific namespace: {range .items[?(@.metadata.namespace=="default")]}{.metadata.name}{"\n"}{end}
-          - Get pod name and status: {range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}
-          Note: JSONPath filtering happens server-side, significantly reducing memory usage on large clusters.
-        command: kubectl get {{ kind }} --all-namespaces -o jsonpath='{{ jsonpath_expr }}'
+          Extract specific fields from Kubernetes resources in tabular format with optional filtering.
+          Memory-efficient way to query large clusters - only requested fields are transmitted.
+          Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
+
+          Optional filtering parameters:
+          - filter_column: Column number to filter on (1-based, e.g., 2 for second column)
+          - filter_pattern: Pattern to match (supports regex)
+
+          Examples:
+          - Basic fields: NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName
+          - Filter by status: filter_column=2, filter_pattern="Running"
+          - Filter out empty values: filter_column=3, filter_pattern="^[^<].*" (matches non-empty)
+          - Nested fields: CREATED:.metadata.creationTimestamp,IMAGE:.spec.containers[0].image
+          - Array fields: LABELS:.metadata.labels,PORTS:.spec.ports[*].port
+
+          Note: Output is tabular text with column headers. Filtering works on the data rows only.
+        command: kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}'{% if filter_column %} | (head -n 1; tail -n +2 | awk '${{ filter_column }} ~ /{{ filter_pattern }}/'){% endif %}
         transformers:
           - name: llm_summarize
             config:
               input_threshold: 10000
               prompt: |
-                Summarize this JSONPath query output focusing on:
-                - Key patterns and commonalities in the data
-                - Notable outliers, anomalies, or items that need attention
-                - Group similar results into aggregate descriptions when possible
-                - Highlight any empty results or missing data
-                - When applicable, mention specific resource names, namespaces, or values that stand out
-                - Organize findings in a structured way that helps with troubleshooting
-                - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
+                Summarize this tabular output focusing on:
+                - Key patterns and trends in the data
+                - Resources that need attention (errors, pending, failures)
+                - Group similar items into aggregate descriptions
+                - Highlight outliers or unusual values
+                - Mention specific resource names only for problematic items
+                - Provide counts and distributions where relevant
+                - Be concise: aim for ≤ 50% of the original size
+                - Keep output actionable and focused on anomalies
 
       - name: "kubernetes_count"
         user_description: "Count Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
@@ -149,12 +177,32 @@ toolsets:
           echo "Command executed: kubectl get {{ kind }} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
           echo "---"
 
-          # Execute the command and capture both stdout and stderr separately
-          temp_error=$(mktemp)
-          matches=$(kubectl get {{ kind }} --all-namespaces -o json 2>"$temp_error" | jq -c -r {{ jq_expr }} 2>>"$temp_error")
+          # Use temp files to avoid memory issues on large clusters
+          # Cross-platform temp file creation
+          if command -v mktemp >/dev/null 2>&1; then
+            temp_data=$(mktemp -t holmes_k8s_data_XXXXXX.json)
+            temp_error=$(mktemp -t holmes_k8s_err_XXXXXX.txt)
+          else
+            # Fallback for Windows/systems without mktemp
+            temp_data="${TEMP:-/tmp}/holmes_k8s_data_$$.json"
+            temp_error="${TEMP:-/tmp}/holmes_k8s_err_$$.txt"
+          fi
+          trap "rm -f $temp_data $temp_error" EXIT
+
+          # Stream to disk first
+          kubectl get {{ kind }} --all-namespaces -o json > "$temp_data" 2>"$temp_error"
+          kubectl_exit=$?
+
+          if [ $kubectl_exit -ne 0 ]; then
+            echo "Error fetching resources (exit code: $kubectl_exit):"
+            cat "$temp_error"
+            exit $kubectl_exit
+          fi
+
+          # Process from disk with jq
+          matches=$(jq -c -r {{ jq_expr }} "$temp_data" 2>>"$temp_error")
           exit_code=$?
           error_output=$(cat "$temp_error")
-          rm -f "$temp_error"
 
           if [ $exit_code -ne 0 ]; then
             echo "Error executing command (exit code: $exit_code):"
