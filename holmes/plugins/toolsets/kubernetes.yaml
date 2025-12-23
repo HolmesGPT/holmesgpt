@@ -89,7 +89,10 @@ toolsets:
       - name: "kubernetes_jq_query"
         user_description: "Query Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -r {{jq_expr}}"
         description: >
-          Use kubectl to get json for all resources of a specific kind pipe the results to jq to filter them. Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give. e.g. give an expression like .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
+          Use kubectl to get json for all resources of a specific kind pipe the results to jq to filter them.
+          IMPORTANT: When possible, always prefer using kubernetes_jsonpath_query which is more efficient memory and data wise.
+          WARNING: On large clusters, this loads ALL resources into memory and may cause OOM errors. Consider using kubernetes_jsonpath_query for memory-efficient filtering.
+          Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give. e.g. give an expression like .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
         command: kubectl get {{ kind }} --all-namespaces -o json | jq -r {{ jq_expr }}
         transformers:
           - name: llm_summarize
@@ -105,6 +108,34 @@ toolsets:
                 - Organize findings in a structured way that helps with troubleshooting
                 - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
                 - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
+
+      - name: "kubernetes_jsonpath_query"
+        user_description: "Memory-efficient Kubernetes query using JSONPath: kubectl get {{kind}} --all-namespaces -o jsonpath='{{jsonpath_expr}}'"
+        description: >
+          Use kubectl with JSONPath to efficiently query specific fields from Kubernetes resources.
+          This is more memory-efficient than jq for large clusters as it filters data at the source instead of loading all resources into memory.
+          JSONPath expressions use the syntax {.field} for simple fields and {range .items[*]}...{end} for iterations.
+          Example expressions:
+          - Get all pod names: {range .items[*]}{.metadata.name}{"\n"}{end}
+          - Get node names for pods with specific label: {range .items[?(@.metadata.labels.kafka-role)]}{.spec.nodeName}{"\n"}{end}
+          - Get all container images: {range .items[*].spec.containers[*]}{.image}{"\n"}{end}
+          - Get pods in specific namespace: {range .items[?(@.metadata.namespace=="default")]}{.metadata.name}{"\n"}{end}
+          - Get pod name and status: {range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}
+          Note: JSONPath filtering happens server-side, significantly reducing memory usage on large clusters.
+        command: kubectl get {{ kind }} --all-namespaces -o jsonpath='{{ jsonpath_expr }}'
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 10000
+              prompt: |
+                Summarize this JSONPath query output focusing on:
+                - Key patterns and commonalities in the data
+                - Notable outliers, anomalies, or items that need attention
+                - Group similar results into aggregate descriptions when possible
+                - Highlight any empty results or missing data
+                - When applicable, mention specific resource names, namespaces, or values that stand out
+                - Organize findings in a structured way that helps with troubleshooting
+                - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
 
       - name: "kubernetes_count"
         user_description: "Count Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
