@@ -85,6 +85,21 @@ jobs:
             `docker tag ${shortTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
             `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
             '```',
+            '',
+            'Patch Helm values in one line (choose the chart you use):',
+            '- HolmesGPT chart:',
+            '```bash',
+            'helm upgrade --install holmesgpt ./helm/holmes \\',
+            '  --set registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+            `  --set image=holmes-dev:${shortSha}`,
+            '```',
+            '- Robusta wrapper chart:',
+            '```bash',
+            'helm upgrade --install robusta robusta/robusta \\',
+            '  --reuse-values \\',
+            '  --set holmes.registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+            `  --set holmes.image=holmes-dev:${shortSha}`,
+            '```',
           ].join('\n');
 
           const prs = await github.paginate(github.rest.pulls.list, {
