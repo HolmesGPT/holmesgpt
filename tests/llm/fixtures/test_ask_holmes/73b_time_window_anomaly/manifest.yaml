@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cron-scheduler
-  namespace: namespace-73b
+  namespace: app-73b
   labels:
     app: cron-scheduler
 spec:
