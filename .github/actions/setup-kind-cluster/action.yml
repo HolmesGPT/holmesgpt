@@ -53,8 +53,8 @@ runs:
             maxPods: 300
         EOF
 
-        # Create cluster with resource limits appropriate for GitHub Actions (7GB RAM, 2 CPU)
-        kind create cluster --name ${{ inputs.cluster-name }} --config kind-config.yaml --wait 5m
+        # Create cluster without waiting for full readiness (CNI needed first)
+        kind create cluster --name ${{ inputs.cluster-name }} --config kind-config.yaml
 
         # Configure kubectl
         kubectl cluster-info --context kind-${{ inputs.cluster-name }}
@@ -132,14 +132,6 @@ runs:
         echo "Waiting for system pods to be ready..."
         kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
         
-        # Wait for Calico pods to be ready
-        echo "Waiting for Calico pods to be ready..."
-        if ! kubectl wait --for=condition=Ready pods --all -n calico-system --timeout=300s; then
-          echo "❌ Calico pods failed to become ready during final verification"
-          kubectl get pods -n calico-system
-          kubectl describe pods -n calico-system
-          exit 1
-        fi
         
 
         # Verify cluster is working by creating a test pod
