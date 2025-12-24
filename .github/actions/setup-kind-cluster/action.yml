@@ -28,6 +28,8 @@ runs:
         cat <<EOF > kind-config.yaml
         kind: Cluster
         apiVersion: kind.x-k8s.io/v1alpha4
+        networking:
+          disableDefaultCNI: true  # Disable default kindnet to install Calico
         nodes:
         - role: control-plane
           extraPortMappings:
@@ -57,6 +59,72 @@ runs:
         # Configure kubectl
         kubectl cluster-info --context kind-${{ inputs.cluster-name }}
 
+    - name: Install Calico CNI
+      shell: bash
+      run: |
+        set -e  # Exit on any error
+        
+        echo "Installing Calico CNI for NetworkPolicy support..."
+        
+        # Install Calico operator
+        echo "Installing Calico operator..."
+        if ! kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml; then
+          echo "❌ Failed to install Calico operator"
+          exit 1
+        fi
+        
+        # Wait for operator to be ready
+        echo "Waiting for Calico operator to be ready..."
+        if ! kubectl wait --for=condition=Ready --timeout=300s -n tigera-operator pods --all; then
+          echo "❌ Calico operator failed to become ready"
+          kubectl get pods -n tigera-operator
+          kubectl describe pods -n tigera-operator
+          exit 1
+        fi
+        
+        # Create custom resource for Calico installation optimized for KIND
+        echo "Creating Calico installation resource..."
+        if ! cat <<EOF | kubectl create -f -
+        apiVersion: operator.tigera.io/v1
+        kind: Installation
+        metadata:
+          name: default
+        spec:
+          calicoNetwork:
+            ipPools:
+            - blockSize: 26
+              cidr: 10.244.0.0/16  # Match KIND's default pod CIDR
+              encapsulation: IPIP
+              natOutgoing: Enabled
+              nodeSelector: all()
+        EOF
+        then
+          echo "❌ Failed to create Calico installation resource"
+          exit 1
+        fi
+        
+        # Wait for Calico to be installed
+        echo "Waiting for Calico installation to complete..."
+        if ! kubectl wait --for=condition=Ready --timeout=300s -n calico-system pods --all; then
+          echo "❌ Calico pods failed to become ready within 300 seconds"
+          echo "=== Calico system pod status ==="
+          kubectl get pods -n calico-system
+          echo "=== Calico installation status ==="
+          kubectl get installations.operator.tigera.io default -o yaml || echo "Installation resource not found"
+          echo "=== Calico system pod descriptions ==="
+          kubectl describe pods -n calico-system
+          exit 1
+        fi
+        
+        # Verify NetworkPolicy CRD is available
+        echo "Verifying NetworkPolicy support..."
+        if ! kubectl get crd networkpolicies.networking.k8s.io; then
+          echo "❌ NetworkPolicy CRD not found - Calico installation incomplete"
+          exit 1
+        fi
+        
+        echo "✅ Calico CNI installed successfully with NetworkPolicy support"
+
     - name: Wait for cluster to be ready
       if: inputs.wait-for-ready == 'true'
       shell: bash
@@ -69,6 +137,22 @@ runs:
         # Wait for all system pods to be ready
         echo "Waiting for system pods to be ready..."
         kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+        
+        # Wait for Calico pods to be ready
+        echo "Waiting for Calico pods to be ready..."
+        if ! kubectl wait --for=condition=Ready pods --all -n calico-system --timeout=300s; then
+          echo "❌ Calico pods failed to become ready during final verification"
+          kubectl get pods -n calico-system
+          kubectl describe pods -n calico-system
+          exit 1
+        fi
+        
+        # Verify NetworkPolicy support is working
+        echo "Verifying NetworkPolicy support..."
+        if ! kubectl get networkpolicies --all-namespaces; then
+          echo "❌ NetworkPolicy CRD not available during final verification"
+          exit 1
+        fi
 
         # Verify cluster is working by creating a test pod
         echo "Creating test pod to verify cluster..."
@@ -83,4 +167,8 @@ runs:
         kubectl get nodes -o wide
         echo "=== System pods ==="
         kubectl get pods -n kube-system
-        echo "=== Cluster is ready for tests ==="
+        echo "=== Calico pods ==="
+        kubectl get pods -n calico-system
+        echo "=== CNI configuration ==="
+        kubectl get installations.operator.tigera.io default -o yaml | grep -A 10 "status:" || echo "Installation status not available yet"
+        echo "=== Cluster is ready for tests with NetworkPolicy support ==="
