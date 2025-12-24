@@ -30,7 +30,7 @@ before_test: |
 
   echo "⏳ Waiting for Tempo pod to be ready"
   TEMPO_POD_READY=false
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl wait --for=condition=ready pod -l app=tempo -n app-115 --timeout=5s 2>/dev/null; then
       echo "✅ Tempo pod is ready!"
       TEMPO_POD_READY=true
@@ -49,7 +49,7 @@ before_test: |
 
   echo "⏰ Waiting for Tempo to be fully ready (checking every 5s, timeout 300s)"
   TEMPO_READY=false
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl exec -n app-115 deployment/tempo -- wget -q -O - http://localhost:3200/ready 2>/dev/null; then
       echo "✅ Tempo is ready!"
       TEMPO_READY=true
@@ -71,7 +71,7 @@ before_test: |
   kubectl apply -f checkout-service.yaml -n app-115
 
   echo "⏳ Waiting for checkout pod to exist"
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl get pod -l app=checkout -n app-115 2>/dev/null | grep -q checkout; then
       echo "✅ Checkout pod exists"
       break
@@ -82,7 +82,7 @@ before_test: |
 
   echo "⏳ Waiting for checkout pod to be ready (timeout 780s to handle scheduling delays)"
   CHECKOUT_POD_READY=false
-  for ((i=1; i<=156; i++)); do  # 156 * 5s = 780s (13 minutes)
+  for i in {1..156}; do  # 156 * 5s = 780s (13 minutes)
     if kubectl wait --for=condition=ready pod -l app=checkout -n app-115 --timeout=5s 2>/dev/null; then
       echo "✅ Checkout pod is ready!"
       CHECKOUT_POD_READY=true
@@ -107,7 +107,7 @@ before_test: |
   kubectl apply -f traffic-generator.yaml -n app-115
 
   echo "⏳ Waiting for traffic generator pod to exist"
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl get pod -l app=traffic-generator -n app-115 2>/dev/null | grep -q traffic-generator; then
       echo "✅ Traffic generator pod exists"
       break
@@ -118,7 +118,7 @@ before_test: |
 
   echo "⏳ Waiting for traffic generator pod to be ready (timeout 780s to handle scheduling delays)"
   TRAFFIC_POD_READY=false
-  for ((i=1; i<=156; i++)); do  # 156 * 5s = 780s (13 minutes)
+  for i in {1..156}; do  # 156 * 5s = 780s (13 minutes)
     if kubectl wait --for=condition=ready pod -l app=traffic-generator -n app-115 --timeout=5s 2>/dev/null; then
       echo "✅ Traffic generator pod is ready!"
       TRAFFIC_POD_READY=true
@@ -140,7 +140,7 @@ before_test: |
 
   echo "⏰ Waiting for traffic generator to produce both types of requests and errors..."
   TRAFFIC_READY=false
-  for ((i=1; i<=90; i++)); do
+  for i in {1..90}; do
     WITH_PROMO=$(kubectl logs -n app-115 -l app=traffic-generator --tail=1000 2>/dev/null | grep -c "WITH promo_code" | head -1 || echo "0")
     WITHOUT_PROMO=$(kubectl logs -n app-115 -l app=traffic-generator --tail=1000 2>/dev/null | grep -c "WITHOUT promo_code" | head -1 || echo "0")
     CHECKOUT_LOGS=$(kubectl logs -n app-115 -l app=checkout --tail=1000 2>/dev/null | grep -c "Processing checkout request" | head -1 || echo "0")
@@ -171,7 +171,7 @@ before_test: |
 
   echo "⏰ Polling for traces to be ingested and indexed in Tempo (up to 90 seconds)..."
   TRACES_FOUND=false
-  for ((i=1; i<=18; i++)); do  # 18 * 5s = 90s
+  for i in {1..18}; do  # 18 * 5s = 90s
     CHECKOUT_TRACES=$(kubectl run -n app-115 tempo-query-$RANDOM --rm -i --restart=Never --image=curlimages/curl -- -s "http://tempo:3200/api/search?tags=service.name%3Dcheckout-service&limit=10" 2>/dev/null | grep -o '"traceID"' | wc -l || echo "0")
 
     if [ "$CHECKOUT_TRACES" -gt "0" ]; then

@@ -35,7 +35,7 @@ before_test: |
   kubectl apply -f frontend-service.yaml -n app-175
 
   echo "⏳ Waiting for frontend-service pod to exist"
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl get pod -l app=frontend-service -n app-175 2>/dev/null | grep -q frontend-service; then
       echo "✅ frontend-service pod exists"
       break
@@ -46,7 +46,7 @@ before_test: |
 
   echo "⏳ Waiting for frontend-service pod to be ready (timeout 780s)"
   FRONTEND_POD_READY=false
-  for ((i=1; i<=156; i++)); do
+  for i in {1..156}; do
     if kubectl wait --for=condition=ready pod -l app=frontend-service -n app-175 --timeout=5s 2>/dev/null; then
       echo "✅ frontend-service pod is ready!"
       FRONTEND_POD_READY=true
@@ -70,7 +70,7 @@ before_test: |
   kubectl apply -f frontend-traffic-generator.yaml -n app-175
 
   echo "⏳ Waiting for frontend-generator pod to exist"
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl get pod -l app=frontend-generator -n app-175 2>/dev/null | grep -q frontend-generator; then
       echo "✅ frontend-generator pod exists"
       break
@@ -81,7 +81,7 @@ before_test: |
 
   echo "⏳ Waiting for frontend-generator pod to be ready (timeout 780s)"
   TRAFFIC_POD_READY=false
-  for ((i=1; i<=156; i++)); do
+  for i in {1..156}; do
     if kubectl wait --for=condition=ready pod -l app=frontend-generator -n app-175 --timeout=5s 2>/dev/null; then
       echo "✅ frontend-generator pod is ready!"
       TRAFFIC_POD_READY=true
@@ -103,7 +103,7 @@ before_test: |
 
   echo "⏰ Waiting for frontend traffic to produce logs..."
   TRAFFIC_READY=false
-  for ((i=1; i<=90; i++)); do
+  for i in {1..90}; do
     FRONTEND_LOGS=$(kubectl logs -n app-175 -l app=frontend-service --tail=100 2>/dev/null | grep -c "Processing frontend request" || echo "0")
     ERROR_LOGS=$(kubectl logs -n app-175 -l app=frontend-service --tail=100 2>/dev/null | grep -c "ERROR\\|WARN" || echo "0")
 

@@ -6,7 +6,7 @@ before_test: |
   kubectl apply -f ./fast_oom_deployment.yaml -n app-17
   # Wait for OOM kill to occur (60s total) - MUST succeed or test fails
   OOM_DETECTED=false
-  for ((i=1; i<=20; i++)); do
+  for i in {1..20}; do
     if kubectl get pods -n app-17 -o jsonpath='{.items[*].status.containerStatuses[*].lastState.terminated.reason}' 2>/dev/null | grep -q "OOMKilled"; then
       echo "✅ OOM kill detected!"
       OOM_DETECTED=true

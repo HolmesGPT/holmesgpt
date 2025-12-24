@@ -45,7 +45,7 @@ before_test: |
   kubectl wait --for=condition=ready pod -l app=loki -n app-101 --timeout=60s
 
   # Wait for Loki ingester to be ready
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl exec -n app-101 deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
       break
     fi

@@ -27,7 +27,7 @@ before_test: |
   EOF
   # Wait for pod to exist first with retry loop to handle race condition
   POD_EXISTS=false
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl get pod -l app=payment-processing-worker -n app-09 2>/dev/null | grep -q payment-processing-worker; then
       echo "✅ Pod exists!"
       POD_EXISTS=true

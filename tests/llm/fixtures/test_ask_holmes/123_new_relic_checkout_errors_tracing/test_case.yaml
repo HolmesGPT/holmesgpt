@@ -27,7 +27,7 @@ before_test: |
 
   echo "⏳ Waiting for billing pod to be ready"
   BILLING_POD_READY=false
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl wait --for=condition=ready pod -l app=billing -n app-123 --timeout=5s 2>/dev/null; then
       echo "✅ Billing pod is ready!"
       BILLING_POD_READY=true
@@ -52,7 +52,7 @@ before_test: |
 
   echo "⏳ Waiting for traffic generator pod to be ready"
   TRAFFIC_POD_READY=false
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl wait --for=condition=ready pod -l app=traffic-generator -n app-123 --timeout=5s 2>/dev/null; then
       echo "✅ Traffic generator pod is ready!"
       TRAFFIC_POD_READY=true

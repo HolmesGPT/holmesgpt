@@ -38,7 +38,7 @@ before_test: |
 
   # Wait for pods to exist (not necessarily ready)
   echo "Waiting for pods to be scheduled..."
-  for ((i=1; i<=30; i++)); do
+  for i in {1..30}; do
     POD_COUNT=$(kubectl get pods -n app-156 --no-headers 2>/dev/null | wc -l)
     if [ "$POD_COUNT" -ge 4 ]; then
       echo "Found $POD_COUNT pods, continuing..."

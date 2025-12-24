@@ -11,7 +11,7 @@ before_test: |
   kubectl apply -f ./manifest.yaml
   # Wait for invoice-generator pod with logs (60s total) - MUST succeed or test fails
   LOG_READY=false
-  for ((i=1; i<=20; i++)); do
+  for i in {1..20}; do
     if kubectl wait --for=condition=ready pod -l app=invoice-generator -n app-64 --timeout=1s 2>/dev/null && kubectl logs -l app=invoice-generator -n app-64 --tail=10 2>/dev/null | grep -q "Generating invoice"; then
       echo "✅ invoice-generator pod ready with logs!"
       LOG_READY=true

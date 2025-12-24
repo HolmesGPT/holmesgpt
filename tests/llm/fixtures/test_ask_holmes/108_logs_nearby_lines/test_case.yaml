@@ -14,7 +14,7 @@ before_test: |
   kubectl apply -f ./manifest.yaml -n app-108
   # Wait for pod to be ready and specific log lines to appear (60s total) - MUST succeed or test fails
   LOGS_READY=false
-  for ((i=1; i<=20; i++)); do
+  for i in {1..20}; do
     # First check if pod exists and is ready
     if kubectl wait --for=condition=ready pod -l app=api-service -n app-108 --timeout=1s 2>/dev/null; then
       # Pod is ready, now get its name and check for specific log lines

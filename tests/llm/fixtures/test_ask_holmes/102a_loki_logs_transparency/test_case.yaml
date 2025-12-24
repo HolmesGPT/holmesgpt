@@ -26,7 +26,7 @@ before_test: |
   # Wait for pod to be ready
   echo "Waiting for nginx pod to be ready..."
   POD_READY=false
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl wait --for=condition=ready pod -l app=nginx -n app-102a --timeout=5s 2>/dev/null; then
       echo "✅ Nginx pod is ready!"
       POD_READY=true

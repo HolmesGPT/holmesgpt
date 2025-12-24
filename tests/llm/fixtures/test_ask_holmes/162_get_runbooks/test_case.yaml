@@ -18,7 +18,7 @@ before_test: |
 
   # Wait for expected error logs to appear (60s total) - MUST succeed or test fails
   LOGS_READY=false
-  for ((i=1; i<=20; i++)); do
+  for i in {1..20}; do
     # Check signup-service for connection refused error
     SIGNUP_ERROR=$(kubectl logs -l app=signup-service -n app-162 2>/dev/null | grep -c "Payments service check failed: <urlopen error \[Errno 111\] Connection refused>")
     

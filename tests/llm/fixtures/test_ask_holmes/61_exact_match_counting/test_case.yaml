@@ -6,7 +6,7 @@ before_test: |
   kubectl apply -f manifests.yaml
   # Wait for correct pod counts in both namespaces (60s total) - MUST succeed or test fails
   POD_COUNTS_READY=false
-  for ((i=1; i<=20; i++)); do
+  for i in {1..20}; do
     # Count running pods in test-61 (should be 6)
     TEST61_COUNT=$(kubectl get pods -n test-61 --no-headers 2>/dev/null | grep " Running " | wc -l | tr -d ' ')
     

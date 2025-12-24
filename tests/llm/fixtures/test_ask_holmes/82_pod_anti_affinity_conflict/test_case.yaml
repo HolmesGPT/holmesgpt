@@ -9,7 +9,7 @@ before_test: |
   
   # Wait for anti-affinity scheduling conflict (60 seconds total)
   CONFLICT_DETECTED=false
-  for ((i=1; i<=12; i++)); do
+  for i in {1..12}; do
     if kubectl get events -n app-82 --no-headers 2>/dev/null | grep "silver-puffin" | grep -q "didn't match pod anti-affinity rules"; then
       echo "✅ Anti-affinity conflict detected!"
       CONFLICT_DETECTED=true

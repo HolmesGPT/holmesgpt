@@ -35,7 +35,7 @@ before_test: |
   kubectl apply -f payment-service.yaml -n app-173
 
   echo "⏳ Waiting for payment pod to exist"
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl get pod -l app=payment -n app-173 2>/dev/null | grep -q payment; then
       echo "✅ Payment pod exists"
       break
@@ -46,7 +46,7 @@ before_test: |
 
   echo "⏳ Waiting for payment pod to be ready (timeout 780s)"
   PAYMENT_POD_READY=false
-  for ((i=1; i<=156; i++)); do
+  for i in {1..156}; do
     if kubectl wait --for=condition=ready pod -l app=payment -n app-173 --timeout=5s 2>/dev/null; then
       echo "✅ Payment pod is ready!"
       PAYMENT_POD_READY=true
@@ -70,7 +70,7 @@ before_test: |
   kubectl apply -f traffic-generator.yaml -n app-173
 
   echo "⏳ Waiting for traffic-generator pod to exist"
-  for ((i=1; i<=60; i++)); do
+  for i in {1..60}; do
     if kubectl get pod -l app=traffic-generator -n app-173 2>/dev/null | grep -q traffic-generator; then
       echo "✅ Traffic-generator pod exists"
       break
@@ -81,7 +81,7 @@ before_test: |
 
   echo "⏳ Waiting for traffic-generator pod to be ready (timeout 780s)"
   TRAFFIC_POD_READY=false
-  for ((i=1; i<=156; i++)); do
+  for i in {1..156}; do
     if kubectl wait --for=condition=ready pod -l app=traffic-generator -n app-173 --timeout=5s 2>/dev/null; then
       echo "✅ Traffic-generator pod is ready!"
       TRAFFIC_POD_READY=true
@@ -103,7 +103,7 @@ before_test: |
 
   echo "⏰ Waiting for traffic generator to produce requests and errors..."
   TRAFFIC_READY=false
-  for ((i=1; i<=90; i++)); do
+  for i in {1..90}; do
     PAYMENT_LOGS=$(kubectl logs -n app-173 -l app=payment --tail=100 2>/dev/null | grep -c "Processing payment request" || echo "0")
     ERROR_LOGS=$(kubectl logs -n app-173 -l app=payment --tail=100 2>/dev/null | grep -c "ERROR\|WARN" || echo "0")
 
