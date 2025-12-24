@@ -1,10 +1,27 @@
-user_prompt: "What is the issue with analytics-exporter-fast?"
+user_prompt: "What is the issue with analytics-exporter-fast in namespace app-17?"
 expected_output:
   - The result mentions analytics-exporter-fast is getting OOMKILLED
 before_test: |
   kubectl create namespace app-17 || true
   kubectl apply -f ./fast_oom_deployment.yaml -n app-17
-  sleep 5
+  # Wait for OOM kill to occur (60s total) - MUST succeed or test fails
+  OOM_DETECTED=false
+  for i in {1..20}; do
+    if kubectl get pods -n app-17 -o jsonpath='{.items[*].status.containerStatuses[*].lastState.terminated.reason}' 2>/dev/null | grep -q "OOMKilled"; then
+      echo "✅ OOM kill detected!"
+      OOM_DETECTED=true
+      break
+    else
+      echo "⏳ Attempt $i/20: waiting for OOM kill, checking in 3s..."
+      sleep 3
+    fi
+  done
+  if [ "$OOM_DETECTED" = false ]; then
+    echo "❌ No OOM kill detected after 60s"
+    kubectl get pods -n app-17
+    kubectl get events -n app-17
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./fast_oom_deployment.yaml -n app-17
   kubectl delete namespace app-17 || true
