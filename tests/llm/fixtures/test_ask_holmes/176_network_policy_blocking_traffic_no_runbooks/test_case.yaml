@@ -1,0 +1,37 @@
+user_prompt: "Why is the frontend getting timeouts connecting to backend in namespace app-176?"
+tags:
+  - kubernetes
+  - network
+  - hard
+expected_output:
+  - Frontend getting timeouts because NetworkPolicy on backend only allows ingress from pods with tier backend label not frontend
+before_test: |
+  # Apply backend resources first
+  kubectl apply -f ./backend.yaml
+  
+  # Wait for backend to be ready with retry loop
+  for i in {1..12}; do kubectl wait --for=condition=ready pod -l app=backend -n app-176 --timeout=5s 2>/dev/null && break || sleep 5; done
+  
+  # Apply frontend deployment after backend is ready
+  kubectl apply -f ./frontend.yaml
+  
+  # Wait for the frontend pod to report connection timeout error (60s total) - MUST succeed or test fails
+  TIMEOUT_ERROR_FOUND=false
+  for i in {1..30}; do
+    if kubectl logs -l app=frontend -n app-176 2>/dev/null | grep -q "ERROR: Connection timeout to backend-service!"; then
+      echo "✅ Connection timeout error detected!"
+      TIMEOUT_ERROR_FOUND=true
+      break
+    else
+      echo "⏳ Attempt $i/30: waiting for timeout error log, checking in 2s..."
+      sleep 2
+    fi
+  done
+  if [ "$TIMEOUT_ERROR_FOUND" = false ]; then
+    echo "❌ Connection timeout error not found after 60s"
+    kubectl get pods -n app-176
+    kubectl logs -l app=frontend -n app-176 --tail=20
+    exit 1
+  fi
+after_test: |
+  kubectl delete namespace app-176 || true
