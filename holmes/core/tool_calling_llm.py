@@ -34,7 +34,6 @@ from holmes.core.investigation_structured_output import (
 )
 from holmes.core.issue import Issue
 from holmes.core.llm import LLM
-from holmes.core.resource_instruction import ResourceInstructions
 from holmes.core.runbooks import RunbookManager
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
@@ -1076,7 +1075,6 @@ class IssueInvestigator(ToolCallingLLM):
         self,
         issue: Issue,
         prompt: str,
-        instructions: Optional[ResourceInstructions],
         console: Optional[Console] = None,
         global_instructions: Optional[Instructions] = None,
         post_processing_prompt: Optional[str] = None,
@@ -1140,7 +1138,6 @@ class IssueInvestigator(ToolCallingLLM):
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
             issue_instructions=issue_runbooks,
-            resource_instructions=instructions,
         )
         user_prompt = generate_user_prompt(
             base_user,

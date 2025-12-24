@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, Optional
 import pytest
 import yaml
+import logging
 
 from holmes.config import Config
 from holmes.core.llm import LLM, TokenCountMetadata
@@ -33,6 +34,12 @@ ROBUSTA_MODELS: dict[str, Any] = {
         "is_default": False,
     },
 }
+
+
+@pytest.fixture(autouse=True, scope="session")
+def setup_logging():
+    """Setup logging for the test session."""
+    logging.getLogger("responses").setLevel(logging.WARNING)
 
 
 @pytest.fixture(autouse=True, scope="function")

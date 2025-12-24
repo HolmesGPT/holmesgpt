@@ -77,8 +77,8 @@ stringData:
       echo "2024-01-15T10:07:$(printf '%02d' $i).200Z [HTTP] 500 GET /api/health - Connection refused"
     done
 
-    # Keep pod running
-    sleep 3600
+    # Keep pod running indefinitely
+    while true; do sleep 30; done
 
 ---
 apiVersion: apps/v1

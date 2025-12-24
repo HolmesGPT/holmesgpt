@@ -10,8 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: 'read'
+      contents: 'write'
       id-token: 'write'
+      pull-requests: 'write'
 
     steps:
     - uses: actions/checkout@v4
@@ -53,3 +54,51 @@ jobs:
         echo "Docker image pushed to:"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}"
+
+    - name: Comment with image details
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const owner = context.repo.owner;
+          const repo = context.repo.repo;
+          const branch = context.ref.replace('refs/heads/', '');
+          const sha = context.sha;
+          const shortSha = `${{ steps.short_sha.outputs.sha_short }}`;
+
+          const fullTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${sha}`;
+          const shortTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
+          const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
+
+          const message = [
+            'Dev Docker images are ready for this commit:',
+            '',
+            `- [${fullTag}](${registryLink})`,
+            `- [${shortTag}](${registryLink})`,
+            '',
+            'Use either tag to pull the image for testing.'
+          ].join('\n');
+
+          const prs = await github.paginate(github.rest.pulls.list, {
+            owner,
+            repo,
+            state: 'open',
+            head: `${owner}:${branch}`,
+          });
+
+          if (prs.length > 0) {
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prs[0].number,
+              body: message,
+            });
+            core.info(`Commented on PR #${prs[0].number}`);
+          } else {
+            await github.rest.repos.createCommitComment({
+              owner,
+              repo,
+              commit_sha: sha,
+              body: message,
+            });
+            core.info('Commented on commit');
+          }

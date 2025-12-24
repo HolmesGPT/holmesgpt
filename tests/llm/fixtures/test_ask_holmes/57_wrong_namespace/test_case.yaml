@@ -1,11 +1,30 @@
 # we ask about app-57 namespace but the deployment is in test-57 namespace
 user_prompt: "get last logs from video-streamer in app-57 namespace"
-expected_output: "video-streamer not found in namespace app-57, did you mean namespace test-57?"
-before_test: 'kubectl apply -f ./manifest.yaml'
+expected_output:
+  - "MUST explicitly state that video-streamer was not found in app-57 namespace OR explicitly mention the namespace mismatch between app-57 and test-57"
+  - "MUST successfully locate video-streamer in test-57 AND either retrieve the logs OR ask if user wants logs from test-57"
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  
+  # Wait for video-streamer pod to be ready (60 seconds total) - MUST succeed or test fails
+  POD_READY=false
+  for i in {1..12}; do
+    if kubectl wait --for=condition=ready pod -l app=video-streamer -n test-57 --timeout=5s 2>/dev/null; then
+      echo "✅ video-streamer pod is ready!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/12: video-streamer pod not ready yet, waiting 5s..."
+      sleep 5
+    fi
+  done
+  
+  if [ "$POD_READY" = false ]; then
+    echo "❌ video-streamer pod failed to become ready after 60 seconds"
+    kubectl get pods -l app=video-streamer -n test-57  # Show pod status for debugging
+    exit 1
+  fi
 after_test: 'kubectl delete -f ./manifest.yaml'
-evaluation:
-  correctness: 0
-generate_mocks: False
 tags:
   - logs
   - medium

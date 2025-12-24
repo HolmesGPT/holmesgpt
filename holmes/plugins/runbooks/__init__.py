@@ -24,6 +24,7 @@ class RobustaRunbookInstruction(BaseModel):
     symptom: str
     title: str
     instruction: Optional[str] = None
+    alerts: List[str] = []
 
     """
     Custom YAML dumper to represent multi-line strings in literal block style due to instructions often being multi-line.
@@ -54,7 +55,7 @@ class RobustaRunbookInstruction(BaseModel):
         return f"{self.id}"
 
     def to_prompt_string(self) -> str:
-        return f"id='{self.id}' | title='{self.title}' | symptom='{self.symptom}'"
+        return f"id='{self.id}' | title='{self.title}' | symptom='{self.symptom}' | relevant alerts={', '.join(self.alerts)}"
 
     def pretty(self) -> str:
         try:
@@ -149,7 +150,7 @@ class RunbookCatalog(BaseModel):
             parts.append("Here are MD runbooks:")
             parts.extend(f"* {e.to_prompt_string()}" for e in md)
         if robusta:
-            parts.append("Here are Robusta runbooks:")
+            parts.append("\nHere are Robusta runbooks:")
             parts.extend(f"* {e.to_prompt_string()}" for e in robusta)
         return "\n".join(parts)
 

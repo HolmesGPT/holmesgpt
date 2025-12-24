@@ -1,0 +1,9 @@
+{
+  "id": "8fe8e24d-6b53-47a6-92a5-b389938fa823",
+  "symptom": "Pod is not ready",
+  "title": "Kafka Topic and Application Mapping",
+  "instruction": "Check pod template parameters such as: \n* pod priority\n* resources - maybe it tries to use unavailable resource, such as GPU but there is limited number of nodes with GPU\n* readiness and liveness probes may be incorrect - wrong port or command, check is failing too fast due to short timeout for response\n* stuck or long running init containers",
+  "alerts": [
+    "ProbeFailure"
+  ]
+}
