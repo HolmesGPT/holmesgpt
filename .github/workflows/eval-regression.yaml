@@ -5,41 +5,329 @@ on:
     branches: ["*"]
   push:
     branches: [master]
+  # Allow manual triggering with custom parameters
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to run evals on (leave empty for current branch)'
+        required: false
+        default: ''
+      model:
+        description: 'Model(s) to test (comma-separated, e.g., gpt-4.1,gpt-4o)'
+        required: false
+        default: ''
+      markers:
+        description: 'Pytest markers (e.g., regression, easy, logs). Combined with "llm and"'
+        required: false
+        default: 'regression'
+      filter:
+        description: 'Pytest -k filter (e.g., 09_crashpod, checkout)'
+        required: false
+        default: ''
+      iterations:
+        description: 'Number of iterations (1-10)'
+        required: false
+        default: '1'
+  # Allow triggering via /eval comment on PRs
+  issue_comment:
+    types: [created]
 
 permissions:
   pull-requests: write
   contents: read
+  issues: write
 
 jobs:
-  llm_evals:
+  # Parse /eval command from PR comments
+  parse-eval-command:
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/eval')
     runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.parse.outputs.should_run }}
+      model: ${{ steps.parse.outputs.model }}
+      markers: ${{ steps.parse.outputs.markers }}
+      filter: ${{ steps.parse.outputs.filter }}
+      iterations: ${{ steps.parse.outputs.iterations }}
+      pr_sha: ${{ steps.get-pr.outputs.sha }}
 
     steps:
+      - name: Get PR details
+        id: get-pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Parse /eval command
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = context.payload.comment.body;
+            const commandLine = comment.split('\n')[0].trim();
+
+            // Security: Validate input doesn't contain shell injection characters
+            // Dangerous chars: ` $ ; | & < > ( ) { } [ ] \ newline
+            const dangerousPattern = /[`$;|&<>(){}[\]\\'\n\r]/;
+
+            function validateInput(value, name) {
+              const trimmed = value.trim();
+              if (dangerousPattern.test(trimmed)) {
+                core.setFailed(`Invalid ${name}: contains dangerous shell characters. Allowed: alphanumeric, dash, underscore, dot, comma, space, quotes.`);
+                return null;
+              }
+              return trimmed;
+            }
+
+            // Default values
+            let model = '';
+            let markers = 'regression';
+            let filter = '';
+            let iterations = '1';
+
+            // Parse command arguments
+            const args = commandLine.slice(5).trim();
+            const argParts = args.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+
+            for (let i = 0; i < argParts.length; i++) {
+              const arg = argParts[i];
+              const nextArg = argParts[i + 1];
+
+              if ((arg === '--model' || arg === '-m') && nextArg) {
+                model = nextArg.replace(/^"|"$/g, '');
+                i++;
+              } else if ((arg === '--markers' || arg === '-M') && nextArg) {
+                markers = nextArg.replace(/^"|"$/g, '');
+                i++;
+              } else if ((arg === '--filter' || arg === '-k') && nextArg) {
+                filter = nextArg.replace(/^"|"$/g, '');
+                i++;
+              } else if ((arg === '--iterations' || arg === '-i') && nextArg) {
+                iterations = nextArg.replace(/^"|"$/g, '');
+                i++;
+              }
+            }
+
+            // Validate all inputs for shell injection
+            model = validateInput(model, 'model');
+            markers = validateInput(markers, 'markers');
+            filter = validateInput(filter, 'filter');
+
+            if (model === null || markers === null || filter === null) {
+              return; // core.setFailed was already called
+            }
+
+            // Additional validation: only allow safe characters in each field
+            // model: alphanumeric, dash, underscore, dot, comma, forward slash (for provider/model)
+            if (model && !/^[a-zA-Z0-9_.,\/-]*$/.test(model)) {
+              core.setFailed('Invalid model: only alphanumeric, dash, underscore, dot, comma, and forward slash allowed');
+              return;
+            }
+
+            // markers: alphanumeric, dash, underscore, space, "and", "or", "not" (pytest marker syntax)
+            if (markers && !/^[a-zA-Z0-9_\- ]*$/.test(markers)) {
+              core.setFailed('Invalid markers: only alphanumeric, dash, underscore, and space allowed');
+              return;
+            }
+
+            // filter: alphanumeric, dash, underscore (test name patterns)
+            if (filter && !/^[a-zA-Z0-9_\-]*$/.test(filter)) {
+              core.setFailed('Invalid filter: only alphanumeric, dash, and underscore allowed');
+              return;
+            }
+
+            // Cap iterations at 10
+            let iterNum = parseInt(iterations, 10);
+            if (isNaN(iterNum) || iterNum < 1) iterNum = 1;
+            if (iterNum > 10) iterNum = 10;
+
+            core.setOutput('should_run', 'true');
+            core.setOutput('model', model);
+            core.setOutput('markers', markers);
+            core.setOutput('filter', filter);
+            core.setOutput('iterations', iterNum.toString());
+
+            console.log('Parsed /eval command:', { model, markers, filter, iterations: iterNum });
+
+      - name: React to comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket'
+            });
+
+  llm_evals:
+    runs-on: ubuntu-latest
+    needs: [parse-eval-command]
+    # Run if: PR event, push event, workflow_dispatch, or /eval comment parsed successfully
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || needs.parse-eval-command.outputs.should_run == 'true')
+
+    steps:
+      - name: Determine checkout ref
+        id: checkout-ref
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            echo "ref=${{ needs.parse-eval-command.outputs.pr_sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=" >> $GITHUB_OUTPUT
+          fi
+
       - uses: actions/checkout@v4
-
-      - name: Setup HolmesGPT environment
-        uses: ./.github/actions/setup-holmes-env
         with:
-          python-version: '3.12'
-          install-kubectl: 'true'
+          ref: ${{ steps.checkout-ref.outputs.ref || github.ref }}
 
-      - name: Setup KIND cluster
-        uses: ./.github/actions/setup-kind-cluster
+      - name: Validate and determine eval parameters
+        id: eval-params
+        uses: actions/github-script@v7
         with:
-          cluster-name: 'kind'
-          wait-for-ready: 'true'
+          script: |
+            // Security: Validate input doesn't contain shell injection characters
+            const dangerousPattern = /[`$;|&<>(){}[\]\\'\n\r]/;
+
+            function validateInput(value, name, allowedPattern) {
+              if (!value) return '';
+              const trimmed = value.trim();
+              if (dangerousPattern.test(trimmed)) {
+                core.setFailed(`Invalid ${name}: contains dangerous shell characters`);
+                return null;
+              }
+              if (allowedPattern && !allowedPattern.test(trimmed)) {
+                core.setFailed(`Invalid ${name}: contains disallowed characters`);
+                return null;
+              }
+              return trimmed;
+            }
+
+            // Patterns for allowed characters
+            const modelPattern = /^[a-zA-Z0-9_.,\/-]*$/;      // alphanumeric, dash, underscore, dot, comma, slash
+            const markersPattern = /^[a-zA-Z0-9_\- ]*$/;      // alphanumeric, dash, underscore, space
+            const filterPattern = /^[a-zA-Z0-9_\-]*$/;        // alphanumeric, dash, underscore
+            const iterationsPattern = /^[0-9]+$/;             // digits only
+            const prNumberPattern = /^[0-9]*$/;               // digits only (can be empty)
+
+            let model, markers, filter, iterations, isManual, triggerSource, prNumber;
+
+            const eventName = context.eventName;
+
+            if (eventName === 'issue_comment') {
+              // From /eval command - already validated in parse step
+              // Using toJSON for defense-in-depth escaping
+              model = ${{ toJSON(needs.parse-eval-command.outputs.model) }} || '';
+              markers = ${{ toJSON(needs.parse-eval-command.outputs.markers) }} || 'regression';
+              filter = ${{ toJSON(needs.parse-eval-command.outputs.filter) }} || '';
+              iterations = ${{ toJSON(needs.parse-eval-command.outputs.iterations) }} || '1';
+              isManual = true;
+              triggerSource = '/eval comment';
+              prNumber = context.issue.number.toString();
+            } else if (eventName === 'workflow_dispatch') {
+              // From manual workflow dispatch - needs validation
+              // Using toJSON for defense-in-depth escaping
+              model = validateInput(${{ toJSON(github.event.inputs.model) }} || '', 'model', modelPattern);
+              markers = validateInput(${{ toJSON(github.event.inputs.markers) }} || '', 'markers', markersPattern);
+              filter = validateInput(${{ toJSON(github.event.inputs.filter) }} || '', 'filter', filterPattern);
+              iterations = validateInput(${{ toJSON(github.event.inputs.iterations) }} || '', 'iterations', iterationsPattern);
+              prNumber = validateInput(${{ toJSON(github.event.inputs.pr_number) }} || '', 'pr_number', prNumberPattern);
+
+              if (model === null || markers === null || filter === null || iterations === null || prNumber === null) {
+                return; // core.setFailed was already called
+              }
+
+              isManual = true;
+              triggerSource = 'workflow_dispatch';
+            } else {
+              // Default for PR/push events
+              model = '';
+              markers = 'regression';
+              filter = '';
+              iterations = '1';
+              isManual = false;
+              triggerSource = 'automatic';
+              prNumber = '';
+            }
+
+            // Apply defaults
+            const varsModel = ${{ toJSON(vars.MODEL) }} || '';
+            if (!model) model = varsModel;
+            if (!markers) markers = 'regression';
+            if (!iterations) iterations = '1';
+
+            // Cap iterations at 10
+            let iterNum = parseInt(iterations, 10);
+            if (isNaN(iterNum) || iterNum < 1) iterNum = 1;
+            if (iterNum > 10) iterNum = 10;
+
+            // Build marker expression (safe since markers is validated)
+            const markerExpr = `llm and (${markers})`;
+
+            core.setOutput('model', model);
+            core.setOutput('markers', markers);
+            core.setOutput('filter', filter);
+            core.setOutput('iterations', iterNum.toString());
+            core.setOutput('is_manual', isManual.toString());
+            core.setOutput('trigger_source', triggerSource);
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('marker_expr', markerExpr);
+
+            console.log('=== Eval Parameters ===');
+            console.log(`Model: ${model}`);
+            console.log(`Markers: ${markers}`);
+            console.log(`Filter: ${filter}`);
+            console.log(`Iterations: ${iterNum}`);
+            console.log(`Is Manual: ${isManual}`);
+            console.log(`Trigger: ${triggerSource}`);
 
       - name: Check if tests should run
         id: check-tests
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" != "pull_request" ]] || [[ -n "${{ secrets.AZURE_API_KEY }}" && -n "${{ secrets.BRAINTRUST_API_KEY }}" ]]; then
+          # Check if we have the required API keys to run LLM tests
+          # For PRs from forks, secrets are not available for security reasons
+          # For pushes to master, we always run regardless of secrets availability
+          # Note: We must check this in a step rather than job-level 'if' because
+          # the secrets context is not available in job-level conditions per GitHub Actions docs
+
+          # For manual triggers, check if any API key is available
+          if [[ "${{ steps.eval-params.outputs.is_manual }}" == "true" ]]; then
+            if [[ -n "${{ secrets.OPENAI_API_KEY }}" ]] || [[ -n "${{ secrets.AZURE_API_KEY }}" ]] || [[ -n "${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}" ]]; then
+              echo "should-run=true" >> $GITHUB_OUTPUT
+              echo "✅ Running manual eval - API keys available"
+            else
+              echo "should-run=false" >> $GITHUB_OUTPUT
+              echo "❌ Cannot run evals - no API keys available (fork PR?)"
+            fi
+          elif [[ "${{ github.event_name }}" != "pull_request" ]] || [[ -n "${{ secrets.BRAINTRUST_API_KEY }}" && (-n "${{ secrets.AZURE_API_KEY }}" || -n "${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}") ]]; then
             echo "should-run=true" >> $GITHUB_OUTPUT
-            echo "✅ Running tests - either not a PR or all required secrets are available"
+            echo "✅ Running tests - either not a PR or required secrets are available"
           else
             echo "should-run=false" >> $GITHUB_OUTPUT
             echo "⏭️ Skipping tests - PR from fork without required secrets"
           fi
+
+      - name: Setup KIND cluster
+        if: steps.check-tests.outputs.should-run == 'true'
+        uses: ./.github/actions/setup-kind-cluster
+        with:
+          cluster-name: 'kind'
+          wait-for-ready: 'true'
+
+      - name: Setup HolmesGPT environment
+        if: steps.check-tests.outputs.should-run == 'true'
+        uses: ./.github/actions/setup-holmes-env
+        with:
+          python-version: '3.12'
+          install-kubectl: 'true'
 
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
@@ -53,23 +341,220 @@ jobs:
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
-          MODEL: ${{ vars.MODEL }}
-          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL }}
+          MODEL: ${{ steps.eval-params.outputs.model }}
+          ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4o' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
           GENERATE_REGRESSIONS_FILE: "true"
+          # Pass validated parameters as environment variables (not shell interpolation)
+          EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
+          EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
         run: |
-          poetry run pytest --no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m 'llm and easy and not no-cicd'
+          START_TIME=$(date +%s)
+
+          # Build pytest command safely using validated environment variables
+          # Note: EVAL_MARKER_EXPR and EVAL_FILTER are validated to contain only safe characters
+          PYTEST_ARGS=(
+            --no-cov
+            tests/llm/test_ask_holmes.py
+            tests/llm/test_investigate.py
+            -s
+            -n10
+            -m "$EVAL_MARKER_EXPR"
+          )
+
+          # Add filter if provided
+          if [[ -n "$EVAL_FILTER" ]]; then
+            PYTEST_ARGS+=(-k "$EVAL_FILTER")
+          fi
+
+          # Run pytest with array expansion (safe from injection)
+          poetry run pytest "${PYTEST_ARGS[@]}" || true
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+
+          # Format duration
+          HOURS=$((DURATION / 3600))
+          MINUTES=$(((DURATION % 3600) / 60))
+          SECONDS=$((DURATION % 60))
+
+          if [[ $HOURS -gt 0 ]]; then
+            DURATION_STR="${HOURS}h ${MINUTES}m ${SECONDS}s"
+          elif [[ $MINUTES -gt 0 ]]; then
+            DURATION_STR="${MINUTES}m ${SECONDS}s"
+          else
+            DURATION_STR="${SECONDS}s"
+          fi
+
+          echo "duration=$DURATION_STR" >> $GITHUB_OUTPUT
+          echo "Eval duration: $DURATION_STR"
+
       - name: Post evaluation results
         if: always()
-        uses: ./.github/actions/post-eval-comment
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          report-file: 'evals_report.md'
-          comment-identifier: '## Results of HolmesGPT evals'
-          delete-previous: 'true'
+          script: |
+            const fs = require('fs');
+
+            // Using toJSON for defense-in-depth escaping of all interpolated values
+            const isManual = ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true';
+            const triggerSource = ${{ toJSON(steps.eval-params.outputs.trigger_source) }} || '';
+            const model = ${{ toJSON(steps.eval-params.outputs.model) }} || 'default';
+            const markers = ${{ toJSON(steps.eval-params.outputs.markers) }} || '';
+            const filter = ${{ toJSON(steps.eval-params.outputs.filter) }} || '';
+            const iterations = ${{ toJSON(steps.eval-params.outputs.iterations) }} || '';
+            const duration = ${{ toJSON(steps.evals.outputs.duration) }} || 'N/A';
+            const runId = ${{ toJSON(github.run_id) }};
+            const repository = ${{ toJSON(github.repository) }};
+            const runUrl = `https://github.com/${repository}/actions/runs/${runId}`;
+
+            // Determine PR number
+            let prNumber = null;
+            if (context.eventName === 'issue_comment') {
+              prNumber = context.issue.number;
+            } else if (context.eventName === 'pull_request') {
+              prNumber = context.payload.pull_request.number;
+            } else if (context.eventName === 'workflow_dispatch') {
+              const prNumStr = ${{ toJSON(steps.eval-params.outputs.pr_number) }} || '';
+              if (prNumStr) {
+                prNumber = parseInt(prNumStr, 10);
+              }
+            }
+
+            if (!prNumber) {
+              console.log('No PR number found, skipping comment');
+              return;
+            }
+
+            // Read the report file
+            let reportContent = '';
+            if (fs.existsSync('evals_report.md')) {
+              reportContent = fs.readFileSync('evals_report.md', 'utf8');
+            }
+
+            // Check for regressions
+            let regressions = '';
+            if (fs.existsSync('regressions.txt')) {
+              regressions = fs.readFileSync('regressions.txt', 'utf8');
+            }
+
+            // Build comment body
+            let body = '';
+
+            if (isManual) {
+              // Manual trigger - create new comment with full details
+              body += `## 🧪 Manual Eval Results\n\n`;
+              body += `| Parameter | Value |\n`;
+              body += `|-----------|-------|\n`;
+              body += `| **Triggered via** | ${triggerSource} |\n`;
+              body += `| **Model** | \`${model}\` |\n`;
+              body += `| **Markers** | \`${markers}\` |\n`;
+              if (filter) {
+                body += `| **Filter (-k)** | \`${filter}\` |\n`;
+              }
+              body += `| **Iterations** | ${iterations} |\n`;
+              body += `| **Duration** | ${duration} |\n`;
+              body += `| **Workflow** | [View logs](${runUrl}) |\n\n`;
+            } else {
+              // Automatic trigger - standard header
+              body += `## Results of HolmesGPT evals\n\n`;
+              body += `**Duration:** ${duration} | [View workflow logs](${runUrl})\n\n`;
+            }
+
+            // Add report content
+            if (reportContent) {
+              body += reportContent + '\n';
+            } else {
+              body += '⚠️ No eval report was generated.\n\n';
+            }
+
+            // Add regressions warning
+            if (regressions) {
+              const count = regressions.trim();
+              body += `\n### ⚠️ ${count} Regression${count === '1' ? '' : 's'} Detected\n\n`;
+            }
+
+            // Add manual trigger instructions (for automatic runs only)
+            if (!isManual) {
+              const workflowUrl = `https://github.com/${repository}/actions/workflows/eval-regression.yaml`;
+
+              body += '\n---\n';
+              body += '<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n';
+              body += '**Option 1: Comment on this PR** with `/eval`:\n\n';
+              body += '```\n';
+              body += '/eval                                    # Run with defaults\n';
+              body += '/eval --model gpt-4o                     # Use specific model\n';
+              body += '/eval --model "gpt-4.1,gpt-4o"           # Multiple models\n';
+              body += '/eval --filter "09_crashpod"             # Run specific test (-k)\n';
+              body += '/eval --markers "logs"                   # Run tests with marker\n';
+              body += '/eval --iterations 5                     # Run multiple times\n';
+              body += '```\n\n';
+              body += '| Option | Short | Description |\n';
+              body += '|--------|-------|-------------|\n';
+              body += '| `--model` | `-m` | Model(s) to test |\n';
+              body += '| `--markers` | `-M` | Pytest markers |\n';
+              body += '| `--filter` | `-k` | Pytest -k filter |\n';
+              body += '| `--iterations` | `-i` | Iterations (max 10) |\n\n';
+              body += `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow" → select branch and fill in parameters\n`;
+              body += '</details>\n';
+            }
+
+            // For automatic runs, find and delete previous bot comments
+            if (!isManual) {
+              const allComments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  per_page: 100
+                }
+              );
+
+              const botComments = allComments.filter(comment =>
+                comment.user.type === 'Bot' &&
+                comment.body.includes('## Results of HolmesGPT evals')
+              );
+
+              // Delete old automatic comments
+              for (const comment of botComments) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id
+                });
+              }
+            }
+
+            // Post new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: body
+            });
+
+            console.log(`Posted eval results to PR #${prNumber}`);
+
+      - name: Add completion reaction for /eval comments
+        if: always() && github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'hooray'
+            });
+
       - name: Check test results
         if: always()
         run: |
