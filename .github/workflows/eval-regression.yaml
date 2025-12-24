@@ -17,12 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup HolmesGPT environment
-        uses: ./.github/actions/setup-holmes-env
-        with:
-          python-version: '3.12'
-          install-kubectl: 'true'
-
       - name: Setup KIND cluster
         uses: ./.github/actions/setup-kind-cluster
         with:
@@ -40,6 +34,12 @@ jobs:
             echo "should-run=false" >> $GITHUB_OUTPUT
             echo "⏭️ Skipping tests - PR from fork without required secrets"
           fi
+
+      - name: Setup HolmesGPT environment
+        uses: ./.github/actions/setup-holmes-env
+        with:
+          python-version: '3.12'
+          install-kubectl: 'true'
 
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
