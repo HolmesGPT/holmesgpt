@@ -42,23 +42,13 @@ runs:
             kind: InitConfiguration
             nodeRegistration:
               kubeletExtraArgs:
-                max-pods: "200"
+                max-pods: "300"
           - |
             kind: KubeProxyConfiguration
             metricsBindAddress: "0.0.0.0:10249"
           - |
             kind: KubeletConfiguration
-            maxPods: 200
-        - role: worker
-          kubeadmConfigPatches:
-          - |
-            kind: JoinConfiguration
-            nodeRegistration:
-              kubeletExtraArgs:
-                max-pods: "200"
-          - |
-            kind: KubeletConfiguration
-            maxPods: 200
+            maxPods: 300
         EOF
 
         # Create cluster with resource limits appropriate for GitHub Actions (7GB RAM, 2 CPU)
