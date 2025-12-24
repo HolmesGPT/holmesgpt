@@ -37,3 +37,4 @@ after_test: |
   kubectl delete namespace app-12 --ignore-not-found
 tags:
   - hard
+  - regression

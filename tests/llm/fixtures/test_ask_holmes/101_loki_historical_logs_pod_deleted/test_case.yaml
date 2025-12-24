@@ -16,6 +16,7 @@ tags:
   - kubernetes
   - hard
   - loki
+  - regression
 
 setup_timeout: 360  # Increased from 300 to handle pod deletion and Loki ingestion variability
 
