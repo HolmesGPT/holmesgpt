@@ -7,7 +7,4 @@ toolsets:
     enabled: true
     config:
       url: http://localhost:3101
-      api_key: ""  # No auth needed for local Loki
-      labels:
-        pod: pod_name  # Match the label used by Promtail
-        namespace: namespace
+      api_key: ""
