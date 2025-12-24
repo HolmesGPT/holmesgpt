@@ -8,7 +8,29 @@ before_test: |
   --from-file=generate_logs.py=./generate_logs.py \
   -n app-12 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f ./job.yaml
-  sleep 40
+  # Wait for job pods and specific log lines to appear (60s total) - MUST succeed or test fails
+  LOGS_READY=false
+  for i in {1..20}; do
+    # Get any pod from the job (jobs create pods that may be in Error state)
+    POD_NAME=$(kubectl get pods -n app-12 -l job-name=java-api-checker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-12 2>/dev/null | grep -q "Target host: prod-db, port: 3333" && kubectl logs "$POD_NAME" -n app-12 2>/dev/null | grep -q "FATAL: Unable to connect to required database"; then
+      echo "✅ Required log lines detected in job pod!"
+      LOGS_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/20: waiting for job pod with specific log lines, checking in 3s..."
+      sleep 3
+    fi
+  done
+  if [ "$LOGS_READY" = false ]; then
+    echo "❌ Required log lines not found after 60s"
+    kubectl get pods -n app-12
+    POD_NAME=$(kubectl get pods -n app-12 -l job-name=java-api-checker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$POD_NAME" ]; then
+      kubectl logs "$POD_NAME" -n app-12 --tail=50
+    fi
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./job.yaml
   kubectl delete secret java-api-checker-logs-script -n app-12 --ignore-not-found

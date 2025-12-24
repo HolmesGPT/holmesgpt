@@ -4,8 +4,26 @@ expected_output: |
   - KEDA is not installed in your cluster OR you have no KEDA scaler defined for this resource (either answer is fine)
   - But I found an HPA attached to the invoice-generator deployment
 #  - Current CPU usage is 9%, which is below the 60% threshold configured in the HPA. That's why it isn't scaling up
-generate_mocks: False
+
 tags:
-  - medium
-before_test: 'kubectl apply -f ./manifest.yaml'
+  - hard
+before_test: |
+  kubectl apply -f ./manifest.yaml
+  # Wait for invoice-generator pod with logs (60s total) - MUST succeed or test fails
+  LOG_READY=false
+  for i in {1..20}; do
+    if kubectl wait --for=condition=ready pod -l app=invoice-generator -n app-64 --timeout=1s 2>/dev/null && kubectl logs -l app=invoice-generator -n app-64 --tail=10 2>/dev/null | grep -q "Generating invoice"; then
+      echo "✅ invoice-generator pod ready with logs!"
+      LOG_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/20: pod/logs not ready, waiting 3s..."
+      sleep 3
+    fi
+  done
+  if [ "$LOG_READY" = false ]; then
+    echo "❌ Pod/logs failed after 60s"
+    kubectl get pods -l app=invoice-generator -n app-64
+    exit 1
+  fi
 after_test: 'kubectl delete -f ./manifest.yaml'

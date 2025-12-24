@@ -449,7 +449,6 @@ def alertmanager(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            instructions=None,
             post_processing_prompt=post_processing_prompt,
         )
         results.append({"issue": issue.model_dump(), "result": result.model_dump()})
@@ -566,7 +565,6 @@ def jira(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            instructions=None,
             post_processing_prompt=post_processing_prompt,
         )
 
@@ -758,7 +756,6 @@ def github(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            instructions=None,
             post_processing_prompt=post_processing_prompt,
         )
 
@@ -844,7 +841,6 @@ def pagerduty(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            instructions=None,
             post_processing_prompt=post_processing_prompt,
         )
 
@@ -927,7 +923,6 @@ def opsgenie(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            instructions=None,
             post_processing_prompt=post_processing_prompt,
         )
 
