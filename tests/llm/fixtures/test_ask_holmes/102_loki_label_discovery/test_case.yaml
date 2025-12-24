@@ -50,7 +50,7 @@ before_test: |
   kubectl wait --for=condition=ready pod -l app=inventory-service -n app-102 --timeout=60s
 
   # Wait for Loki ingester to be ready
-  for i in {1..30}; do
+  for ((i=1; i<=30; i++)); do
     if kubectl exec -n app-102 deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
       break
     fi
@@ -60,7 +60,7 @@ before_test: |
 
   # Wait for logs to appear in Loki
   sleep 5  # Let Promtail initialize
-  for i in {1..30}; do
+  for ((i=1; i<=30; i++)); do
     LOG_COUNT=$(kubectl exec -n app-102 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-102"}&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
     if [ "$LOG_COUNT" -gt "0" ]; then
       echo "Logs ready in Loki"

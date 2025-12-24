@@ -10,7 +10,7 @@ before_test: |
   kubectl apply -f ./job.yaml
   # Wait for job pods and specific log lines to appear (60s total) - MUST succeed or test fails
   LOGS_READY=false
-  for i in {1..20}; do
+  for ((i=1; i<=20; i++)); do
     # Get any pod from the job (jobs create pods that may be in Error state)
     POD_NAME=$(kubectl get pods -n app-12 -l job-name=java-api-checker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-12 2>/dev/null | grep -q "Target host: prod-db, port: 3333" && kubectl logs "$POD_NAME" -n app-12 2>/dev/null | grep -q "FATAL: Unable to connect to required database"; then

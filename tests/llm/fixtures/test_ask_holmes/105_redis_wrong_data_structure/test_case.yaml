@@ -42,7 +42,7 @@ before_test: |
   echo "Waiting for session-init job to complete..."
   # Retry loop to handle longer initialization times
   JOB_COMPLETE=false
-  for i in {1..12}; do
+  for ((i=1; i<=12; i++)); do
     if kubectl wait --for=condition=complete job/session-init -n namespace-105 --timeout=30s 2>/dev/null; then
       echo "✅ Session init job completed!"
       JOB_COMPLETE=true

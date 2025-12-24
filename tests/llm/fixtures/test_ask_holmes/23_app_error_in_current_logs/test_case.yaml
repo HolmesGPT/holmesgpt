@@ -12,7 +12,7 @@ before_test: |
   # Wait for curl pod to generate some error logs (replaces fixed 30s sleep)
   echo "Waiting for curl pod to generate DNS error logs..."
   ERROR_FOUND=false
-  for i in {1..30}; do
+  for ((i=1; i<=30; i++)); do
     if kubectl logs -n app-23 -l app=curl-app 2>/dev/null | grep -q "Failed to reach"; then
       echo "✅ Error logs detected after $i seconds"
       ERROR_FOUND=true

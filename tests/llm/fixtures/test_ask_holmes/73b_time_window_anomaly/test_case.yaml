@@ -14,7 +14,7 @@ before_test: |
   kubectl apply -f ./manifest.yaml
   # Wait for pod and all required log lines to appear (60s total) - MUST succeed or test fails
   LOGS_READY=false
-  for i in {1..20}; do
+  for ((i=1; i<=20; i++)); do
     # First check if pod exists and is ready
     if kubectl wait --for=condition=ready pod -l app=cron-scheduler -n app-73b --timeout=1s 2>/dev/null; then
       # Pod is ready, now get its name and check for all three required log lines

@@ -34,7 +34,7 @@ before_test: |
   kubectl apply -f ad-service.yaml -n app-174
 
   echo "⏳ Waiting for ad-service pod to exist"
-  for i in {1..60}; do
+  for ((i=1; i<=60; i++)); do
     if kubectl get pod -l app=ad-service -n app-174 2>/dev/null | grep -q ad-service; then
       echo "✅ ad-service pod exists"
       break
@@ -45,7 +45,7 @@ before_test: |
 
   echo "⏳ Waiting for ad-service pod to be ready (timeout 780s)"
   AD_POD_READY=false
-  for i in {1..156}; do
+  for ((i=1; i<=156; i++)); do
     if kubectl wait --for=condition=ready pod -l app=ad-service -n app-174 --timeout=5s 2>/dev/null; then
       echo "✅ ad-service pod is ready!"
       AD_POD_READY=true
@@ -69,7 +69,7 @@ before_test: |
   kubectl apply -f ad-traffic-generator.yaml -n app-174
 
   echo "⏳ Waiting for ad-generator pod to exist"
-  for i in {1..60}; do
+  for ((i=1; i<=60; i++)); do
     if kubectl get pod -l app=ad-generator -n app-174 2>/dev/null | grep -q ad-generator; then
       echo "✅ ad-generator pod exists"
       break
@@ -80,7 +80,7 @@ before_test: |
 
   echo "⏳ Waiting for ad-generator pod to be ready (timeout 780s)"
   TRAFFIC_POD_READY=false
-  for i in {1..156}; do
+  for ((i=1; i<=156; i++)); do
     if kubectl wait --for=condition=ready pod -l app=ad-generator -n app-174 --timeout=5s 2>/dev/null; then
       echo "✅ ad-generator pod is ready!"
       TRAFFIC_POD_READY=true
@@ -105,7 +105,7 @@ before_test: |
 
   echo "⏳ Waiting for at least 10 traces in Coralogix (poll every 5s)"
   TRACES_READY=false
-  for i in {1..60}; do
+  for ((i=1; i<=60; i++)); do
     TRACE_COUNT=$(curl -s -X POST "https://ng-api-http.${CORALOGIX_DOMAIN}/api/v1/dataprime/query" \
       -H "Authorization: Bearer ${CORALOGIX_API_KEY}" \
       -H "Content-Type: application/json" \
