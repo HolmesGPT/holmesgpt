@@ -50,3 +50,10 @@ after_test: |
 # verifies that the runbook is pulled from robusta and also global instructions are read and followed
 expected_output: |
   The runbook provides systematic debugging steps for signup service issues, emphasizing the need to check the payments service dependency first. The runbook should specifically mention checking Stripe API key validation in the payments service, as this is the root cause of the signup failures. Mentions contacting the interlock team for assistance. There is no mention of the capricorn team
+
+# Note:
+# In the past we observed an instance in which the capricon team was mentioned.
+# We did not try to fix it because we considered it a 'soft' failure. See below for what it looked like in the results.
+# Contact:
+  # Stripe API issues: Contact interlock team
+  # Other issues: Contact capricorn team
