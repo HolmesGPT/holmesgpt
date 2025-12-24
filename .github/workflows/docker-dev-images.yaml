@@ -65,17 +65,39 @@ jobs:
           const sha = context.sha;
           const shortSha = `${{ steps.short_sha.outputs.sha_short }}`;
 
-          const fullTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${sha}`;
           const shortTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
           const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
+          const marker = 'Dev Docker images are ready for this commit:';
 
           const message = [
-            'Dev Docker images are ready for this commit:',
+            marker,
             '',
-            `- [${fullTag}](${registryLink})`,
             `- [${shortTag}](${registryLink})`,
             '',
-            'Use either tag to pull the image for testing.'
+            'Use this tag to pull the image for testing.',
+            '',
+            '⚠️ Temporary images are deleted after 30 days. Copy to a permanent registry before using them:',
+            '```bash',
+            'gcloud auth configure-docker us-central1-docker.pkg.dev',
+            `docker pull ${shortTag}`,
+            `docker tag ${shortTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
+            `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
+            '```',
+            '',
+            'Patch Helm values in one line (choose the chart you use):',
+            '- HolmesGPT chart:',
+            '```bash',
+            'helm upgrade --install holmesgpt ./helm/holmes \\',
+            '  --set registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+            `  --set image=holmes-dev:${shortSha}`,
+            '```',
+            '- Robusta wrapper chart:',
+            '```bash',
+            'helm upgrade --install robusta robusta/robusta \\',
+            '  --reuse-values \\',
+            '  --set holmes.registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+            `  --set holmes.image=holmes-dev:${shortSha}`,
+            '```',
           ].join('\n');
 
           const prs = await github.paginate(github.rest.pulls.list, {
@@ -86,19 +108,54 @@ jobs:
           });
 
           if (prs.length > 0) {
-            await github.rest.issues.createComment({
+            const issue_number = prs[0].number;
+            const existingComments = await github.paginate(github.rest.issues.listComments, {
               owner,
               repo,
-              issue_number: prs[0].number,
-              body: message,
+              issue_number,
             });
-            core.info(`Commented on PR #${prs[0].number}`);
+            const existing = existingComments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: message,
+              });
+              core.info(`Updated existing PR comment #${existing.id}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: message,
+              });
+              core.info(`Commented on PR #${issue_number}`);
+            }
           } else {
-            await github.rest.repos.createCommitComment({
+            const commitComments = await github.paginate(github.rest.repos.listCommentsForCommit, {
               owner,
               repo,
               commit_sha: sha,
-              body: message,
             });
-            core.info('Commented on commit');
+            const existing = commitComments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.repos.updateCommitComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: message,
+              });
+              core.info(`Updated existing commit comment #${existing.id}`);
+            } else {
+              await github.rest.repos.createCommitComment({
+                owner,
+                repo,
+                commit_sha: sha,
+                body: message,
+              });
+              core.info('Commented on commit');
+            }
           }
