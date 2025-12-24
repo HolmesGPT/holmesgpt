@@ -4,7 +4,33 @@ expected_output:
   - either 6, 6 pods, etc.
 before_test: |
   kubectl apply -f manifests.yaml
-  sleep 60
+  # Wait for correct pod counts in both namespaces (60s total) - MUST succeed or test fails
+  POD_COUNTS_READY=false
+  for i in {1..20}; do
+    # Count running pods in test-61 (should be 6)
+    TEST61_COUNT=$(kubectl get pods -n test-61 --no-headers 2>/dev/null | grep " Running " | wc -l | tr -d ' ')
+    
+    # Count running pods in test-611 (should be 9)
+    TEST611_COUNT=$(kubectl get pods -n test-611 --no-headers 2>/dev/null | grep " Running " | wc -l | tr -d ' ')
+    
+    # We expect 6 running pods in test-61 and 9 running pods in test-611
+    if [ "$TEST61_COUNT" = "6" ] && [ "$TEST611_COUNT" = "9" ]; then
+      echo "✅ Correct pod counts detected: test-61: 6, test-611: 9!"
+      POD_COUNTS_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/20: test-61: $TEST61_COUNT/6, test-611: $TEST611_COUNT/9, checking in 3s..."
+      sleep 3
+    fi
+  done
+  if [ "$POD_COUNTS_READY" = false ]; then
+    echo "❌ Expected pod counts not reached after 60s"
+    echo "test-61 namespace:"
+    kubectl get pods -n test-61
+    echo "test-611 namespace:"
+    kubectl get pods -n test-611
+    exit 1
+  fi
 after_test: |
   kubectl delete -f manifests.yaml
 tags:
