@@ -15,12 +15,33 @@ before_test: |
   kubectl apply -f app/signup-deployment.yaml
   kubectl apply -f app/payments-deployment.yaml
 
-  # Wait for deployments to be ready
-  kubectl wait --for=condition=available --timeout=60s deployment/signup-service -n app-162
-  kubectl wait --for=condition=available --timeout=60s deployment/payments-service -n app-162
-
-  # Give services time to start and fail
-  sleep 10
+  # Wait for expected error logs to appear (60s total) - MUST succeed or test fails
+  LOGS_READY=false
+  for i in {1..20}; do
+    # Check signup-service for connection refused error
+    SIGNUP_ERROR=$(kubectl logs -l app=signup-service -n app-162 2>/dev/null | grep -c "Payments service check failed: <urlopen error \[Errno 111\] Connection refused>")
+    
+    # Check payments-service for stripe API key error
+    PAYMENT_ERROR=$(kubectl logs -l app=payments-service -n app-162 2>/dev/null | grep -c "Health check failed: Invalid Stripe API key")
+    
+    # We expect at least 1 occurrence of each error message
+    if [ "$SIGNUP_ERROR" -gt 0 ] && [ "$PAYMENT_ERROR" -gt 0 ]; then
+      echo "✅ Required error logs detected: signup errors: $SIGNUP_ERROR, payment errors: $PAYMENT_ERROR!"
+      LOGS_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/20: signup errors: $SIGNUP_ERROR, payment errors: $PAYMENT_ERROR, checking in 3s..."
+      sleep 3
+    fi
+  done
+  if [ "$LOGS_READY" = false ]; then
+    echo "❌ Required error logs not found after 60s"
+    echo "Signup-service logs:"
+    kubectl logs -l app=signup-service -n app-162 --tail=10
+    echo "Payments-service logs:"
+    kubectl logs -l app=payments-service -n app-162 --tail=10
+    exit 1
+  fi
 
 after_test: |
   # Delete namespace
@@ -29,3 +50,10 @@ after_test: |
 # verifies that the runbook is pulled from robusta and also global instructions are read and followed
 expected_output: |
   The runbook provides systematic debugging steps for signup service issues, emphasizing the need to check the payments service dependency first. The runbook should specifically mention checking Stripe API key validation in the payments service, as this is the root cause of the signup failures. Mentions contacting the interlock team for assistance. There is no mention of the capricorn team
+
+# Note:
+# In the past we observed an instance in which the capricon team was mentioned.
+# We did not try to fix it because we considered it a 'soft' failure. See below for what it looked like in the results.
+# Contact:
+  # Stripe API issues: Contact interlock team
+  # Other issues: Contact capricorn team
