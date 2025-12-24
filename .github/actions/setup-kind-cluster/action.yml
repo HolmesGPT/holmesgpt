@@ -108,6 +108,28 @@ runs:
           exit 1
         fi
         
+        # Wait for operator to register CRDs
+        echo "Waiting for Calico operator CRDs to be registered..."
+        CRD_FOUND=false
+        for i in $(seq 1 60); do
+          if kubectl get crd installations.operator.tigera.io 2>/dev/null; then
+            echo "✅ Calico Installation CRD found!"
+            CRD_FOUND=true
+            break
+          else
+            echo "⏳ Attempt $i/60: waiting for Installation CRD to be registered, checking in 5s..."
+            sleep 5
+          fi
+        done
+        
+        if [ "$CRD_FOUND" = false ]; then
+          echo "❌ Calico Installation CRD failed to be registered after 300 seconds"
+          kubectl get crds | grep -i tigera || echo "No tigera CRDs found"
+          kubectl get pods -n tigera-operator
+          kubectl describe pods -n tigera-operator
+          exit 1
+        fi
+        
         # Create custom resource for Calico installation optimized for KIND
         echo "Creating Calico installation resource..."
         if ! cat <<EOF | kubectl create -f -
