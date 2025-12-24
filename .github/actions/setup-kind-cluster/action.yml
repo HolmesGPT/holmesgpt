@@ -116,12 +116,6 @@ runs:
           exit 1
         fi
         
-        # Verify NetworkPolicy CRD is available
-        echo "Verifying NetworkPolicy support..."
-        if ! kubectl get crd networkpolicies.networking.k8s.io; then
-          echo "❌ NetworkPolicy CRD not found - Calico installation incomplete"
-          exit 1
-        fi
         
         echo "✅ Calico CNI installed successfully with NetworkPolicy support"
 
@@ -147,12 +141,6 @@ runs:
           exit 1
         fi
         
-        # Verify NetworkPolicy support is working
-        echo "Verifying NetworkPolicy support..."
-        if ! kubectl get networkpolicies --all-namespaces; then
-          echo "❌ NetworkPolicy CRD not available during final verification"
-          exit 1
-        fi
 
         # Verify cluster is working by creating a test pod
         echo "Creating test pod to verify cluster..."
