@@ -4,4 +4,5 @@ nav:
   - Historical Results: history
   - Running Evaluations: running-evals.md
   - Adding New Evaluations: adding-evals.md
+  - Benchmarking New Models: benchmarking-new-models.md
   - Reporting with Braintrust: reporting.md

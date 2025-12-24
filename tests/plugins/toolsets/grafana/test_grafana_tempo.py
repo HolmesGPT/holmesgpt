@@ -1,20 +1,21 @@
 import json
 import os
-from holmes.plugins.toolsets.grafana.grafana_api import grafana_health_check
+
 
 import pytest
+import requests  # type: ignore
+import responses
 
-from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
 from holmes.plugins.toolsets.grafana.trace_parser import process_trace
-from tests.plugins.toolsets.grafana.conftest import check_grafana_connectivity
+from tests.plugins.toolsets.grafana.conftest import check_service_running
 
-GRAFANA_API_KEY = os.environ.get("GRAFANA_API_KEY", "")
-GRAFANA_URL = os.environ.get("GRAFANA_URL", "")
-GRAFANA_TEMPO_DATASOURCE_UID = os.environ.get("GRAFANA_TEMPO_DATASOURCE_UID", "")
+from holmes.core.tools import ToolsetStatusEnum
+from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
+    GrafanaTempoToolset,
+)
 
-# Use pytest.mark.skip (not skipif) to show a single grouped skip line for the entire module
-# Will show: "SKIPPED [4] module.py: reason" instead of 4 separate skip lines
-skip_reason = check_grafana_connectivity()
+# use docker compose setup from https://github.com/grafana/tempo/blob/main/example/docker-compose/local/readme.md to run local grafana and tempo.
+skip_reason = check_service_running("Grafana", 3000)
 if skip_reason:
     pytestmark = pytest.mark.skip(reason=skip_reason)
 
@@ -53,48 +54,60 @@ def test_process_trace_json():
     assert result.strip() == expected_result.strip()
 
 
-# def test_grafana_tempo_has_prompt():
-#     toolset = GrafanaTempoToolset()
-#     tool = GetTempoTraces(toolset)
-#     assert tool.name is not None
-#     assert toolset.llm_instructions is not None
-#     assert tool.name in toolset.llm_instructions
+def test_tempo_toolset_direct_health_check():
+    toolset = GrafanaTempoToolset()
+    toolset.config = {"url": "http://localhost:3200/"}
+    toolset.check_prerequisites()
+
+    assert toolset.error is None
+    assert toolset.status == ToolsetStatusEnum.ENABLED
 
 
-# def test_grafana_query_loki_logs_by_pod():
-#     config = {
-#         "api_key": GRAFANA_API_KEY,
-#         "headers": {},
-#         "url": GRAFANA_URL,
-#         "grafana_datasource_uid": GRAFANA_TEMPO_DATASOURCE_UID,
-#     }
+def test_tempo_datasource_toolset_health_check():
+    toolset = GrafanaTempoToolset()
+    toolset.config = {
+        "url": "http://localhost:3000/",
+        "grafana_datasource_uid": "tempo-streaming-enabled",
+    }
+    toolset.check_prerequisites()
 
-#     if not GRAFANA_TEMPO_DATASOURCE_UID:
-#         config["headers"]["X-Scope-OrgID"] = (
-#             "1"  # standalone tempo likely requires an orgid
-#         )
-
-#     toolset = GrafanaTempoToolset()
-#     toolset.config = config
-#     toolset.check_prerequisites()
-
-#     assert toolset.error is None
-#     assert toolset.status == ToolsetStatusEnum.ENABLED
-
-#     tool = GetTempoTraces(toolset)
-#     # just tests that this does not throw
-#     tool.invoke(params={"min_duration": "5"})
+    assert toolset.error is None
+    assert toolset.status == ToolsetStatusEnum.ENABLED
 
 
-def test_grafana_loki_health_check():
-    config = GrafanaTempoConfig(
-        api_key=GRAFANA_API_KEY,
-        headers=None,
-        url=GRAFANA_URL,
-        grafana_datasource_uid=GRAFANA_TEMPO_DATASOURCE_UID,
+def test_tempo_datasource_toolset_wrong_url_health_check():
+    toolset = GrafanaTempoToolset()
+    toolset.config = {
+        "url": "http://localhost:2000/",
+        "grafana_datasource_uid": "tempo-streaming-enabled",
+    }
+    toolset.check_prerequisites()
+
+    assert (
+        "Unable to connect to Tempo.\nHTTPConnectionPool(host='localhost', port=2000): Max retries exceeded with url: /api/datasources/proxy/uid/tempo-streaming-enabled/api/search"
+        in toolset.error
     )
+    assert toolset.status == ToolsetStatusEnum.FAILED
 
-    success, error_message = grafana_health_check(config)
 
-    assert not error_message
-    assert success
+def test_tempo_datasource_toolset_health_check_exceptions():
+    """Test that health check handles request exceptions properly with backoff retries."""
+    toolset = GrafanaTempoToolset()
+    toolset.config = {
+        "url": "http://localhost:3000/",
+        "grafana_datasource_uid": "tempo-streaming-enabled",
+    }
+
+    with responses.RequestsMock() as rsps:
+        rsps.add(
+            responses.GET,
+            'http://localhost:3000//api/datasources/proxy/uid/tempo-streaming-enabled/api/search?q={ .service.name = "test-endpoint" }&limit=1',
+            body=requests.exceptions.ConnectionError("Connection refused"),
+            status=400,
+        )
+
+        toolset.check_prerequisites()
+
+        assert len(rsps.calls) == 3, "Expected 3 retries due to backoff"
+        assert toolset.status == ToolsetStatusEnum.FAILED
+        assert "Connection refused" in toolset.error

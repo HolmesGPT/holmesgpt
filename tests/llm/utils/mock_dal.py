@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 from pydantic import TypeAdapter
 
 from holmes.core.supabase_dal import SupabaseDal, FindingType
-from holmes.core.tool_calling_llm import ResourceInstructions
+from holmes.core.resource_instruction import ResourceInstructions
 from holmes.plugins.runbooks import RobustaRunbookInstruction
 from holmes.utils.global_instructions import Instructions
 from tests.llm.utils.test_case_utils import read_file

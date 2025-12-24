@@ -1,12 +1,34 @@
+# Note: This test might fail because CrashLoopBackOff status still counts as Running if the llm looks at status.phase
 user_prompt: "How many pods are actually running in the test-58 namespace?"
 expected_output:
   - 5 pods are running in the test-58 namespace
 before_test: |
   kubectl apply -f manifests.yaml
-  sleep 90
+  # Wait for correct pod states (90s total) - MUST succeed or test fails
+  POD_STATES_READY=false
+  for i in {1..30}; do
+    # Count running pods (should be exactly 5)
+    RUNNING_COUNT=$(kubectl get pods -n test-58 --no-headers 2>/dev/null | grep " Running " | wc -l | tr -d ' ')
+    
+    # Count pods in error states (not Running, Pending, or ContainerCreating)
+    ERROR_COUNT=$(kubectl get pods -n test-58 --no-headers 2>/dev/null | grep -v "Running\|Pending\|ContainerCreating" | wc -l | tr -d ' ')
+    
+    # We expect 5 running pods and 5 pods in error states
+    if [ "$RUNNING_COUNT" = "5" ] && [ "$ERROR_COUNT" = "5" ]; then
+      echo "✅ Correct pod states detected: 5 running, 5 in error states!"
+      POD_STATES_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/30: Running: $RUNNING_COUNT/5, Error: $ERROR_COUNT/5, checking in 3s..."
+      sleep 3
+    fi
+  done
+  if [ "$POD_STATES_READY" = false ]; then
+    echo "❌ Expected pod states not reached after 90s"
+    kubectl get pods -n test-58
+    exit 1
+  fi
 after_test: |
   kubectl delete -f manifests.yaml
-evaluation:
-  correctness: 0
 tags:
   - counting

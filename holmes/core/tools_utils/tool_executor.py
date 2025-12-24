@@ -4,12 +4,9 @@ from typing import List, Optional
 import sentry_sdk
 
 from holmes.core.tools import (
-    StructuredToolResult,
     Tool,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetStatusEnum,
-    ToolInvokeContext,
 )
 from holmes.core.tools_utils.toolset_utils import filter_out_default_logging_toolset
 
@@ -46,21 +43,6 @@ class ToolExecutor:
                         f"Overriding existing tool '{tool.name} with new tool from {ts.name} at {ts.path}'!"
                     )
                 self.tools_by_name[tool.name] = tool
-
-    def invoke(
-        self, tool_name: str, params: dict, context: ToolInvokeContext
-    ) -> StructuredToolResult:
-        """TODO: remove this function as it seems unused.
-        We call tool_executor.get_tool_by_name() and then tool.invoke() directly instead of this invoke function
-        """
-        tool = self.get_tool_by_name(tool_name)
-        if not tool:
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR,
-                error=f"Could not find tool named {tool_name}",
-            )
-
-        return tool.invoke(params, context)
 
     def get_tool_by_name(self, name: str) -> Optional[Tool]:
         if name in self.tools_by_name:

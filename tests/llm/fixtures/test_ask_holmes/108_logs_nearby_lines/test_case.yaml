@@ -3,7 +3,7 @@ description: |
   The cause is a configuration change
   To understand what happened, holmes needs to see logs immediate BEFORE the first occurrence
 
-user_prompt: "What is causing connection refused errors in api-service namespace app-108?"
+user_prompt: "What is causing connection refused errors in api-service in namespace app-108?"
 
 tags:
   - logs
@@ -12,7 +12,34 @@ tags:
 before_test: |
   kubectl create namespace app-108 || true
   kubectl apply -f ./manifest.yaml -n app-108
-  kubectl wait --for=condition=ready pod -l app=api-service -n app-108 --timeout=60s || true
+  # Wait for pod to be ready and specific log lines to appear (60s total) - MUST succeed or test fails
+  LOGS_READY=false
+  for i in {1..20}; do
+    # First check if pod exists and is ready
+    if kubectl wait --for=condition=ready pod -l app=api-service -n app-108 --timeout=1s 2>/dev/null; then
+      # Pod is ready, now get its name and check for specific log lines
+      POD_NAME=$(kubectl get pods -n app-108 -l app=api-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+      if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-108 2>/dev/null | grep -q "2024-01-15T10:05:00.000Z \[WARN\] Configuration file change detected" && kubectl logs "$POD_NAME" -n app-108 2>/dev/null | grep -q "2024-01-15T10:07:30.200Z \[HTTP\] 500 GET /api/health - Connection refused"; then
+        echo "✅ Required log lines detected!"
+        LOGS_READY=true
+        break
+      else
+        echo "⏳ Attempt $i/20: pod ready but specific log lines not found yet, checking in 3s..."
+      fi
+    else
+      echo "⏳ Attempt $i/20: waiting for pod to be ready, checking in 3s..."
+    fi
+    sleep 3
+  done
+  if [ "$LOGS_READY" = false ]; then
+    echo "❌ Required log lines not found after 60s"
+    POD_NAME=$(kubectl get pods -n app-108 -l app=api-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$POD_NAME" ]; then
+      kubectl logs "$POD_NAME" -n app-108 --tail=50
+    fi
+    kubectl get pods -n app-108
+    exit 1
+  fi
 
 after_test: |
   kubectl delete namespace app-108 || true

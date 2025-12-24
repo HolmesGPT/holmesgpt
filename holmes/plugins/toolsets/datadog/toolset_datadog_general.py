@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -19,7 +19,6 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
-    DatadogBaseConfig,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
@@ -28,10 +27,14 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     enhance_error_message,
     fetch_openapi_spec,
 )
+from holmes.plugins.toolsets.datadog.datadog_models import (
+    DatadogGeneralConfig,
+    MAX_RESPONSE_SIZE,
+)
+from holmes.plugins.toolsets.datadog.datadog_url_utils import (
+    generate_datadog_general_url,
+)
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
-
-# Maximum response size in bytes (10MB)
-MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 
 # Whitelisted API endpoint patterns with optional hints
 # Format: (pattern, hint) - hint is empty string if no special instructions
@@ -190,15 +193,6 @@ WHITELISTED_POST_ENDPOINTS = [
     r"^/api/v\d+/query$",
     r"^/api/v\d+/search/query$",
 ]
-
-
-class DatadogGeneralConfig(DatadogBaseConfig):
-    """Configuration for general-purpose Datadog toolset."""
-
-    max_response_size: int = MAX_RESPONSE_SIZE
-    allow_custom_endpoints: bool = (
-        False  # If True, allows endpoints not in whitelist (still filtered for safety)
-    )
 
 
 class DatadogGeneralToolset(Toolset):
@@ -402,20 +396,22 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         """Execute the GET request."""
+        params_return = params.copy()
+        params_return["query_params"] = json.dumps(
+            params.get("query_params", {}), indent=2
+        )
         logging.info("=" * 60)
         logging.info("DatadogAPIGet Tool Invocation:")
         logging.info(f"  Description: {params.get('description', 'No description')}")
         logging.info(f"  Endpoint: {params.get('endpoint', '')}")
-        logging.info(
-            f"  Query Params: {json.dumps(params.get('query_params', {}), indent=2)}"
-        )
+        logging.info(f"  Query Params: {params_return['query_params']}")
         logging.info("=" * 60)
 
         if not self.toolset.dd_config:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=TOOLSET_CONFIG_MISSING_ERROR,
-                params=params,
+                params=params_return,
             )
 
         endpoint = params.get("endpoint", "")
@@ -432,7 +428,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Endpoint validation failed: {error_msg}",
-                params=params,
+                params=params_return,
             )
 
         url = None
@@ -466,13 +462,20 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
                     error=f"Response too large (>{self.toolset.dd_config.max_response_size} bytes)",
-                    params=params,
+                    params=params_return,
                 )
+
+            web_url = generate_datadog_general_url(
+                self.toolset.dd_config,
+                endpoint,
+                query_params,
+            )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response_str,
-                params=params,
+                params=params_return,
+                url=web_url,
             )
 
         except DataDogRequestError as e:
@@ -497,7 +500,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
-                params=params,
+                params=params_return,
                 invocation=json.dumps({"url": url, "params": query_params})
                 if url
                 else None,
@@ -508,7 +511,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Unexpected error: {str(e)}",
-                params=params,
+                params=params_return,
             )
 
 
@@ -565,6 +568,31 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
         """Get a one-liner description of the tool invocation."""
         description = params.get("description", "Search")
         return f"{toolset_name_for_one_liner(self.toolset.name)}: {description}"
+
+    def _body_to_query_params(self, body: dict) -> Optional[Dict[str, Any]]:
+        body_query_params = {}
+        if not isinstance(body, dict):
+            return None
+        if "filter" not in body:
+            return None
+        filter_data = body["filter"]
+        if "from" in filter_data:
+            try:
+                body_query_params["from"] = int(filter_data["from"]) // 1000
+            except (ValueError, TypeError):
+                pass
+        if "to" in filter_data:
+            try:
+                body_query_params["to"] = int(filter_data["to"]) // 1000
+            except (ValueError, TypeError):
+                pass
+        if "query" in filter_data:
+            body_query_params["query"] = filter_data["query"]
+
+        if not body_query_params:
+            return None
+
+        return body_query_params
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         """Execute the POST search request."""
@@ -633,10 +661,18 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                     params=params,
                 )
 
+            body_query_params = self._body_to_query_params(body)
+            web_url = generate_datadog_general_url(
+                self.toolset.dd_config,
+                endpoint,
+                body_query_params,
+            )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response_str,
                 params=params,
+                url=web_url,
             )
 
         except DataDogRequestError as e:
@@ -717,6 +753,7 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
                     status=StructuredToolResultStatus.ERROR,
                     error=f"Invalid regex pattern: {e}",
                     params=params,
+                    url="",
                 )
         else:
             search_pattern = None
@@ -847,9 +884,15 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
         output.append("  • 'logs|metrics' - find logs OR metrics endpoints")
         output.append("  • 'v2.*search$' - find all v2 search endpoints")
         output.append("  • 'security.*signals' - find security signals endpoints")
+        doc_url = "https://docs.datadoghq.com/api/latest/"
+        if search_regex:
+            # URL encode the search parameter - spaces become + in query strings
+            search_params = urlencode({"s": search_regex})
+            doc_url = f"{doc_url}?{search_params}"
 
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
             data="\n".join(output),
             params=params,
+            url=doc_url,
         )

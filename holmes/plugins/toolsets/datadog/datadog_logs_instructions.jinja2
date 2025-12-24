@@ -59,3 +59,29 @@ Before running logs queries:
    Rely on the fetch_datadog_logs function start_datetime and end_datetime parameters for that.
 2. Datadog default TAGS for kubernetes are *kube_namespace* and *pod_name*, if a user specificy custom TAGS used in his environment please use them in your search queries.
 3. If you see a useful TAG in your Old fetch_datadog_logs query use it for further queries.
+
+### CRITICAL: Cursor Usage Rules
+**NEVER parallelize cursor-based calls or reuse cursor values!**
+
+Cursors are stateful pointers - each one is single-use and represents a unique position in the data stream.
+
+**WRONG (causes duplicate data):**
+```
+Batch 1 → cursor_A
+Then call Batch 2, 3, 4 ALL with cursor_A in parallel ❌
+Result: Duplicate data, incomplete results
+```
+
+**CORRECT (sequential pagination):**
+```
+Batch 1 → cursor_A
+Wait for response → use cursor_A for Batch 2 → cursor_B  
+Wait for response → use cursor_B for Batch 3 → cursor_C
+Result: Complete unique data ✅
+```
+
+**Key Rules:**
+- Each response provides a NEW cursor for the NEXT request
+- NEVER reuse the same cursor value multiple times
+- NEVER make parallel calls with the same cursor
+- Always wait for response before using the returned cursor

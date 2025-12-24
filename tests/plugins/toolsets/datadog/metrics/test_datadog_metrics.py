@@ -1,4 +1,3 @@
-import json
 from unittest.mock import Mock, patch
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
@@ -106,7 +105,11 @@ class TestDatadogMetricsToolset:
         result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
         assert result.status == StructuredToolResultStatus.SUCCESS
-        assert "system.cpu.user" in result.data
+        # Check that the metric name appears in the structured data
+        assert result.data["query"] == "system.cpu.user{host:test-host}"
+        assert (
+            result.data["data"]["result"][0]["metric"]["__name__"] == "system.cpu.user"
+        )
 
         call_args = mock_get.call_args
         assert "/api/v1/query" in call_args[0][0]
@@ -147,7 +150,7 @@ class TestDatadogMetricsToolset:
         result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
         assert result.status == StructuredToolResultStatus.SUCCESS
-        data = json.loads(result.data)
+        data = result.data  # Data is now a dict, not a JSON string
         assert "metrics_metadata" in data
         assert "system.cpu.user" in data["metrics_metadata"]
         assert data["successful"] == 1
@@ -168,7 +171,7 @@ class TestDatadogMetricsToolset:
         result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
         assert result.status == StructuredToolResultStatus.ERROR
-        data = json.loads(result.data)
+        data = result.data  # Data is now a dict, not a JSON string
         assert "errors" in data
         assert "nonexistent.metric" in data["errors"]
         assert data["failed"] == 1
@@ -198,7 +201,7 @@ class TestDatadogMetricsToolset:
         result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
         assert result.status == StructuredToolResultStatus.SUCCESS
-        data = json.loads(result.data)
+        data = result.data  # Data is now a dict, not a JSON string
         assert "metrics_metadata" in data
         assert "system.cpu.user" in data["metrics_metadata"]
         assert "system.mem.used" in data["metrics_metadata"]
@@ -218,7 +221,7 @@ class TestDatadogMetricsToolset:
         result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
         assert result.status == StructuredToolResultStatus.SUCCESS
-        data = json.loads(result.data)
+        data = result.data  # Data is now a dict, not a JSON string
         assert "system.cpu.user" in data["metrics_metadata"]
         assert "nonexistent.metric" in data["errors"]
         assert data["successful"] == 1

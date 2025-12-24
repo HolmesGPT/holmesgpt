@@ -34,7 +34,6 @@ from holmes.core.investigation_structured_output import (
 )
 from holmes.core.issue import Issue
 from holmes.core.llm import LLM
-from holmes.core.resource_instruction import ResourceInstructions
 from holmes.core.runbooks import RunbookManager
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
@@ -605,7 +604,10 @@ class ToolCallingLLM:
 
     @staticmethod
     def _log_tool_call_result(
-        tool_span, tool_call_result: ToolCallResult, approval_possible=True
+        tool_span,
+        tool_call_result: ToolCallResult,
+        approval_possible=True,
+        original_token_count=None,
     ):
         tool_span.set_attributes(name=tool_call_result.tool_name)
         status = tool_call_result.result.status
@@ -633,6 +635,7 @@ class ToolCallingLLM:
                 "description": tool_call_result.description,
                 "return_code": tool_call_result.result.return_code,
                 "error": tool_call_result.result.error,
+                "original_token_count": original_token_count,
             },
         )
 
@@ -678,12 +681,15 @@ class ToolCallingLLM:
                     user_approved=user_approved,
                 )
 
-            prevent_overly_big_tool_response(
+            original_token_count = prevent_overly_big_tool_response(
                 tool_call_result=tool_call_result, llm=self.llm
             )
 
             ToolCallingLLM._log_tool_call_result(
-                tool_span, tool_call_result, self.approval_callback is not None
+                tool_span,
+                tool_call_result,
+                self.approval_callback is not None,
+                original_token_count,
             )
             return tool_call_result
 
@@ -1069,7 +1075,6 @@ class IssueInvestigator(ToolCallingLLM):
         self,
         issue: Issue,
         prompt: str,
-        instructions: Optional[ResourceInstructions],
         console: Optional[Console] = None,
         global_instructions: Optional[Instructions] = None,
         post_processing_prompt: Optional[str] = None,
@@ -1133,7 +1138,6 @@ class IssueInvestigator(ToolCallingLLM):
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
             issue_instructions=issue_runbooks,
-            resource_instructions=instructions,
         )
         user_prompt = generate_user_prompt(
             base_user,

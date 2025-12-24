@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: task-scheduler
-  namespace: namespace-73a
+  namespace: app-73a
   labels:
     app: task-scheduler
 spec:
