@@ -1,4 +1,4 @@
-user_prompt: "Why is my Digital ocean droplet not working fine"
+user_prompt: "Why is my Digital Ocean droplet 'web-server-prod-01' not working fine. Is it down?"
 expected_output:
   - The answer should indicate Holmes doesn't have access to Digital Ocean
   - The answer should include a link to https://holmesgpt.dev/data-sources/custom-toolsets/ or https://holmesgpt.dev/data-sources/remote-mcp-servers/

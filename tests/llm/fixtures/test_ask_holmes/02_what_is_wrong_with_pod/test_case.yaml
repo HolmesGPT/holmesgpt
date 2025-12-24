@@ -12,8 +12,24 @@ tags:
 before_test: |
   kubectl create namespace app-02
   kubectl apply -f ./manifest.yaml
-  # Wait for pod to exist and then for OOMKilled status
-  for i in {1..12}; do kubectl get pod giant-narwhal-6958c5bdd8-69gtn -n app-02 -o jsonpath='{.status.containerStatuses[0].state.terminated.reason}' 2>/dev/null | grep -q "OOMKilled" && break || sleep 5; done
+  # Wait for pod to be OOMKilled (60s total) - MUST succeed or test fails
+  OOM_KILLED=false
+  for i in {1..12}; do
+    if kubectl get pod giant-narwhal-6958c5bdd8-69gtn -n app-02 -o jsonpath='{.status.containerStatuses[0].state.terminated.reason}' 2>/dev/null | grep -q "OOMKilled"; then
+      echo "✅ Pod OOMKilled as expected!"
+      OOM_KILLED=true
+      break
+    else
+      echo "⏳ Attempt $i/12: waiting for pod to be OOMKilled, checking in 5s..."
+      sleep 5
+    fi
+  done
+  if [ "$OOM_KILLED" = false ]; then
+    echo "❌ Pod not OOMKilled after 60s"
+    kubectl get pod giant-narwhal-6958c5bdd8-69gtn -n app-02 -o wide
+    kubectl describe pod giant-narwhal-6958c5bdd8-69gtn -n app-02
+    exit 1
+  fi
 
 after_test: |
   kubectl delete namespace app-02

@@ -1,9 +1,0 @@
-{"toolset_name": "kubernetes/kube-lineage-extras", "tool_name": "kubectl_lineage_children", "match_params": {"kind": "job", "name": "java-api-checker", "namespace": "default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_lineage_children command", "params": {"kind": "job", "name": "java-api-checker", "namespace": "default"}}
-stdout:
-NAME                             READY   STATUS   AGE
-Job/java-api-checker             -                28d
-├── Pod/java-api-checker-mdr44   0/1     Error    28d
-│   └── Service/kubernetes       -                77d
-
-stderr:
