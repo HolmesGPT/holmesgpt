@@ -36,4 +36,5 @@ after_test: |
   kubectl delete secret java-api-checker-logs-script -n app-12 --ignore-not-found
   kubectl delete namespace app-12 --ignore-not-found
 tags:
-  - hard
+  - easy
+  - regression

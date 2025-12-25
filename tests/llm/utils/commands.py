@@ -156,6 +156,7 @@ def _invoke_command(
         result = subprocess.run(
             command,
             shell=True,
+            executable="/bin/bash",  # Force bash instead of default /bin/sh
             capture_output=True,
             text=True,
             check=True,
