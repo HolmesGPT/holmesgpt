@@ -59,7 +59,7 @@ jobs:
               previousImageSection = [
                 '',
                 '---',
-                `📦 **Previous image (\`${prevSha}\`)** - still available while building:`,
+                `📦 **Previous image (\`${prevSha}\`):**`,
                 `- [${prevTag}](${registryLink})`,
               ].join('\n');
             }
