@@ -10,8 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: 'read'
-      id-token: 'write'
+      contents: read
+      packages: write
+      id-token: write
 
     steps:
     - uses: actions/checkout@v4
@@ -77,3 +78,15 @@ jobs:
     - name: Upload helm chart
       run: |
         cd helm && ./upload_chart.sh
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}   
+    - name: Push Helm chart to OCI registry
+      run: |
+        helm package helm/holmes
+        helm push holmes-${{github.ref_name}}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
