@@ -3,7 +3,24 @@ expected_output:
   - There are 14 pods in the app-01 namespace
 before_test: |
   kubectl apply -f manifests.yaml
-  for i in {1..12}; do [ "$(kubectl get pods -l app=test-pod -n app-01 --no-headers 2>/dev/null | wc -l)" -eq 14 ] && kubectl wait --for=condition=ready pod -l app=test-pod -n app-01 --timeout=5s 2>/dev/null && break || sleep 5; done
+  # Wait for 14 pods to be created and ready (60s total) - MUST succeed or test fails
+  PODS_READY=false
+  for i in {1..12}; do
+    POD_COUNT=$(kubectl get pods -l app=test-pod -n app-01 --no-headers 2>/dev/null | wc -l)
+    if [ "$POD_COUNT" -eq 14 ] && kubectl wait --for=condition=ready pod -l app=test-pod -n app-01 --timeout=5s 2>/dev/null; then
+      echo "✅ All 14 pods created and ready!"
+      PODS_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/12: $POD_COUNT/14 pods found, waiting 5s..."
+      sleep 5
+    fi
+  done
+  if [ "$PODS_READY" = false ]; then
+    echo "❌ 14 ready pods not achieved after 60s"
+    kubectl get pods -n app-01
+    exit 1
+  fi
 after_test: |
   kubectl delete -f manifests.yaml
 tags:

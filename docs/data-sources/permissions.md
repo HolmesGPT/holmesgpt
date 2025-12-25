@@ -3,18 +3,54 @@
 !!! note "In-Cluster Only"
     This page applies only to HolmesGPT running **inside** a Kubernetes cluster via Helm. For local CLI deployments, permissions are managed through your kubeconfig file.
 
-HolmesGPT may require access to additional Kubernetes resources or CRDs for specific analyses. Permissions can be extended by modifying the ClusterRole rules. The default configuration has limited resource access.
+HolmesGPT may require access to additional Kubernetes resources or CRDs for specific analyses. Permissions can be extended by modifying the ClusterRole rules.
 
-## Common Scenarios for Adding Permissions
+## Default CRD Permissions
 
-1. **External Integrations and CRDs** - Access to custom resources from ArgoCD, Istio, etc.
+HolmesGPT includes read-only permissions for common Kubernetes operators and tools by default. These can be individually enabled or disabled:
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    crdPermissions:
+      argo: true
+      flux: true
+      kafka: true
+      keda: true 
+      crossplane: true
+      istio: true 
+      gatewayApi: true
+      velero: true
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    enableHolmesGPT: true
+    holmes:
+      crdPermissions:
+        argo: true
+        flux: true
+        kafka: true
+        keda: true
+        crossplane: true
+        istio: true
+        gatewayApi: true
+        velero: true
+    ```
+
+## Adding Custom Permissions
+
+For resources not covered by the default CRD permissions, you can add custom ClusterRole rules.
+
+### Common Scenarios
+
+1. **External Integrations and CRDs** - Access to custom resources from other operators
 2. **Additional Kubernetes resources** - Resources not included in the default permissions
 
-## Example Scenario: Adding Argo CD Permissions
+## Example: Adding Cert-Manager Permissions
 
-To enable HolmesGPT to analyze ArgoCD applications and projects, you need to add permissions for ArgoCD custom resources.
-
-### Steps to Add Permissions
+To enable HolmesGPT to analyze cert-manager certificates and issuers (not included in default permissions), add custom ClusterRole rules:
 
 === "Holmes Helm Chart"
 
@@ -22,8 +58,8 @@ To enable HolmesGPT to analyze ArgoCD applications and projects, you need to add
 
     ```yaml
     customClusterRoleRules:
-      - apiGroups: ["argoproj.io"]
-        resources: ["applications", "appprojects"]
+      - apiGroups: ["cert-manager.io"]
+        resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
         verbs: ["get", "list", "watch"]
     ```
 
@@ -41,8 +77,8 @@ To enable HolmesGPT to analyze ArgoCD applications and projects, you need to add
     enableHolmesGPT: true
     holmes:
       customClusterRoleRules:
-        - apiGroups: ["argoproj.io"]
-          resources: ["applications", "appprojects"]
+        - apiGroups: ["cert-manager.io"]
+          resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
           verbs: ["get", "list", "watch"]
     ```
 

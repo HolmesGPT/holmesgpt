@@ -30,6 +30,17 @@ customServiceAccountName: ""
 
 customClusterRoleRules: []
 
+# CRD permissions for common Kubernetes operators and tools
+crdPermissions:
+  argo: true
+  flux: true
+  kafka: true
+  keda: true
+  crossplane: true
+  istio: true
+  gatewayApi: true
+  velero: true  
+
 enablePostProcessing: false
 postProcessingPrompt: "builtin://generic_post_processing.jinja2"
 openshift: false

@@ -3,7 +3,30 @@ expected_output:
     - either 7, 7 pods, etc.
 before_test: |
   kubectl apply -f manifests.yaml
-  sleep 60
+  # Wait for correct pod counts with labels (60s total) - MUST succeed or test fails
+  LABELED_PODS_READY=false
+  for i in {1..20}; do
+    # Count running pods with env=prod (should be 7)
+    PROD_COUNT=$(kubectl get pods -n test-59 -l env=prod --no-headers 2>/dev/null | grep " Running " | wc -l | tr -d ' ')
+    
+    # Count total running pods (should be 14)
+    TOTAL_COUNT=$(kubectl get pods -n test-59 --no-headers 2>/dev/null | grep " Running " | wc -l | tr -d ' ')
+    
+    # We expect 7 pods with env=prod and 14 total running pods
+    if [ "$PROD_COUNT" = "7" ] && [ "$TOTAL_COUNT" = "14" ]; then
+      echo "✅ Correct labeled pod counts detected: env=prod: 7/14 total!"
+      LABELED_PODS_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/20: env=prod: $PROD_COUNT/7, total: $TOTAL_COUNT/14, checking in 3s..."
+      sleep 3
+    fi
+  done
+  if [ "$LABELED_PODS_READY" = false ]; then
+    echo "❌ Expected labeled pod counts not reached after 60s"
+    kubectl get pods -n test-59 --show-labels
+    exit 1
+  fi
 after_test: |
   kubectl delete -f manifests.yaml
 tags:
