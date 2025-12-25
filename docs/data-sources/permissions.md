@@ -21,6 +21,7 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
       istio: true 
       gatewayApi: true
       velero: true
+      externalSecrets: true
     ```
 
 === "Robusta Helm Chart"
@@ -37,6 +38,7 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
         istio: true
         gatewayApi: true
         velero: true
+        externalSecrets: true
     ```
 
 ## Adding Custom Permissions
