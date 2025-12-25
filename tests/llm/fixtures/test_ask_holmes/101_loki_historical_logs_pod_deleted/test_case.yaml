@@ -14,7 +14,7 @@ expected_output:
 tags:
   - logs
   - kubernetes
-  - hard
+  - easy
   - loki
   - regression
 
