@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - '**'  # Trigger on push to any branch
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Prevent duplicate runs - cancel in-progress runs for the same ref
+concurrency:
+  group: docker-build-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -61,7 +68,6 @@ jobs:
         script: |
           const owner = context.repo.owner;
           const repo = context.repo.repo;
-          const branch = context.ref.replace('refs/heads/', '');
           const sha = context.sha;
           const shortSha = `${{ steps.short_sha.outputs.sha_short }}`;
 
@@ -100,15 +106,29 @@ jobs:
             '```',
           ].join('\n');
 
-          const prs = await github.paginate(github.rest.pulls.list, {
-            owner,
-            repo,
-            state: 'open',
-            head: `${owner}:${branch}`,
-          });
+          // Get PR number - either from pull_request event context or by searching
+          let issue_number = null;
 
-          if (prs.length > 0) {
-            const issue_number = prs[0].number;
+          // If triggered by pull_request event, we have direct access to PR number
+          if (context.payload.pull_request) {
+            issue_number = context.payload.pull_request.number;
+            core.info(`Using PR number from pull_request event: #${issue_number}`);
+          } else {
+            // For push events, search for an open PR with matching head branch
+            const branch = context.ref.replace('refs/heads/', '');
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:${branch}`,
+            });
+            if (prs.length > 0) {
+              issue_number = prs[0].number;
+              core.info(`Found PR by branch search: #${issue_number}`);
+            }
+          }
+
+          if (issue_number) {
             const existingComments = await github.paginate(github.rest.issues.listComments, {
               owner,
               repo,
@@ -134,6 +154,7 @@ jobs:
               core.info(`Commented on PR #${issue_number}`);
             }
           } else {
+            // No PR found - fall back to commit comment (e.g., direct push to main)
             const commitComments = await github.paginate(github.rest.repos.listCommentsForCommit, {
               owner,
               repo,
@@ -156,6 +177,6 @@ jobs:
                 commit_sha: sha,
                 body: message,
               });
-              core.info('Commented on commit');
+              core.info('Commented on commit (no PR found)');
             }
           }
