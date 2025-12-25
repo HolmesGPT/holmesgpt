@@ -32,7 +32,6 @@ from holmes.common.env_vars import (
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS,
 )
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tcp_utils import keepalive_create_connection
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
 
@@ -413,21 +412,20 @@ class DefaultLLM(LLM):
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
-        with keepalive_create_connection():
-            result = litellm_to_use.completion(
-                model=litellm_model_name,
-                api_key=self.api_key,
-                base_url=self.api_base,
-                api_version=self.api_version,
-                messages=messages,
-                response_format=response_format,
-                drop_params=drop_params,
-                allowed_openai_params=allowed_openai_params,
-                stream=stream,
-                timeout=LLM_REQUEST_TIMEOUT,
-                **tools_args,
-                **self.args,
-            )
+        result = litellm_to_use.completion(
+            model=litellm_model_name,
+            api_key=self.api_key,
+            base_url=self.api_base,
+            api_version=self.api_version,
+            messages=messages,
+            response_format=response_format,
+            drop_params=drop_params,
+            allowed_openai_params=allowed_openai_params,
+            stream=stream,
+            timeout=LLM_REQUEST_TIMEOUT,
+            **tools_args,
+            **self.args,
+        )
 
         if isinstance(result, ModelResponse):
             return result
