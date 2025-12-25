@@ -38,13 +38,7 @@ jobs:
           const shortSha = `${{ steps.short_sha.outputs.sha_short }}`;
           const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${{ github.run_id }}`;
           const marker = '<!-- docker-build-comment -->';
-
-          const message = [
-            marker,
-            `🔨 **Building Docker image for \`${shortSha}\`...**`,
-            '',
-            `[View build logs](${runUrl})`,
-          ].join('\n');
+          const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
 
           const issue_number = context.payload.pull_request.number;
 
@@ -54,6 +48,30 @@ jobs:
             issue_number,
           });
           const existing = existingComments.find(c => c.body?.includes(marker));
+
+          // Extract previous image tag from existing comment if present
+          let previousImageSection = '';
+          if (existing) {
+            const tagMatch = existing.body.match(/holmes:([a-f0-9]{7})/);
+            if (tagMatch && tagMatch[1] !== shortSha) {
+              const prevSha = tagMatch[1];
+              const prevTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${prevSha}`;
+              previousImageSection = [
+                '',
+                '---',
+                `📦 **Previous image (\`${prevSha}\`)** - still available while building:`,
+                `- [${prevTag}](${registryLink})`,
+              ].join('\n');
+            }
+          }
+
+          const message = [
+            marker,
+            `🔨 **Building Docker image for \`${shortSha}\`...**`,
+            '',
+            `[View build logs](${runUrl})`,
+            previousImageSection,
+          ].join('\n');
 
           if (existing) {
             await github.rest.issues.updateComment({
