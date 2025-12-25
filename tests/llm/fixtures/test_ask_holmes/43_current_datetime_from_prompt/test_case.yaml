@@ -7,3 +7,4 @@ mocked_date: "2025-06-23T11:34:00Z"
 tags:
   - datetime
   - easy
+  - regression
