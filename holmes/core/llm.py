@@ -21,6 +21,7 @@ from holmes.clients.robusta_client import (
 
 from holmes.common.env_vars import (
     FALLBACK_CONTEXT_WINDOW_SIZE,
+    LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
     REASONING_EFFORT,
     ROBUSTA_AI,
@@ -421,6 +422,7 @@ class DefaultLLM(LLM):
             drop_params=drop_params,
             allowed_openai_params=allowed_openai_params,
             stream=stream,
+            timeout=LLM_REQUEST_TIMEOUT,
             **tools_args,
             **self.args,
         )

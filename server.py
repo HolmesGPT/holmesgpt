@@ -18,6 +18,7 @@ import sentry_sdk
 from holmes import get_version, is_official_release
 
 from holmes.core import investigation
+from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
 import uvicorn
@@ -29,6 +30,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
 from holmes.common.env_vars import (
+    ENABLE_CONNECTION_KEEPALIVE,
     HOLMES_HOST,
     HOLMES_PORT,
     HOLMES_POST_PROCESSING_PROMPT,
@@ -86,6 +88,9 @@ def init_logging():
 
 
 init_logging()
+
+if ENABLE_CONNECTION_KEEPALIVE:
+    patch_socket_create_connection()
 config = Config.load_from_env()
 dal = config.dal
 
@@ -133,7 +138,6 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
-
 
 if LOG_PERFORMANCE:
 
