@@ -2,7 +2,8 @@ user_prompt: "Why is the frontend getting timeouts connecting to backend in name
 tags:
   - kubernetes
   - network
-  - hard
+  - easy
+  - regression
 expected_output:
   - Frontend getting timeouts because NetworkPolicy on backend only allows ingress from pods with tier backend label not frontend
 before_test: |

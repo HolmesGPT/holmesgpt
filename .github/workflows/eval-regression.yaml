@@ -17,29 +17,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup HolmesGPT environment
-        uses: ./.github/actions/setup-holmes-env
-        with:
-          python-version: '3.12'
-          install-kubectl: 'true'
+      - name: Check if tests should run
+        id: check-tests
+        shell: bash
+        run: |
+          # Check if we have the required API keys to run LLM tests
+          # For PRs from forks, secrets are not available for security reasons
+          # For pushes to master, we always run regardless of secrets availability
+          # Note: We must check this in a step rather than job-level 'if' because
+          # the secrets context is not available in job-level conditions per GitHub Actions docs
+          if [[ "${{ github.event_name }}" != "pull_request" ]] || [[ -n "${{ secrets.BRAINTRUST_API_KEY }}" && (-n "${{ secrets.AZURE_API_KEY }}" || -n "${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}") ]]; then
+            echo "should-run=true" >> $GITHUB_OUTPUT
+            echo "✅ Running tests - either not a PR or required secrets are available"
+          else
+            echo "should-run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping tests - PR from fork without required secrets"
+          fi
 
       - name: Setup KIND cluster
+        if: steps.check-tests.outputs.should-run == 'true'
         uses: ./.github/actions/setup-kind-cluster
         with:
           cluster-name: 'kind'
           wait-for-ready: 'true'
 
-      - name: Check if tests should run
-        id: check-tests
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" != "pull_request" ]] || [[ -n "${{ secrets.AZURE_API_KEY }}" && -n "${{ secrets.BRAINTRUST_API_KEY }}" ]]; then
-            echo "should-run=true" >> $GITHUB_OUTPUT
-            echo "✅ Running tests - either not a PR or all required secrets are available"
-          else
-            echo "should-run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Skipping tests - PR from fork without required secrets"
-          fi
+      - name: Setup HolmesGPT environment
+        if: steps.check-tests.outputs.should-run == 'true'
+        uses: ./.github/actions/setup-holmes-env
+        with:
+          python-version: '3.12'
+          install-kubectl: 'true'
 
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
@@ -61,7 +68,9 @@ jobs:
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
           GENERATE_REGRESSIONS_FILE: "true"
         run: |
-          poetry run pytest --no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m 'llm and easy and not no-cicd'
+          # Run regression tests - these are critical tests that must always pass
+          # Tests are marked with the 'regression' tag in their test_case.yaml files
+          poetry run pytest --no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m 'llm and regression'
       - name: Post evaluation results
         if: always()
         uses: ./.github/actions/post-eval-comment
