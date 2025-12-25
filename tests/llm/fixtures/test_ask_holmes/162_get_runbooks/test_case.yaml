@@ -3,6 +3,7 @@ tags:
   - kubernetes
   - runbooks
   - regression
+  - medium
 
 # simulates loading runbooks and global instructions from a cluster environment
 test_type: cluster

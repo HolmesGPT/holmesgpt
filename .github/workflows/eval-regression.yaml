@@ -13,6 +13,7 @@ permissions:
 jobs:
   llm_evals:
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || (secrets.BRAINTRUST_API_KEY != null && (secrets.AZURE_API_KEY != null || secrets.AWS_BEARER_TOKEN_BEDROCK != null))
 
     steps:
       - uses: actions/checkout@v4
@@ -23,18 +24,6 @@ jobs:
           cluster-name: 'kind'
           wait-for-ready: 'true'
 
-      - name: Check if tests should run
-        id: check-tests
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" != "pull_request" ]] || [[ -n "${{ secrets.AZURE_API_KEY }}" && -n "${{ secrets.BRAINTRUST_API_KEY }}" ]]; then
-            echo "should-run=true" >> $GITHUB_OUTPUT
-            echo "✅ Running tests - either not a PR or all required secrets are available"
-          else
-            echo "should-run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Skipping tests - PR from fork without required secrets"
-          fi
-
       - name: Setup HolmesGPT environment
         uses: ./.github/actions/setup-holmes-env
         with:
@@ -42,7 +31,6 @@ jobs:
           install-kubectl: 'true'
 
       - name: Run tests
-        if: steps.check-tests.outputs.should-run == 'true'
         id: evals
         continue-on-error: true
         shell: bash
