@@ -5,10 +5,10 @@ from holmes.common.env_vars import KEEPALIVE_IDLE, KEEPALIVE_INTVL, KEEPALIVE_CN
 
 
 def patch_socket_create_connection(
-    idle=KEEPALIVE_IDLE,
-    intvl=KEEPALIVE_INTVL,
-    cnt=KEEPALIVE_CNT,
-):
+    idle: int = KEEPALIVE_IDLE,
+    intvl: int = KEEPALIVE_INTVL,
+    cnt: int = KEEPALIVE_CNT,
+) -> None:
     orig = socket.create_connection
 
     def new_create_connection(address, timeout=None, source_address=None, **kwargs):

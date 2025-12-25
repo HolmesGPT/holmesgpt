@@ -2,7 +2,6 @@
 import os
 
 from holmes.utils.cert_utils import add_custom_certificate
-from holmes.utils.connection_utils import patch_socket_create_connection
 
 ADDITIONAL_CERTIFICATE: str = os.environ.get("CERTIFICATE", "")
 if add_custom_certificate(ADDITIONAL_CERTIFICATE):
@@ -19,6 +18,7 @@ import sentry_sdk
 from holmes import get_version, is_official_release
 
 from holmes.core import investigation
+from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
 import uvicorn
