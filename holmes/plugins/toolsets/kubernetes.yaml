@@ -89,12 +89,97 @@ toolsets:
       - name: "kubernetes_jq_query"
         user_description: "Query Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -r {{jq_expr}}"
         description: >
-          Use kubectl to get json for all resources of a specific kind pipe the results to jq to filter them. Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give. e.g. give an expression like .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
-        command: kubectl get {{ kind }} --all-namespaces -o json | jq -r {{ jq_expr }}
+          Use kubectl to get json for all resources of a specific kind and filter with jq.
+          Do not worry about escaping the jq_expr - it will be done by the system.
+          Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
+        script: |
+          #!/bin/bash
+
+          echo "Executing paginated query for {{ kind }} resources..."
+          echo "Expression: {{ jq_expr }}"
+          echo "---"
+
+          # Get the API path for the resource kind using kubectl and jq
+          API_INFO=$(kubectl api-resources --no-headers -o wide | grep "^{{ kind }}" | head -1)
+
+          if [ -z "$API_INFO" ]; then
+            echo "Error: Unable to find resource kind '{{ kind }}'" >&2
+            exit 1
+          fi
+
+          # Parse API info using read and bash string manipulation
+          IFS=' ' read -r RESOURCE_NAME SHORTNAME API_VERSION NAMESPACED REST <<< "$API_INFO"
+
+          if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
+            echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
+            exit 1
+          fi
+
+          # Build API path
+          if [[ "$API_VERSION" == "v1" ]]; then
+            API_PATH="/api/v1/${RESOURCE_NAME}"
+          else
+            API_PATH="/apis/${API_VERSION}/${RESOURCE_NAME}"
+          fi
+
+          # Process resources in chunks using API pagination
+          LIMIT=500  # Process 500 items at a time
+          CONTINUE=""
+          PROCESSED=0
+          TOTAL_MATCHES=0
+
+          while true; do
+            # Build API query with limit and continue token
+            if [ -z "$CONTINUE" ]; then
+              # First request - get from all namespaces
+              QUERY="${API_PATH}?limit=${LIMIT}"
+            else
+              # Subsequent requests with continue token
+              QUERY="${API_PATH}?limit=${LIMIT}&continue=${CONTINUE}"
+            fi
+
+            OUTPUT=$(kubectl get --raw "$QUERY" 2>&1)
+            exit_code=$?
+
+            if [ $exit_code -ne 0 ]; then
+              echo "Error: $OUTPUT" >&2
+              exit $exit_code
+            fi
+
+            ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
+
+            MATCHES=$(echo "$OUTPUT" | jq -r {{ jq_expr }} 2>&1)
+            jq_exit=$?
+            if [ $jq_exit -ne 0 ]; then
+              echo "Error: jq expression failed: $MATCHES" >&2
+              exit $jq_exit
+            fi
+
+            if [ "$ITEMS_COUNT" -gt 0 ]; then
+              if [ -n "$MATCHES" ]; then
+                echo "$MATCHES"
+                MATCH_COUNT=$(echo "$MATCHES" | grep -c . || true)
+                TOTAL_MATCHES=$((TOTAL_MATCHES + MATCH_COUNT))
+              fi
+
+              PROCESSED=$((PROCESSED + ITEMS_COUNT))
+
+              echo "Processed $PROCESSED items, found $TOTAL_MATCHES matches so far..." >&2
+            fi
+
+            CONTINUE=$(echo "$OUTPUT" | jq -r '.metadata.continue // empty')
+
+            if [ -z "$CONTINUE" ]; then
+              break
+            fi
+          done
+
+          echo "---" >&2
+          echo "Total items processed: $PROCESSED, matches found: $TOTAL_MATCHES" >&2
         transformers:
           - name: llm_summarize
             config:
-              input_threshold: 1000
+              input_threshold: 10000
               prompt: |
                 Summarize this jq query output focusing on:
                 - Key patterns and commonalities in the data
@@ -106,6 +191,41 @@ toolsets:
                 - Be concise: aim for ≤ 50% of the original text; prioritize aggregates and actionable outliers
                 - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
 
+      - name: "kubernetes_tabular_query"
+        user_description: "Tabular output of specific fields: kubectl get {{kind}} --all-namespaces -o custom-columns={{columns}}"
+        description: >
+          Extract specific fields from Kubernetes resources in tabular format with optional filtering.
+          Memory-efficient way to query large clusters - only requested fields are transmitted.
+          Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
+
+          Optional filtering parameter:
+          - filter_pattern: Pattern to match in any column (supports grep regex)
+
+          Examples:
+          - Basic fields: NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName
+          - Filter by status: filter_pattern="Running"
+          - Filter out lines with <none>: filter_pattern="-v '<none>'"
+          - Nested fields: CREATED:.metadata.creationTimestamp,IMAGE:.spec.containers[0].image
+          - Array fields: LABELS:.metadata.labels,PORTS:.spec.ports[*].port
+
+          Note: Output is tabular text with column headers. Filtering works on the entire line.
+          Note: not allowed characters are: ' / ; and newline
+        command: kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}'{% if filter_pattern %} | (head -n 1; tail -n +2 | grep {{ filter_pattern }}){% endif %}
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 10000
+              prompt: |
+                Summarize this tabular output focusing on:
+                - Key patterns and trends in the data
+                - Resources that need attention (errors, pending, failures)
+                - Group similar items into aggregate descriptions
+                - Highlight outliers or unusual values
+                - Mention specific resource names only for problematic items
+                - Provide counts and distributions where relevant
+                - Be concise: aim for ≤ 50% of the original size
+                - Keep output actionable and focused on anomalies
+
       - name: "kubernetes_count"
         user_description: "Count Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
         description: >
@@ -115,42 +235,100 @@ toolsets:
           Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give.
           e.g. give an expression like .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
         script: |
+          #!/bin/bash
+
           echo "Command executed: kubectl get {{ kind }} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
           echo "---"
 
-          # Execute the command and capture both stdout and stderr separately
-          temp_error=$(mktemp)
-          matches=$(kubectl get {{ kind }} --all-namespaces -o json 2>"$temp_error" | jq -c -r {{ jq_expr }} 2>>"$temp_error")
-          exit_code=$?
-          error_output=$(cat "$temp_error")
-          rm -f "$temp_error"
+          # Get the API path for the resource kind using kubectl
+          API_INFO=$(kubectl api-resources --no-headers -o wide | grep "^{{ kind }}" | head -1)
 
-          if [ $exit_code -ne 0 ]; then
-            echo "Error executing command (exit code: $exit_code):"
-            echo "$error_output"
-            exit $exit_code
-          else
-            # Show any stderr warnings even if command succeeded
-            if [ -n "$error_output" ]; then
-              echo "Warnings/stderr output:"
-              echo "$error_output"
-              echo "---"
-            fi
-
-            # Filter out empty lines for accurate count
-            filtered_matches=$(echo "$matches" | grep -v '^$' | grep -v '^null$')
-            if [ -z "$filtered_matches" ]; then
-              count=0
-            else
-              count=$(echo "$filtered_matches" | wc -l)
-            fi
-            preview=$(echo "$filtered_matches" | head -n 10 | cut -c 1-200 | nl)
-
-            echo "$count results"
-            echo "---"
-            echo "A *preview* of results is shown below (up to 10 results, up to 200 chars):"
-            echo "$preview"
+          if [ -z "$API_INFO" ]; then
+            echo "Error: Unable to find resource kind '{{ kind }}'" >&2
+            exit 1
           fi
+
+          # Parse API info using read and bash string manipulation
+          IFS=' ' read -r RESOURCE_NAME SHORTNAME API_VERSION NAMESPACED REST <<< "$API_INFO"
+
+          if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
+            echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
+            exit 1
+          fi
+
+          # Build API path
+          if [[ "$API_VERSION" == "v1" ]]; then
+            API_PATH="/api/v1/${RESOURCE_NAME}"
+          else
+            API_PATH="/apis/${API_VERSION}/${RESOURCE_NAME}"
+          fi
+
+          # Process resources in chunks using API pagination
+          LIMIT=500
+          CONTINUE=""
+          ALL_MATCHES=""
+          BATCH_NUM=0
+          TOTAL_PROCESSED=0
+
+          while true; do
+            BATCH_NUM=$((BATCH_NUM + 1))
+
+            if [ -z "$CONTINUE" ]; then
+              QUERY="${API_PATH}?limit=${LIMIT}"
+            else
+              QUERY="${API_PATH}?limit=${LIMIT}&continue=${CONTINUE}"
+            fi
+
+            OUTPUT=$(kubectl get --raw "$QUERY" 2>&1)
+            exit_code=$?
+
+            if [ $exit_code -ne 0 ]; then
+              echo "Error: $OUTPUT" >&2
+              exit $exit_code
+            fi
+
+            ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
+            TOTAL_PROCESSED=$((TOTAL_PROCESSED + ITEMS_COUNT))
+
+            BATCH_MATCHES=$(echo "$OUTPUT" | jq -c -r {{ jq_expr }} 2>&1)
+            jq_exit=$?
+            if [ $jq_exit -ne 0 ]; then
+              echo "Error: jq expression failed: $BATCH_MATCHES" >&2
+              exit $jq_exit
+            fi
+
+            if [ -n "$BATCH_MATCHES" ]; then
+              if [ -z "$ALL_MATCHES" ]; then
+                ALL_MATCHES="$BATCH_MATCHES"
+              else
+                ALL_MATCHES="$ALL_MATCHES"$'\n'"$BATCH_MATCHES"
+              fi
+            fi
+
+            CONTINUE=$(echo "$OUTPUT" | jq -r '.metadata.continue // empty')
+            if [ -z "$CONTINUE" ]; then
+              break
+            fi
+
+            echo "Processed batch $BATCH_NUM ($TOTAL_PROCESSED items so far)..." >&2
+          done
+
+          # Now process the collected matches
+          filtered_matches=$(echo "$ALL_MATCHES" | grep -v '^$' | grep -v '^null$')
+          if [ -z "$filtered_matches" ]; then
+            count=0
+            preview=""
+          else
+            count=$(echo "$filtered_matches" | wc -l)
+            preview=$(echo "$filtered_matches" | head -n 10 | cut -c 1-200 | nl)
+          fi
+
+          echo "$count results"
+          echo "---"
+          echo "A *preview* of results is shown below (up to 10 results, up to 200 chars):"
+          echo "$preview"
+          echo "---"
+          echo "Total items processed: $TOTAL_PROCESSED" >&2
 
     # NOTE: this is only possible for probes with a healthz endpoint - we do this to avoid giving the LLM generic
     # http GET capabilities which are more powerful than we want to expose
