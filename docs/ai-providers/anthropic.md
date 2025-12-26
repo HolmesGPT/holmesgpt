@@ -12,8 +12,10 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
     ```bash
     export ANTHROPIC_API_KEY="your-anthropic-api-key"
-    holmes ask "what pods are failing?" --model="anthropic/<your-claude-model>"
+    holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5"
     ```
+
+    **Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
 
 === "Holmes Helm Chart"
 
@@ -99,8 +101,10 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 You can also pass the API key directly as a command-line parameter:
 
 ```bash
-holmes ask "what pods are failing?" --model="anthropic/<your-claude-model>" --api-key="your-api-key"
+holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5" --api-key="your-api-key"
 ```
+
+**Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
 
 ## Prompt Caching
 

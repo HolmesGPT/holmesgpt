@@ -39,7 +39,8 @@ crdPermissions:
   crossplane: true
   istio: true
   gatewayApi: true
-  velero: true  
+  velero: true
+  externalSecrets: true
 
 enablePostProcessing: false
 postProcessingPrompt: "builtin://generic_post_processing.jinja2"
