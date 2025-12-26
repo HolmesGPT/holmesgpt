@@ -1,0 +1,89 @@
+user_prompt: "The payment-api pod in namespace app-101 had issues on August 2, 2025 around 13:45 UTC. What happened?"
+
+description: |
+  This test verifies that Holmes can analyze historical logs from Loki even when
+  the pod that generated the logs no longer exists in the cluster. This is a harder
+  variant of test 100 because Holmes cannot use kubectl describe or get pod commands
+  to gather additional context - it must rely entirely on the historical logs stored
+  in Loki. This scenario is common in production where problematic pods are often
+  deleted or replaced by the time investigation begins.
+
+expected_output:
+  - The payment-api pod experienced failures caused by database connection pool exhaustion
+
+tags:
+  - logs
+  - kubernetes
+  - easy
+  - loki
+  - regression
+
+setup_timeout: 360  # Increased from 300 to handle pod deletion and Loki ingestion variability
+
+port_forwards:
+  - namespace: app-101
+    service: loki
+    local_port: 3101
+    remote_port: 3100
+
+before_test: |
+  # Create namespace
+  kubectl create namespace app-101 || true
+
+  # Deploy Loki infrastructure from shared config
+  kubectl apply -f ../../shared/loki.yaml -n app-101
+
+  # Create promtail config for this test
+  kubectl apply -f promtail-config.yaml -n app-101
+
+  # Create secret for payment-api
+  kubectl create secret generic payment-api-101-script \
+    --from-file=app.py=./app.py \
+    -n app-101 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Wait for Loki to be ready
+  kubectl wait --for=condition=ready pod -l app=loki -n app-101 --timeout=60s
+
+  # Wait for Loki ingester to be ready
+  for i in {1..60}; do
+    if kubectl exec -n app-101 deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
+      break
+    fi
+    [ $i -eq 60 ] && echo "ERROR: Loki not ready" && exit 1
+    sleep 1
+  done
+
+  # Deploy payment-api
+  kubectl apply -f payment-api.yaml
+
+  # Wait for payment-api pod to be ready
+  kubectl wait --for=condition=ready pod -l app=payment-api-101 -n app-101 --timeout=60s
+
+  # Wait for logs to appear in Loki
+  sleep 5  # Let Promtail initialize
+  START_TIME=$(date +%s)
+  while [ $(($(date +%s) - START_TIME)) -lt 120 ]; do
+    LOG_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101"}&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    HISTORICAL_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101"}&start=2025-08-02T13:00:00Z&end=2025-08-02T15:00:00Z&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    ERROR_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101",level="ERROR"}&start=2025-08-02T13:00:00Z&end=2025-08-02T15:00:00Z&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+
+    if [ "$LOG_COUNT" -gt "0" ] && [ "$HISTORICAL_COUNT" -gt "0" ] && [ "$ERROR_COUNT" -gt "0" ]; then
+      echo "Logs ready in Loki"
+      break
+    fi
+    sleep 2
+  done
+
+  # DELETE THE POD - this is the key difference from test 100
+  # Holmes will need to investigate using only historical logs
+  echo "Deleting payment-api pod to simulate real-world scenario..."
+  kubectl delete deployment payment-api-101 -n app-101
+  kubectl delete pod -l app=payment-api-101 -n app-101
+
+  # Verify pod is gone
+  kubectl get pods -n app-101 -l app=payment-api-101 2>&1 | grep "No resources found" || (echo "ERROR: Pod still exists" && exit 1)
+  echo "Pod successfully deleted - Holmes must use historical logs only"
+
+after_test: |
+  # Delete namespace in background to avoid hanging
+  kubectl delete namespace app-101 --wait=false || true

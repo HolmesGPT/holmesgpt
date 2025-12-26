@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 from pydantic import TypeAdapter
 
 from holmes.core.supabase_dal import SupabaseDal, FindingType
-from holmes.core.tool_calling_llm import ResourceInstructions
+from holmes.core.resource_instruction import ResourceInstructions
 from holmes.plugins.runbooks import RobustaRunbookInstruction
 from holmes.utils.global_instructions import Instructions
 from tests.llm.utils.test_case_utils import read_file
@@ -26,10 +26,12 @@ class MockSupabaseDal(SupabaseDal):
     ):
         if initialize_base:
             try:
+                self.mock_mode = False
                 super().__init__(cluster="test")
             except:  # noqa: E722
                 self.enabled = True
                 self.cluster = "test"
+                self.mock_mode = True
                 logging.warning(
                     "Mocksupabase dal could not connect to db. Running in pure mock mode. real db calls and --generate-mock will fail."
                 )
@@ -39,6 +41,7 @@ class MockSupabaseDal(SupabaseDal):
             # Set necessary attributes that would normally be set by SupabaseDal.__init__
             self.enabled = True
             self.cluster = "test"
+            self.mock_mode = True
 
         self._issue_data = issue_data
         self._resource_instructions = resource_instructions
@@ -69,6 +72,8 @@ class MockSupabaseDal(SupabaseDal):
     ) -> Optional[ResourceInstructions]:
         if self._resource_instructions is not None:
             return self._resource_instructions
+        elif self.mock_mode:
+            return None
         else:
             data = super().get_resource_instructions(type, name)
             if self._generate_mocks:
@@ -131,6 +136,17 @@ class MockSupabaseDal(SupabaseDal):
     def get_workload_issues(self, *args) -> list:
         return []
 
+    def get_resource_recommendation(
+        self,
+        limit: int = 10,
+        sort_by: str = "cpu_total",
+        namespace: Optional[str] = None,
+        name_pattern: Optional[str] = None,
+        kind: Optional[str] = None,
+        container: Optional[str] = None,
+    ) -> list:
+        return []
+
     def get_issues_metadata(
         self,
         start_datetime: str,
@@ -179,6 +195,8 @@ class MockSupabaseDal(SupabaseDal):
             filtered_data = filtered_data[:limit]
 
             return filtered_data if filtered_data else None
+        elif self.mock_mode:
+            return None
         else:
             data = super().get_issues_metadata(
                 start_datetime, end_datetime, limit, workload, ns, cluster, finding_type

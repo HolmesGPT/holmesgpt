@@ -1,14 +1,15 @@
-user_prompt: "The api-gateway pod in namespace app-91f had critical issues yesterday around 14:30 UTC. What happened?"
+user_prompt: "The coral-reef pod in namespace app-91f had critical issues about 9 hours ago. What happened?"
 
 description: |
-  This test verifies that Holmes can analyze historical logs from Datadog when
+  This test verifies that Holmes can analyze recent logs from Datadog when
   the pod that generated the logs no longer exists in the cluster. The logs are
   pushed directly to Datadog using their API during the before_test phase, simulating
   a real scenario where a problematic pod was deleted but its logs remain in Datadog.
   Holmes must rely entirely on the Datadog logs API to investigate the issue.
+  Note: Logs are from ~9 hours ago to ensure they are within Datadog's 18-hour indexing window.
 
 expected_output:
-  - The api-gateway pod experienced memory exhaustion and OOM kills
+  - The coral-reef pod experienced memory exhaustion and OOM kills
   - Database connection pool was exhausted leading to request failures
   - Memory usage spiked due to a memory leak in the request handler
 
@@ -21,13 +22,14 @@ before_test: |
   # Note: We're not deploying any actual pod - just sending logs to Datadog
   # This simulates a scenario where the pod existed previously but was deleted
 
-  # Send historical logs to Datadog using their API
-  # The script will generate realistic logs with timestamps from yesterday
+  # Send recent logs to Datadog using their API
+  # The script will generate realistic logs with timestamps from ~9 hours ago
+  # Why 9 hours? Through trial and error testing, we discovered that Datadog has an 
+  # approximate 18-hour indexing window for historical logs. Logs older than this are 
+  # accepted by the API but silently dropped. We use 9 hours to stay well within this 
+  # limit while still testing a realistic "historical" scenario.
   # The script will also verify logs are queryable before proceeding
-  bash send_datadog_logs.sh app-91f
-
-  # Additional wait to ensure logs are fully indexed
-  sleep 15
+  python3 send_datadog_logs.py app-91f || exit 1
 
 after_test: |
   # No cleanup needed - we didn't create any Kubernetes resources

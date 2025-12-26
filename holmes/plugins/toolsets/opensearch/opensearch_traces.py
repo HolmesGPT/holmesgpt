@@ -155,7 +155,7 @@ class TracesSearchQuery(Tool):
             logs_response.raise_for_status()
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(logs_response.json()),
+                data=logs_response.json(),
                 params=params,
             )
         except requests.Timeout:

@@ -13,6 +13,9 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
 - kubectl configured to access your cluster
 - Supported [AI Provider](../ai-providers/index.md) API key.
 
+!!! info "RBAC Permissions"
+    The Helm chart automatically creates a ServiceAccount with ClusterRole permissions required for HolmesGPT to analyze your cluster. For details on required permissions, see [Kubernetes Permissions](../reference/kubernetes-permissions.md).
+
 ## Installation
 
 1. **Add the Helm repository:**
@@ -173,6 +176,6 @@ helm uninstall holmesgpt
 
 ## Need Help?
 
-- **[Join our Slack](https://bit.ly/robusta-slack){:target="_blank"}** - Get help from the community
-- **[Request features on GitHub](https://github.com/robusta-dev/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
+- **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
+- **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
 - **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions

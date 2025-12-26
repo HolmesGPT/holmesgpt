@@ -10,7 +10,7 @@ pip install holmesgpt # Installs latest stable version
 
 **Install unreleased version from GitHub:**
 ```bash
-pip install "https://github.com/robusta-dev/holmesgpt/archive/refs/heads/master.zip"
+pip install "https://github.com/HolmesGPT/holmesgpt/archive/refs/heads/master.zip"
 ```
 
 ## Quick Start
@@ -368,6 +368,6 @@ config = Config()  # Will auto-detect API key from environment
 
 ## Need Help?
 
-- **[Join our Slack](https://bit.ly/robusta-slack){:target="_blank"}** - Get help from the community
-- **[Request features on GitHub](https://github.com/robusta-dev/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
+- **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
+- **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
 - **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions

@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
+from holmes.utils.global_instructions import generate_runbooks_args
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
@@ -33,6 +34,39 @@ def get_tasks_management_system_reminder() -> str:
         "AFTER EVERY TOOL CALL: If required, update the TodoList\n3. "
         "\n\nFAILURE TO UPDATE TodoList = INCOMPLETE INVESTIGATION\n\n"
         "Example flow:\n- Think and divide to sub problems → create TodoList → Perform each task on the list → Update list → Verify your solution\n</system-reminder>"
+    )
+
+
+def _has_content(value: Optional[str]) -> bool:
+    """
+    Check if the value is a non-empty string and not None.
+    """
+    return bool(value and isinstance(value, str) and value.strip())
+
+
+def _should_enable_runbooks(context: Dict[str, str]) -> bool:
+    return any(
+        (
+            _has_content(context.get("runbook_catalog")),
+            _has_content(context.get("custom_instructions")),
+            _has_content(context.get("global_instructions")),
+        )
+    )
+
+
+def generate_user_prompt(
+    user_prompt: str,
+    context: Dict[str, str],
+) -> str:
+    runbooks_enabled = _should_enable_runbooks(context)
+
+    return load_and_render_prompt(
+        "builtin://base_user_prompt.jinja2",
+        context={
+            "user_prompt": user_prompt,
+            "runbooks_enabled": runbooks_enabled,
+            **context,
+        },
     )
 
 

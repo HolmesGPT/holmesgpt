@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"pod","name":"giant-narwhal-6958c5bdd8-69gtn","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl describe pod giant-narwhal-6958c5bdd8-69gtn -n default` failed with return code 1\nOutput:\nError from server (NotFound): pods \"giant-narwhal-6958c5bdd8-69gtn\" not found", "return_code": 1, "url": null, "invocation": "kubectl describe pod giant-narwhal-6958c5bdd8-69gtn -n default", "params": {"kind": "pod", "name": "giant-narwhal-6958c5bdd8-69gtn", "namespace": "default"}}
-Error from server (NotFound): pods "giant-narwhal-6958c5bdd8-69gtn" not found

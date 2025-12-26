@@ -1,6 +1,5 @@
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Dict
 from pydantic import BaseModel
-from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 
 if TYPE_CHECKING:
@@ -34,24 +33,14 @@ def _format_resource_instructions(
     return items
 
 
-def add_runbooks_to_user_prompt(
-    user_prompt: str,
+def generate_runbooks_args(
     runbook_catalog: Optional[RunbookCatalog],
     global_instructions: Optional[Instructions] = None,
     issue_instructions: Optional[List[str]] = None,
     resource_instructions: Optional["ResourceInstructions"] = None,  # type: ignore
-) -> str:
-    if (
-        not runbook_catalog
-        and not issue_instructions
-        and not resource_instructions
-        and not global_instructions
-    ):
-        return user_prompt
-
+) -> Dict[str, str]:
     catalog_str = runbook_catalog.to_prompt_string() if runbook_catalog else ""
 
-    # Combine and format all instructions
     combined_instructions = []
     if issue_instructions:
         combined_instructions.extend(issue_instructions)
@@ -71,15 +60,8 @@ def add_runbooks_to_user_prompt(
         else ""
     )
 
-    rendered = load_and_render_prompt(
-        "builtin://_runbook_instructions.jinja2",
-        context={
-            "runbook_catalog": catalog_str,
-            "custom_instructions": issue_block,
-            "global_instructions": global_block,
-        },
-    )
-
-    if user_prompt and not user_prompt.endswith("\n"):
-        user_prompt += "\n"
-    return f"{user_prompt}\n{rendered}"
+    return {
+        "runbook_catalog": catalog_str,
+        "custom_instructions": issue_block,
+        "global_instructions": global_block,
+    }

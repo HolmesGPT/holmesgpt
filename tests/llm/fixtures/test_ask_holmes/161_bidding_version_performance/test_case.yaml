@@ -16,7 +16,7 @@ tags:
 port_forwards:
   - namespace: app-161
     service: prometheus
-    local_port: 9090
+    local_port: 10161
     remote_port: 9090
 
 setup_timeout: 360

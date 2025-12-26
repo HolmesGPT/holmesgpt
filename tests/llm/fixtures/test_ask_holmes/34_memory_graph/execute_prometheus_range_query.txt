@@ -3,7 +3,7 @@
 {
   "status": "success",
   "error_message": null,
-  "random_key": "nAaB",
+  "tool_call_id": "nAaB",
   "tool_name": "execute_prometheus_range_query",
   "start": "2025-03-09T06:38:14Z",
   "end": "2025-03-10T06:38:14Z",

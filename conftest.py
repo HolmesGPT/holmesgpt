@@ -225,5 +225,5 @@ def responses():
         rsps.add_passthru("https://api.ap1.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.eu")
-
+        rsps.add_passthru("https://ng-api-http.eu2.coralogix.com")
         yield rsps

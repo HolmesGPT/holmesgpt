@@ -38,7 +38,6 @@ from holmes.common.openshift import load_openshift_token
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
-from holmes.utils.keygen_utils import generate_random_key
 
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
 PROMETHEUS_METADATA_API_LIMIT = 100  # Default limit for Prometheus metadata APIs (series, labels, metadata) to prevent overwhelming responses
@@ -55,7 +54,6 @@ DEFAULT_METADATA_TIME_WINDOW_HRS = 1
 class PrometheusConfig(BaseModel):
     # URL is optional because it can be set with an env var
     prometheus_url: Optional[str]
-    healthcheck: str = "-/healthy"
 
     # New config for default time window for metadata APIs
     default_metadata_time_window_hrs: int = DEFAULT_METADATA_TIME_WINDOW_HRS  # Default: only show metrics active in the last hour
@@ -129,9 +127,6 @@ class PrometheusConfig(BaseModel):
             )
         # If openshift is enabled, and the user didn't configure auth headers, we will try to load the token from the service account.
         if IS_OPENSHIFT:
-            if self.healthcheck == "-/healthy":
-                self.healthcheck = "api/v1/query?query=up"
-
             if self.headers.get("Authorization"):
                 return self
 
@@ -151,7 +146,6 @@ class AMPConfig(PrometheusConfig):
     aws_secret_access_key: Optional[str] = None
     aws_region: str
     aws_service_name: str = "aps"
-    healthcheck: str = "api/v1/query?query=up"
     prometheus_ssl_enabled: bool = False
     assume_role_arn: Optional[str] = None
 
@@ -411,7 +405,6 @@ class MetricsBasedResponse(BaseModel):
     status: str
     error_message: Optional[str] = None
     data: Optional[str] = None
-    random_key: str
     tool_name: str
     description: str
     query: str
@@ -426,15 +419,22 @@ def create_structured_tool_result(
     params: dict, response: MetricsBasedResponse
 ) -> StructuredToolResult:
     status = StructuredToolResultStatus.SUCCESS
+    error = None
     if response.error_message or response.status.lower() in ("failed", "error"):
         status = StructuredToolResultStatus.ERROR
+        error = (
+            response.error_message
+            if response.error_message
+            else "Unknown Prometheus error"
+        )
     elif not response.data:
         status = StructuredToolResultStatus.NO_DATA
 
     return StructuredToolResult(
         status=status,
-        data=response.model_dump_json(indent=2),
+        data=response,
         params=params,
+        error=error,
     )
 
 
@@ -1144,7 +1144,6 @@ class ExecuteInstantQuery(BasePrometheusTool):
                 response_data = MetricsBasedResponse(
                     status=status,
                     error_message=error_message,
-                    random_key=generate_random_key(),
                     tool_name=self.name,
                     description=description,
                     query=query,
@@ -1158,8 +1157,13 @@ class ExecuteInstantQuery(BasePrometheusTool):
                     structured_tool_result = create_structured_tool_result(
                         params=params, response=response_data
                     )
+                    tool_call_id = context.tool_call_id
+                    tool_name = context.tool_name
                     token_count = count_tool_response_tokens(
-                        llm=context.llm, structured_tool_result=structured_tool_result
+                        llm=context.llm,
+                        structured_tool_result=structured_tool_result,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
                     )
 
                     token_limit = context.max_token_count
@@ -1382,7 +1386,6 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 response_data = MetricsBasedResponse(
                     status=status,
                     error_message=error_message,
-                    random_key=generate_random_key(),
                     tool_name=self.name,
                     description=description,
                     query=query,
@@ -1402,8 +1405,13 @@ class ExecuteRangeQuery(BasePrometheusTool):
                         params=params, response=response_data
                     )
 
+                    tool_call_id = context.tool_call_id
+                    tool_name = context.tool_name
                     token_count = count_tool_response_tokens(
-                        llm=context.llm, structured_tool_result=structured_tool_result
+                        llm=context.llm,
+                        structured_tool_result=structured_tool_result,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
                     )
 
                     token_limit = context.max_token_count
@@ -1571,7 +1579,7 @@ class PrometheusToolset(Toolset):
                 f"Toolset {self.name} failed to initialize because prometheus is not configured correctly",
             )
 
-        url = urljoin(self.config.prometheus_url, self.config.healthcheck)
+        url = urljoin(self.config.prometheus_url, "api/v1/query?query=up")
         try:
             response = do_request(
                 config=self.config,

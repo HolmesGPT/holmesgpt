@@ -1,6 +1,14 @@
 
 # Prometheus/PromQL queries
 
+{%- if config and config.prometheus_url and "coralogix" in config.prometheus_url %}
+You are using Coralogix Prometheus.
+* Metrics/labels may differ; discover names with `get_metric_names` first.
+* For high-cardinality, wrap with `topk(5, <query>)`.
+* Always include explicit time ranges for range queries.
+* Example: `container_cpu_utilization{namespace="test-173"}` can fail if the label is named differently (e.g., `k8s_namespace_name`) or the metric is named differently. Do not assume names—only use labels you have seen returned or been told exist.
+{%- endif %}
+
 ## Efficient Metric Discovery (when needed)
 * When you need to discover metrics, use `get_metric_names` with filters - it's the fastest method
 * Combine multiple patterns with regex OR (|) to reduce API calls:
@@ -26,7 +34,7 @@
 * Use prometheus to execute promql queries with the tools `execute_prometheus_instant_query` and `execute_prometheus_range_query`
 * To create queries, use 'start_timestamp' and 'end_timestamp' as graphs start and end times
 * ALWAYS embed the execution results into your answer
-* You only need to embed the partial result in your response. Include the "tool_name" and "random_key". For example: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "92jf2hf"} >>
+* You only need to embed the partial result in your response. Include the "tool_name" and "tool_call_id". For example: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "92jf2hf"} >>
 * Use these tools to generate charts that users can see. Here are standard metrics but you can use different ones:
 ** For memory consumption: `container_memory_working_set_bytes`
 ** For CPU usage: `container_cpu_usage_seconds_total`
@@ -67,9 +75,9 @@
 * When embedding multiple graphs, always add line spacing between them
     For example:
 
-    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "lBaA"}>>
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "lBaA"}>>
 
-    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "random_key": "IKtq"}>>
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "IKtq"}>>
 
 {%- if config and config.additional_labels and config.additional_labels.keys()|list|length > 0 %}
 * ALWAYS add the following additional labels to ALL PromQL queries:

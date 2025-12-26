@@ -4,8 +4,6 @@ from holmes.common.env_vars import HOLMES_POST_PROCESSING_PROMPT
 from holmes.config import Config
 from holmes.core.issue import Issue
 from holmes.core.models import InvestigateRequest
-from holmes.core.resource_instruction import ResourceInstructionDocument
-from holmes.core.tool_calling_llm import ResourceInstructions
 
 
 def _test_investigate_issue_using_fetch_webpage():
@@ -23,9 +21,6 @@ def _test_investigate_issue_using_fetch_webpage():
     raw_data = investigate_request.model_dump()
 
     runbook_url = "https://containersolutions.github.io/runbooks/posts/kubernetes/create-container-error/"
-    resource_instructions = ResourceInstructions(
-        instructions=[], documents=[ResourceInstructionDocument(url=runbook_url)]
-    )
     console = Console()
     config = Config.load_from_env()
     ai = config.create_issue_investigator(console)
@@ -42,7 +37,6 @@ def _test_investigate_issue_using_fetch_webpage():
         prompt=investigate_request.prompt_template,
         console=console,
         post_processing_prompt=HOLMES_POST_PROCESSING_PROMPT,
-        instructions=resource_instructions,
     )
 
     webpage_tool_calls = list(
@@ -69,7 +63,6 @@ def _test_investigate_issue_without_fetch_webpage():
         prompt_template="builtin://generic_investigation.jinja2",
     )
     raw_data = investigate_request.model_dump()
-    resource_instructions = ResourceInstructions(instructions=[], documents=[])
     console = Console()
     config = Config.load_from_env()
     ai = config.create_issue_investigator(console)
@@ -87,7 +80,6 @@ def _test_investigate_issue_without_fetch_webpage():
         prompt=investigate_request.prompt_template,
         console=console,
         post_processing_prompt=HOLMES_POST_PROCESSING_PROMPT,
-        instructions=resource_instructions,
     )
 
     webpage_tool_calls = list(

@@ -2,7 +2,8 @@ import pytest
 
 from types import SimpleNamespace
 
-from holmes.utils.global_instructions import add_runbooks_to_user_prompt
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.core.prompt import generate_user_prompt
 
 
 class DummyRunbookCatalog:
@@ -82,7 +83,7 @@ class DummyInstructions:
         ),
     ],
 )
-def test_add_runbooks_to_user_prompt(
+def test_generate_user_prompt_with_runbooks(
     user_prompt,
     runbook_catalog,
     issue_instructions,
@@ -90,12 +91,13 @@ def test_add_runbooks_to_user_prompt(
     global_instructions,
     expected_substrings,
 ):
-    result = add_runbooks_to_user_prompt(
-        user_prompt=user_prompt,
+    ctx = generate_runbooks_args(
         runbook_catalog=runbook_catalog,
         issue_instructions=issue_instructions,
         resource_instructions=resource_instructions,
         global_instructions=global_instructions,
     )
+
+    result = generate_user_prompt(user_prompt, ctx)
     for substring in expected_substrings:
         assert substring in result

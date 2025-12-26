@@ -1,0 +1,10 @@
+{
+  "catalog": [
+    {
+      "id": "example-troubleshooting.md",
+      "update_date": "2025-11-27",
+      "description": "Example runbook for troubleshooting custom application issues",
+      "link": "example_troubleshooting.md"
+    }
+  ]
+}

@@ -5,12 +5,11 @@ By enabling this toolset, HolmesGPT will be able to interact with GitHub reposit
 ## Prerequisites
 
 1. A GitHub repository URL (e.g., `owner/repo`)
-2. A GitHub Personal Access Token with appropriate permissions:
-   - `repo` scope for private repositories
-   - `public_repo` scope for public repositories
-   - `pull_requests:write` for creating and updating PRs
+2. A GitHub Fine-grained Personal Access Token (scoped token) with the following permissions:
+   - **Contents**: Read and write (required for reading files, creating branches, and making commits on branches to create PRs)
+   - **Pull requests**: Read and write (required for creating and updating PRs)
 
-You can create a token at [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens).
+You can create a fine-grained token at [GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens](https://github.com/settings/tokens?type=beta). When creating the token, select the specific repository and grant the permissions listed above.
 
 ## Configuration
 

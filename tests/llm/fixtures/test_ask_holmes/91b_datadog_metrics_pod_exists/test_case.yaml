@@ -29,14 +29,15 @@ user_prompt:
 
 expected_output: |
   Output must contain 1 or more embeds in the following format
-    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "random_key": "iD8G"}>>
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>
 
-  random_key may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
 
   Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
 
 tags:
   - datadog
+  - embeds
 
 test_type: server
 

@@ -10,7 +10,8 @@ from holmes.core.models import InvestigateRequest, InvestigationResult
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tracing import DummySpan, SpanType
 from holmes.plugins.runbooks import RunbookCatalog
-from holmes.utils.global_instructions import add_runbooks_to_user_prompt
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.core.prompt import generate_user_prompt
 
 from holmes.core.investigation_structured_output import (
     DEFAULT_SECTIONS,
@@ -19,6 +20,7 @@ from holmes.core.investigation_structured_output import (
 )
 
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.utils import sentry_helper
 
 
 def investigate_issues(
@@ -31,9 +33,6 @@ def investigate_issues(
 ) -> InvestigationResult:
     context = dal.get_issue_data(investigate_request.context.get("robusta_issue_id"))
 
-    resource_instructions = dal.get_resource_instructions(
-        "alert", investigate_request.context.get("issue_type")
-    )
     global_instructions = dal.get_global_instructions_for_account()
 
     raw_data = investigate_request.model_dump()
@@ -59,7 +58,6 @@ def investigate_issues(
         issue,
         prompt=investigate_request.prompt_template,
         post_processing_prompt=HOLMES_POST_PROCESSING_PROMPT,
-        instructions=resource_instructions,
         global_instructions=global_instructions,
         sections=investigate_request.sections,
         trace_span=trace_span,
@@ -67,6 +65,9 @@ def investigate_issues(
     )
 
     (text_response, sections) = process_response_into_sections(investigation.result)
+
+    if sections is None:
+        sentry_helper.capture_sections_none(content=investigation.result)
 
     logging.debug(f"text response: {text_response}")
     return InvestigationResult(
@@ -100,10 +101,6 @@ def get_investigation_context(
     )
 
     issue_instructions = ai.runbook_manager.get_instructions_for_issue(issue)
-
-    resource_instructions = dal.get_resource_instructions(
-        "alert", investigate_request.context.get("issue_type")
-    )
 
     # This section is about setting vars to request the LLM to return structured output.
     # It does not mean that Holmes will not return structured sections for investigation as it is
@@ -140,17 +137,20 @@ def get_investigation_context(
             "runbooks_enabled": True if runbook_catalog else False,
         },
     )
-    user_prompt = ""
+    base_user = ""
 
     global_instructions = dal.get_global_instructions_for_account()
-    user_prompt = add_runbooks_to_user_prompt(
-        user_prompt=user_prompt,
+    runbooks_ctx = generate_runbooks_args(
         runbook_catalog=runbook_catalog,
         global_instructions=global_instructions,
         issue_instructions=issue_instructions,
-        resource_instructions=resource_instructions,
     )
 
-    user_prompt = f"{user_prompt}\n #This is context from the issue:\n{issue.raw}"
+    base_user = f"{base_user}\n #This is context from the issue:\n{issue.raw}"
+
+    user_prompt = generate_user_prompt(
+        base_user,
+        runbooks_ctx,
+    )
 
     return ai, system_prompt, user_prompt, response_format, sections, issue_instructions

@@ -9,23 +9,28 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
+import json
+from typing import List, Optional
+from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.core.prompt import generate_user_prompt
+import litellm
+import sentry_sdk
+from holmes import get_version, is_official_release
+
 from holmes.core import investigation
+from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
 import uvicorn
 import colorlog
 import time
-import json
-from typing import List, Optional
 
-import litellm
-import sentry_sdk
-from holmes import get_version, is_official_release
 from litellm.exceptions import AuthenticationError
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
 from holmes.common.env_vars import (
+    ENABLE_CONNECTION_KEEPALIVE,
     HOLMES_HOST,
     HOLMES_PORT,
     HOLMES_POST_PROCESSING_PROMPT,
@@ -55,10 +60,16 @@ from holmes.core.models import (
 from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.global_instructions import add_runbooks_to_user_prompt
+from holmes.utils.log import EndpointFilter
+# removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
+    # Filter out periodical healniss and readiness probe.
+    uvicorn_logger = logging.getLogger("uvicorn.access")
+    uvicorn_logger.addFilter(EndpointFilter(path="/healthz"))
+    uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
+
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
     logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
     logging_datefmt = "%Y-%m-%d %H:%M:%S"
@@ -77,11 +88,19 @@ def init_logging():
 
 
 init_logging()
+
+if ENABLE_CONNECTION_KEEPALIVE:
+    patch_socket_create_connection()
 config = Config.load_from_env()
 dal = config.dal
 
 
 def sync_before_server_start():
+    if not dal.enabled:
+        logging.info(
+            "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
+        )
+        return
     try:
         update_holmes_status_in_db(dal, config)
     except Exception:
@@ -119,7 +138,6 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
-
 
 if LOG_PERFORMANCE:
 
@@ -209,12 +227,16 @@ def workload_health_check(request: WorkloadHealthRequest):
             )
 
         global_instructions = dal.get_global_instructions_for_account()
-        request.ask = add_runbooks_to_user_prompt(
-            user_prompt=request.ask,
+
+        runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
             issue_instructions=issue_instructions,
             resource_instructions=stored_instructions,
+        )
+        request.ask = generate_user_prompt(
+            request.ask,
+            runbooks_ctx,
         )
         ai = config.create_toolcalling_llm(dal=dal, model=request.model)
 
@@ -401,6 +423,21 @@ def chat(chat_request: ChatRequest):
 @app.get("/api/model")
 def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
+
+
+@app.get("/healthz")
+def health_check():
+    return {"status": "healthy"}
+
+
+@app.get("/readyz")
+def readiness_check():
+    try:
+        models_list = config.get_models_list()
+        return {"status": "ready", "models": models_list}
+    except Exception as e:
+        logging.error(f"Readiness check failed: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Service not ready")
 
 
 if __name__ == "__main__":

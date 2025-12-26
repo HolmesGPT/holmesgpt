@@ -1,0 +1,16 @@
+# This test is used to test the ability of HolmesGPT to find the relevant runbook for a given alert
+# TODO: Add check for the tool calls that actually checked that the relevant runbboks were fetched and used
+user_prompt: "What is the issue with robusta alert 8604ba7a-2e54-4d1d-ae92-e1d1cfea7b98"
+expected_output:
+  - ProbeFailure for pod search-engine-service is due to misconfigured readiness probe
+before_test: |
+  kubectl apply -f ./pod_not_ready.yaml
+  sleep 10
+after_test: |
+  kubectl delete -f ./pod_not_ready.yaml
+evaluation:
+  correctness: 1
+tags:
+  - kubernetes
+  - runbooks
+test_type: cluster

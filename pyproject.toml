@@ -91,6 +91,7 @@ exclude = [
     "tests/llm/fixtures/.*",
     "dist/.*",
     "site/.*",
+    "experimental/.*",
 ]
 
 [tool.pytest.ini_options]
@@ -124,6 +125,16 @@ markers = [
     "newrelic: New Relic toolset",
     "no-cicd: Tests to skip in the GitHub action because we're missing prerequisites in the KIND cluster like a Prometheus instance",
     "compaction: Tests for conversation history compaction functionality",
+    "embeds: Tests ensuring embeds are as expected",
+    "one-test: Runs only one simple eval",
+    "loki: Loki toolset",
+    "coralogix: Runs coralogix evals",
+    # REGRESSION TEST SELECTION CRITERIA:
+    # - Must pass 30+ iterations reliably with Sonnet-4.5 model
+    # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)  
+    # - Tests core HolmesGPT functionality that should never regress
+    # - Fast execution to avoid slowing CI/CD pipelines
+    "regression: Critical regression tests that must always pass"
 ]
 
 addopts = [

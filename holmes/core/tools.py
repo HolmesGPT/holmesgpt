@@ -96,9 +96,11 @@ class StructuredToolResult(BaseModel):
         else:
             try:
                 if isinstance(self.data, BaseModel):
-                    return self.data.model_dump_json(indent=2)
+                    return self.data.model_dump_json()
                 else:
-                    return json.dumps(self.data, indent=2)
+                    return json.dumps(
+                        self.data, separators=(",", ":"), ensure_ascii=False
+                    )
             except Exception:
                 return str(self.data)
 
@@ -168,6 +170,8 @@ class ToolInvokeContext(BaseModel):
     user_approved: bool = False
     llm: LLM
     max_token_count: int
+    tool_call_id: str
+    tool_name: str
 
 
 class Tool(ABC, BaseModel):

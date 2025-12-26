@@ -61,6 +61,7 @@ def test_server_config_get_llm_with_robusta_model_returns_updated_api_key(
 
 
 def test_cli_config_get_llm_loads_default_gpt_4o(monkeypatch):
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
     monkeypatch.setenv("OPENAI_API_KEY", "openai_api_key")
     cli_config = get_cli_config()
     llm: DefaultLLM = cli_config._get_llm()
@@ -73,6 +74,7 @@ def test_cli_config_get_llm_loads_default_gpt_4o(monkeypatch):
 
 
 def test_cli_config_get_llm_loads_model_from_env_var(monkeypatch):
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "access_key_id")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret_access_key")
     cli_config = get_cli_config(model="bedrock/sonnet-4 preview")

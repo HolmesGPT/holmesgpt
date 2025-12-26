@@ -20,7 +20,7 @@ user_prompt:
 
 expected_output: |
   Output must contain 1 or more embeds in the following format
-    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "random_key": "XXXX"}>>
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "XXXX"}>>
 
   The response should indicate that Holmes discovered and queried the custom metric myapp.cache.hit.ratio
 
@@ -28,6 +28,7 @@ expected_output: |
 
 tags:
   - datadog
+  - embeds
 
 test_type: server
 

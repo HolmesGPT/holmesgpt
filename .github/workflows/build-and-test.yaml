@@ -10,24 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  check:
-    name: Pre-commit checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-          virtualenvs-path: .venv
-          installer-parallel: true
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root --with dev
-      - uses: pre-commit/action@v3.0.1
   build:
-    needs: check
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]

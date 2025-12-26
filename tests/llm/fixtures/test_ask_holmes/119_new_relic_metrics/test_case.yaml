@@ -6,13 +6,14 @@ user_prompt:
 
 expected_output:
   - |
-   output contains something like << {"type": "newrelicql", "tool_name": "newrelic_execute_nrql_query", "random_key": "..."} >>
+   output contains something like << {"type": "newrelicql", "tool_name": "newrelic_execute_nrql_query", "tool_call_id": "..."} >>
    the output mentions the currency is USD
    also mentions its over 100
 
 tags:
   - newrelic
   - metrics
+  - embeds
 
 # Custom timeout for setup (needs 2 min sleep + setup time)
 setup_timeout: 240  # 4 minutes total
