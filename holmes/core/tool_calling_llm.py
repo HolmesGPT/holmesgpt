@@ -2,6 +2,7 @@ import concurrent.futures
 import json
 import logging
 import textwrap
+import os
 from typing import Dict, List, Optional, Type, Union, Callable, Any
 
 from holmes.core.models import (
@@ -200,6 +201,69 @@ class ToolCallingLLM:
         self.approval_callback: Optional[
             Callable[[StructuredToolResult], tuple[bool, Optional[str]]]
         ] = None
+
+    def _handle_kaito_termination_logic(self, tool_call_result, messages, tool_calls, i, max_steps):
+        """
+        Handle KAITO-specific debug logging and intelligent termination logic.
+        
+        Returns:
+            int: Updated iteration counter (i)
+        """
+        # 🔍 Debug: Log every tool result for termination analysis
+        logging.info(f"🔍 TERMINATION DEBUG: Tool {tool_call_result.tool_name} status={tool_call_result.result.status}")
+        if tool_call_result.result.status == StructuredToolResultStatus.ERROR:
+            logging.info(f"🔍 TERMINATION DEBUG: Error message: {tool_call_result.result.error}")
+
+        # Check for intelligent termination when safeguards block calls
+        # Skip check on first iteration (need at least one successful tool call)
+        logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: i={i}, i>1={i > 1}")
+        logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: status={tool_call_result.result.status}, is_error={tool_call_result.result.status == StructuredToolResultStatus.ERROR}")
+        logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: error_text='{tool_call_result.result.error}'")
+        logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: contains_already_called={'already been called' in (tool_call_result.result.error or '')}")
+        
+        if (i > 1 and 
+            tool_call_result.result.status == StructuredToolResultStatus.ERROR and 
+            "already been called" in (tool_call_result.result.error or "")):
+            logging.info("🔍 TERMINATION DEBUG: Safeguard condition met, checking if LLM wants to stop...")
+            if self._should_stop_investigation(messages):
+                logging.info("🎯 Safeguard blocked + LLM wants same tool → Forcing final iteration")
+                # Remove the duplicate/error tool message that caused confusion
+                if messages and messages[-1]["role"] == "tool":
+                    logging.info("🧹 Removing confusing duplicate tool message from conversation")
+                    messages.pop()
+                    # Also remove the corresponding tool call from tool_calls list
+                    if tool_calls:
+                        tool_calls.pop()
+                # Force final iteration by setting i to max_steps - 1
+                # This will trigger tools=None on next iteration, leading to natural final response
+                i = max_steps - 1
+                # Don't break - let the loop continue to the final iteration
+            else:
+                logging.info("🔍 TERMINATION DEBUG: LLM says continue despite safeguard")
+        else:
+            logging.info("🔍 TERMINATION DEBUG: Safeguard condition NOT met")
+
+        # Exit immediately if intelligent termination was triggered during tool execution
+        # (No longer needed since we don't break, just continue to final iteration)
+        
+        # Check for intelligent termination after tool execution
+        # Skip check on first iteration (need at least one tool call)
+        # Also skip if we're already on the final iteration
+        logging.info(f"🔍 GENERAL CHECK VARIABLES: i={i}, i>1={i > 1}, max_steps={max_steps}")
+        if i > 1 and i < max_steps - 1:  # Only check if not already on final iteration
+            logging.info("🔍 TERMINATION DEBUG: Checking general termination condition...")
+            if self._should_stop_investigation(messages):
+                logging.info("🎯 Terminating early to prevent repetitive tool calls")
+                # Force final iteration by setting i to max_steps - 1
+                # This will trigger tools=None on next iteration, leading to natural final response
+                i = max_steps - 1
+                # Don't break - let the loop continue to the final iteration
+            else:
+                logging.info("🔍 TERMINATION DEBUG: LLM says continue")
+        else:
+            logging.info("🔍 TERMINATION DEBUG: General condition NOT met (i<=1 or already final iteration)")
+
+        return i
 
     def process_tool_decisions(
         self, messages: List[Dict[str, Any]], tool_decisions: List[ToolApprovalDecision]
@@ -502,63 +566,10 @@ class ToolCallingLLM:
                     tool_calls.append(tool_call_result.as_tool_result_response())
                     messages.append(tool_call_result.as_tool_call_message())
 
-                    # 🔍 Debug: Log every tool result for termination analysis
-                    logging.info(f"🔍 TERMINATION DEBUG: Tool {tool_call_result.tool_name} status={tool_call_result.result.status}")
-                    if tool_call_result.result.status == ToolResultStatus.ERROR:
-                        logging.info(f"🔍 TERMINATION DEBUG: Error message: {tool_call_result.result.error}")
-
-                    # Check for intelligent termination when safeguards block calls
-                    # Skip check on first iteration (need at least one successful tool call)
-                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: i={i}, i>1={i > 1}")
-                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: status={tool_call_result.result.status}, is_error={tool_call_result.result.status == ToolResultStatus.ERROR}")
-                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: error_text='{tool_call_result.result.error}'")
-                    logging.info(f"🔍 SAFEGUARD CHECK VARIABLES: contains_already_called={'already been called' in (tool_call_result.result.error or '')}")
-                    
-                    if (i > 1 and 
-                        tool_call_result.result.status == ToolResultStatus.ERROR and 
-                        "already been called" in (tool_call_result.result.error or "")):
-                        logging.info("🔍 TERMINATION DEBUG: Safeguard condition met, checking if LLM wants to stop...")
-                        kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
-                        if kaito_enabled and self._should_stop_investigation(messages):
-                            logging.info("🎯 Safeguard blocked + LLM wants same tool → Forcing final iteration")
-                            # Remove the duplicate/error tool message that caused confusion
-                            if messages and messages[-1]["role"] == "tool":
-                                logging.info("🧹 Removing confusing duplicate tool message from conversation")
-                                messages.pop()
-                                # Also remove the corresponding tool call from tool_calls list
-                                if tool_calls:
-                                    tool_calls.pop()
-                            # Force final iteration by setting i to max_steps - 1
-                            # This will trigger tools=None on next iteration, leading to natural final response
-                            i = max_steps - 1
-                            # Don't break - let the loop continue to the final iteration
-                        else:
-                            logging.info("🔍 TERMINATION DEBUG: LLM says continue despite safeguard")
-                    else:
-                        logging.info("🔍 TERMINATION DEBUG: Safeguard condition NOT met")
-
-                    perf_timing.measure(f"tool completed {tool_call_result.tool_name}")
-
-                # Exit immediately if intelligent termination was triggered during tool execution
-                # (No longer needed since we don't break, just continue to final iteration)
-                
-                # Check for intelligent termination after tool execution
-                # Skip check on first iteration (need at least one tool call)
-                # Also skip if we're already on the final iteration
-                logging.info(f"🔍 GENERAL CHECK VARIABLES: i={i}, i>1={i > 1}, max_steps={max_steps}")
-                kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
-                if kaito_enabled and i > 1 and i < max_steps - 1:  # Only check if KAITO enabled and not already on final iteration
-                    logging.info("🔍 TERMINATION DEBUG: Checking general termination condition...")
-                    if self._should_stop_investigation(messages):
-                        logging.info("🎯 Terminating early to prevent repetitive tool calls")
-                        # Force final iteration by setting i to max_steps - 1
-                        # This will trigger tools=None on next iteration, leading to natural final response
-                        i = max_steps - 1
-                        # Don't break - let the loop continue to the final iteration
-                    else:
-                        logging.info("🔍 TERMINATION DEBUG: LLM says continue")
-                else:
-                    logging.info("🔍 TERMINATION DEBUG: General condition NOT met (i<=1 or already final iteration)")
+                    # Handle KAITO-specific debug logging and termination logic
+                    kaito_enabled = os.environ.get("HOLMES_KAITO_ENABLED", "true").lower() == "true"
+                    if kaito_enabled:
+                        i = self._handle_kaito_termination_logic(tool_call_result, messages, tool_calls, i, max_steps)
 
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
