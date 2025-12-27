@@ -1,15 +1,13 @@
-# Install K9s
+# Install K9s Plugin
 
-## K9s Plugin
-
-Integrate HolmesGPT into your [K9s](https://github.com/derailed/k9s){:target="_blank"} Kubernetes terminal for instant analysis.
+Integrate HolmesGPT into your [K9s](https://github.com/derailed/k9s){:target="\_blank"} Kubernetes terminal for instant analysis.
 
 ![K9s Demo](../assets/K9sDemo.gif)
 
 ### Prerequisites
 
-- **K9s must be installed** - See the [K9s installation guide](https://github.com/derailed/k9s#installation){:target="_blank"}
-- **HolmesGPT CLI and API key** - Follow the [CLI Installation Guide](cli-installation.md) to install Holmes and configure your AI provider
+-   **K9s must be installed** - See the [K9s installation guide](https://github.com/derailed/k9s#installation){:target="\_blank"}
+-   **HolmesGPT CLI and API key** - Follow the [CLI Installation Guide](cli-installation.md) to install Holmes and configure your AI provider
 
 ### Plugin Options
 
@@ -62,7 +60,6 @@ Integrate HolmesGPT into your [K9s](https://github.com/derailed/k9s){:target="_b
     ```
 
 ??? note "Advanced Plugin (Shift + Q) - Interactive plugin with custom questions"
-
 
     Add to your K9s plugins configuration file:
 
@@ -131,8 +128,6 @@ Integrate HolmesGPT into your [K9s](https://github.com/derailed/k9s){:target="_b
 
 ## Need Help?
 
-- **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
-- **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
-- **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions
-
-
+-   **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="\_blank"}** - Get help from the community
+-   **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="\_blank"}** - Suggest improvements or report bugs
+-   **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions

@@ -2,7 +2,7 @@ nav:
     - Install CLI: cli-installation.md
     - Install UI (3rd party): ui-installation.md
     - Install Slack Bot (3rd party): slack-installation.md
-    - Install Backstage (3rd party): backstage-installation.md
+    - Integration with Backstage (3rd party): backstage-integration.md
     - Install K9s: k9s-installation.md
     - Install Helm Chart: kubernetes-installation.md
     - Install Python SDK: python-installation.md
