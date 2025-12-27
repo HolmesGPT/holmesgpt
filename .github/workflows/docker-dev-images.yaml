@@ -21,6 +21,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Check if PR is from fork
+      id: fork_check
+      run: |
+        if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
+          echo "is_fork=true" >> $GITHUB_OUTPUT
+          echo "📌 PR is from a fork - will build but not push"
+        else
+          echo "is_fork=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Get short SHA
       id: short_sha
       run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -30,6 +40,7 @@ jobs:
       run: echo "start=$(date +%s)" >> $GITHUB_OUTPUT
 
     - name: Comment build started
+      if: steps.fork_check.outputs.is_fork != 'true'
       uses: actions/github-script@v7
       with:
         script: |
@@ -48,6 +59,14 @@ jobs:
             issue_number,
           });
           const existing = existingComments.find(c => c.body?.includes(marker));
+
+          // Clean up old-style comments from previous workflow version
+          const oldMarker = 'Dev Docker images are ready for this commit:';
+          const oldComments = existingComments.filter(c => c.body?.includes(oldMarker));
+          for (const old of oldComments) {
+            await github.rest.issues.deleteComment({ owner, repo, comment_id: old.id });
+            core.info(`Deleted old-style comment #${old.id}`);
+          }
 
           // Extract previous image tag from existing comment if present
           let previousImageSection = '';
@@ -120,23 +139,40 @@ jobs:
             core.info(`Commented on PR #${issue_number}`);
           }
 
+    # Registry auth - only for non-fork PRs (fork PRs don't have access to push anyway)
     - uses: google-github-actions/auth@v2
+      if: steps.fork_check.outputs.is_fork != 'true'
       with:
         project_id: 'robusta-development'
         workload_identity_provider: 'projects/479654156100/locations/global/workloadIdentityPools/github/providers/robusta-repos'
 
     - name: Set up gcloud CLI
+      if: steps.fork_check.outputs.is_fork != 'true'
       uses: google-github-actions/setup-gcloud@v2
       with:
         project_id: robusta-development
 
     - name: Configure Docker Registry
+      if: steps.fork_check.outputs.is_fork != 'true'
       run: gcloud auth configure-docker us-central1-docker.pkg.dev
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    # For fork PRs: build only (no push, no registry tags)
+    # For non-fork PRs: build and push to registry
+    - name: Build Docker image (fork PR - no push)
+      if: steps.fork_check.outputs.is_fork == 'true'
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64
+        push: false
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
     - name: Build and push Docker image
+      if: steps.fork_check.outputs.is_fork != 'true'
       uses: docker/build-push-action@v6
       with:
         context: .
@@ -149,13 +185,14 @@ jobs:
           BUILDKIT_INLINE_CACHE=1
 
     - name: Print image location
+      if: steps.fork_check.outputs.is_fork != 'true'
       run: |
         echo "Docker image pushed to:"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}"
 
     - name: Comment with image details
-      if: always()
+      if: always() && steps.fork_check.outputs.is_fork != 'true'
       uses: actions/github-script@v7
       with:
         script: |
