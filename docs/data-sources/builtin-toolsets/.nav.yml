@@ -5,7 +5,6 @@ nav:
     - AWS (MCP): aws.md
     - Azure Kubernetes Service: aks.md
     - Azure SQL Database: azure-sql.md
-    - Backstage: backstage.md
     - Bash: bash.md
     - Cilium: cilium.md
     - Confluence: confluence.md
