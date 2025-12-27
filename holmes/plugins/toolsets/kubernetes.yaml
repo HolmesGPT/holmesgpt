@@ -90,6 +90,8 @@ toolsets:
         user_description: "Query Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -r {{jq_expr}}"
         description: >
           Use kubectl to get json for all resources of a specific kind and filter with jq.
+          IMPORTANT: The 'kind' parameter must be the plural form of the resource type
+          (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
           Do not worry about escaping the jq_expr - it will be done by the system.
           Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
         script: |
@@ -99,16 +101,20 @@ toolsets:
           echo "Expression: {{ jq_expr }}"
           echo "---"
 
-          # Get the API path for the resource kind using kubectl and jq
-          API_INFO=$(kubectl api-resources --no-headers -o wide | grep "^{{ kind }}" | head -1)
+          # Get the API path for the resource kind using kubectl
+          API_INFO=$(kubectl api-resources --no-headers | grep "^{{ kind }} " | head -1)
 
           if [ -z "$API_INFO" ]; then
             echo "Error: Unable to find resource kind '{{ kind }}'" >&2
             exit 1
           fi
 
-          # Parse API info using read and bash string manipulation
-          IFS=' ' read -r RESOURCE_NAME SHORTNAME API_VERSION NAMESPACED REST <<< "$API_INFO"
+          API_PREFIX=$(echo "$API_INFO" | awk 'match($0, /^.*[ ](true|false)/) {print substr($0, 1, RLENGTH)}')
+
+          # Parse the fields using awk (handles both with and without shortname)
+          RESOURCE_NAME=$(echo "$API_PREFIX" | awk '{print $1}')
+          API_VERSION=$(echo "$API_PREFIX" | awk '{print $(NF-1)}')  # Second-to-last field
+          NAMESPACED=$(echo "$API_PREFIX" | awk '{print $NF}')       # Last field
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
@@ -231,6 +237,8 @@ toolsets:
         description: >
           Use kubectl to get apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.
+          IMPORTANT: The 'kind' parameter must be the plural form of the resource type
+          (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
           Use select() to filter objects before extracting properties, e.g. .items[] | select(.metadata.namespace == "test-1") | .metadata.name
           Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give.
           e.g. give an expression like .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
@@ -240,16 +248,20 @@ toolsets:
           echo "Command executed: kubectl get {{ kind }} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
           echo "---"
 
-          # Get the API path for the resource kind using kubectl
-          API_INFO=$(kubectl api-resources --no-headers -o wide | grep "^{{ kind }}" | head -1)
+          # Get the API path for the resource kind
+          API_INFO=$(kubectl api-resources --no-headers | grep "^{{ kind }} " | head -1)
 
           if [ -z "$API_INFO" ]; then
             echo "Error: Unable to find resource kind '{{ kind }}'" >&2
             exit 1
           fi
 
-          # Parse API info using read and bash string manipulation
-          IFS=' ' read -r RESOURCE_NAME SHORTNAME API_VERSION NAMESPACED REST <<< "$API_INFO"
+          API_PREFIX=$(echo "$API_INFO" | awk 'match($0, /^.*[ ](true|false)/) {print substr($0, 1, RLENGTH)}')
+
+          # Parse the fields using awk (handles both with and without shortname)
+          RESOURCE_NAME=$(echo "$API_PREFIX" | awk '{print $1}')
+          API_VERSION=$(echo "$API_PREFIX" | awk '{print $(NF-1)}')  # Second-to-last field
+          NAMESPACED=$(echo "$API_PREFIX" | awk '{print $NF}')       # Last field
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
@@ -283,7 +295,7 @@ toolsets:
             exit_code=$?
 
             if [ $exit_code -ne 0 ]; then
-              echo "Error: $OUTPUT" >&2
+              echo "Error for query $QUERY: $OUTPUT" >&2
               exit $exit_code
             fi
 
