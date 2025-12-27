@@ -1,6 +1,4 @@
-# Install UI (third party)
-
-## Web UI (Robusta)
+# Install Web UI (3rd party)
 
 The fastest way to use HolmesGPT is via the managed Robusta SaaS platform.
 
@@ -34,17 +32,15 @@ The fastest way to use HolmesGPT is via the managed Robusta SaaS platform.
 
 ### Get Started
 
-1. **Sign up:** [platform.robusta.dev](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="_blank"}
+1. **Sign up:** [platform.robusta.dev](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"}
 2. **Connect your cluster:** Follow the in-app wizard
 3. **Ask Holmes:** Analyze alerts or troubleshoot issues
 
 !!! tip "Multiple AI Providers"
-    You can configure multiple AI models for users to choose from in the UI. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for configuration details.
+You can configure multiple AI models for users to choose from in the UI. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for configuration details.
 
 ## Need Help?
 
-- **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
-- **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs
-- **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions
-
-
+-   **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="\_blank"}** - Get help from the community
+-   **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="\_blank"}** - Suggest improvements or report bugs
+-   **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions

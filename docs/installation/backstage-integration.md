@@ -1,4 +1,4 @@
-# Install Backstage (third party)
+# Integration with Backstage (3rd party)
 
 There’s now a third-party integration that brings **HolmesGPT** by **Robusta.dev** directly into Backstage. The integration is currently available in **closed beta**.
 
@@ -27,5 +27,3 @@ Below is a short walkthrough of the HolmesGPT–Backstage integration. It demons
 </div>
 
 If you’re already running Backstage and want to bring AI-driven diagnostics into your developer portal, you can request access to the closed beta by contacting the Robusta.dev team via [email](mailto:arik@robusta.dev) or [slack](https://robustacommunity.slack.com). You can also use [this form](https://robusta-dev.typeform.com/to/xhyQYgLx) to register your interest.
-
-
