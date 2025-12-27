@@ -13,13 +13,13 @@ exclude_docs: |
 nav:
     - Home: index.md
     - Installation:
-          - "Install CLI": installation/cli-installation.md
-          - "Install UI (3rd party)": installation/ui-installation.md
-          - "Install Slack Bot (3rd party)": installation/slack-installation.md
-          - "Integration with Backstage (3rd party)": installation/backstage-integration.md
-          - "Install K9s": installation/k9s-installation.md
-          - "Install Helm Chart": installation/kubernetes-installation.md
-          - "Install Python SDK": installation/python-installation.md
+          - "CLI": installation/cli-installation.md
+          - "UI (3rd party)": installation/ui-installation.md
+          - "Slack Bot (3rd party)": installation/slack-installation.md
+          - "Backstage (3rd party)": installation/backstage-integration.md
+          - "K9s": installation/k9s-installation.md
+          - "Helm Chart": installation/kubernetes-installation.md
+          - "Python SDK": installation/python-installation.md
     - Walkthrough:
           - "Overview": walkthrough/index.md
           - "Interactive Mode": walkthrough/interactive-mode.md
