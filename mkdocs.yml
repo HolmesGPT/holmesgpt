@@ -10,6 +10,68 @@ exclude_docs: |
   README.md
   cncf-self-assesment.md
 
+nav:
+  - Home: index.md
+  - Installation:
+      - 'Install CLI': installation/cli-installation.md
+      - 'Install UI (third party)': installation/ui-installation.md
+      - 'Install Slack Bot (third party)': installation/slack-installation.md
+      - 'Install K9s': installation/k9s-installation.md
+      - 'Install Backstage (third party)': installation/backstage-installation.md
+      - 'Install Helm Chart': installation/kubernetes-installation.md
+      - 'Install Python SDK': installation/python-installation.md
+  - Walkthrough:
+      - 'Overview': walkthrough/index.md
+      - 'Interactive Mode': walkthrough/interactive-mode.md
+      - 'CI/CD Troubleshooting': walkthrough/cicd-troubleshooting.md
+      - 'Investigating Prometheus Alerts': walkthrough/investigating-prometheus-alerts.md
+      - 'Investigating using AKS MCP Server': walkthrough/investigating-using-aks-mcp-server.md
+  - 'AI Providers':
+      - 'Overview': ai-providers/index.md
+      - Anthropic: ai-providers/anthropic.md
+      - 'AWS Bedrock': ai-providers/aws-bedrock.md
+      - 'Azure OpenAI': ai-providers/azure-openai.md
+      - Gemini: ai-providers/gemini.md
+      - 'Google Vertex AI': ai-providers/google-vertex-ai.md
+      - Ollama: ai-providers/ollama.md
+      - OpenAI: ai-providers/openai.md
+      - 'OpenAI-Compatible': ai-providers/openai-compatible.md
+      - Other: ai-providers/other.md
+      - 'Robusta AI': ai-providers/robusta-ai.md
+      - 'Using Multiple Providers': ai-providers/using-multiple-providers.md
+  - 'Data Sources':
+      - 'Overview': data-sources/index.md
+      - 'Built-in Toolsets': data-sources/builtin-toolsets/index.md
+      - 'Custom Toolsets': data-sources/custom-toolsets.md
+      - 'MCP Servers': data-sources/remote-mcp-servers.md
+      - 'Adding Permissions for Additional Resources': data-sources/permissions.md
+  - Benchmarks:
+      - 'Latest Results': development/evaluations/latest-results.md
+      - 'Historical Results':
+          - 'Overview': development/evaluations/history/index.md
+          - 'September 28, 2025': development/evaluations/history/results_20250928_001434.md
+          - 'September 30, 2025 (custom Claude)': development/evaluations/history/custom_claude_results_20250930_153753.md
+          - 'September 30, 2025': development/evaluations/history/results_20250930_085923.md
+          - 'October 12, 2025': development/evaluations/history/results_20251012_170303.md
+          - 'Self-Hosted Models v1': development/evaluations/history/custom_self_hosted_results_20251008_053744.md
+          - 'November 27, 2025': development/evaluations/history/results_20251127_042958.md
+      - 'Running Evaluations': development/evaluations/running-evals.md
+      - 'Adding New Evaluations': development/evaluations/adding-evals.md
+      - 'Benchmarking New Models': development/evaluations/benchmarking-new-models.md
+      - 'Reporting with Braintrust': development/evaluations/reporting.md
+  - Development:
+      - 'Overview': development/index.md
+      - 'Tool Output Transformers': development/transformers.md
+  - Reference:
+      - 'Environment Variables': reference/environment-variables.md
+      - 'Helm Configuration': reference/helm-configuration.md
+      - 'Kubernetes Permissions': reference/kubernetes-permissions.md
+      - 'HTTP API': reference/http-api.md
+      - 'Slash Commands': reference/slash-commands.md
+      - 'Troubleshooting': reference/troubleshooting.md
+  - Community: community.md
+  - 'CNCF Self Assessment': cncf-self-assesment.md
+
 theme:
   name: material
   custom_dir: docs/overrides
