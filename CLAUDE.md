@@ -293,6 +293,10 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - **Match prompt to test**: User prompt must explicitly request what you're testing
   - BAD: `"Get the dashboard"`
   - GOOD: `"Get the dashboard and tell me the title, panels, and time range"`
+- **Anti-cheat prompts**: Don't use technical terms that give away solutions
+  - BAD: `"Find node_exporter metrics"`
+  - GOOD: `"Find CPU pressure monitoring queries"`
+- **Test discovery, not recognition**: Holmes should search/analyze, not guess from context
 
 **Infrastructure Setup:**
 - **Don't just test pod readiness** - verify actual service functionality
@@ -412,6 +416,20 @@ fi
 - Proper separation of concerns (app → file → Promtail → Loki → Holmes)
 - **ALWAYS use Secrets for scripts**, not inline manifests or ConfigMaps
 - Use minimal resource footprints (reduce memory/CPU for test services)
+
+**Anti-Cheat Testing Guidelines:**
+- **Prevent Domain Knowledge Cheats**: Use neutral, application-specific names instead of obvious technical terms
+  - Example: "E-Commerce Platform Monitoring" not "Node Exporter Full"
+  - Example: "Payment Service Dashboard" not "MySQL Error Dashboard"
+  - Add source comments: `# Uses Node Exporter dashboard but renamed to prevent cheats`
+- **Resource Naming Rules**: Avoid hint-giving names
+  - Use realistic business context: "checkout-api", "user-service", "inventory-db" 
+  - Avoid obvious problem indicators: "broken-pod" → "payment-service-1"
+  - Test discovery ability, not pattern recognition
+- **Prompt Design**: Don't give away solutions in prompts
+  - BAD: "Find the node_pressure_cpu_waiting_seconds_total query"
+  - GOOD: "Find the Prometheus query that monitors CPU pressure waiting time"
+  - Test Holmes's search/analysis skills, not domain knowledge shortcuts
 
 **Configuration:**
 - Custom runbooks: Add `runbooks` field in test_case.yaml (`runbooks: {}` for empty catalog)
