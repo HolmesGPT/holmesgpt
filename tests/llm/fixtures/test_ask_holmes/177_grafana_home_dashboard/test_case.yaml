@@ -9,7 +9,7 @@ expected_output:
 before_test: |
   set -e  # Exit immediately if any command fails
   kubectl create namespace app-177 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
-  kubectl apply -f grafana.yaml -n app-177
+  kubectl apply -f ../../shared/grafana.yaml -n app-177
   
   # Wait for Grafana pod to be ready
   echo "⏳ Waiting for Grafana pod to be ready..."
@@ -20,47 +20,36 @@ before_test: |
       POD_READY=true
       break
     else
-      echo "⏳ Attempt $i/60: Grafana pod not ready yet, waiting 5s..."
-      sleep 5
+      echo "⏳ Attempt $i/60: Grafana pod not ready yet, waiting 1s..."
+      sleep 1
     fi
   done
   
   if [ "$POD_READY" = false ]; then
-    echo "❌ Grafana pod failed to become ready after 300 seconds"
+    echo "❌ Grafana pod failed to become ready after 60 seconds"
     kubectl get pods -n app-177
     kubectl describe pod -l app=grafana -n app-177
     exit 1
   fi
   
-  # Start port forward for verification
-  echo "⏳ Starting port forward for API verification..."
-  kubectl port-forward -n app-177 svc/grafana 10177:3000 &
-  PORTFWD_PID=$!
-  sleep 5
-  
-  # Verify Grafana home dashboard API is working with expected content
-  echo "⏳ Verifying Grafana home dashboard API..."
+  # Verify Grafana API is working using kubectl exec (no port forward needed for setup)
+  echo "⏳ Verifying Grafana API..."
   API_READY=false
   for i in {1..30}; do
-    if RESPONSE=$(curl -s http://localhost:10177/api/dashboards/home 2>/dev/null); then
-      if echo "$RESPONSE" | grep -q '"title":"Home"' && echo "$RESPONSE" | grep -q '"type":"welcome"' && echo "$RESPONSE" | grep -q '"type":"dashlist"'; then
-        echo "✅ Grafana home dashboard API is working with expected content!"
-        API_READY=true
-        break
-      else
-        echo "⏳ Attempt $i/30: API responding but content not as expected, waiting 5s..."
-      fi
+    if kubectl exec -n app-177 deployment/grafana -- wget -q -O- http://localhost:3000/api/dashboards/home 2>/dev/null | grep -q '"title":"Home"' && \
+       kubectl exec -n app-177 deployment/grafana -- wget -q -O- http://localhost:3000/api/dashboards/home 2>/dev/null | grep -q '"type":"welcome"' && \
+       kubectl exec -n app-177 deployment/grafana -- wget -q -O- http://localhost:3000/api/dashboards/home 2>/dev/null | grep -q '"type":"dashlist"'; then
+      echo "✅ Grafana home dashboard API is working with expected content!"
+      API_READY=true
+      break
     else
-      echo "⏳ Attempt $i/30: Grafana API not ready yet, waiting 5s..."
+      echo "⏳ Attempt $i/30: Grafana API not ready yet, waiting 1s..."
+      sleep 1
     fi
-    sleep 5
   done
   
-  # Stop verification port forward
-  kill $PORTFWD_PID 2>/dev/null || true
-  
   if [ "$API_READY" = false ]; then
-    echo "❌ Grafana home dashboard API failed verification after 150 seconds"
+    echo "❌ Grafana home dashboard API failed verification after 30 seconds"
     echo "Checking pod logs..."
     kubectl logs -l app=grafana -n app-177 --tail=20
     exit 1
@@ -82,3 +71,4 @@ tags:
   - question-answer
   - metrics
   - kubernetes
+  - grafana-dashboard

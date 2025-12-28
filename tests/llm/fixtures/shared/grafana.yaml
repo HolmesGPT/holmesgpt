@@ -1,3 +1,6 @@
+# Shared Grafana deployment configuration for test fixtures
+# Apply with: kubectl apply -f grafana.yaml -n <namespace>
+# Note: Namespace must be created separately
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -12,6 +15,8 @@ spec:
     metadata:
       labels:
         app: grafana
+      annotations:
+        admission.datadoghq.com/enabled: "false"
     spec:
       containers:
       - name: grafana
@@ -33,6 +38,13 @@ spec:
         volumeMounts:
         - name: grafana-data
           mountPath: /var/lib/grafana
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
         livenessProbe:
           httpGet:
             path: /api/health

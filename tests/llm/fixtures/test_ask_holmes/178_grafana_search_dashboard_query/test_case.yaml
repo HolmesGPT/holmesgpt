@@ -1,0 +1,116 @@
+user_prompt: "Search for a dashboard called 'Application Metrics' in Grafana and extract the Prometheus queries from its panels"
+
+expected_output:
+  - 'The dashboard "Application Metrics" is found successfully'
+  - 'The dashboard contains panels: CPU Usage, Memory Usage, Request Rate, and Error Rate'
+  - 'The CPU Usage panel contains the Prometheus query: rate(cpu_usage_total[5m])'
+  - 'The Memory Usage panel contains the Prometheus query: memory_usage_bytes'
+  - 'The Request Rate panel contains the Prometheus query: rate(http_requests_total[1m])'
+  - 'The Error Rate panel contains the Prometheus query: rate(http_requests_total{status=~"5.."}[5m])'
+
+before_test: |
+  set -e  # Exit immediately if any command fails
+  kubectl create namespace app-178 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl apply -f ../../shared/grafana.yaml -n app-178
+  
+  # Wait for Grafana pod to be ready
+  echo "⏳ Waiting for Grafana pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=grafana -n app-178 --timeout=5s 2>/dev/null; then
+      echo "✅ Grafana pod is ready!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Grafana pod not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+  
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Grafana pod failed to become ready after 60 seconds"
+    kubectl get pods -n app-178
+    kubectl describe pod -l app=grafana -n app-178
+    exit 1
+  fi
+  
+  # Verify Grafana API is working using kubectl exec
+  echo "⏳ Verifying Grafana API..."
+  API_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n app-178 deployment/grafana -- wget -q -O- http://localhost:3000/api/health 2>/dev/null | grep -q "ok"; then
+      echo "✅ Grafana API is working!"
+      API_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/30: Grafana API not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+  
+  if [ "$API_READY" = false ]; then
+    echo "❌ Grafana API failed verification after 30 seconds"
+    echo "Checking pod logs..."
+    kubectl logs -l app=grafana -n app-178 --tail=20
+    exit 1
+  fi
+  
+  # Create custom dashboard via kubectl exec
+  echo "⏳ Creating Application Metrics dashboard..."
+  DASHBOARD_CREATED=false
+  for i in {1..10}; do
+    if kubectl exec -n app-178 deployment/grafana -- wget -q -O- --post-data="$(cat custom-dashboard.json)" \
+         --header="Content-Type: application/json" \
+         http://localhost:3000/api/dashboards/db 2>/dev/null >/dev/null; then
+      echo "✅ Dashboard created successfully!"
+      DASHBOARD_CREATED=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Dashboard creation failed, waiting 1s..."
+      sleep 1
+    fi
+  done
+  
+  if [ "$DASHBOARD_CREATED" = false ]; then
+    echo "❌ Failed to create dashboard after 10 attempts"
+    exit 1
+  fi
+  
+  # Verify dashboard exists and is searchable
+  echo "⏳ Verifying dashboard is searchable..."
+  DASHBOARD_FOUND=false
+  for i in {1..10}; do
+    if kubectl exec -n app-178 deployment/grafana -- wget -q -O- "http://localhost:3000/api/search?query=Application%20Metrics" 2>/dev/null | grep -q "Application Metrics"; then
+      echo "✅ Dashboard is searchable!"
+      DASHBOARD_FOUND=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Dashboard not found in search results, waiting 1s..."
+      sleep 1
+    fi
+  done
+  
+  if [ "$DASHBOARD_FOUND" = false ]; then
+    echo "❌ Dashboard verification failed after 10 attempts"
+    echo "Checking pod logs..."
+    kubectl logs -l app=grafana -n app-178 --tail=20
+    exit 1
+  fi
+  
+  echo "✅ Test setup completed successfully - Application Metrics dashboard created and verified!"
+
+after_test: |
+  kubectl delete namespace app-178 || true
+
+port_forwards:
+  - namespace: app-178
+    service: grafana
+    local_port: 10178
+    remote_port: 3000
+
+tags:
+  - easy
+  - question-answer
+  - metrics
+  - kubernetes
+  - grafana-dashboard
