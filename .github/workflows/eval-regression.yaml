@@ -40,16 +40,12 @@ jobs:
     if: github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/eval')
     runs-on: ubuntu-latest
     outputs:
-      should_run: ${{ steps.parse.outputs.should_run }}
-      model: ${{ steps.parse.outputs.model }}
-      markers: ${{ steps.parse.outputs.markers }}
-      filter: ${{ steps.parse.outputs.filter }}
-      iterations: ${{ steps.parse.outputs.iterations }}
-      pr_sha: ${{ steps.get-pr.outputs.sha }}
+      should_run: ${{ steps.init.outputs.should_run }}
+      pr_sha: ${{ steps.init.outputs.sha }}
 
     steps:
-      - name: Get PR SHA
-        id: get-pr
+      - name: Get PR SHA and react
+        id: init
         uses: actions/github-script@v7
         with:
           script: |
@@ -59,35 +55,8 @@ jobs:
               pull_number: context.issue.number
             });
             core.setOutput('sha', pr.data.head.sha);
-
-      - name: Parse /eval command
-        id: parse
-        uses: actions/github-script@v7
-        with:
-          script: |
-            // Parse multiline format:
-            // /eval
-            // model: gpt-4o
-            // filter: my test
-            const lines = context.payload.comment.body.split('\n');
-            const params = { model: '', markers: 'regression', filter: '', iterations: '1' };
-            const validKeys = new Set(Object.keys(params));
-
-            for (const line of lines.slice(1)) {
-              const colonIdx = line.indexOf(':');
-              if (colonIdx === -1) continue;
-              const key = line.slice(0, colonIdx).trim().toLowerCase();
-              const value = line.slice(colonIdx + 1).trim();
-              if (validKeys.has(key) && value) params[key] = value;
-            }
-
             core.setOutput('should_run', 'true');
-            Object.entries(params).forEach(([k, v]) => core.setOutput(k, v));
 
-      - name: React to comment
-        uses: actions/github-script@v7
-        with:
-          script: |
             await github.rest.reactions.createForIssueComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -118,7 +87,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // Validation patterns
             const patterns = {
               model: /^[a-zA-Z0-9_.,\/-]*$/,
               markers: /^[a-zA-Z0-9_\- ]*$/,
@@ -137,14 +105,29 @@ jobs:
               return value;
             }
 
+            function parseComment(body) {
+              const params = { model: '', markers: 'regression', filter: '', iterations: '1' };
+              const validKeys = new Set(Object.keys(params));
+              for (const line of body.split('\n').slice(1)) {
+                const colonIdx = line.indexOf(':');
+                if (colonIdx === -1) continue;
+                const key = line.slice(0, colonIdx).trim().toLowerCase();
+                const value = line.slice(colonIdx + 1).trim();
+                if (validKeys.has(key) && value) params[key] = value;
+              }
+              return params;
+            }
+
             let model, markers, filter, iterations, isManual, triggerSource, prNumber;
             const event = context.eventName;
 
             if (event === 'issue_comment') {
-              model = ${{ toJSON(needs.parse-eval-command.outputs.model) }} || '';
-              markers = ${{ toJSON(needs.parse-eval-command.outputs.markers) }} || 'regression';
-              filter = ${{ toJSON(needs.parse-eval-command.outputs.filter) }} || '';
-              iterations = ${{ toJSON(needs.parse-eval-command.outputs.iterations) }} || '1';
+              const parsed = parseComment(context.payload.comment.body);
+              model = validate(parsed.model, 'model');
+              markers = validate(parsed.markers, 'markers');
+              filter = validate(parsed.filter, 'filter');
+              iterations = parsed.iterations;
+              if ([model, markers, filter].includes(null)) return;
               isManual = true;
               triggerSource = '/eval comment';
               prNumber = context.issue.number;
@@ -168,24 +151,11 @@ jobs:
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
             }
 
-            // Validate issue_comment inputs too
-            if (event === 'issue_comment') {
-              model = validate(model, 'model');
-              markers = validate(markers, 'markers');
-              filter = validate(filter, 'filter');
-              if ([model, markers, filter].includes(null)) return;
-            }
-
-            // Apply defaults - use vars.MODEL if set, otherwise empty (uses litellm default)
+            // Apply defaults
             if (!model) model = ${{ toJSON(vars.MODEL) }} || '';
             if (!markers) markers = 'regression';
-
-            console.log(`Using model: ${model || '(default from litellm)'}`);
-
-            // Cap iterations
             let iterNum = Math.min(Math.max(parseInt(iterations, 10) || 1, 1), 10);
 
-            // Set outputs
             core.setOutput('model', model);
             core.setOutput('markers', markers);
             core.setOutput('filter', filter);
