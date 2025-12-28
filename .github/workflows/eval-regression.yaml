@@ -65,21 +65,22 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const comment = context.payload.comment.body.split('\n')[0].trim();
-            const args = comment.slice(5).trim();
-            const parts = args.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+            // Parse multiline format:
+            // /eval
+            // model: gpt-4o
+            // filter: my test
+            const lines = context.payload.comment.body.split('\n');
+            const params = { model: '', markers: 'regression', filter: '', iterations: '1' };
+            const validKeys = new Set(Object.keys(params));
 
-            let params = { model: '', markers: 'regression', filter: '', iterations: '1' };
-            const flags = { '--model': 'model', '-m': 'model', '--markers': 'markers', '-M': 'markers',
-                           '--filter': 'filter', '-k': 'filter', '--iterations': 'iterations', '-i': 'iterations' };
-
-            for (let i = 0; i < parts.length; i++) {
-              if (flags[parts[i]] && parts[i + 1]) {
-                params[flags[parts[i]]] = parts[++i].replace(/^"|"$/g, '');
-              }
+            for (const line of lines.slice(1)) {
+              const colonIdx = line.indexOf(':');
+              if (colonIdx === -1) continue;
+              const key = line.slice(0, colonIdx).trim().toLowerCase();
+              const value = line.slice(colonIdx + 1).trim();
+              if (validKeys.has(key) && value) params[key] = value;
             }
 
-            // Output raw values - validation happens in eval-params step
             core.setOutput('should_run', 'true');
             Object.entries(params).forEach(([k, v]) => core.setOutput(k, v));
 
@@ -339,18 +340,15 @@ jobs:
             if (!p.isManual) {
               const workflowUrl = p.runUrl.replace(/\/runs\/.*/, '');
               body += '\n---\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
-                '**Option 1: Comment on this PR** with `/eval`:\n\n```\n' +
-                '/eval                                    # Run with defaults\n' +
-                '/eval --model gpt-4o                     # Use specific model\n' +
-                '/eval --model "gpt-4.1,gpt-4o"           # Multiple models\n' +
-                '/eval --filter "09_crashpod"             # Run specific test (-k)\n' +
-                '/eval --markers "logs"                   # Run tests with marker\n' +
-                '/eval --iterations 5                     # Run multiple times\n```\n\n' +
-                '| Option | Short | Description |\n|--------|-------|-------------|\n' +
-                '| `--model` | `-m` | Model(s) to test |\n' +
-                '| `--markers` | `-M` | Pytest markers |\n' +
-                '| `--filter` | `-k` | Pytest -k filter |\n' +
-                '| `--iterations` | `-i` | Iterations (max 10) |\n\n' +
+                '**Option 1: Comment on this PR** with `/eval`:\n\n' +
+                '```\n/eval\n```\n\n' +
+                'Or with options (one per line):\n\n' +
+                '```\n/eval\nmodel: gpt-4o\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
+                '| Option | Description |\n|--------|-------------|\n' +
+                '| `model` | Model(s) to test (comma-separated) |\n' +
+                '| `markers` | Pytest markers (default: regression) |\n' +
+                '| `filter` | Pytest -k filter |\n' +
+                '| `iterations` | Number of runs, max 10 |\n\n' +
                 `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n`;
             }
 
