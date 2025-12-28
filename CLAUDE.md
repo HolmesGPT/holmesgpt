@@ -120,36 +120,33 @@ poetry run mypy
 
 **Running LLM Tests**:
 ```bash
-# IMPORTANT: Always use RUN_LIVE=true for accurate test results
-# This ensures tests match real-world behavior
-
 # Run all LLM tests
-RUN_LIVE=true poetry run pytest -m 'llm' --no-cov
+poetry run pytest -m 'llm' --no-cov
 
 # Run specific test - IMPORTANT: Use -k flag, NOT full test path!
 # CORRECT - use -k flag with test name pattern:
-RUN_LIVE=true poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
-RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
+poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
+poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
 
 # WRONG - DO NOT specify full test path with brackets:
-# RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
+# poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
 # This syntax fails when environment variables are passed!
 
 # Run regression tests (easy marker) - all should pass with ITERATIONS=10
-RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
-RUN_LIVE=true ITERATIONS=10 poetry run pytest -m 'llm and easy' --no-cov
+poetry run pytest -m 'llm and easy' --no-cov
+ITERATIONS=10 poetry run pytest -m 'llm and easy' --no-cov
 
 # Run tests in parallel
-RUN_LIVE=true poetry run pytest tests/llm/ -n 6
+poetry run pytest tests/llm/ -n 6
 
 # Test with different models
 # Note: When using Anthropic models, set CLASSIFIER_MODEL to OpenAI (Anthropic not supported as classifier)
-RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
+MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
 
 # Setting environment variables - IMPORTANT:
 # Environment variables must be set BEFORE the poetry command, NOT as pytest arguments
 # CORRECT:
-RUN_LIVE=true EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
+EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
 
 # WRONG - this won't work:
 # poetry run pytest EVAL_SETUP_TIMEOUT=600 -m 'llm' -k "slow_test"
@@ -164,7 +161,7 @@ RUN_LIVE=true EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" -
 **Environment Variables**:
 - `MODEL`: LLM model(s) to use - supports comma-separated list (e.g., `gpt-4.1` or `gpt-4.1,anthropic/claude-sonnet-4-20250514`)
 - `CLASSIFIER_MODEL`: Model for scoring answers (defaults to MODEL)
-- `RUN_LIVE=true`: Execute real commands (recommended for all tests)
+- `RUN_LIVE=true`: Execute real commands (now enabled by default)
 - `ITERATIONS=<number>`: Run each test multiple times
 - `UPLOAD_DATASET=true`: Sync dataset to Braintrust
 - `EXPERIMENT_ID`: Custom experiment name for tracking
@@ -177,22 +174,40 @@ RUN_LIVE=true EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" -
 
 ```bash
 # Run tests multiple times for reliability
-RUN_LIVE=true ITERATIONS=100 poetry run pytest tests/llm/test_ask_holmes.py -k "flaky_test"
+ITERATIONS=100 poetry run pytest tests/llm/test_ask_holmes.py -k "flaky_test"
 
 # Model comparison workflow
-RUN_LIVE=true EXPERIMENT_ID=gpt41_baseline MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
-RUN_LIVE=true EXPERIMENT_ID=claude_opus41_test MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
+EXPERIMENT_ID=gpt41_baseline MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
+EXPERIMENT_ID=claude_opus41_test MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
 
 # Debug with verbose output
-RUN_LIVE=true poetry run pytest -vv -s tests/llm/test_ask_holmes.py -k "failing_test" --no-cov
+poetry run pytest -vv -s tests/llm/test_ask_holmes.py -k "failing_test" --no-cov
 
 # List tests by marker
 poetry run pytest -m "llm and not network" --collect-only -q
 
 # Test marker combinations
-RUN_LIVE=true poetry run pytest -m "llm and easy" --no-cov  # Regression tests
-RUN_LIVE=true poetry run pytest -m "llm and not easy" --no-cov  # Non-regression tests
+poetry run pytest -m "llm and easy" --no-cov  # Regression tests
+poetry run pytest -m "llm and not easy" --no-cov  # Non-regression tests
 ```
+
+## Tag Management Guidelines
+
+**Before adding new tags**:
+1. Check existing tags in `pyproject.toml` markers section
+2. Ask user permission for new tags  
+3. Use descriptive, hyphenated names (e.g., `grafana-dashboard`, not `grafana_dashboard`)
+
+**Tag naming conventions**:
+- Service-specific: `grafana-dashboard`, `prometheus-metrics`, `loki`
+- Functionality: `question-answer`, `chain-of-causation` 
+- Difficulty: `easy`, `medium`, `hard`
+- Infrastructure: `kubernetes`, `database`, `traces`
+
+**Adding new tags workflow**:
+1. Add tag to `pyproject.toml` markers section with description
+2. Apply tag to relevant test files
+3. Verify tag filtering works: `pytest -m "new-tag" --collect-only`
 
 **Available Test Markers (same as eval tags)**:
 Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask the user before adding a new one.
@@ -238,7 +253,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - New toolsets require integration tests
 - Complex investigations should have LLM evaluation tests
 - Maintain 40% minimum test coverage
-- **ALWAYS use `RUN_LIVE=true` when running LLM tests** to ensure tests match real-world behavior
+- **Live execution is now enabled by default** to ensure tests match real-world behavior
 
 **Pull Request Process**:
 - PRs require maintainer approval
@@ -287,6 +302,29 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 ### Running and Testing Evals
 
+## 🚨 CRITICAL: Always Test Your Changes
+
+**NEVER submit test changes without verification**:
+
+### Required Testing Workflow:
+1. **Setup Phase**: `poetry run pytest -k "test_name" --only-setup --no-cov`
+2. **Full Test**: `poetry run pytest -k "test_name" --no-cov`
+3. **Verify Results**: Ensure 100% pass rate and expected behavior
+
+### When to Test:
+- ✅ After creating new tests
+- ✅ After modifying existing tests  
+- ✅ After refactoring shared infrastructure
+- ✅ After performance optimizations
+- ✅ After adding/changing tags
+
+### Red Flags - Never Skip Testing:
+- ❌ "The changes look good" without running
+- ❌ "It's just a small change"
+- ❌ "I'll test it later"
+
+**Testing is Part of Development**: Testing is not optional - it's an integral part of the development process. Untested code is broken code.
+
 **Testing Methodology:**
 - Phase 1: Test setup with `--only-setup` flag first
 - Phase 2: Run full test after confirming setup works
@@ -296,6 +334,44 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 **Common Flags:**
 - `--skip-cleanup`: Keep resources after test (useful for debugging setup)
 - `--skip-setup`: Skip before_test commands (useful for iterative testing)
+
+## Shared Infrastructure Pattern
+
+**When to use shared infrastructure**:
+- Multiple tests use the same service (Grafana, Loki, Prometheus)
+- Service configuration is standardized across tests
+
+**Implementation**:
+```bash
+# Create shared manifest in tests/llm/fixtures/shared/servicename.yaml
+# Use in tests:
+kubectl apply -f ../../shared/servicename.yaml -n app-<testid>
+```
+
+**Benefits**:
+- Single place for version updates
+- Consistent configuration across tests
+- Reduced maintenance overhead
+- Follows established pattern (Loki, Prometheus, Grafana)
+
+## Setup Verification Best Practices
+
+**Prefer kubectl exec over port forwarding for setup verification**:
+```bash
+# GOOD - kubectl exec pattern (no port conflicts)
+kubectl exec -n namespace deployment/service -- wget -q -O- http://localhost:port/health
+
+# AVOID - port forward for setup verification (causes conflicts)
+kubectl port-forward svc/service port:port &
+curl localhost:port/health
+kill $PORTFWD_PID
+```
+
+**Performance optimization guidelines**:
+- Use `sleep 1` instead of `sleep 5` for most retry loops
+- Remove sleeps after straightforward operations (port forward start)
+- Reduce timeout values: 60s for pod readiness, 30s for API verification
+- Question every sleep - many are unnecessary
 
 **Race Condition Handling:**
 Never use bare `kubectl wait` immediately after resource creation. Use retry loops:
@@ -313,10 +389,10 @@ for i in {1..60}; do
     POD_READY=true
     break
   fi
-  sleep 5
+  sleep 1
 done
 if [ "$POD_READY" = false ]; then
-  echo "❌ Pod failed to become ready after 300 seconds"
+  echo "❌ Pod failed to become ready after 60 seconds"
   kubectl logs -l app=myapp --tail=20  # Diagnostic info
   exit 1  # CRITICAL: Fail the test early
 fi
