@@ -1,9 +1,9 @@
-import json
 import pytest
 from pydantic import BaseModel
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.models import ToolCallResult, format_tool_result_data
+from holmes.utils.toon_utils import encode_to_toon
 
 
 class DummyResult(BaseModel):
@@ -31,7 +31,7 @@ def test_get_stringified_data_none_and_str(data, expected):
 def test_get_stringified_data_base_model():
     dummy = DummyResult(x=10, y="hello")
     result = StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data=dummy)
-    expected = dummy.model_dump_json()
+    expected = encode_to_toon(dummy)
     assert result.get_stringified_data() == expected
 
 
@@ -44,7 +44,7 @@ def test_get_stringified_data_base_model():
 )
 def test_get_stringified_data_json_serializable(data):
     result = StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data=data)
-    expected = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+    expected = encode_to_toon(data)
     assert result.get_stringified_data() == expected
 
 
@@ -96,13 +96,13 @@ def test_default_and_custom_fields(status, error, return_code, url, invocation, 
             StructuredToolResultStatus.NO_DATA,
             None,
             DummyResult(x=2, y="test"),
-            DummyResult(x=2, y="test").model_dump_json(),
+            encode_to_toon(DummyResult(x=2, y="test")),
         ),
         (
             StructuredToolResultStatus.SUCCESS,
             None,
             {"k": 1},
-            json.dumps({"k": 1}, separators=(",", ":"), ensure_ascii=False),
+            encode_to_toon({"k": 1}),
         ),
         (
             StructuredToolResultStatus.SUCCESS,
@@ -140,7 +140,7 @@ def test_format_tool_result_data_base_model_non_error():
     tool_name = "test_tool"
     expected = (
         f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
-        + dummy.model_dump_json()
+        + encode_to_toon(dummy)
     )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
@@ -152,7 +152,7 @@ def test_format_tool_result_data_json_serializable_non_error():
     tool_name = "test_tool"
     expected = (
         f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
-        + json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+        + encode_to_toon(data)
     )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 

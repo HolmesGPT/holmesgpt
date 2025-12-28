@@ -34,11 +34,8 @@ from rich.console import Console
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.plugins.prompts import load_and_render_prompt
-from holmes.core.transformers import (
-    registry,
-    TransformerError,
-    Transformer,
-)
+from holmes.core.transformers import registry, TransformerError, Transformer
+from holmes.utils.toon_utils import encode_to_toon
 
 if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
@@ -93,14 +90,20 @@ class StructuredToolResult(BaseModel):
 
         if isinstance(self.data, str):
             return self.data
-        else:
+
+        try:
+            return encode_to_toon(self.data)
+        except Exception:
+            logger.debug("Failed to encode tool data to TOON", exc_info=True)
             try:
-                if isinstance(self.data, BaseModel):
-                    return self.data.model_dump_json()
-                else:
-                    return json.dumps(
-                        self.data, separators=(",", ":"), ensure_ascii=False
-                    )
+                serializable_data = (
+                    self.data.model_dump(mode="json")
+                    if isinstance(self.data, BaseModel)
+                    else self.data
+                )
+                return json.dumps(
+                    serializable_data, separators=(",", ":"), ensure_ascii=False
+                )
             except Exception:
                 return str(self.data)
 

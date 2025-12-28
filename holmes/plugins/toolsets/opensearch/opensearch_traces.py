@@ -44,7 +44,7 @@ class GetTracesFields(Tool):
 
             if self._cache:
                 cached_response = self._cache.get(TRACES_FIELDS_CACHE_KEY, None)
-                if cached_response:
+                if cached_response is not None:
                     logging.debug("traces fields returned from cache")
                     return StructuredToolResult(
                         status=StructuredToolResultStatus.SUCCESS,
@@ -76,7 +76,7 @@ class GetTracesFields(Tool):
                 headers=headers,
             )
             logs_response.raise_for_status()
-            response = json.dumps(logs_response.json())
+            response = logs_response.json()
             if self._cache:
                 self._cache[TRACES_FIELDS_CACHE_KEY] = response
             return StructuredToolResult(

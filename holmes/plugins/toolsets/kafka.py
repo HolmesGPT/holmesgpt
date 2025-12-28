@@ -1,7 +1,6 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import yaml  # type: ignore
 from confluent_kafka.admin import (
     AdminClient,
     BrokerMetadata,
@@ -89,16 +88,10 @@ def convert_to_dict(obj: Any) -> Union[str, Dict]:
     return obj
 
 
-def format_list_consumer_group_errors(errors: Optional[List]) -> str:
-    errors_text = ""
-    if errors:
-        if len(errors) > 1:
-            errors_text = "# Some errors happened while listing consumer groups:\n\n"
-        errors_text = errors_text + "\n\n".join(
-            [f"## Error:\n{str(error)}" for error in errors]
-        )
-
-    return errors_text
+def format_list_consumer_group_errors(errors: Optional[List[Any]]) -> list[str]:
+    if not errors:
+        return []
+    return [str(error) for error in errors]
 
 
 class BaseKafkaTool(Tool):
@@ -167,9 +160,8 @@ class ListKafkaConsumers(BaseKafkaTool):
 
             futures = client.list_consumer_groups()
             list_groups_result: ListConsumerGroupsResult = futures.result()
-            groups_text = ""
+            groups: list[dict[str, Any]] = []
             if list_groups_result.valid and len(list_groups_result.valid) > 0:
-                groups = []
                 for group in list_groups_result.valid:
                     groups.append(
                         {
@@ -179,18 +171,17 @@ class ListKafkaConsumers(BaseKafkaTool):
                             "type": str(group.type),
                         }
                     )
-                groups_text = yaml.dump({"consumer_groups": groups})
-            else:
-                groups_text = "No consumer group was found"
 
-            errors_text = format_list_consumer_group_errors(list_groups_result.errors)
+            errors = format_list_consumer_group_errors(list_groups_result.errors)
 
-            result_text = groups_text
-            if errors_text:
-                result_text = result_text + "\n\n" + errors_text
+            result_data: dict[str, Any] = {"consumer_groups": groups}
+            if not groups:
+                result_data["message"] = "No consumer group was found"
+            if errors:
+                result_data["errors"] = errors
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=result_text,
+                data=result_data,
                 params=params,
             )
         except Exception as e:
@@ -509,20 +500,19 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
                             convert_to_dict(consumer_group_description)
                         )
 
-            errors_text = format_list_consumer_group_errors(groups.errors)
+            errors = format_list_consumer_group_errors(groups.errors)
 
-            result_text = None
-            if len(consumer_groups) > 0:
-                result_text = yaml.dump(consumer_groups)
-            else:
-                result_text = f"No consumer group were found for topic {topic_name}"
-
-            if errors_text:
-                result_text = result_text + "\n\n" + errors_text
+            result_data: dict[str, Any] = {"consumer_groups": consumer_groups}
+            if not consumer_groups:
+                result_data[
+                    "message"
+                ] = f"No consumer group were found for topic {topic_name}"
+            if errors:
+                result_data["errors"] = errors
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=result_text,
+                data=result_data,
                 params=params,
             )
         except Exception as e:
