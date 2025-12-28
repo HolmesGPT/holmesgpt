@@ -14,7 +14,7 @@ nav:
     - Home: index.md
     - Installation:
           - "CLI": installation/cli-installation.md
-          - "UI (3rd party)": installation/ui-installation.md
+          - "Web UI (3rd party)": installation/ui-installation.md
           - "Slack Bot (3rd party)": installation/slack-installation.md
           - "Backstage (3rd party)": installation/backstage-integration.md
           - "K9s": installation/k9s-installation.md
@@ -41,11 +41,45 @@ nav:
           - "Using Multiple Providers": ai-providers/using-multiple-providers.md
     - "Data Sources":
           - "Overview": data-sources/index.md
-          - "Built-in Toolsets": data-sources/builtin-toolsets/index.md
+          - "Built-in Toolsets":
+                - "Overview": data-sources/builtin-toolsets/index.md
+                - "AKS Node Health": data-sources/builtin-toolsets/aks-node-health.md
+                - "ArgoCD": data-sources/builtin-toolsets/argocd.md
+                - "AWS (MCP)": data-sources/builtin-toolsets/aws.md
+                - "Azure Kubernetes Service": data-sources/builtin-toolsets/aks.md
+                - "Azure SQL Database": data-sources/builtin-toolsets/azure-sql.md
+                - "Bash": data-sources/builtin-toolsets/bash.md
+                - "Cilium": data-sources/builtin-toolsets/cilium.md
+                - "Confluence": data-sources/builtin-toolsets/confluence.md
+                - "Coralogix": data-sources/builtin-toolsets/coralogix-logs.md
+                - "DataDog": data-sources/builtin-toolsets/datadog.md
+                - "Datetime": data-sources/builtin-toolsets/datetime.md
+                - "Docker": data-sources/builtin-toolsets/docker.md
+                - "GitHub": data-sources/builtin-toolsets/github.md
+                - "Grafana Dashboards": data-sources/builtin-toolsets/grafanadashboards.md
+                - "Loki": data-sources/builtin-toolsets/grafanaloki.md
+                - "Tempo": data-sources/builtin-toolsets/grafanatempo.md
+                - "Helm": data-sources/builtin-toolsets/helm.md
+                - "Internet": data-sources/builtin-toolsets/internet.md
+                - "Kafka": data-sources/builtin-toolsets/kafka.md
+                - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
+                - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
+                - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
+                - "New Relic": data-sources/builtin-toolsets/newrelic.md
+                - "Notion": data-sources/builtin-toolsets/notion.md
+                - "OpenSearch logs": data-sources/builtin-toolsets/opensearch-logs.md
+                - "OpenSearch status": data-sources/builtin-toolsets/opensearch-status.md
+                - "OpenShift": data-sources/builtin-toolsets/openshift.md
+                - "Prometheus": data-sources/builtin-toolsets/prometheus.md
+                - "RabbitMQ": data-sources/builtin-toolsets/rabbitmq.md
+                - "Robusta": data-sources/builtin-toolsets/robusta.md
+                - "ServiceNow": data-sources/builtin-toolsets/servicenow.md
+                - "Slab": data-sources/builtin-toolsets/slab.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
           - "Adding Permissions for Additional Resources": data-sources/permissions.md
     - Benchmarks:
+          - "Overview": development/evaluations/index.md
           - "Latest Results": development/evaluations/latest-results.md
           - "Historical Results":
                 - "Overview": development/evaluations/history/index.md

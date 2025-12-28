@@ -1,6 +1,6 @@
-# Install Robusta Slack Bot (3rd party)
+# Install Robusta Slack Bot (3&#8203;rd party)
 
-First install Robusta SaaS, then tag HolmesGPT in any Slack message for instant analysis.
+First install [Robusta SaaS](/installation/ui-installation/), then tag HolmesGPT in any Slack message for instant analysis.
 
 ![Robusta Slack Bot powered by Holmes](../assets/RobustaSlackBot-Poweredby-Holmes.png)
 
