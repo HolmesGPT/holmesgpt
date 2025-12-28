@@ -63,7 +63,7 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 The `response_format` field allows you to request structured JSON output from the AI. This is useful when you need the response in a specific format for programmatic processing.
 
 !!! note
-    HolmesGPT automatically enables `strict: true` for structured output to ensure the response matches your schema exactly. Models that don't support strict mode will have this parameter automatically dropped.
+    HolmesGPT automatically enables `strict: true` for structured output to ensure the response matches your schema exactly. Set `STRUCTURED_OUTPUT_STRICT_MODE=false` to disable this if your model doesn't support strict mode.
 
 **Format:**
 

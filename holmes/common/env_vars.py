@@ -72,6 +72,10 @@ TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS = load_bool(
     "TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS", False
 )
 
+# Auto-enable strict mode for structured output (response_format with json_schema)
+# Set to False if your model doesn't support strict mode and causes errors
+STRUCTURED_OUTPUT_STRICT_MODE = load_bool("STRUCTURED_OUTPUT_STRICT_MODE", True)
+
 MAX_OUTPUT_TOKEN_RESERVATION = int(
     os.environ.get("MAX_OUTPUT_TOKEN_RESERVATION", 16384)
 )  ## 16k

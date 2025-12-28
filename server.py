@@ -39,6 +39,7 @@ from holmes.common.env_vars import (
     ENABLE_TELEMETRY,
     DEVELOPMENT_MODE,
     SENTRY_TRACES_SAMPLE_RATE,
+    STRUCTURED_OUTPUT_STRICT_MODE,
 )
 from holmes.config import Config
 from holmes.core.conversations import (
@@ -350,13 +351,14 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 def ensure_strict_response_format(response_format: Optional[dict]) -> Optional[dict]:
     """
     Ensure response_format has strict: true if json_schema is provided.
-    Models that don't support strict mode will have it dropped via drop_params=True.
+    Controlled by STRUCTURED_OUTPUT_STRICT_MODE env var (default: True).
     """
     if response_format is None:
         return None
 
     if (
-        response_format.get("type") == "json_schema"
+        STRUCTURED_OUTPUT_STRICT_MODE
+        and response_format.get("type") == "json_schema"
         and "json_schema" in response_format
     ):
         # Create a copy to avoid mutating the original
