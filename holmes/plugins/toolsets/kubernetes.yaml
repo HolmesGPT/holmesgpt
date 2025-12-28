@@ -109,12 +109,33 @@ toolsets:
             exit 1
           fi
 
-          API_PREFIX=$(echo "$API_INFO" | awk 'match($0, /^.*[ ](true|false)/) {print substr($0, 1, RLENGTH)}')
+          # Extract NAMESPACED value 
+          if [[ "$API_INFO" == *" true "* ]]; then
+            NAMESPACED="true"
+            PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
+          elif [[ "$API_INFO" == *" false "* ]]; then
+            NAMESPACED="false"
+            PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
+          else
+            echo "Error: Could not find NAMESPACED field (true/false) in API info" >&2
+            exit 1
+          fi
 
-          # Parse the fields using awk (handles both with and without shortname)
-          RESOURCE_NAME=$(echo "$API_PREFIX" | awk '{print $1}')
-          API_VERSION=$(echo "$API_PREFIX" | awk '{print $(NF-1)}')  # Second-to-last field
-          NAMESPACED=$(echo "$API_PREFIX" | awk '{print $NF}')       # Last field
+          # Trim trailing spaces from prefix and collapse internal spaces
+          PREFIX=$(echo "$PREFIX" | sed 's/  *$//' | sed 's/  */ /g')
+
+          IFS=' ' read -ra PREFIX_FIELDS <<< "$PREFIX"
+          FIELD_COUNT=0
+          for field in "${PREFIX_FIELDS[@]}"; do
+            ((FIELD_COUNT++))
+          done
+
+          RESOURCE_NAME="${PREFIX_FIELDS[0]}"
+          if [ $FIELD_COUNT -ge 2 ]; then
+            API_VERSION="${PREFIX_FIELDS[$((FIELD_COUNT - 1))]}"
+          else
+            API_VERSION=""
+          fi
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
@@ -256,12 +277,31 @@ toolsets:
             exit 1
           fi
 
-          API_PREFIX=$(echo "$API_INFO" | awk 'match($0, /^.*[ ](true|false)/) {print substr($0, 1, RLENGTH)}')
+          if [[ "$API_INFO" == *" true "* ]]; then
+            NAMESPACED="true"
+            PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
+          elif [[ "$API_INFO" == *" false "* ]]; then
+            NAMESPACED="false"
+            PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
+          else
+            echo "Error: Could not find NAMESPACED field (true/false) in API info" >&2
+            exit 1
+          fi
 
-          # Parse the fields using awk (handles both with and without shortname)
-          RESOURCE_NAME=$(echo "$API_PREFIX" | awk '{print $1}')
-          API_VERSION=$(echo "$API_PREFIX" | awk '{print $(NF-1)}')  # Second-to-last field
-          NAMESPACED=$(echo "$API_PREFIX" | awk '{print $NF}')       # Last field
+          PREFIX=$(echo "$PREFIX" | sed 's/  *$//' | sed 's/  */ /g')
+
+          IFS=' ' read -ra PREFIX_FIELDS <<< "$PREFIX"
+          FIELD_COUNT=0
+          for field in "${PREFIX_FIELDS[@]}"; do
+            ((FIELD_COUNT++))
+          done
+          RESOURCE_NAME="${PREFIX_FIELDS[0]}"
+
+          if [ $FIELD_COUNT -ge 2 ]; then
+            API_VERSION="${PREFIX_FIELDS[$((FIELD_COUNT - 1))]}"
+          else
+            API_VERSION=""
+          fi
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
