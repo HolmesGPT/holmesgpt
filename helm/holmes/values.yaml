@@ -65,6 +65,8 @@ toolsets:
     enabled: true
   prometheus/metrics:
     enabled: true
+  runbook:
+    enabled: true
 mcp_servers: {}
 
 resources:

@@ -263,6 +263,7 @@ class RunbookToolset(Toolset):
             ],
             is_default=True,
             config=config,
+            enabled=True,
         )
 
     def get_example_config(self) -> Dict[str, Any]:
