@@ -126,8 +126,8 @@ jobs:
               model = validate(parsed.model, 'model');
               markers = validate(parsed.markers, 'markers');
               filter = validate(parsed.filter, 'filter');
-              iterations = parsed.iterations;
-              if ([model, markers, filter].includes(null)) return;
+              iterations = validate(parsed.iterations, 'iterations');
+              if ([model, markers, filter, iterations].includes(null)) return;
               isManual = true;
               triggerSource = '/eval comment';
               prNumber = context.issue.number;
