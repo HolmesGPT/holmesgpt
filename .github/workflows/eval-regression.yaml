@@ -12,7 +12,7 @@ on:
         required: false
         default: ''
       model:
-        description: 'Model(s) to test (comma-separated, e.g., gpt-4.1,gpt-4o)'
+        description: 'Model(s) to test. Examples: gpt-4.1, gpt-4o, anthropic/claude-sonnet-4-20250514, azure/gpt-4.1, bedrock/anthropic.claude-sonnet-4-20250514-v1:0, gemini/gemini-1.5-pro, vertex_ai/claude-3-5-sonnet, ollama/llama2. Comma-separated for multiple.'
         required: false
         default: ''
       markers:
