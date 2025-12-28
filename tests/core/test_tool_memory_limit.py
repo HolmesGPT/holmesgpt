@@ -12,7 +12,6 @@ class TestGetUlimitPrefix:
 
     def test_returns_ulimit_command_with_default(self, monkeypatch):
         """Test ulimit prefix format with default value."""
-        monkeypatch.delenv("TOOL_MEMORY_LIMIT_MB", raising=False)
         result = get_ulimit_prefix()
         expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
         assert result == f"ulimit -v {expected_kb} || true; "
@@ -55,6 +54,5 @@ class TestCheckOomAndAppendHint:
 
     def test_hint_shows_default_when_not_configured(self, monkeypatch):
         """Test that hint shows default when env var not set."""
-        monkeypatch.delenv("TOOL_MEMORY_LIMIT_MB", raising=False)
         result = check_oom_and_append_hint("Killed", 137)
         assert f"current limit: {TOOL_MEMORY_LIMIT_MB}" in result
