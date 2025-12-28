@@ -13,29 +13,15 @@ inputs:
     description: 'String to identify bot comments for updates'
     required: false
     default: '## Results of HolmesGPT evals'
-  run-id:
-    description: 'Unique run identifier (e.g., github.run_id) to track comments per run'
+  delete-previous:
+    description: 'Whether to delete previous bot comments'
     required: false
-    default: ''
-  mode:
-    description: 'Mode: "start" to post initial comment, "update" to update existing comment with results'
-    required: false
-    default: 'update'
-  start-message:
-    description: 'Message to show when evals start'
-    required: false
-    default: '⏳ **Evaluation in progress...**\n\nThis comment will be updated when the evaluation completes.'
-
-outputs:
-  comment-id:
-    description: 'The ID of the created or updated comment'
-    value: ${{ steps.post-comment.outputs.comment-id }}
+    default: 'true'
 
 runs:
   using: 'composite'
   steps:
     - name: Post or update PR comment
-      id: post-comment
       uses: actions/github-script@v7
       with:
         retries: 3
@@ -50,13 +36,16 @@ runs:
               return;
             }
 
-            const mode = '${{ inputs.mode }}';
-            const runId = '${{ inputs.run-id }}' || context.runId.toString();
-            const commentIdentifier = '${{ inputs.comment-identifier }}';
-            // Create a unique identifier for this specific run
-            const runIdentifier = `eval-run-${runId}`;
+            // Read the report file
+            const reportPath = '${{ inputs.report-file }}';
+            if (!fs.existsSync(reportPath)) {
+              console.log(`Report file not found: ${reportPath}`);
+              return;
+            }
 
-            // Find existing comment for THIS run only (paginate to get all comments)
+            const reportContent = fs.readFileSync(reportPath, 'utf8');
+
+            // Find existing bot comments (paginate to get all comments)
             const allComments = await github.paginate(
               github.rest.issues.listComments,
               {
@@ -67,62 +56,29 @@ runs:
               }
             );
 
-            const existingComment = allComments.find(comment =>
+            const commentIdentifier = '${{ inputs.comment-identifier }}';
+            const botComments = allComments.filter(comment =>
               comment.user.type === 'Bot' &&
-              comment.body.includes(`<!-- ${runIdentifier} -->`)
+              comment.body.includes(commentIdentifier)
             );
 
-            let commentBody;
-            if (mode === 'start') {
-              // Starting mode: post initial "in progress" message
-              const startMessage = `${{ inputs.start-message }}`;
-              const commitSha = context.sha.substring(0, 7);
-              commentBody = `<!-- ${runIdentifier} -->\n${commentIdentifier}\n\n**Commit:** \`${commitSha}\`\n\n${startMessage}`;
-            } else {
-              // Update mode: post final results
-              const reportPath = '${{ inputs.report-file }}';
-              if (!fs.existsSync(reportPath)) {
-                console.log(`Report file not found: ${reportPath}`);
-                // If no report file but we're in update mode and have an existing comment, update with error
-                if (existingComment) {
-                  await github.rest.issues.updateComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    comment_id: existingComment.id,
-                    body: existingComment.body.replace(
-                      /⏳ \*\*Evaluation in progress\.\.\.\*\*[\s\S]*$/,
-                      '❌ **Evaluation failed** - No report file generated.'
-                    )
-                  });
-                }
-                return;
+            // Post new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `<!-- ${commentIdentifier} -->\n${reportContent}`
+            });
+
+            // Delete old comments if requested
+            if ('${{ inputs.delete-previous }}' === 'true' && botComments.length > 0) {
+              for (const comment of botComments) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id
+                });
               }
-
-              const reportContent = fs.readFileSync(reportPath, 'utf8');
-              const commitSha = context.sha.substring(0, 7);
-              commentBody = `<!-- ${runIdentifier} -->\n${commentIdentifier}\n\n**Commit:** \`${commitSha}\`\n\n${reportContent}`;
-            }
-
-            if (existingComment) {
-              // Update existing comment for this run
-              const result = await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: commentBody
-              });
-              console.log(`Updated comment ${existingComment.id} for run ${runId}`);
-              core.setOutput('comment-id', existingComment.id);
-            } else {
-              // Create new comment for this run
-              const result = await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: commentBody
-              });
-              console.log(`Created new comment ${result.data.id} for run ${runId}`);
-              core.setOutput('comment-id', result.data.id);
             }
           } catch (e) {
             console.error('Error posting comment:', e);

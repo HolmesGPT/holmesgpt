@@ -56,31 +56,6 @@ def get_output_format_for_investigation(
     return output_format
 
 
-def extract_sections_from_response_format(
-    response_format: Optional[Dict[str, Any]],
-) -> Optional[InputSectionsDataType]:
-    """
-    Extract section names from a response_format schema.
-    This is used for incorrect tool call detection when using custom response formats.
-
-    Returns a dict of property names to empty strings (descriptions not needed for detection).
-    Returns None if the response_format doesn't have extractable properties.
-    """
-    if not response_format:
-        return None
-
-    with suppress(Exception):
-        json_schema = response_format.get("json_schema", {})
-        schema = json_schema.get("schema", {})
-        properties = schema.get("properties", {})
-
-        if properties:
-            # Return property names as sections (descriptions not needed for detection)
-            return {name: "" for name in properties.keys()}
-
-    return None
-
-
 def combine_sections(sections: Dict) -> str:
     content = ""
     for section_title, section_content in sections.items():

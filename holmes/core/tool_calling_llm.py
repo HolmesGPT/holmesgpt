@@ -29,7 +29,6 @@ from holmes.core.investigation_structured_output import (
     DEFAULT_SECTIONS,
     REQUEST_STRUCTURED_OUTPUT_FROM_LLM,
     InputSectionsDataType,
-    extract_sections_from_response_format,
     get_output_format_for_investigation,
     is_response_an_incorrect_tool_call,
 )
@@ -309,14 +308,6 @@ class ToolCallingLLM:
         trace_span=DummySpan(),
         tool_number_offset: int = 0,
     ) -> LLMResult:
-        # Extract sections from response_format if not provided (needed for incorrect tool call detection)
-        if (
-            sections is None
-            and response_format is not None
-            and isinstance(response_format, dict)
-        ):
-            sections = extract_sections_from_response_format(response_format)
-
         tool_calls: list[
             dict
         ] = []  # Used for preventing repeated tool calls. potentially reset after compaction
@@ -817,14 +808,6 @@ class ToolCallingLLM:
         This function DOES NOT call llm.completion(stream=true).
         This function streams holmes one iteration at a time instead of waiting for all iterations to complete.
         """
-
-        # Extract sections from response_format if not provided (needed for incorrect tool call detection)
-        if (
-            sections is None
-            and response_format is not None
-            and isinstance(response_format, dict)
-        ):
-            sections = extract_sections_from_response_format(response_format)
 
         # Process tool decisions if provided
         if msgs and tool_decisions:
