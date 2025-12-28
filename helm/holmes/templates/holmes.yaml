@@ -66,7 +66,7 @@ spec:
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
           - name: ENABLE_TELEMETRY
-            value: {{ .Values.enableTelemetry | quote }}
+            value: {{ include "holmes.enableTelemetry" . | quote }}
           - name: SENTRY_DSN
             value: {{ .Values.sentryDSN }}
           {{ if .Values.certificate -}}
