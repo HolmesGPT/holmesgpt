@@ -62,6 +62,9 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 
 The `response_format` field allows you to request structured JSON output from the AI. This is useful when you need the response in a specific format for programmatic processing.
 
+!!! note
+    HolmesGPT automatically enables `strict: true` for structured output to ensure the response matches your schema exactly. Models that don't support strict mode will have this parameter automatically dropped.
+
 **Format:**
 
 ```json
@@ -77,8 +80,7 @@ The `response_format` field allows you to request structured JSON output from th
       },
       "required": ["field1", "field2"],
       "additionalProperties": false
-    },
-    "strict": false
+    }
   }
 }
 ```
@@ -103,8 +105,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
           },
           "required": ["is_healthy", "summary", "issues"],
           "additionalProperties": false
-        },
-        "strict": false
+        }
       }
     }
   }'

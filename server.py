@@ -347,6 +347,27 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
     return False
 
 
+def ensure_strict_response_format(response_format: Optional[dict]) -> Optional[dict]:
+    """
+    Ensure response_format has strict: true if json_schema is provided.
+    Models that don't support strict mode will have it dropped via drop_params=True.
+    """
+    if response_format is None:
+        return None
+
+    if (
+        response_format.get("type") == "json_schema"
+        and "json_schema" in response_format
+    ):
+        # Create a copy to avoid mutating the original
+        result = response_format.copy()
+        result["json_schema"] = response_format["json_schema"].copy()
+        result["json_schema"]["strict"] = True
+        return result
+
+    return response_format
+
+
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
@@ -362,6 +383,9 @@ def chat(chat_request: ChatRequest):
             additional_system_prompt=chat_request.additional_system_prompt,
             runbooks=runbooks,
         )
+
+        # Enable strict mode for structured output (drop_params handles unsupported models)
+        response_format = ensure_strict_response_format(chat_request.response_format)
 
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):
@@ -393,7 +417,7 @@ def chat(chat_request: ChatRequest):
                         msgs=messages,
                         enable_tool_approval=chat_request.enable_tool_approval or False,
                         tool_decisions=chat_request.tool_decisions,
-                        response_format=chat_request.response_format,
+                        response_format=response_format,
                     ),
                     [f.model_dump() for f in follow_up_actions],
                 ),
@@ -402,7 +426,7 @@ def chat(chat_request: ChatRequest):
         else:
             llm_call = ai.messages_call(
                 messages=messages,
-                response_format=chat_request.response_format,
+                response_format=response_format,
             )
 
             # For non-streaming, we need to handle approvals differently
