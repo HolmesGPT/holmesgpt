@@ -35,6 +35,7 @@ from holmes.plugins.toolsets.internet.internet import InternetToolset
 from holmes.plugins.toolsets.internet.notion import NotionToolset
 from holmes.plugins.toolsets.kafka import KafkaToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
+from holmes.plugins.toolsets.oom_kill import OOMKillToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.opensearch.opensearch import OpenSearchToolset
@@ -96,6 +97,7 @@ def load_python_toolsets(
         OpenSearchLogsToolset(),
         OpenSearchTracesToolset(),
         OpenSearchQueryAssistToolset(),
+        OOMKillToolset(),
         CoralogixToolset(),
         RabbitMQToolset(),
         GitToolset(),

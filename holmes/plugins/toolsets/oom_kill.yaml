@@ -1,0 +1,28 @@
+toolsets:
+  oom_kill_bash:
+    description: "DANGEROUS: intentionally allocate ~30GB on the Holmes host to trigger OOM kill for stress testing (no confirmation required)."
+    docs_url: ""
+    icon_url: ""
+    tags:
+      - core
+    prerequisites:
+      - env:
+          - ALLOW_HOLMES_OOMKILL_TOOLSET
+    additional_instructions: |
+      ⚠️ This toolset is intentionally destructive. Only use in controlled environments.
+    tools:
+      - name: "trigger_oom_kill_bash"
+        description: "Allocate ~30GB of memory and hold it for a period to provoke the OOM killer. No confirmation required; intended for automated stress tests."
+        command: |
+          python - <<'PY'
+          import time
+
+          hold_seconds = int("{{ hold_seconds|default(300) }}")
+          if hold_seconds <= 0:
+              raise SystemExit("hold_seconds must be positive.")
+
+          size_bytes = 30 * 1024 * 1024 * 1024
+          print(f"Allocating {size_bytes / 1024 / 1024 / 1024:.0f} GB of memory to intentionally trigger OOM kill; sleeping for {hold_seconds}s")
+          data = bytearray(size_bytes)
+          time.sleep(hold_seconds)
+          PY
