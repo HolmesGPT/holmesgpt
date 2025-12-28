@@ -48,6 +48,15 @@ jobs:
           python-version: '3.12'
           install-kubectl: 'true'
 
+      - name: Post evaluation starting comment
+        if: steps.check-tests.outputs.should-run == 'true'
+        uses: ./.github/actions/post-eval-comment
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          mode: 'start'
+          run-id: ${{ github.run_id }}
+          comment-identifier: '## Results of HolmesGPT evals'
+
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
         id: evals
@@ -72,13 +81,14 @@ jobs:
           # Tests are marked with the 'regression' tag in their test_case.yaml files
           poetry run pytest --no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m 'llm and regression'
       - name: Post evaluation results
-        if: always()
+        if: always() && steps.check-tests.outputs.should-run == 'true'
         uses: ./.github/actions/post-eval-comment
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          mode: 'update'
+          run-id: ${{ github.run_id }}
           report-file: 'evals_report.md'
           comment-identifier: '## Results of HolmesGPT evals'
-          delete-previous: 'true'
       - name: Check test results
         if: always()
         run: |
