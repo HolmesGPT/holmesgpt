@@ -261,111 +261,93 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 ## Eval Notes
 
+### Creating New Eval Tests
+
+**Test Structure:**
+- Use sequential test numbers: check existing tests for next available number
+- Required files: `test_case.yaml`, infrastructure manifests, `toolsets.yaml` (if needed)
+- Use dedicated namespace per test: `app-<testid>` (e.g., `app-177`)
+- All resource names must be unique across tests to prevent conflicts
+
+**Tags:**
+- **CRITICAL**: Only use valid tags from `pyproject.toml` - invalid tags cause test collection failures
+- Check existing tags before adding new ones, ask user permission for new tags
+
+**User Prompts & Expected Outputs:**
+- **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
+- **Match prompt to test**: User prompt must explicitly request what you're testing
+  - BAD: `"Get the dashboard"`
+  - GOOD: `"Get the dashboard and tell me the title, panels, and time range"`
+
+**Infrastructure Setup:**
+- **Don't just test pod readiness** - verify actual service functionality
+- Poll real API endpoints and check for expected content (e.g., `"title":"Home"`, `"type":"welcome"`)
+- **CRITICAL**: Use `exit 1` when setup verification fails to fail the test early
+- **Never use `:latest` container tags** - use specific versions like `grafana/grafana:12.3.1`
+
 ### Running and Testing Evals
-- **ALWAYS use `RUN_LIVE=true`** when testing evals to ensure tests match real-world behavior
-- Use `--skip-cleanup` when troubleshooting setup issues (resources remain after test)
-- Use `--skip-setup` if you are debugging the eval itself
-- **kubectl wait race condition warning**: Never use bare `kubectl wait --for=condition=ready pod -l app=foo` immediately after creating resources. This will fail with "no matching resources found" if the pod hasn't been scheduled yet. Instead, use a retry loop:
-  ```bash
-  # WRONG - fails if pod not scheduled yet
-  kubectl apply -f deployment.yaml
-  kubectl wait --for=condition=ready pod -l app=myapp --timeout=300s  # May fail immediately!
 
-  # CORRECT - retry loop handles race condition
-  kubectl apply -f deployment.yaml
-  POD_READY=false
-  for i in {1..60}; do
-    if kubectl wait --for=condition=ready pod -l app=myapp --timeout=5s 2>/dev/null; then
-      echo "✅ Pod is ready!"
-      POD_READY=true
-      break
-    else
-      echo "⏳ Attempt $i/60: Pod not ready yet, waiting 5s..."
-      sleep 5
-    fi
-  done
+**Testing Methodology:**
+- Phase 1: Test setup with `--only-setup` flag first
+- Phase 2: Run full test after confirming setup works
+- Use background execution for long tests: `nohup ... > logfile.log 2>&1 &`
+- Handle port conflicts: clean up previous test port forwards before running
 
-  if [ "$POD_READY" = false ]; then
-    echo "❌ Pod failed to become ready after 300 seconds"
-    kubectl get pods -l app=myapp  # Show pod status for debugging
-    exit 1
+**Common Flags:**
+- `--skip-cleanup`: Keep resources after test (useful for debugging setup)
+- `--skip-setup`: Skip before_test commands (useful for iterative testing)
+
+**Race Condition Handling:**
+Never use bare `kubectl wait` immediately after resource creation. Use retry loops:
+```bash
+# WRONG - fails if pod not scheduled yet
+kubectl apply -f deployment.yaml
+kubectl wait --for=condition=ready pod -l app=myapp --timeout=300s
+
+# CORRECT - retry loop handles race condition
+kubectl apply -f deployment.yaml
+POD_READY=false
+for i in {1..60}; do
+  if kubectl wait --for=condition=ready pod -l app=myapp --timeout=5s 2>/dev/null; then
+    echo "✅ Pod is ready!"
+    POD_READY=true
+    break
   fi
-  ```
-- Test cases can specify custom runbooks by adding a `runbooks` field in test_case.yaml:
-  - `runbooks: {}` - No runbooks available (empty catalog)
-  - `runbooks: {catalog: [...]}` - Custom runbook catalog with entries pointing to .md files in the same directory
-  - If `runbooks` field is not specified, default system runbooks are used
-- Test cases can specify custom toolsets by creating a separate `toolsets.yaml` file in the test directory:
-  - The `toolsets.yaml` file should follow the format shown in `_EXAMPLE_01_toolsets_config/toolsets.yaml`
-  - You can enable/disable specific toolsets and provide custom configurations
-  - If no `toolsets.yaml` file exists, default system toolsets are used
-  - Note: Do NOT put toolsets configuration directly in test_case.yaml - it must be in a separate file
-- For mock data usage (rare cases), see [Using Mock Data](docs/using-mock-data.md)
+  sleep 5
+done
+if [ "$POD_READY" = false ]; then
+  echo "❌ Pod failed to become ready after 300 seconds"
+  kubectl logs -l app=myapp --tail=20  # Diagnostic info
+  exit 1  # CRITICAL: Fail the test early
+fi
+```
 
-**Realism is Critical:**
+### Eval Best Practices
+
+**Realism:**
 - No fake/obvious logs like "Memory usage stabilized at 800MB"
 - No hints in filenames like "disk_consumer.py" - use realistic names like "training_pipeline.py"
 - No error messages that give away it's simulated like "Simulated processing error"
-- Use real-world scenarios: ML pipelines with checkpoint issues, database connection pools, diagnostic logging left enabled
-- Implement realistic application behavior with proper business logic
-
-**Code Organization Standards:**
-- **ALWAYS use Secrets for scripts**, not inline manifests or ConfigMaps (prevents code visibility with kubectl describe)
-- Follow existing eval patterns - check similar test cases for reference
+- Use real-world scenarios: ML pipelines with checkpoint issues, database connection pools
 - Resource naming should be neutral, not hint at the problem (avoid "broken-pod", "crashloop-app")
-- Each test must use a dedicated namespace `app-<testid>` to prevent conflicts
-- All pod names must be unique across tests
 
-**Architectural Preferences:**
-- Implement the full architecture even if it's complex (e.g., use Loki for log aggregation, not simplified alternatives)
-- Don't take shortcuts - if the scenario needs Loki, implement Loki properly
+**Architecture:**
+- Implement full architecture even if complex (e.g., use Loki for log aggregation, not simplified alternatives)
 - Proper separation of concerns (app → file → Promtail → Loki → Holmes)
-- Use minimal resource footprints (e.g., reduce memory/CPU for Loki in tests)
+- **ALWAYS use Secrets for scripts**, not inline manifests or ConfigMaps
+- Use minimal resource footprints (reduce memory/CPU for test services)
 
-**Expected Analysis Quality:**
-- Holmes should identify root causes from historical data
-- Expected outputs should be comprehensive but realistic
-- Include specific details like file paths, configuration issues, metrics
-- Don't expect Holmes to find information that isn't in the data
-
-**Common Pitfalls to Avoid:**
-- Don't use invalid tags - check pyproject.toml for the list of valid markers/tags
-- Don't add convenience logs that give away the problem
-- Don't write logs that directly state the issue
-- Ensure historical timestamps are properly handled in logs (especially with Loki)
-- Verify that data sources (like Loki) are actually working before expecting Holmes to query them
-
-**Toolset Configuration in Evals:**
-When configuring toolsets in `toolsets.yaml` files, ALL toolset-specific configuration must go under a `config` field:
-
+**Configuration:**
+- Custom runbooks: Add `runbooks` field in test_case.yaml (`runbooks: {}` for empty catalog)
+- Custom toolsets: Create separate `toolsets.yaml` file (never put in test_case.yaml)
+- Toolset config must go under `config` field:
 ```yaml
-# CORRECT - toolset-specific config under 'config' field
 toolsets:
-  grafana/loki:
+  grafana/dashboards:
     enabled: true
-    config:
-      url: http://loki.app-143.svc.cluster.local:3100
-      api_key: ""
-      grafana_datasource_uid: "loki"
-
-  rabbitmq/core:
-    enabled: true
-    config:
-      clusters:
-        - id: rabbitmq
-          username: user
-          password: "{{env.RABBITMQ_PASSWORD}}"
-          management_url: http://localhost:15672
-
-# WRONG - toolset config at top level
-toolsets:
-  grafana/loki:
-    enabled: true
-    url: http://loki.app-143.svc.cluster.local:3100
-    api_key: ""
+    config:  # All toolset-specific config under 'config'
+      url: http://localhost:10177
 ```
-
-The only valid top-level fields for toolsets in YAML are: `enabled`, `name`, `description`, `additional_instructions`, `prerequisites`, `tools`, `docs_url`, `icon_url`, `installation_instructions`, `config`, `url` (for MCP toolsets only).
 
 ## Documentation Lookup
 
