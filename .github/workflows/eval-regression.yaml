@@ -176,9 +176,11 @@ jobs:
               if ([model, markers, filter].includes(null)) return;
             }
 
-            // Apply defaults
+            // Apply defaults - use vars.MODEL if set, otherwise empty (uses litellm default)
             if (!model) model = ${{ toJSON(vars.MODEL) }} || '';
             if (!markers) markers = 'regression';
+
+            console.log(`Using model: ${model || '(default from litellm)'}`);
 
             // Cap iterations
             let iterNum = Math.min(Math.max(parseInt(iterations, 10) || 1, 1), 10);
@@ -345,7 +347,7 @@ jobs:
                 'Or with options (one per line):\n\n' +
                 '```\n/eval\nmodel: gpt-4o\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
                 '| Option | Description |\n|--------|-------------|\n' +
-                '| `model` | Model(s) to test (comma-separated) |\n' +
+                '| `model` | Model(s) to test (default: same as automatic runs) |\n' +
                 '| `markers` | Pytest markers (default: regression) |\n' +
                 '| `filter` | Pytest -k filter |\n' +
                 '| `iterations` | Number of runs, max 10 |\n\n' +
