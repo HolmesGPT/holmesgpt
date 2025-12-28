@@ -167,27 +167,79 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Execute NRQL ({description})"
 
 
+class ListOrganizationAccounts(Tool):
+    def __init__(self, toolset: "NewRelicToolset"):
+        super().__init__(
+            name="newrelic_list_organization_accounts",
+            description="List all accounts names and ids accessible in the New Relic organization. "
+            "This is useful when you need to query data across multiple accounts or need to"
+            "correlate account name to account id to run an NRQL query.",
+            parameters={},
+        )
+        self._toolset = toolset
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self._toolset.nr_api_key:
+            raise ValueError("NewRelic API key is not configured")
+
+        api = NewRelicAPI(
+            api_key=self._toolset.nr_api_key,
+            account_id="0",  # Account ID not needed for org query
+            is_eu_datacenter=self._toolset.is_eu_datacenter,
+        )
+
+        accounts = api.get_organization_accounts()
+
+        result_with_key = {
+            "accounts": accounts,
+            "total_count": len(accounts),
+            "is_eu": self._toolset.is_eu_datacenter,
+        }
+
+        # Build New Relic accounts URL
+        base_url = (
+            "https://one.eu.newrelic.com"
+            if self._toolset.is_eu_datacenter
+            else "https://one.newrelic.com"
+        )
+        accounts_url = f"{base_url}/admin-portal/organizations/organization-detail"
+
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=result_with_key,
+            params=params,
+            url=accounts_url,
+        )
+
+    def get_parameterized_one_liner(self, params) -> str:
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: List organization accounts"
+
+
 class NewrelicConfig(BaseModel):
     nr_api_key: Optional[str] = None
     nr_account_id: Optional[str] = None
     is_eu_datacenter: Optional[bool] = False
+    enable_multi_account: Optional[bool] = False
 
 
 class NewRelicToolset(Toolset):
     nr_api_key: Optional[str] = None
     nr_account_id: Optional[str] = None
     is_eu_datacenter: bool = False
+    enable_multi_account: bool = False
 
     def __init__(self):
+        tools_list = [ExecuteNRQLQuery(self)]
+        if self.enable_multi_account:
+            tools_list.append(ListOrganizationAccounts(self))
+
         super().__init__(
             name="newrelic",
             description="Toolset for interacting with New Relic to fetch logs, traces, and execute freeform NRQL queries",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/",
             icon_url="https://companieslogo.com/img/orig/NEWR-de5fcb2e.png?t=1720244493",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],  # type: ignore
-            tools=[
-                ExecuteNRQLQuery(self),
-            ],
+            tools=tools_list,
             tags=[ToolsetTag.CORE],
         )
         template_file_path = os.path.abspath(
@@ -206,6 +258,7 @@ class NewRelicToolset(Toolset):
             self.nr_account_id = nr_config.nr_account_id
             self.nr_api_key = nr_config.nr_api_key
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
+            self.enable_multi_account = nr_config.enable_multi_account or False
 
             if not self.nr_account_id or not self.nr_api_key:
                 return False, "New Relic account ID or API key is missing"
@@ -220,4 +273,5 @@ class NewRelicToolset(Toolset):
             "nr_api_key": "NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX",
             "nr_account_id": "1234567",
             "is_eu_datacenter": False,
+            "enable_multi_account": False,
         }
