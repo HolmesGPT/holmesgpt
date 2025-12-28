@@ -1,4 +1,4 @@
-# Integration with Backstage (3rd party)
+# Integration with Backstage (3&#8203;rd party)
 
 There’s now a third-party integration that brings **HolmesGPT** by **Robusta.dev** directly into Backstage. The integration is currently available in **closed beta**.
 
