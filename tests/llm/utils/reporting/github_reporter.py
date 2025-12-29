@@ -117,11 +117,15 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
         markdown += "\n"
 
     # Generate detailed table
-    markdown += "\n\n| Test suite | Test case | Status |\n"
-    markdown += "| --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Cost |\n"
+    markdown += "| --- | --- | --- | --- |\n"
+
+    # Track totals for summary row
+    total_time = 0.0
+    total_cost = 0.0
+    time_count = 0
 
     for result in sorted_results:
-        test_suite = result["test_type"]
         test_case_name = result["test_case_name"]
 
         braintrust_url = get_braintrust_url(
@@ -132,7 +136,30 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
             test_case_name = f"[{test_case_name}]({braintrust_url})"
 
         status = TestStatus(result)
-        markdown += f"| {test_suite} | {test_case_name} | {status.markdown_symbol} |\n"
+
+        # Format time
+        exec_time = result.get("execution_time")
+        if exec_time and exec_time > 0:
+            time_str = f"{exec_time:.1f}s"
+            total_time += exec_time
+            time_count += 1
+        else:
+            time_str = "—"
+
+        # Format cost
+        cost = result.get("cost", 0)
+        if cost and cost > 0:
+            cost_str = f"${cost:.4f}"
+            total_cost += cost
+        else:
+            cost_str = "—"
+
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {cost_str} |\n"
+
+    # Add summary row
+    avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
+    total_cost_str = f"${total_cost:.4f}" if total_cost > 0 else "—"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{total_cost_str}** |\n"
 
     return (
         markdown,
