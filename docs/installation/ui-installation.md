@@ -37,7 +37,7 @@ The fastest way to use HolmesGPT is via the managed Robusta SaaS platform.
 3. **Ask Holmes:** Analyze alerts or troubleshoot issues
 
 !!! tip "Multiple AI Providers"
-You can configure multiple AI models for users to choose from in the UI. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for configuration details.
+    You can configure multiple AI models for users to choose from in the UI. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for configuration details.
 
 ## Need Help?
 
