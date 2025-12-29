@@ -4,6 +4,7 @@ expected_output:
 tags:
   - easy
   - kubernetes
+  - regression
 description: 'This test now verifies that the llm does not ask for clarification about what redis is and where to find it. test 80_pvc_storage_class_mismatch checks for the correct answer.'
 before_test: |
   kubectl create namespace app-24 || true
