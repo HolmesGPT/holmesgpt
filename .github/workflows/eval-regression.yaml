@@ -16,9 +16,9 @@ on:
         required: false
         default: ''
       markers:
-        description: 'Pytest markers (e.g., regression, easy, logs). Combined with "llm and"'
+        description: 'Pytest markers (e.g., regression, easy, logs). Combined with "llm and". Leave empty for all LLM tests.'
         required: false
-        default: 'regression'
+        default: ''
       filter:
         description: 'Pytest -k filter (e.g., 09_crashpod, checkout)'
         required: false
@@ -108,7 +108,7 @@ jobs:
             }
 
             function parseComment(body) {
-              const params = { model: '', markers: 'regression', filter: '', iterations: '1' };
+              const params = { model: '', markers: '', filter: '', iterations: '1' };
               const validKeys = new Set(Object.keys(params));
               for (const line of body.split('\n').slice(1)) {
                 const colonIdx = line.indexOf(':');
@@ -155,7 +155,8 @@ jobs:
 
             // Apply defaults
             if (!model) model = ${{ toJSON(vars.MODEL) }} || '';
-            if (!markers) markers = 'regression';
+            // Only apply regression default for automatic triggers, not for manual /eval or workflow_dispatch
+            if (!markers && !isManual) markers = 'regression';
             let iterNum = Math.min(Math.max(parseInt(iterations, 10) || 1, 1), 10);
 
             core.setOutput('model', model);
@@ -165,7 +166,7 @@ jobs:
             core.setOutput('is_manual', isManual.toString());
             core.setOutput('trigger_source', triggerSource);
             core.setOutput('pr_number', prNumber ? prNumber.toString() : '');
-            core.setOutput('marker_expr', `llm and (${markers})`);
+            core.setOutput('marker_expr', markers ? `llm and (${markers})` : 'llm');
             core.setOutput('run_url', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
 
       - name: Check if tests should run
@@ -316,10 +317,20 @@ jobs:
                 '```\n/eval\nmodel: gpt-4o\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
                 '| Option | Description |\n|--------|-------------|\n' +
                 '| `model` | Model(s) to test (default: same as automatic runs) |\n' +
-                '| `markers` | Pytest markers (default: regression) |\n' +
+                '| `markers` | Pytest markers (default: all LLM tests) |\n' +
                 '| `filter` | Pytest -k filter |\n' +
                 '| `iterations` | Number of runs, max 10 |\n\n' +
-                `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n`;
+                `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
+                '\n<details>\n<summary>📋 <b>Valid eval names and markers</b></summary>\n\n' +
+                '**Valid markers:**\n' +
+                '`regression`, `easy`, `medium`, `hard`, `logs`, `metrics`, `kubernetes`, `prometheus`, `loki`, `grafana-dashboard`, ' +
+                '`traces`, `datadog`, `newrelic`, `coralogix`, `runbooks`, `transparency`, `question-answer`, `counting`, ' +
+                '`database`, `storage`, `kafka`, `chain-of-causation`, `compaction`, `network`, `port-forward`\n\n' +
+                '**Example test names (use with `filter`):**\n' +
+                '`09_crashpod`, `17_oom_kill`, `10_image_pull_backoff`, `22_high_latency_dbi_down`, `35_tempo`, ' +
+                '`100a_loki_historical_logs`, `114_checkout_latency_tracing_rebuild`, `177_grafana_home_dashboard`\n\n' +
+                'Full list: Run `ls tests/llm/fixtures/test_ask_holmes/` or `ls tests/llm/fixtures/test_investigate/`\n' +
+                '</details>\n';
             }
 
             if (p.commentId) {
