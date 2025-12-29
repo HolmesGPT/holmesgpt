@@ -309,9 +309,13 @@ jobs:
         id: test-preview
         shell: bash
         env:
+          MODEL: ${{ steps.eval-params.outputs.model }}
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
         run: |
+          # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
+          [[ -z "$MODEL" ]] && unset MODEL
+
           PYTEST_ARGS=(--collect-only -q tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
 
@@ -467,6 +471,9 @@ jobs:
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
         run: |
+          # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
+          [[ -z "$MODEL" ]] && unset MODEL
+
           START_TIME=$(date +%s)
 
           PYTEST_ARGS=(--no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m "$EVAL_MARKER_EXPR")
