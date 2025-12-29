@@ -120,7 +120,7 @@ jobs:
               return params;
             }
 
-            let model, markers, filter, iterations, isManual, triggerSource, prNumber;
+            let model, markers, filter, iterations, isManual, triggerSource, prNumber, triggeredBy;
             const event = context.eventName;
 
             if (event === 'issue_comment') {
@@ -133,6 +133,7 @@ jobs:
               isManual = true;
               triggerSource = '/eval comment';
               prNumber = context.issue.number;
+              triggeredBy = context.payload.comment.user.login;
             } else if (event === 'workflow_dispatch') {
               model = validate(${{ toJSON(github.event.inputs.model) }} || '', 'model');
               markers = validate(${{ toJSON(github.event.inputs.markers) }} || '', 'markers');
@@ -143,6 +144,7 @@ jobs:
               isManual = true;
               triggerSource = 'workflow_dispatch';
               prNumber = prNum ? parseInt(prNum, 10) : null;
+              triggeredBy = context.actor;
             } else {
               model = '';
               markers = 'regression';
@@ -151,6 +153,7 @@ jobs:
               isManual = false;
               triggerSource = 'automatic';
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
+              triggeredBy = '';
             }
 
             // Apply defaults
@@ -166,6 +169,7 @@ jobs:
             core.setOutput('is_manual', isManual.toString());
             core.setOutput('trigger_source', triggerSource);
             core.setOutput('pr_number', prNumber ? prNumber.toString() : '');
+            core.setOutput('triggered_by', triggeredBy);
             core.setOutput('marker_expr', markers ? `llm and (${markers})` : 'llm');
             core.setOutput('run_url', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
 
@@ -420,6 +424,28 @@ jobs:
                 issue_number: p.prNumber, body
               });
             }
+
+      - name: Notify user of completion
+        if: always() && steps.eval-params.outputs.is_manual == 'true' && steps.eval-params.outputs.pr_number != '' && steps.eval-params.outputs.triggered_by != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const triggeredBy = ${{ toJSON(steps.eval-params.outputs.triggered_by) }};
+            const prNumber = parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10);
+            const regressions = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
+            const hasRegressions = regressions && regressions !== '0';
+
+            const status = hasRegressions
+              ? `⚠️ Completed with ${regressions} regression${regressions === '1' ? '' : 's'}`
+              : '✅ Completed successfully';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `@${triggeredBy} Your eval run has finished. ${status}\n\n👆 See updated results above.`
+            });
 
       - name: Add completion reaction
         if: always() && github.event_name == 'issue_comment' && steps.eval-comment.outcome == 'success'
