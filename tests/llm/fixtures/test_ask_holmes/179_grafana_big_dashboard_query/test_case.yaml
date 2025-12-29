@@ -1,0 +1,139 @@
+# This test uses the Node Exporter Full dashboard from https://grafana.com/grafana/dashboards/1860-node-exporter-full/
+# but renames it to "E-Commerce Platform Monitoring" to prevent Holmes from using domain knowledge cheats
+
+user_prompt: "In the 'E-Commerce Platform Monitoring' dashboard, find the Prometheus query that tracks checkout processing delays and tell me the exact query expression"
+
+expected_output:
+  - 'ecommerce_checkout_processing_delay_seconds{payment_gateway="stripe",region="us_east"} * 1000'
+
+before_test: |
+  set -e  # Exit immediately if any command fails
+  kubectl create namespace app-179 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl apply -f ../../shared/grafana.yaml -n app-179
+  
+  # Wait for Grafana pod to be ready
+  echo "⏳ Waiting for Grafana pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=grafana -n app-179 --timeout=5s 2>/dev/null; then
+      echo "✅ Grafana pod is ready!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Grafana pod not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+  
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Grafana pod failed to become ready after 60 seconds"
+    kubectl get pods -n app-179
+    kubectl describe pod -l app=grafana -n app-179
+    exit 1
+  fi
+  
+  # Verify Grafana API is working using kubectl exec
+  echo "⏳ Verifying Grafana API..."
+  API_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n app-179 deployment/grafana -- wget -q -O- http://localhost:3000/api/health 2>/dev/null | grep -q "ok"; then
+      echo "✅ Grafana API is working!"
+      API_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/30: Grafana API not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+  
+  if [ "$API_READY" = false ]; then
+    echo "❌ Grafana API failed verification after 30 seconds"
+    echo "Checking pod logs..."
+    kubectl logs -l app=grafana -n app-179 --tail=20
+    exit 1
+  fi
+  
+  # Create big dashboard via file-based approach (not command line)
+  echo "⏳ Creating Node Exporter Full dashboard..."
+  
+  # Copy the big dashboard to the pod first
+  POD_NAME=$(kubectl get pods -n app-179 -l app=grafana -o jsonpath='{.items[0].metadata.name}')
+  echo "📋 Copying big dashboard to pod: $POD_NAME"
+  if ! kubectl cp dashboard_node_exporter_full_wrapped.json app-179/$POD_NAME:/tmp/big-dashboard.json; then
+    echo "❌ Failed to copy dashboard file to pod"
+    exit 1
+  fi
+  
+  # Verify file was copied successfully
+  if ! kubectl exec -n app-179 deployment/grafana -- test -f /tmp/big-dashboard.json; then
+    echo "❌ Dashboard file not found in pod after copy"
+    exit 1
+  fi
+  
+  # Create dashboard using file reference (not command line data)
+  DASHBOARD_CREATED=false
+  for i in {1..10}; do
+    echo "⏳ Attempt $i/10: Creating big dashboard via API..."
+    RESULT=$(kubectl exec -n app-179 deployment/grafana -- curl -s -w "\nHTTP_CODE:%{http_code}" \
+      -X POST -H "Content-Type: application/json" \
+      -d @/tmp/big-dashboard.json \
+      http://localhost:3000/api/dashboards/db 2>&1)
+    
+    HTTP_CODE=$(echo "$RESULT" | grep "HTTP_CODE:" | cut -d: -f2)
+    RESPONSE=$(echo "$RESULT" | grep -v "HTTP_CODE:")
+    
+    echo "📊 API Response (HTTP $HTTP_CODE): $RESPONSE"
+    
+    if [[ "$HTTP_CODE" == "200" ]] && echo "$RESPONSE" | grep -q '"id"'; then
+      echo "✅ Big dashboard created successfully!"
+      DASHBOARD_CREATED=true
+      break
+    else
+      echo "⚠️  Dashboard creation failed. HTTP: $HTTP_CODE, Response: $RESPONSE"
+      sleep 1
+    fi
+  done
+  
+  if [ "$DASHBOARD_CREATED" = false ]; then
+    echo "❌ Failed to create dashboard after 10 attempts"
+    exit 1
+  fi
+  
+  # Verify dashboard exists and is searchable
+  echo "⏳ Verifying dashboard is searchable..."
+  DASHBOARD_FOUND=false
+  for i in {1..10}; do
+    if kubectl exec -n app-179 deployment/grafana -- wget -q -O- "http://localhost:3000/api/search?query=E-Commerce%20Platform%20Monitoring" 2>/dev/null | grep -q "E-Commerce Platform Monitoring"; then
+      echo "✅ Dashboard is searchable!"
+      DASHBOARD_FOUND=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Dashboard not found in search results, waiting 1s..."
+      sleep 1
+    fi
+  done
+  
+  if [ "$DASHBOARD_FOUND" = false ]; then
+    echo "❌ Dashboard verification failed after 10 attempts"
+    echo "Checking pod logs..."
+    kubectl logs -l app=grafana -n app-179 --tail=20
+    exit 1
+  fi
+  
+  echo "✅ Test setup completed successfully - Node Exporter Full dashboard created and verified!"
+
+after_test: |
+  kubectl delete namespace app-179 || true
+
+port_forwards:
+  - namespace: app-179
+    service: grafana
+    local_port: 10179
+    remote_port: 3000
+
+tags:
+  - hard
+  - question-answer
+  - metrics
+  - kubernetes
+  - grafana-dashboard

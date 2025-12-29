@@ -5,6 +5,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
@@ -30,21 +31,21 @@ from pydantic import (
     PrivateAttr,
 )
 from rich.console import Console
+from rich.table import Table
 
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
-from holmes.plugins.prompts import load_and_render_prompt
 from holmes.core.transformers import (
     registry,
     TransformerError,
     Transformer,
 )
+from holmes.plugins.prompts import load_and_render_prompt
+from holmes.utils.config_utils import merge_transformers
+from holmes.utils.memory_limit import get_ulimit_prefix, check_oom_and_append_hint
 
 if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
-from holmes.utils.config_utils import merge_transformers
-import time
-from rich.table import Table
 
 logger = logging.getLogger(__name__)
 
@@ -497,8 +498,9 @@ class YAMLTool(Tool, BaseModel):
     def __execute_subprocess(self, cmd) -> Tuple[str, int]:
         try:
             logger.debug(f"Running `{cmd}`")
+            protected_cmd = get_ulimit_prefix() + cmd
             result = subprocess.run(
-                cmd,
+                protected_cmd,
                 shell=True,
                 text=True,
                 check=False,  # do not throw error, we just return the error code
@@ -507,7 +509,9 @@ class YAMLTool(Tool, BaseModel):
                 stderr=subprocess.STDOUT,
             )
 
-            return result.stdout.strip(), result.returncode
+            output = result.stdout.strip()
+            output = check_oom_and_append_hint(output, result.returncode)
+            return output, result.returncode
         except Exception as e:
             logger.error(
                 f"An unexpected error occurred while running '{cmd}': {e}",
