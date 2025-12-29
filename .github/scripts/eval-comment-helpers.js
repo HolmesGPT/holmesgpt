@@ -59,20 +59,22 @@ function renderParamsTable(p) {
 /**
  * Build comment body based on state
  * @param {Object} p - Parameters object
- * @param {Array<[boolean, string]>} progressSteps - Progress steps
+ * @param {Array<[boolean, string]>} progressSteps - Progress steps (null to hide)
  * @param {Object} extras - Extra options (icon, title, testPreview)
  * @returns {string} Markdown body
  */
 function buildBody(p, progressSteps, extras = {}) {
-  const progressText = renderProgress(progressSteps);
-
   let body = p.isManual
     ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
-      renderParamsTable(p) + `\n**Progress:**\n${progressText}\n`
+      renderParamsTable(p)
     : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
       `Automatically triggered by ${p.trigger}\n\n` +
-      `[View workflow logs](${p.runUrl})\n\n` +
-      `**Progress:**\n${progressText}\n`;
+      `[View workflow logs](${p.runUrl})\n`;
+
+  // Only show progress if steps provided (null = hide for completed runs)
+  if (progressSteps) {
+    body += `\n**Progress:**\n${renderProgress(progressSteps)}\n`;
+  }
 
   if (extras.testPreview) {
     body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
@@ -89,7 +91,8 @@ function buildBody(p, progressSteps, extras = {}) {
  */
 function buildRerunFooter(p, context) {
   const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
-  return '\n---\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
+  return '\n---\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
+    '### 🔄 Re-run evals manually\n\n' +
     '> ⚠️ **Warning:** Manual re-runs have NO default markers and will run ALL LLM tests (~100+), which can take 1+ hours. ' +
     'Use `markers: regression` or `filter: test_name` to limit scope.\n\n' +
     '**Option 1: Comment on this PR** with `/eval`:\n\n' +
@@ -101,11 +104,10 @@ function buildRerunFooter(p, context) {
     '| `markers` | Pytest markers (**no default - runs all tests!**) |\n' +
     '| `filter` | Pytest -k filter |\n' +
     '| `iterations` | Number of runs, max 10 |\n\n' +
-    `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
-    '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
+    `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n\n` +
+    '### 🏷️ Valid markers\n\n' +
     (p.validMarkers || '_(No markers found)_') +
-    '\n</details>\n' +
-    '\n<details>\n<summary>📋 <b>Valid eval names (use with filter)</b></summary>\n\n' +
+    '\n\n### 📋 Valid eval names (use with filter)\n\n' +
     '**test_ask_holmes:**\n' +
     (p.askHolmesEvals || '_(No evals found)_') +
     '\n\n**test_investigate:**\n' +

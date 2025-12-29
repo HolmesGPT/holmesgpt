@@ -447,19 +447,13 @@ jobs:
               investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }}
             });
             const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
-            const regressions = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
-            const progressSteps = [
-              [true, 'Setup HolmesGPT environment'],
-              [true, 'Collect evals to run'],
-              [true, 'Setup KIND cluster'],
-              [true, 'Run evals']
-            ];
-            let body = buildBody(p, progressSteps, {
+            const failures = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
+            let body = buildBody(p, null, {
               icon: p.isManual ? '🧪' : '✅',
               title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals'
             });
             body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
-            if (regressions) body += `\n### ⚠️ ${regressions} Regression${regressions === '1' ? '' : 's'} Detected\n\n`;
+            if (failures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
             // Add re-run footer for automatic runs only
             if (!p.isManual) {
               body += buildRerunFooter(p, context);
@@ -484,11 +478,11 @@ jobs:
             const fs = require('fs');
             const triggeredBy = ${{ toJSON(steps.eval-params.outputs.triggered_by) }};
             const prNumber = parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10);
-            const regressions = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
-            const hasRegressions = regressions && regressions !== '0';
+            const failures = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
+            const hasFailures = failures && failures !== '0';
 
-            const status = hasRegressions
-              ? `⚠️ Completed with ${regressions} regression${regressions === '1' ? '' : 's'}`
+            const status = hasFailures
+              ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
               : '✅ Completed successfully';
 
             await github.rest.issues.createComment({
@@ -525,8 +519,8 @@ jobs:
         if: always()
         run: |
           if [[ -f "regressions.txt" ]]; then
-            echo "⚠️ There are regressions in the evals. Please check the evals file for details."
+            echo "⚠️ There are failures in the evals. Please check the file for details."
             cat regressions.txt
           else
-            echo "✅ All tests passed without regressions."
+            echo "✅ All tests passed."
           fi
