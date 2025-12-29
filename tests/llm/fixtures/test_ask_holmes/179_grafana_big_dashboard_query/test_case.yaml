@@ -132,7 +132,7 @@ port_forwards:
     remote_port: 3000
 
 tags:
-  - easy
+  - hard
   - question-answer
   - metrics
   - kubernetes
