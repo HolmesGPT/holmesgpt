@@ -155,6 +155,8 @@ def test_investigate(
                         holmes_duration = time.time() - start_time
                     # Log duration directly to eval_span
                     eval_span.log(metadata={"holmes_duration": holmes_duration})
+                    # Store in user_properties for GitHub report
+                    request.node.user_properties.append(("holmes_duration", holmes_duration))
 
                 # Check for any mock errors that occurred during tool execution
                 # This will raise an exception if any mock data errors happened

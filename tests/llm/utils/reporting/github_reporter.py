@@ -137,8 +137,8 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
 
         status = TestStatus(result)
 
-        # Format time
-        exec_time = result.get("execution_time")
+        # Format time (use holmes_duration for pure agent time, fallback to execution_time)
+        exec_time = result.get("holmes_duration") or result.get("execution_time")
         if exec_time and exec_time > 0:
             time_str = f"{exec_time:.1f}s"
             total_time += exec_time

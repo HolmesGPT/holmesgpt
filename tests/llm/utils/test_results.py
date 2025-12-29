@@ -16,6 +16,7 @@ class TestResult:
     error_message: Optional[str] = None
     user_prompt: Optional[str] = None
     execution_time: Optional[float] = None
+    holmes_duration: Optional[float] = None  # Pure agent execution time (excludes setup/teardown)
     expected_correctness_score: float = 1.0
     actual_correctness_score: float = 0.0
     mock_data_failure: bool = False

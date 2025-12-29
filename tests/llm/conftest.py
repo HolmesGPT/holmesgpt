@@ -844,6 +844,7 @@ def _collect_test_results_from_stats(terminalreporter):
                 "status": status,
                 "outcome": getattr(report, "outcome", "unknown"),
                 "execution_time": getattr(report, "duration", None),
+                "holmes_duration": user_props.get("holmes_duration"),
                 "mock_data_failure": mock_data_failure,
                 "user_prompt": user_props.get("user_prompt", ""),
                 "is_setup_failure": user_props.get("is_setup_failure", False),

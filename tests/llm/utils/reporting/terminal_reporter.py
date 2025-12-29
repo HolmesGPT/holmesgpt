@@ -171,11 +171,13 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
         return
 
     # Group results by test name to calculate P90
+    # Use holmes_duration (pure agent time) when available, fallback to execution_time
     test_time_groups = defaultdict(list)
     for result in sorted_results:
         test_key = result.get("nodeid", "")
-        if result.get("execution_time"):
-            test_time_groups[test_key].append(result.get("execution_time"))
+        exec_time = result.get("holmes_duration") or result.get("execution_time")
+        if exec_time:
+            test_time_groups[test_key].append(exec_time)
 
     # Create Rich table
     console = Console()
@@ -227,7 +229,8 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
         test_name_wrapped = "\n".join(textwrap.wrap(combined_test_name, width=10))
 
         # Format execution time - show individual time for this specific test run
-        exec_time = result.get("execution_time")
+        # Use holmes_duration (pure agent time) when available, fallback to execution_time
+        exec_time = result.get("holmes_duration") or result.get("execution_time")
         time_str = _format_time(exec_time)
 
         # Format cost - show individual cost for this specific test run
@@ -574,7 +577,12 @@ class TestStatistics:
         throttled = count_results(results, ResultType.THROTTLED)
         valid_runs = count_results(results, ResultType.VALID_RUNS)
 
-        times = [r.get("execution_time", 0) for r in results if r.get("execution_time")]
+        # Use holmes_duration (pure agent time) when available, fallback to execution_time
+        times = [
+            r.get("holmes_duration") or r.get("execution_time", 0)
+            for r in results
+            if r.get("holmes_duration") or r.get("execution_time")
+        ]
 
         # Calculate cost metrics
         total_cost = sum(r.get("cost", 0) for r in results)
@@ -1130,7 +1138,12 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
         pass_pct = _calculate_pass_percentage(passed, valid_runs)
 
         # Calculate average and P90 execution time
-        times = [r.get("execution_time", 0) for r in results if r.get("execution_time")]
+        # Use holmes_duration (pure agent time) when available, fallback to execution_time
+        times = [
+            r.get("holmes_duration") or r.get("execution_time", 0)
+            for r in results
+            if r.get("holmes_duration") or r.get("execution_time")
+        ]
         avg_time = sum(times) / len(times) if times else 0
         p90_time = _calculate_p90(times)
 
