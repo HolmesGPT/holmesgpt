@@ -232,6 +232,80 @@ jobs:
           python-version: '3.12'
           install-kubectl: 'true'
 
+      - name: Preview tests to run
+        if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
+        id: test-preview
+        shell: bash
+        env:
+          EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
+          EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
+        run: |
+          PYTEST_ARGS=(--collect-only -q tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -m "$EVAL_MARKER_EXPR")
+          [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
+
+          # Collect test names
+          TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" | head -50 || echo "")
+          TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || echo "0")
+
+          # Truncate if too many
+          if [[ $TEST_COUNT -gt 20 ]]; then
+            PREVIEW=$(echo "$TEST_LIST" | head -20)
+            PREVIEW="${PREVIEW}"$'\n'"... and $((TEST_COUNT - 20)) more tests"
+          else
+            PREVIEW="$TEST_LIST"
+          fi
+
+          # Output for next step (escape for JSON)
+          echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "test_preview<<$EOF" >> $GITHUB_OUTPUT
+          echo "$PREVIEW" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Update comment with test preview
+        if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const p = {
+              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
+              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+              markers: ${{ toJSON(steps.eval-params.outputs.markers) }} || 'all LLM tests',
+              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
+              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
+              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              commentId: parseInt(${{ toJSON(steps.initial-comment.outputs.comment_id) }}, 10),
+              testCount: ${{ toJSON(steps.test-preview.outputs.test_count) }} || '0',
+              testPreview: ${{ toJSON(steps.test-preview.outputs.test_preview) }} || ''
+            };
+
+            let body = p.isManual
+              ? `## 🚀 Manual Eval Running...\n\n` +
+                `| Parameter | Value |\n|-----------|-------|\n` +
+                `| **Triggered via** | ${p.trigger} |\n` +
+                `| **Model** | \`${p.model}\` |\n` +
+                `| **Markers** | \`${p.markers}\` |\n` +
+                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+                `| **Iterations** | ${p.iterations} |\n` +
+                `| **Tests to run** | ${p.testCount} |\n` +
+                `| **Status** | ⏳ Running... |\n` +
+                `| **Workflow** | [View logs](${p.runUrl}) |\n`
+              : `## ⏳ HolmesGPT evals running...\n\n` +
+                `**Tests to run:** ${p.testCount}\n\n` +
+                `[View workflow logs](${p.runUrl})\n\n_Results will appear here when complete._\n`;
+
+            if (p.testPreview && p.testCount !== '0') {
+              body += `\n<details>\n<summary>📋 Test preview</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
+            }
+
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: p.commentId,
+              body
+            });
+
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
         id: evals
@@ -311,13 +385,15 @@ jobs:
             if (!p.isManual) {
               const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
               body += '\n---\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
+                '> ⚠️ **Warning:** Manual re-runs have NO default markers and will run ALL LLM tests (~100+), which can take 1+ hours. ' +
+                'Use `markers: regression` or `filter: test_name` to limit scope.\n\n' +
                 '**Option 1: Comment on this PR** with `/eval`:\n\n' +
-                '```\n/eval\n```\n\n' +
-                'Or with options (one per line):\n\n' +
-                '```\n/eval\nmodel: gpt-4o\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
+                '```\n/eval\nmarkers: regression\n```\n\n' +
+                'Or with more options (one per line):\n\n' +
+                '```\n/eval\nmodel: gpt-4o\nmarkers: regression\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
                 '| Option | Description |\n|--------|-------------|\n' +
                 '| `model` | Model(s) to test (default: same as automatic runs) |\n' +
-                '| `markers` | Pytest markers (default: all LLM tests) |\n' +
+                '| `markers` | Pytest markers (**no default - runs all tests!**) |\n' +
                 '| `filter` | Pytest -k filter |\n' +
                 '| `iterations` | Number of runs, max 10 |\n\n' +
                 `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
