@@ -115,7 +115,7 @@ jobs:
 
           const message = [
             marker,
-            `🔨 **Building Docker image for \`${shortSha}\`...**`,
+            `🔨 **Building Docker image for \`${shortSha}\`...** (x64 only)`,
             '',
             `[View build logs](${runUrl})`,
             previousImageSection,
@@ -161,6 +161,7 @@ jobs:
 
     # For fork PRs: build only (no push, no registry tags)
     # For non-fork PRs: build and push to registry
+    # Note: PR builds are x64-only for speed. Multi-arch builds happen on release.
     - name: Build Docker image (fork PR - no push)
       if: steps.fork_check.outputs.is_fork == 'true'
       uses: docker/build-push-action@v6
@@ -168,26 +169,26 @@ jobs:
         context: .
         platforms: linux/amd64
         push: false
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Build and push Docker image
       if: steps.fork_check.outputs.is_fork != 'true'
       uses: docker/build-push-action@v6
       with:
         context: .
-        platforms: linux/arm64,linux/amd64
+        platforms: linux/amd64
         push: true
         tags: |
           us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}
           us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Print image location
       if: steps.fork_check.outputs.is_fork != 'true'
       run: |
-        echo "Docker image pushed to:"
+        echo "Docker image pushed (x64 only):"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}"
 
@@ -221,6 +222,8 @@ jobs:
               `✅ **Docker image ready for \`${shortSha}\`** (built in ${duration})`,
               '',
               `- [${shortTag}](${registryLink})`,
+              '',
+              '> ⚠️ **Warning: does not support ARM** (ARM images are built on release only - not on every PR)',
               '',
               'Use this tag to pull the image for testing.',
               '',
