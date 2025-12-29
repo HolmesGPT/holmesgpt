@@ -212,7 +212,7 @@ jobs:
                 `| **Iterations** | ${p.iterations} |\n` +
                 `| **Status** | ⏳ Running... |\n` +
                 `| **Workflow** | [View logs](${p.runUrl}) |\n`
-              : `## ⏳ HolmesGPT evals running...\n\n[View workflow logs](${p.runUrl})\n\n_Results will appear here when complete._\n`;
+              : `## ⏳ HolmesGPT evals running...\n\n[View workflow logs](${p.runUrl})\n`;
 
             const comment = await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -289,7 +289,7 @@ jobs:
                 `| **Workflow** | [View logs](${p.runUrl}) |\n`
               : `## ⏳ HolmesGPT evals running...\n\n` +
                 `**Tests to run:** ${p.testCount}\n\n` +
-                `[View workflow logs](${p.runUrl})\n\n_Results will appear here when complete._\n`;
+                `[View workflow logs](${p.runUrl})\n`;
 
             if (p.testPreview && p.testCount !== '0') {
               body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
@@ -410,7 +410,9 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo,
                 comment_id: parseInt(p.commentId, 10), body
               });
-            } else {
+            } else if (!p.isManual) {
+              // For automatic triggers without an initial comment (e.g., fork PRs without secrets),
+              // create a new comment with results. For manual triggers, initial comment always exists.
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: p.prNumber, body
