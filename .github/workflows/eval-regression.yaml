@@ -89,7 +89,7 @@ jobs:
             // allowing safe characters. This works together with proper quoting in bash
             // (using env vars + "$VAR" syntax). If you modify these patterns or add new
             // parameters, ensure: (1) regex is a whitelist of safe chars, (2) values are
-            // passed via env vars not inline ${{ }}, (3) bash references use double quotes.
+            // passed via env vars not inline, (3) bash references use double quotes.
             const patterns = {
               model: /^[a-zA-Z0-9_.,:\/-]*$/,
               markers: /^[a-zA-Z0-9_\- ]*$/,
