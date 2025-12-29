@@ -235,7 +235,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams(JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}));
             const progressSteps = [
               [false, 'Setup HolmesGPT environment'],
@@ -247,7 +247,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: p.prNumber,
-              body: buildBody(p, progressSteps)
+              body: buildBody(p, progressSteps) + buildRerunFooter(p, context)
             });
             core.setOutput('comment_id', comment.data.id.toString());
 
@@ -264,7 +264,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }}
@@ -279,7 +279,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps)
+              body: buildBody(p, progressSteps) + buildRerunFooter(p, context)
             });
 
       - name: Collect evals to run
@@ -337,12 +337,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
-              test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }}
+              test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              ask_holmes_evals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }},
+              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }}
             });
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
@@ -354,7 +357,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null })
+              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null }) + buildRerunFooter(p, context)
             });
 
       - name: Setup KIND cluster
@@ -369,12 +372,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
-              test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }}
+              test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              ask_holmes_evals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }},
+              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }}
             });
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
@@ -386,7 +392,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null })
+              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null }) + buildRerunFooter(p, context)
             });
 
       - name: Run tests
