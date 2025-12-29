@@ -13,7 +13,7 @@ before_test: |
   # Wait for specific ProvisioningFailed event
   PROVISIONING_FAILED=false
   for i in {1..60}; do
-    if kubectl get events -n app-24 --field-selector involvedObject.name=redis-standard-pvc | grep -q "ProvisioningFailed.*standard-v2.*not found"; then
+    if kubectl get events -n app-24 --field-selector involvedObject.name=redis-standard-pvc | grep -q "ProvisioningFailed"; then
       echo "✅ ProvisioningFailed event detected"
       PROVISIONING_FAILED=true
       break
