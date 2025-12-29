@@ -85,19 +85,23 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // SECURITY: These whitelist regexes protect against shell injection by only
+            // allowing safe characters. This works together with proper quoting in bash
+            // (using env vars + "$VAR" syntax). If you modify these patterns or add new
+            // parameters, ensure: (1) regex is a whitelist of safe chars, (2) values are
+            // passed via env vars not inline ${{ }}, (3) bash references use double quotes.
             const patterns = {
-              model: /^[a-zA-Z0-9_.,\/-]*$/,
+              model: /^[a-zA-Z0-9_.,:\/-]*$/,
               markers: /^[a-zA-Z0-9_\- ]*$/,
               filter: /^[a-zA-Z0-9_\-]*$/,
               iterations: /^[0-9]+$/,
               pr_number: /^[0-9]*$/
             };
-            const dangerous = /[`$;|&<>(){}[\]\\'\n\r]/;
 
             function validate(value, name) {
               if (!value) return '';
-              if (dangerous.test(value) || (patterns[name] && !patterns[name].test(value))) {
-                core.setFailed(`Invalid ${name}`);
+              if (patterns[name] && !patterns[name].test(value)) {
+                core.setFailed(`Invalid ${name}: must match ${patterns[name]}`);
                 return null;
               }
               return value;
