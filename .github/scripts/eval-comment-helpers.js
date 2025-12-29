@@ -116,13 +116,13 @@ function buildRerunFooter(p, context) {
     '| `iterations` | Number of runs, max 10 |\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
-    (p.validMarkers || '_(No markers found)_') +
+    (p.validMarkers || '_(Loading... or see pyproject.toml)_') +
     '\n</details>\n' +
     '\n<details>\n<summary>📋 <b>Valid eval names (use with filter)</b></summary>\n\n' +
     '**test_ask_holmes:**\n' +
-    (p.askHolmesEvals || '_(No evals found)_') +
+    (p.askHolmesEvals || '_(Loading... or see tests/llm/fixtures/)_') +
     '\n\n**test_investigate:**\n' +
-    (p.investigateEvals || '_(No evals found)_') +
+    (p.investigateEvals || '_(Loading... or see tests/llm/fixtures/)_') +
     '\n</details>\n';
 }
 
