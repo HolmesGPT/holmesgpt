@@ -323,11 +323,35 @@ jobs:
           TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" || true)
           TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || true)
 
-          # Output for next step
+          # Collect valid markers from pyproject.toml (excluding 'llm' which is internal)
+          # Uses sed to extract just the markers section, then grep to find marker definitions
+          VALID_MARKERS=$(sed -n '/^\[tool\.pytest\.ini_options\]/,/^\[/p' pyproject.toml | grep -E '"[a-zA-Z]' | sed 's/.*"\([^:]*\):.*/\1/' | grep -v '^llm$' | sort | awk '{print "- \x60" $0 "\x60"}')
+
+          # Collect valid eval names from fixture directories
+          ASK_HOLMES_EVALS=$(ls -1 tests/llm/fixtures/test_ask_holmes/ 2>/dev/null | grep -v '^\.' | sort | awk '{print "- \x60" $0 "\x60"}')
+          INVESTIGATE_EVALS=$(ls -1 tests/llm/fixtures/test_investigate/ 2>/dev/null | grep -v '^\.' | sort | awk '{print "- \x60" $0 "\x60"}')
+
+          # Output for next steps
           echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "test_preview<<$EOF" >> $GITHUB_OUTPUT
           echo "$TEST_LIST" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "valid_markers<<$EOF" >> $GITHUB_OUTPUT
+          echo "$VALID_MARKERS" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "ask_holmes_evals<<$EOF" >> $GITHUB_OUTPUT
+          echo "$ASK_HOLMES_EVALS" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "investigate_evals<<$EOF" >> $GITHUB_OUTPUT
+          echo "$INVESTIGATE_EVALS" >> $GITHUB_OUTPUT
           echo "$EOF" >> $GITHUB_OUTPUT
 
       - name: Update progress - evals collected
@@ -505,7 +529,11 @@ jobs:
               duration: ${{ toJSON(steps.evals.outputs.duration) }} || 'N/A',
               runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
               prNumber: parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10),
-              commentId: ${{ toJSON(steps.initial-comment.outputs.comment_id) }}
+              commentId: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
+              // Dynamic lists collected from the codebase
+              validMarkers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }} || '',
+              askHolmesEvals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }} || '',
+              investigateEvals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }} || ''
             };
 
             const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
@@ -552,220 +580,14 @@ jobs:
                 '| `iterations` | Number of runs, max 10 |\n\n' +
                 `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
                 '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
-                '- `regression`\n' +
-                '- `easy`\n' +
-                '- `medium`\n' +
-                '- `hard`\n' +
-                '- `logs`\n' +
-                '- `metrics`\n' +
-                '- `kubernetes`\n' +
-                '- `prometheus`\n' +
-                '- `loki`\n' +
-                '- `grafana-dashboard`\n' +
-                '- `traces`\n' +
-                '- `datadog`\n' +
-                '- `newrelic`\n' +
-                '- `coralogix`\n' +
-                '- `runbooks`\n' +
-                '- `transparency`\n' +
-                '- `question-answer`\n' +
-                '- `counting`\n' +
-                '- `database`\n' +
-                '- `storage`\n' +
-                '- `kafka`\n' +
-                '- `chain-of-causation`\n' +
-                '- `compaction`\n' +
-                '- `network`\n' +
-                '- `port-forward`\n' +
-                '</details>\n' +
+                (p.validMarkers || '_(No markers found)_') +
+                '\n</details>\n' +
                 '\n<details>\n<summary>📋 <b>Valid eval names (use with filter)</b></summary>\n\n' +
                 '**test_ask_holmes:**\n' +
-                '- `01_how_many_pods`\n' +
-                '- `02_what_is_wrong_with_pod`\n' +
-                '- `03_what_is_the_command_to_port_forward`\n' +
-                '- `04_related_k8s_events`\n' +
-                '- `05_image_version`\n' +
-                '- `06_explain_issue`\n' +
-                '- `07_high_latency`\n' +
-                '- `08_sock_shop_frontend`\n' +
-                '- `09_crashpod`\n' +
-                '- `10_image_pull_backoff`\n' +
-                '- `11_init_containers`\n' +
-                '- `12_job_crashing`\n' +
-                '- `13a_pending_node_selector_basic`\n' +
-                '- `13b_pending_node_selector_detailed`\n' +
-                '- `14_pending_resources`\n' +
-                '- `15_failed_readiness_probe`\n' +
-                '- `16_failed_no_toolset_found`\n' +
-                '- `17_oom_kill`\n' +
-                '- `18_oom_kill_from_issues_history`\n' +
-                '- `19_detect_missing_app_details`\n' +
-                '- `20_long_log_file_search`\n' +
-                '- `21_job_fail_curl_no_svc_account`\n' +
-                '- `22_high_latency_dbi_down`\n' +
-                '- `23_app_error_in_current_logs`\n' +
-                '- `24_misconfigured_pvc`\n' +
-                '- `25_misconfigured_ingress_class`\n' +
-                '- `26_page_render_times`\n' +
-                '- `27a_multi_container_logs`\n' +
-                '- `27b_multi_container_logs`\n' +
-                '- `28_permissions_error`\n' +
-                '- `30_basic_promql_graph_cluster_memory`\n' +
-                '- `32_basic_promql_graph_pod_cpu`\n' +
-                '- `33_cpu_metrics_discovery`\n' +
-                '- `34_memory_graph`\n' +
-                '- `35_tempo`\n' +
-                '- `36_argocd_find_resource`\n' +
-                '- `37_argocd_wrong_namespace`\n' +
-                '- `38_rabbitmq_split_head`\n' +
-                '- `39_failed_toolset`\n' +
-                '- `41_setup_argo`\n' +
-                '- `42_dns_issues_result_all_tools`\n' +
-                '- `42_dns_issues_result_new_tools`\n' +
-                '- `42_dns_issues_result_new_tools_no_runbook`\n' +
-                '- `42_dns_issues_result_old_tools`\n' +
-                '- `42_dns_issues_steps_new_all_tools`\n' +
-                '- `42_dns_issues_steps_new_tools`\n' +
-                '- `42_dns_issues_steps_old_tools`\n' +
-                '- `43_current_datetime_from_prompt`\n' +
-                '- `43_slack_deployment_logs`\n' +
-                '- `44_slack_statefulset_logs`\n' +
-                '- `45_fetch_deployment_logs_simple`\n' +
-                '- `46_job_crashing_no_longer_exists`\n' +
-                '- `47_truncated_logs_context_window`\n' +
-                '- `48_logs_since_thursday`\n' +
-                '- `49_logs_since_last_week`\n' +
-                '- `50_logs_since_specific_date`\n' +
-                '- `50a_logs_since_last_specific_month`\n' +
-                '- `51_logs_summarize_errors`\n' +
-                '- `52_logs_login_issues`\n' +
-                '- `53_logs_find_term`\n' +
-                '- `54_azure_sql`\n' +
-                '- `54_not_truncated_when_getting_pods`\n' +
-                '- `55_kafka_runbook`\n' +
-                '- `57_cluster_name_confusion`\n' +
-                '- `57_wrong_namespace`\n' +
-                '- `58_counting_pods_by_status`\n' +
-                '- `59_label_based_counting`\n' +
-                '- `60_count_less_than`\n' +
-                '- `61_exact_match_counting`\n' +
-                '- `62_fetch_error_logs_with_errors`\n' +
-                '- `63_fetch_error_logs_no_errors`\n' +
-                '- `64_keda_vs_hpa_confusion`\n' +
-                '- `65_health_check_followup`\n' +
-                '- `66_http_error_needle`\n' +
-                '- `67_performance_degradation`\n' +
-                '- `68_cascading_failures`\n' +
-                '- `69_rate_limit_exhaustion`\n' +
-                '- `70_memory_leak_detection`\n' +
-                '- `71_connection_pool_starvation`\n' +
-                '- `73a_time_window_anomaly`\n' +
-                '- `73b_time_window_anomaly`\n' +
-                '- `74_config_change_impact`\n' +
-                '- `75_network_flapping`\n' +
-                '- `76_service_discovery_issue`\n' +
-                '- `77_liveness_probe_misconfiguration`\n' +
-                '- `78a_missing_cpu_limits`\n' +
-                '- `78b_cpu_quota_exceeded`\n' +
-                '- `79_configmap_mount_issue`\n' +
-                '- `80_pvc_storage_class_mismatch`\n' +
-                '- `81_service_account_permission_denied`\n' +
-                '- `82_pod_anti_affinity_conflict`\n' +
-                '- `83_secret_not_found`\n' +
-                '- `84_network_policy_blocking_traffic`\n' +
-                '- `85_hpa_not_scaling`\n' +
-                '- `86_configmap_like_but_secret`\n' +
-                '- `89_runbook_missing_cloudwatch`\n' +
-                '- `90_runbook_basic_selection`\n' +
-                '- `91a_datadog_metrics_missing_namespace`\n' +
-                '- `91b_datadog_metrics_pod_exists`\n' +
-                '- `91c_datadog_metrics_deployment`\n' +
-                '- `91d_datadog_metrics_historical_pod`\n' +
-                '- `91e_datadog_custom_metrics`\n' +
-                '- `91f_datadog_logs_historical_pod`\n' +
-                '- `91g_datadog_metrics_mismatched_pod`\n' +
-                '- `91h_datadog_logs_empty_query_with_url`\n' +
-                '- `91i_datadog_metrics_empty_query_with_url`\n' +
-                '- `92_cpu_graph_conversation`\n' +
-                '- `93_calling_datadog`\n' +
-                '- `93_events_since_specific_date`\n' +
-                '- `94_runbook_transparency`\n' +
-                '- `95_runbook_memory_leak_detection`\n' +
-                '- `96_no_matching_runbook`\n' +
-                '- `97_logs_clarification_needed`\n' +
-                '- `99_logs_transparency_custom_time`\n' +
-                '- `100a_loki_historical_logs`\n' +
-                '- `100b_loki_historical_logs_nonstandard_label`\n' +
-                '- `101_loki_historical_logs_pod_deleted`\n' +
-                '- `102_loki_label_discovery`\n' +
-                '- `102a_loki_logs_transparency`\n' +
-                '- `102b_loki_multiple_pods`\n' +
-                '- `103_logs_transparency_default_limit`\n' +
-                '- `104a_postgres_root_issue`\n' +
-                '- `104b_postgres_missing_index_pgstat`\n' +
-                '- `104c_postgres_minimal_missing_index`\n' +
-                '- `105_redis_wrong_data_structure`\n' +
-                '- `107_log_filter_http_status_code`\n' +
-                '- `108_logs_nearby_lines`\n' +
-                '- `109_logs_transparency_not_found`\n' +
-                '- `110_cpu_graph_robusta_runner`\n' +
-                '- `110_k8s_events_image_pull`\n' +
-                '- `111_disabled_datadog_traces`\n' +
-                '- `111_pod_names_contain_service`\n' +
-                '- `111_tool_hallucination`\n' +
-                '- `112_find_pvcs_by_uuid`\n' +
-                '- `114_checkout_latency_tracing_rebuild`\n' +
-                '- `115_checkout_errors_tracing`\n' +
-                '- `117_new_relic_tracing`\n' +
-                '- `117b_new_relic_block_embed`\n' +
-                '- `118_new_relic_logs`\n' +
-                '- `119_new_relic_metrics`\n' +
-                '- `120_new_relic_traces2`\n' +
-                '- `121_new_relic_checkout_errors_tracing`\n' +
-                '- `122_new_relic_checkout_latency_tracing_rebuild`\n' +
-                '- `123_new_relic_checkout_errors_tracing`\n' +
-                '- `124_checkout_latency_prometheus`\n' +
-                '- `151_disabled_toolsets_fallback_only`\n' +
-                '- `156_kafka_opensearch_latency`\n' +
-                '- `157_disk_full_statefulset`\n' +
-                '- `158_slack_chat_correct_date`\n' +
-                '- `159_prometheus_high_cardinality_cpu`\n' +
-                '- `160_electricity_market_bidding_bug`\n' +
-                '- `160a_cpu_per_namespace_graph`\n' +
-                '- `160b_cpu_per_namespace_graph_with_prom_truncation`\n' +
-                '- `160c_cpu_per_namespace_graph_with_global_truncation`\n' +
-                '- `161_bidding_version_performance`\n' +
-                '- `161_conversation_compaction`\n' +
-                '- `162_get_runbooks`\n' +
-                '- `163_compaction_follow_up`\n' +
-                '- `164_datadog_traces_coupon_code`\n' +
-                '- `165_alert_with_multiple_runbooks`\n' +
-                '- `173_coralogix_logs`\n' +
-                '- `174_coralogix_traces_ad`\n' +
-                '- `175_coralogix_metrics_frontend`\n' +
-                '- `176_network_policy_blocking_traffic_no_runbooks`\n' +
-                '- `177_grafana_home_dashboard`\n' +
-                '- `178_grafana_search_dashboard_query`\n' +
-                '- `179_grafana_big_dashboard_query`\n\n' +
-                '**test_investigate:**\n' +
-                '- `01_oom_kill`\n' +
-                '- `02_crashloop_backoff`\n' +
-                '- `03_cpu_throttling`\n' +
-                '- `04_image_pull_backoff`\n' +
-                '- `05_crashpod`\n' +
-                '- `06_job_failure`\n' +
-                '- `07_job_syntax_error`\n' +
-                '- `08_memory_pressure`\n' +
-                '- `09_high_latency`\n' +
-                '- `10_KubeDeploymentReplicasMismatch`\n' +
-                '- `11_KubePodCrashLooping`\n' +
-                '- `12_KubePodNotReady`\n' +
-                '- `13_Watchdog`\n' +
-                '- `14_tempo`\n' +
-                '- `15_dns_resolution`\n' +
-                '- `16_dns_resolution_no_tool`\n' +
-                '- `17_investigate_correct_date`\n' +
-                '</details>\n';
+                (p.askHolmesEvals || '_(No evals found)_') +
+                '\n\n**test_investigate:**\n' +
+                (p.investigateEvals || '_(No evals found)_') +
+                '\n</details>\n';
             }
 
             if (p.commentId) {
