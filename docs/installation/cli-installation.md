@@ -259,21 +259,21 @@ You can define multiple models in a YAML file and reference them by name in the 
 ```yaml
 # model_list.yaml
 sonnet:
-  aws_access_key_id: 'your-access-key'
-  aws_region_name: us-east-1
-  aws_secret_access_key: 'your-secret-key'
-  model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-  temperature: 1
-  thinking:
-    budget_tokens: 10000
-    type: enabled
+    aws_access_key_id: "your-access-key"
+    aws_region_name: us-east-1
+    aws_secret_access_key: "your-secret-key"
+    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+    temperature: 1
+    thinking:
+        budget_tokens: 10000
+        type: enabled
 
 azure-5:
-  api_base: https://your-resource.openai.azure.com
-  api_key: 'your-api-key'
-  api_version: 2025-01-01-preview
-  model: azure/gpt-5
-  temperature: 0
+    api_base: https://your-resource.openai.azure.com
+    api_key: "your-api-key"
+    api_version: 2025-01-01-preview
+    model: azure/gpt-5
+    temperature: 0
 ```
 
 **2. Set the environment variable:**

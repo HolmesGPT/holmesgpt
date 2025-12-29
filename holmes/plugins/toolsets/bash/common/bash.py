@@ -1,11 +1,14 @@
 import subprocess
+
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
+from holmes.utils.memory_limit import get_ulimit_prefix, check_oom_and_append_hint
 
 
 def execute_bash_command(cmd: str, timeout: int, params: dict) -> StructuredToolResult:
     try:
+        protected_cmd = get_ulimit_prefix() + cmd
         process = subprocess.run(
-            cmd,
+            protected_cmd,
             shell=True,
             executable="/bin/bash",
             stdout=subprocess.PIPE,
@@ -16,7 +19,8 @@ def execute_bash_command(cmd: str, timeout: int, params: dict) -> StructuredTool
         )
 
         stdout = process.stdout.strip() if process.stdout else ""
-        result_data = f"{cmd}\n" f"{stdout}"
+        stdout = check_oom_and_append_hint(stdout, process.returncode)
+        result_data = f"{cmd}\n{stdout}"
 
         if process.returncode == 0:
             status = (
@@ -44,10 +48,10 @@ def execute_bash_command(cmd: str, timeout: int, params: dict) -> StructuredTool
             params=params,
         )
     except FileNotFoundError:
-        # This might occur if /bin/bash is not found, or if shell=False and command is not found
+        # This might occur if /bin/bash is not found, or command is not found
         return StructuredToolResult(
             status=StructuredToolResultStatus.ERROR,
-            error="Error: Bash executable or command not found. Ensure bash is installed and the command is valid.",
+            error="Error: Bash executable or command not found.",
             params=params,
         )
     except Exception as e:

@@ -52,6 +52,7 @@ EXTRA_HEADERS = os.environ.get("EXTRA_HEADERS", "")
 THINKING = os.environ.get("THINKING", "")
 REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "").strip().lower()
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.00000001"))
+TOOL_MEMORY_LIMIT_MB = int(os.environ.get("TOOL_MEMORY_LIMIT_MB", 800))
 
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)
