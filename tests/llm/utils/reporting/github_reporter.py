@@ -134,21 +134,6 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
         status = TestStatus(result)
         markdown += f"| {test_suite} | {test_case_name} | {status.markdown_symbol} |\n"
 
-    markdown += "\n\n**Legend**\n"
-    markdown += "\n- :white_check_mark: the test was successful"
-    markdown += "\n- :minus: the test was skipped"
-    markdown += (
-        "\n- :warning: the test failed but is known to be flaky or known to fail"
-    )
-    markdown += (
-        "\n- :construction: the test had a setup failure (not a code regression)"
-    )
-    markdown += (
-        "\n- :wrench: the test failed due to mock data issues (not a code regression)"
-    )
-    markdown += "\n- :no_entry_sign: the test was throttled by API rate limits/overload"
-    markdown += "\n- :x: the test failed and should be fixed before merging the PR"
-
     return (
         markdown,
         sorted_results,
