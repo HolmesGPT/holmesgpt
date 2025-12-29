@@ -201,33 +201,28 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildBody } = require('./.github/scripts/eval-comment-helpers.js');
-
-            const p = {
-              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
-              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const p = buildParams({
+              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
+              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }},
               markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              prNumber: parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10)
-            };
-
+              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              pr_number: ${{ toJSON(steps.eval-params.outputs.pr_number) }}
+            });
             const progressSteps = [
               [false, 'Setup HolmesGPT environment'],
               [false, 'Collect evals to run'],
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
-
-            const body = buildBody(p, progressSteps);
-
             const comment = await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: p.prNumber,
-              body
+              body: buildBody(p, progressSteps)
             });
             core.setOutput('comment_id', comment.data.id.toString());
 
@@ -244,26 +239,23 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildBody } = require('./.github/scripts/eval-comment-helpers.js');
-
-            const p = {
-              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
-              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const p = buildParams({
+              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
+              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }},
               markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              commentId: parseInt(${{ toJSON(steps.initial-comment.outputs.comment_id) }}, 10)
-            };
-
+              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }}
+            });
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [false, 'Collect evals to run'],
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
-
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -326,28 +318,25 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildBody } = require('./.github/scripts/eval-comment-helpers.js');
-
-            const p = {
-              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
-              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const p = buildParams({
+              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
+              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }},
               markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              commentId: parseInt(${{ toJSON(steps.initial-comment.outputs.comment_id) }}, 10),
-              testCount: ${{ toJSON(steps.test-preview.outputs.test_count) }} || '0',
-              testPreview: ${{ toJSON(steps.test-preview.outputs.test_preview) }} || ''
-            };
-
+              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
+              test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
+              test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }}
+            });
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
-
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -367,28 +356,25 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildBody } = require('./.github/scripts/eval-comment-helpers.js');
-
-            const p = {
-              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
-              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+            const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
+            const p = buildParams({
+              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
+              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }},
               markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              commentId: parseInt(${{ toJSON(steps.initial-comment.outputs.comment_id) }}, 10),
-              testCount: ${{ toJSON(steps.test-preview.outputs.test_count) }} || '0',
-              testPreview: ${{ toJSON(steps.test-preview.outputs.test_preview) }} || ''
-            };
-
+              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
+              test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
+              test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }}
+            });
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
               [true, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
-
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -444,51 +430,44 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const { buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
-
-            const p = {
-              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
-              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            const p = buildParams({
+              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
+              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }},
               markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              duration: ${{ toJSON(steps.evals.outputs.duration) }} || 'N/A',
-              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              prNumber: parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10),
-              commentId: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
-              validMarkers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }} || '',
-              askHolmesEvals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }} || '',
-              investigateEvals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }} || ''
-            };
-
+              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              pr_number: ${{ toJSON(steps.eval-params.outputs.pr_number) }},
+              comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
+              duration: ${{ toJSON(steps.evals.outputs.duration) }},
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              ask_holmes_evals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }},
+              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }}
+            });
             const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
             const regressions = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
-
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, 'Collect evals to run'],
               [true, 'Setup KIND cluster'],
               [true, 'Run evals']
             ];
-
             let body = buildBody(p, progressSteps, {
               icon: p.isManual ? '🧪' : '✅',
               title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals'
             });
-
             body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
             if (regressions) body += `\n### ⚠️ ${regressions} Regression${regressions === '1' ? '' : 's'} Detected\n\n`;
-
             // Add re-run footer for automatic runs only
             if (!p.isManual) {
               body += buildRerunFooter(p, context);
             }
-
             if (p.commentId) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner, repo: context.repo.repo,
-                comment_id: parseInt(p.commentId, 10), body
+                comment_id: p.commentId, body
               });
             } else if (!p.isManual) {
               await github.rest.issues.createComment({

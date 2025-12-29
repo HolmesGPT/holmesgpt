@@ -4,6 +4,32 @@
  */
 
 /**
+ * Build params object from raw step outputs
+ * Handles all type conversions and defaults in one place
+ * @param {Object} raw - Raw outputs from GitHub Actions steps
+ * @returns {Object} Normalized params object
+ */
+function buildParams(raw) {
+  return {
+    isManual: raw.is_manual === 'true',
+    trigger: raw.trigger_source,
+    model: raw.model || 'default',
+    markers: raw.markers,
+    filter: raw.filter,
+    iterations: raw.iterations,
+    runUrl: raw.run_url,
+    prNumber: raw.pr_number ? parseInt(raw.pr_number, 10) : null,
+    commentId: raw.comment_id ? parseInt(raw.comment_id, 10) : null,
+    testCount: raw.test_count || '0',
+    testPreview: raw.test_preview || '',
+    duration: raw.duration || 'N/A',
+    validMarkers: raw.valid_markers || '',
+    askHolmesEvals: raw.ask_holmes_evals || '',
+    investigateEvals: raw.investigate_evals || ''
+  };
+}
+
+/**
  * Render a progress checklist
  * @param {Array<[boolean, string]>} steps - Array of [completed, text] tuples
  * @returns {string} Markdown checklist
@@ -88,6 +114,7 @@ function buildRerunFooter(p, context) {
 }
 
 module.exports = {
+  buildParams,
   renderProgress,
   renderParamsTable,
   buildBody,
