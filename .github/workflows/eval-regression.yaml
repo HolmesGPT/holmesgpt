@@ -156,7 +156,7 @@ jobs:
               // Build descriptive trigger source for automatic runs
               if (event === 'pull_request') {
                 const sha = context.payload.pull_request.head.sha.substring(0, 7);
-                triggerSource = `PR #${prNumber} (${sha})`;
+                triggerSource = `commit ${sha}`;
               } else if (event === 'push') {
                 const sha = context.sha.substring(0, 7);
                 const branch = context.ref.replace('refs/heads/', '');
@@ -524,6 +524,19 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Remove eyes reaction (was added to indicate processing started)
+            const reactions = await github.rest.reactions.listForIssueComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              comment_id: context.payload.comment.id
+            });
+            const eyesReaction = reactions.data.find(r => r.content === 'eyes' && r.user.login === 'github-actions[bot]');
+            if (eyesReaction) {
+              await github.rest.reactions.deleteForIssueComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: context.payload.comment.id, reaction_id: eyesReaction.id
+              });
+            }
+            // Add hooray reaction to indicate completion
             await github.rest.reactions.createForIssueComment({
               owner: context.repo.owner, repo: context.repo.repo,
               comment_id: context.payload.comment.id, content: 'hooray'
