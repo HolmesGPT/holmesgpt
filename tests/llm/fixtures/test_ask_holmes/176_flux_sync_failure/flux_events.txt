@@ -1,0 +1,12 @@
+{"toolset_name": "flux/core", "tool_name": "flux_events", "match_params": {}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "flux_events command", "params": {}}
+stdout:
+LAST SEEN   TYPE      REASON              OBJECT                              MESSAGE
+2m          Warning   ReconciliationFailed gitrepository/webapp-infra         failed to checkout and determine revision: unable to clone 'ssh://git@github.com/myorg/webapp-infra.git': ssh: handshake failed: ssh: unable to authenticate
+5m          Warning   ReconciliationFailed gitrepository/webapp-infra         failed to checkout and determine revision: unable to clone 'ssh://git@github.com/myorg/webapp-infra.git': ssh: handshake failed: ssh: unable to authenticate
+10m         Warning   ReconciliationFailed gitrepository/webapp-infra         failed to checkout and determine revision: unable to clone 'ssh://git@github.com/myorg/webapp-infra.git': ssh: handshake failed: ssh: unable to authenticate
+2m          Warning   ArtifactFailed      kustomization/webapp-prod           Source 'GitRepository/webapp-infra' not ready
+1h          Normal    ReconciliationSucceeded gitrepository/flux-system       stored artifact for revision 'main@sha1:abc123def456'
+1h          Normal    ReconciliationSucceeded kustomization/flux-system       Applied revision: main@sha1:abc123def456
+
+stderr:

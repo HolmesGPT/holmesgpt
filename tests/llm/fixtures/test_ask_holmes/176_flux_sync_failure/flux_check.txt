@@ -1,0 +1,12 @@
+{"toolset_name": "flux/core", "tool_name": "flux_check", "match_params": {}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "flux_check command", "params": {}}
+stdout:
+prerequisites checks passed
+version: v2.2.3
+source-controller: deployment/source-controller is Ready
+kustomize-controller: deployment/kustomize-controller is Ready
+helm-controller: deployment/helm-controller is Ready
+notification-controller: deployment/notification-controller is Ready
+all checks passed
+
+stderr:

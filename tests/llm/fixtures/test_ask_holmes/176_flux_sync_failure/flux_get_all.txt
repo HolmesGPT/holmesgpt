@@ -1,0 +1,15 @@
+{"toolset_name": "flux/core", "tool_name": "flux_get_all", "match_params": {}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "flux_get_all command", "params": {}}
+stdout:
+NAME                            REVISION        SUSPENDED       READY   MESSAGE
+gitrepository/webapp-infra                      False           False   failed to checkout and determine revision: unable to clone 'ssh://git@github.com/myorg/webapp-infra.git': ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain
+gitrepository/flux-system       main@sha1:abc   False           True    stored artifact for revision 'main@sha1:abc123def456'
+
+NAME                            REVISION        SUSPENDED       READY   MESSAGE
+kustomization/webapp-prod                       False           False   Source 'GitRepository/webapp-infra' not ready
+kustomization/flux-system       main@sha1:abc   False           True    Applied revision: main@sha1:abc123def456
+
+NAME                            REVISION        SUSPENDED       READY   MESSAGE
+helmrelease/redis               5.0.7           False           True    Helm install succeeded for release default/redis.v1
+
+stderr:

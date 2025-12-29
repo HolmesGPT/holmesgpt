@@ -1,0 +1,212 @@
+toolsets:
+  flux/core:
+    description: "Set of tools to interact with Flux CD for GitOps deployments - check sync status, troubleshoot reconciliation issues, and inspect resources."
+    docs_url: "https://fluxcd.io/flux/cmd/"
+    icon_url: "https://fluxcd.io/img/logos/flux-icon-color.png"
+    llm_instructions: |
+      You have access to a set of Flux CD tools for debugging GitOps-managed Kubernetes deployments.
+      Flux is a GitOps toolkit that keeps Kubernetes clusters in sync with sources of configuration (like Git repositories) and automates updates when new code is available.
+
+      IMPORTANT: If you are asked about sync issues, deployment problems, or GitOps status, ALWAYS check Flux resources first.
+      If a resource seems to be missing or not updating, it may be managed by Flux - use `flux_get_all` to discover Flux-managed resources.
+
+      Key Flux concepts:
+      - **Sources** (GitRepository, HelmRepository, Bucket, OCIRepository): Where Flux pulls configuration from
+      - **Kustomizations**: Apply manifests from a source to the cluster
+      - **HelmReleases**: Deploy Helm charts managed by Flux
+      - **Reconciliation**: The process of syncing desired state to the cluster
+
+      In addition to the general investigation steps, ALWAYS follow these steps when investigating Flux issues:
+        1. Check overall Flux health with `flux_check`
+        2. List all Flux resources with `flux_get_all` to understand the current state
+        3. Check source status with `flux_get_sources_git` or `flux_get_sources_all`
+        4. Check Kustomization status with `flux_get_kustomizations`
+        5. If HelmReleases are involved, check with `flux_get_helmreleases`
+        6. Use `flux_events` to see recent events for problematic resources
+        7. Use `flux_logs` to get controller logs for deeper debugging
+        8. Use `flux_trace` to understand the dependency chain if a resource isn't updating
+
+      {% if tool_names|list|length > 0 %}
+      The following commands are available to introspect Flux CD: {{ ", ".join(tool_names) }}
+      {% endif %}
+
+      Common issues to look for:
+      - Source not ready: Git authentication failed, repository not found, branch doesn't exist
+      - Kustomization failed: Invalid manifests, missing dependencies, namespace doesn't exist
+      - HelmRelease failed: Chart not found, values validation error, dependency not ready
+      - Suspended resources: Resources may be intentionally paused
+
+      DO NOT tell the user to check something themselves - investigate on their behalf and provide specific findings and solutions.
+    tags:
+      - core
+    prerequisites:
+      - command: "flux version --client"
+    tools:
+      # Health and Overview
+      - name: "flux_check"
+        description: "Check Flux installation health and prerequisites. Use this first to verify Flux is properly installed and controllers are running."
+        command: "flux check"
+
+      - name: "flux_version"
+        description: "Show Flux CLI and controller versions installed in the cluster"
+        command: "flux version"
+
+      - name: "flux_stats"
+        description: "Display statistics about Flux resources in the cluster"
+        command: "flux stats"
+
+      # Get All Resources
+      - name: "flux_get_all"
+        description: "Get status of all Flux resources across all namespaces. This provides a comprehensive overview of GitRepositories, Kustomizations, HelmReleases, and more."
+        command: "flux get all -A"
+
+      # Source Status
+      - name: "flux_get_sources_all"
+        description: "Get status of all source types (Git, Helm, Bucket, OCI) across all namespaces"
+        command: "flux get sources all -A"
+
+      - name: "flux_get_sources_git"
+        description: "Get status of GitRepository sources. Shows sync status, last fetched revision, and any errors."
+        command: "flux get sources git{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}{% if name %} {{ name }}{% endif %}"
+
+      - name: "flux_get_sources_helm"
+        description: "Get status of HelmRepository sources"
+        command: "flux get sources helm{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}{% if name %} {{ name }}{% endif %}"
+
+      - name: "flux_get_sources_oci"
+        description: "Get status of OCIRepository sources"
+        command: "flux get sources oci{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}{% if name %} {{ name }}{% endif %}"
+
+      - name: "flux_get_sources_bucket"
+        description: "Get status of Bucket sources"
+        command: "flux get sources bucket{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}{% if name %} {{ name }}{% endif %}"
+
+      # Kustomization Status
+      - name: "flux_get_kustomizations"
+        description: "Get status of Kustomizations. Shows reconciliation status, source reference, and applied revision."
+        command: "flux get kustomizations{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}{% if name %} {{ name }}{% endif %}"
+
+      # HelmRelease Status
+      - name: "flux_get_helmreleases"
+        description: "Get status of HelmReleases. Shows chart version, reconciliation status, and any errors."
+        command: "flux get helmreleases{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}{% if name %} {{ name }}{% endif %}"
+
+      # Alerts and Notifications
+      - name: "flux_get_alerts"
+        description: "Get status of Alert resources for Flux notifications"
+        command: "flux get alerts{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}"
+
+      - name: "flux_get_alert_providers"
+        description: "Get status of Alert Provider resources (Slack, Teams, etc.)"
+        command: "flux get alert-providers{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}"
+
+      - name: "flux_get_receivers"
+        description: "Get status of Receiver resources (webhooks for triggering reconciliation)"
+        command: "flux get receivers{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}"
+
+      # Image Automation
+      - name: "flux_get_images_all"
+        description: "Get status of all image automation resources (repositories, policies, updates)"
+        command: "flux get images all{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}"
+
+      # Troubleshooting
+      - name: "flux_logs"
+        description: "View logs from Flux controllers. Useful for debugging reconciliation failures."
+        command: "flux logs{% if flux_namespace %} --flux-namespace {{ flux_namespace }}{% endif %}{% if kind %} --kind {{ kind }}{% endif %}{% if name %} --name {{ name }}{% endif %}{% if level %} --level {{ level }}{% endif %} --since={{ since | default('10m') }}"
+
+      - name: "flux_events"
+        description: "Display Kubernetes events for Flux resources. Shows recent reconciliation events, errors, and warnings."
+        command: "flux events{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}{% if kind and name %} --for {{ kind }}/{{ name }}{% endif %}"
+
+      - name: "flux_trace"
+        description: "Trace a Flux resource to show its dependency chain and reconciliation path. Helps understand why a resource isn't updating."
+        command: "flux trace {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          kind:
+            description: "The kind of Flux resource to trace (e.g., kustomization, helmrelease, gitrepository)"
+            required: true
+          name:
+            description: "The name of the Flux resource to trace"
+            required: true
+          namespace:
+            description: "The namespace of the resource (defaults to flux-system)"
+            required: false
+
+      - name: "flux_tree"
+        description: "Show the tree view of a Kustomization, displaying all resources it manages"
+        command: "flux tree kustomization {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          name:
+            description: "The name of the Kustomization to show the tree for"
+            required: true
+          namespace:
+            description: "The namespace of the Kustomization (defaults to flux-system)"
+            required: false
+
+      # Debug Commands
+      - name: "flux_debug_kustomization"
+        description: "Debug a Kustomization by showing detailed information about its current state and any issues"
+        command: "flux debug kustomization {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          name:
+            description: "The name of the Kustomization to debug"
+            required: true
+          namespace:
+            description: "The namespace of the Kustomization (defaults to flux-system)"
+            required: false
+
+      - name: "flux_debug_helmrelease"
+        description: "Debug a HelmRelease by showing detailed information about its current state and any issues"
+        command: "flux debug helmrelease {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          name:
+            description: "The name of the HelmRelease to debug"
+            required: true
+          namespace:
+            description: "The namespace of the HelmRelease (defaults to flux-system)"
+            required: false
+
+      # Diff and Export (Read-only inspection)
+      - name: "flux_diff_kustomization"
+        description: "Show the diff between the current cluster state and what a Kustomization would apply"
+        command: "flux diff kustomization {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          name:
+            description: "The name of the Kustomization to diff"
+            required: true
+          namespace:
+            description: "The namespace of the Kustomization (defaults to flux-system)"
+            required: false
+
+      - name: "flux_export_source_git"
+        description: "Export a GitRepository source definition in YAML format for inspection"
+        command: "flux export source git {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          name:
+            description: "The name of the GitRepository to export"
+            required: true
+          namespace:
+            description: "The namespace of the GitRepository (defaults to flux-system)"
+            required: false
+
+      - name: "flux_export_kustomization"
+        description: "Export a Kustomization definition in YAML format for inspection"
+        command: "flux export kustomization {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          name:
+            description: "The name of the Kustomization to export"
+            required: true
+          namespace:
+            description: "The namespace of the Kustomization (defaults to flux-system)"
+            required: false
+
+      - name: "flux_export_helmrelease"
+        description: "Export a HelmRelease definition in YAML format for inspection"
+        command: "flux export helmrelease {{ name }}{% if namespace %} -n {{ namespace }}{% else %} -n flux-system{% endif %}"
+        parameters:
+          name:
+            description: "The name of the HelmRelease to export"
+            required: true
+          namespace:
+            description: "The namespace of the HelmRelease (defaults to flux-system)"
+            required: false
