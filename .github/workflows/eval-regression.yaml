@@ -201,6 +201,45 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // ========== SHARED HELPER FUNCTIONS ==========
+            // These are defined once and reused via copy in subsequent steps
+
+            // Progress checklist renderer
+            const renderProgress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            // Parameters table for manual runs
+            const renderParamsTable = (p) =>
+              `| Parameter | Value |\n|-----------|-------|\n` +
+              `| **Triggered via** | ${p.trigger} |\n` +
+              `| **Model** | \`${p.model}\` |\n` +
+              `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
+              (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+              `| **Iterations** | ${p.iterations} |\n` +
+              (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
+              `| **Workflow** | [View logs](${p.runUrl}) |\n`;
+
+            // Build comment body based on state
+            const buildBody = (p, progressSteps, extras = {}) => {
+              const progressText = renderProgress(progressSteps);
+
+              let body = p.isManual
+                ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
+                  renderParamsTable(p) + `\n**Progress:**\n${progressText}\n`
+                : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
+                  `Automatically triggered by ${p.trigger}\n\n` +
+                  `[View workflow logs](${p.runUrl})\n\n` +
+                  `**Progress:**\n${progressText}\n`;
+
+              if (extras.testPreview) {
+                body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
+              }
+
+              return body;
+            };
+            // ========== END SHARED HELPERS ==========
+
             const p = {
               isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
               trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
@@ -212,11 +251,6 @@ jobs:
               prNumber: parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10)
             };
 
-            // Progress checklist helper
-            const progress = (steps) => steps.map(([done, text]) =>
-              done ? `- [x] ${text}` : `- [ ] ${text}`
-            ).join('\n');
-
             const progressSteps = [
               [false, 'Setup HolmesGPT environment'],
               [false, 'Collect evals to run'],
@@ -224,20 +258,7 @@ jobs:
               [false, 'Run evals']
             ];
 
-            let body = p.isManual
-              ? `## 🚀 Manual Eval Running...\n\n` +
-                `| Parameter | Value |\n|-----------|-------|\n` +
-                `| **Triggered via** | ${p.trigger} |\n` +
-                `| **Model** | \`${p.model}\` |\n` +
-                `| **Markers** | \`${p.markers}\` |\n` +
-                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
-                `| **Iterations** | ${p.iterations} |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`
-              : `## ⏳ HolmesGPT evals running...\n\n` +
-                `Automatically triggered by ${p.trigger}\n\n` +
-                `[View workflow logs](${p.runUrl})\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`;
+            const body = buildBody(p, progressSteps);
 
             const comment = await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -260,20 +281,46 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Shared helpers (same as initial-comment step)
+            const renderProgress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const renderParamsTable = (p) =>
+              `| Parameter | Value |\n|-----------|-------|\n` +
+              `| **Triggered via** | ${p.trigger} |\n` +
+              `| **Model** | \`${p.model}\` |\n` +
+              `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
+              (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+              `| **Iterations** | ${p.iterations} |\n` +
+              (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
+              `| **Workflow** | [View logs](${p.runUrl}) |\n`;
+
+            const buildBody = (p, progressSteps, extras = {}) => {
+              const progressText = renderProgress(progressSteps);
+              let body = p.isManual
+                ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
+                  renderParamsTable(p) + `\n**Progress:**\n${progressText}\n`
+                : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
+                  `Automatically triggered by ${p.trigger}\n\n` +
+                  `[View workflow logs](${p.runUrl})\n\n` +
+                  `**Progress:**\n${progressText}\n`;
+              if (extras.testPreview) {
+                body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
+              }
+              return body;
+            };
+
             const p = {
               isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
               trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
               model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }} || 'all LLM tests',
+              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
               runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
               commentId: parseInt(${{ toJSON(steps.initial-comment.outputs.comment_id) }}, 10)
             };
-
-            const progress = (steps) => steps.map(([done, text]) =>
-              done ? `- [x] ${text}` : `- [ ] ${text}`
-            ).join('\n');
 
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
@@ -282,26 +329,11 @@ jobs:
               [false, 'Run evals']
             ];
 
-            let body = p.isManual
-              ? `## 🚀 Manual Eval Running...\n\n` +
-                `| Parameter | Value |\n|-----------|-------|\n` +
-                `| **Triggered via** | ${p.trigger} |\n` +
-                `| **Model** | \`${p.model}\` |\n` +
-                `| **Markers** | \`${p.markers}\` |\n` +
-                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
-                `| **Iterations** | ${p.iterations} |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`
-              : `## ⏳ HolmesGPT evals running...\n\n` +
-                `Automatically triggered by ${p.trigger}\n\n` +
-                `[View workflow logs](${p.runUrl})\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`;
-
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body
+              body: buildBody(p, progressSteps)
             });
 
       - name: Collect evals to run
@@ -359,11 +391,41 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Shared helpers (same as initial-comment step)
+            const renderProgress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const renderParamsTable = (p) =>
+              `| Parameter | Value |\n|-----------|-------|\n` +
+              `| **Triggered via** | ${p.trigger} |\n` +
+              `| **Model** | \`${p.model}\` |\n` +
+              `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
+              (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+              `| **Iterations** | ${p.iterations} |\n` +
+              (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
+              `| **Workflow** | [View logs](${p.runUrl}) |\n`;
+
+            const buildBody = (p, progressSteps, extras = {}) => {
+              const progressText = renderProgress(progressSteps);
+              let body = p.isManual
+                ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
+                  renderParamsTable(p) + `\n**Progress:**\n${progressText}\n`
+                : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
+                  `Automatically triggered by ${p.trigger}\n\n` +
+                  `[View workflow logs](${p.runUrl})\n\n` +
+                  `**Progress:**\n${progressText}\n`;
+              if (extras.testPreview) {
+                body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
+              }
+              return body;
+            };
+
             const p = {
               isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
               trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
               model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }} || 'all LLM tests',
+              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
               runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
@@ -372,10 +434,6 @@ jobs:
               testPreview: ${{ toJSON(steps.test-preview.outputs.test_preview) }} || ''
             };
 
-            const progress = (steps) => steps.map(([done, text]) =>
-              done ? `- [x] ${text}` : `- [ ] ${text}`
-            ).join('\n');
-
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
@@ -383,30 +441,11 @@ jobs:
               [false, 'Run evals']
             ];
 
-            let body = p.isManual
-              ? `## 🚀 Manual Eval Running...\n\n` +
-                `| Parameter | Value |\n|-----------|-------|\n` +
-                `| **Triggered via** | ${p.trigger} |\n` +
-                `| **Model** | \`${p.model}\` |\n` +
-                `| **Markers** | \`${p.markers}\` |\n` +
-                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
-                `| **Iterations** | ${p.iterations} |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`
-              : `## ⏳ HolmesGPT evals running...\n\n` +
-                `Automatically triggered by ${p.trigger}\n\n` +
-                `[View workflow logs](${p.runUrl})\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`;
-
-            if (p.testPreview && p.testCount !== '0') {
-              body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
-            }
-
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body
+              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null })
             });
 
       - name: Setup KIND cluster
@@ -421,11 +460,41 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Shared helpers (same as initial-comment step)
+            const renderProgress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const renderParamsTable = (p) =>
+              `| Parameter | Value |\n|-----------|-------|\n` +
+              `| **Triggered via** | ${p.trigger} |\n` +
+              `| **Model** | \`${p.model}\` |\n` +
+              `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
+              (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+              `| **Iterations** | ${p.iterations} |\n` +
+              (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
+              `| **Workflow** | [View logs](${p.runUrl}) |\n`;
+
+            const buildBody = (p, progressSteps, extras = {}) => {
+              const progressText = renderProgress(progressSteps);
+              let body = p.isManual
+                ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
+                  renderParamsTable(p) + `\n**Progress:**\n${progressText}\n`
+                : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
+                  `Automatically triggered by ${p.trigger}\n\n` +
+                  `[View workflow logs](${p.runUrl})\n\n` +
+                  `**Progress:**\n${progressText}\n`;
+              if (extras.testPreview) {
+                body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
+              }
+              return body;
+            };
+
             const p = {
               isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
               trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
               model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }} || 'all LLM tests',
+              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
               filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
               iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
               runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
@@ -434,10 +503,6 @@ jobs:
               testPreview: ${{ toJSON(steps.test-preview.outputs.test_preview) }} || ''
             };
 
-            const progress = (steps) => steps.map(([done, text]) =>
-              done ? `- [x] ${text}` : `- [ ] ${text}`
-            ).join('\n');
-
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
@@ -445,30 +510,11 @@ jobs:
               [false, 'Run evals ⏳']
             ];
 
-            let body = p.isManual
-              ? `## 🚀 Manual Eval Running...\n\n` +
-                `| Parameter | Value |\n|-----------|-------|\n` +
-                `| **Triggered via** | ${p.trigger} |\n` +
-                `| **Model** | \`${p.model}\` |\n` +
-                `| **Markers** | \`${p.markers}\` |\n` +
-                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
-                `| **Iterations** | ${p.iterations} |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`
-              : `## ⏳ HolmesGPT evals running...\n\n` +
-                `Automatically triggered by ${p.trigger}\n\n` +
-                `[View workflow logs](${p.runUrl})\n\n` +
-                `**Progress:**\n${progress(progressSteps)}\n`;
-
-            if (p.testPreview && p.testCount !== '0') {
-              body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
-            }
-
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body
+              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null })
             });
 
       - name: Run tests
@@ -519,54 +565,41 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const p = {
-              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
-              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
-              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
-              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              duration: ${{ toJSON(steps.evals.outputs.duration) }} || 'N/A',
-              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              prNumber: parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10),
-              commentId: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
-              // Dynamic lists collected from the codebase
-              validMarkers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }} || '',
-              askHolmesEvals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }} || '',
-              investigateEvals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }} || ''
+
+            // Shared helpers (same as initial-comment step)
+            const renderProgress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const renderParamsTable = (p) =>
+              `| Parameter | Value |\n|-----------|-------|\n` +
+              `| **Triggered via** | ${p.trigger} |\n` +
+              `| **Model** | \`${p.model}\` |\n` +
+              `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
+              (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+              `| **Iterations** | ${p.iterations} |\n` +
+              (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
+              `| **Workflow** | [View logs](${p.runUrl}) |\n`;
+
+            const buildBody = (p, progressSteps, extras = {}) => {
+              const progressText = renderProgress(progressSteps);
+              let body = p.isManual
+                ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
+                  renderParamsTable(p) + `\n**Progress:**\n${progressText}\n`
+                : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
+                  `Automatically triggered by ${p.trigger}\n\n` +
+                  `[View workflow logs](${p.runUrl})\n\n` +
+                  `**Progress:**\n${progressText}\n`;
+              if (extras.testPreview) {
+                body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
+              }
+              return body;
             };
 
-            const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
-            const regressions = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
-
-            // Completed progress checklist
-            const completedProgress = [
-              '- [x] Setup HolmesGPT environment',
-              '- [x] Collect evals to run',
-              '- [x] Setup KIND cluster',
-              '- [x] Run evals ✅'
-            ].join('\n');
-
-            let body = p.isManual
-              ? `## 🧪 Manual Eval Results\n\n` +
-                `| Parameter | Value |\n|-----------|-------|\n` +
-                `| **Triggered via** | ${p.trigger} |\n` +
-                `| **Model** | \`${p.model}\` |\n` +
-                `| **Markers** | \`${p.markers}\` |\n` +
-                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
-                `| **Iterations** | ${p.iterations} |\n` +
-                `| **Duration** | ${p.duration} |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
-                `**Progress:**\n${completedProgress}\n\n`
-              : `## Results of HolmesGPT evals\n\n**Duration:** ${p.duration} | [View workflow logs](${p.runUrl})\n\n` +
-                `**Progress:**\n${completedProgress}\n\n`;
-
-            body += report || '⚠️ No eval report was generated.\n\n';
-            if (regressions) body += `\n### ⚠️ ${regressions} Regression${regressions === '1' ? '' : 's'} Detected\n\n`;
-
-            if (!p.isManual) {
+            // Results-specific: re-run instructions footer
+            const buildRerunFooter = (p) => {
               const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
-              body += '\n---\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
+              return '\n---\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
                 '> ⚠️ **Warning:** Manual re-runs have NO default markers and will run ALL LLM tests (~100+), which can take 1+ hours. ' +
                 'Use `markers: regression` or `filter: test_name` to limit scope.\n\n' +
                 '**Option 1: Comment on this PR** with `/eval`:\n\n' +
@@ -588,6 +621,45 @@ jobs:
                 '\n\n**test_investigate:**\n' +
                 (p.investigateEvals || '_(No evals found)_') +
                 '\n</details>\n';
+            };
+
+            const p = {
+              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
+              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
+              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
+              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
+              duration: ${{ toJSON(steps.evals.outputs.duration) }} || 'N/A',
+              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              prNumber: parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10),
+              commentId: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
+              validMarkers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }} || '',
+              askHolmesEvals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }} || '',
+              investigateEvals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }} || ''
+            };
+
+            const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
+            const regressions = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
+
+            const progressSteps = [
+              [true, 'Setup HolmesGPT environment'],
+              [true, 'Collect evals to run'],
+              [true, 'Setup KIND cluster'],
+              [true, 'Run evals ✅']
+            ];
+
+            let body = buildBody(p, progressSteps, {
+              icon: p.isManual ? '🧪' : '✅',
+              title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals'
+            });
+
+            body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
+            if (regressions) body += `\n### ⚠️ ${regressions} Regression${regressions === '1' ? '' : 's'} Detected\n\n`;
+
+            // Add re-run footer for automatic runs only
+            if (!p.isManual) {
+              body += buildRerunFooter(p);
             }
 
             if (p.commentId) {
@@ -596,8 +668,6 @@ jobs:
                 comment_id: parseInt(p.commentId, 10), body
               });
             } else if (!p.isManual) {
-              // For automatic triggers without an initial comment (e.g., fork PRs without secrets),
-              // create a new comment with results. For manual triggers, initial comment always exists.
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: p.prNumber, body
