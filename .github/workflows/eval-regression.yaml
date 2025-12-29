@@ -212,6 +212,18 @@ jobs:
               prNumber: parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10)
             };
 
+            // Progress checklist helper
+            const progress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const progressSteps = [
+              [false, 'Setup HolmesGPT environment'],
+              [false, 'Collect evals to run'],
+              [false, 'Setup KIND cluster'],
+              [false, 'Run evals']
+            ];
+
             let body = p.isManual
               ? `## 🚀 Manual Eval Running...\n\n` +
                 `| Parameter | Value |\n|-----------|-------|\n` +
@@ -220,11 +232,12 @@ jobs:
                 `| **Markers** | \`${p.markers}\` |\n` +
                 (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
                 `| **Iterations** | ${p.iterations} |\n` +
-                `| **Status** | ⏳ Running... |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n`
+                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`
               : `## ⏳ HolmesGPT evals running...\n\n` +
                 `Automatically triggered by ${p.trigger}\n\n` +
-                `[View workflow logs](${p.runUrl})\n`;
+                `[View workflow logs](${p.runUrl})\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`;
 
             const comment = await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -234,19 +247,62 @@ jobs:
             });
             core.setOutput('comment_id', comment.data.id.toString());
 
-      - name: Setup KIND cluster
-        if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./.github/actions/setup-kind-cluster
-        with:
-          cluster-name: 'kind'
-          wait-for-ready: 'true'
-
+      # Reordered: Setup HolmesGPT first (needed for pytest), then collect evals, then KIND
       - name: Setup HolmesGPT environment
         if: steps.check-tests.outputs.should-run == 'true'
         uses: ./.github/actions/setup-holmes-env
         with:
           python-version: '3.12'
           install-kubectl: 'true'
+
+      - name: Update progress - HolmesGPT setup done
+        if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const p = {
+              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
+              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+              markers: ${{ toJSON(steps.eval-params.outputs.markers) }} || 'all LLM tests',
+              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
+              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
+              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              commentId: parseInt(${{ toJSON(steps.initial-comment.outputs.comment_id) }}, 10)
+            };
+
+            const progress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const progressSteps = [
+              [true, 'Setup HolmesGPT environment'],
+              [false, 'Collect evals to run ⏳'],
+              [false, 'Setup KIND cluster'],
+              [false, 'Run evals']
+            ];
+
+            let body = p.isManual
+              ? `## 🚀 Manual Eval Running...\n\n` +
+                `| Parameter | Value |\n|-----------|-------|\n` +
+                `| **Triggered via** | ${p.trigger} |\n` +
+                `| **Model** | \`${p.model}\` |\n` +
+                `| **Markers** | \`${p.markers}\` |\n` +
+                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+                `| **Iterations** | ${p.iterations} |\n` +
+                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`
+              : `## ⏳ HolmesGPT evals running...\n\n` +
+                `Automatically triggered by ${p.trigger}\n\n` +
+                `[View workflow logs](${p.runUrl})\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`;
+
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: p.commentId,
+              body
+            });
 
       - name: Collect evals to run
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
@@ -270,7 +326,7 @@ jobs:
           echo "$TEST_LIST" >> $GITHUB_OUTPUT
           echo "$EOF" >> $GITHUB_OUTPUT
 
-      - name: Update comment with evals list
+      - name: Update progress - evals collected
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
         uses: actions/github-script@v7
         with:
@@ -288,6 +344,17 @@ jobs:
               testPreview: ${{ toJSON(steps.test-preview.outputs.test_preview) }} || ''
             };
 
+            const progress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const progressSteps = [
+              [true, 'Setup HolmesGPT environment'],
+              [true, `Collect evals to run (${p.testCount} tests)`],
+              [false, 'Setup KIND cluster ⏳'],
+              [false, 'Run evals']
+            ];
+
             let body = p.isManual
               ? `## 🚀 Manual Eval Running...\n\n` +
                 `| Parameter | Value |\n|-----------|-------|\n` +
@@ -296,13 +363,74 @@ jobs:
                 `| **Markers** | \`${p.markers}\` |\n` +
                 (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
                 `| **Iterations** | ${p.iterations} |\n` +
-                `| **Tests to run** | ${p.testCount} |\n` +
-                `| **Status** | ⏳ Running... |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n`
+                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`
               : `## ⏳ HolmesGPT evals running...\n\n` +
                 `Automatically triggered by ${p.trigger}\n\n` +
-                `**Tests to run:** ${p.testCount}\n\n` +
-                `[View workflow logs](${p.runUrl})\n`;
+                `[View workflow logs](${p.runUrl})\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`;
+
+            if (p.testPreview && p.testCount !== '0') {
+              body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
+            }
+
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: p.commentId,
+              body
+            });
+
+      - name: Setup KIND cluster
+        if: steps.check-tests.outputs.should-run == 'true'
+        uses: ./.github/actions/setup-kind-cluster
+        with:
+          cluster-name: 'kind'
+          wait-for-ready: 'true'
+
+      - name: Update progress - KIND ready, starting evals
+        if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const p = {
+              isManual: ${{ toJSON(steps.eval-params.outputs.is_manual) }} === 'true',
+              trigger: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
+              model: ${{ toJSON(steps.eval-params.outputs.model) }} || 'default',
+              markers: ${{ toJSON(steps.eval-params.outputs.markers) }} || 'all LLM tests',
+              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
+              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
+              runUrl: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              commentId: parseInt(${{ toJSON(steps.initial-comment.outputs.comment_id) }}, 10),
+              testCount: ${{ toJSON(steps.test-preview.outputs.test_count) }} || '0',
+              testPreview: ${{ toJSON(steps.test-preview.outputs.test_preview) }} || ''
+            };
+
+            const progress = (steps) => steps.map(([done, text]) =>
+              done ? `- [x] ${text}` : `- [ ] ${text}`
+            ).join('\n');
+
+            const progressSteps = [
+              [true, 'Setup HolmesGPT environment'],
+              [true, `Collect evals to run (${p.testCount} tests)`],
+              [true, 'Setup KIND cluster'],
+              [false, 'Run evals ⏳']
+            ];
+
+            let body = p.isManual
+              ? `## 🚀 Manual Eval Running...\n\n` +
+                `| Parameter | Value |\n|-----------|-------|\n` +
+                `| **Triggered via** | ${p.trigger} |\n` +
+                `| **Model** | \`${p.model}\` |\n` +
+                `| **Markers** | \`${p.markers}\` |\n` +
+                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+                `| **Iterations** | ${p.iterations} |\n` +
+                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`
+              : `## ⏳ HolmesGPT evals running...\n\n` +
+                `Automatically triggered by ${p.trigger}\n\n` +
+                `[View workflow logs](${p.runUrl})\n\n` +
+                `**Progress:**\n${progress(progressSteps)}\n`;
 
             if (p.testPreview && p.testCount !== '0') {
               body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
@@ -376,6 +504,14 @@ jobs:
             const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
             const regressions = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
 
+            // Completed progress checklist
+            const completedProgress = [
+              '- [x] Setup HolmesGPT environment',
+              '- [x] Collect evals to run',
+              '- [x] Setup KIND cluster',
+              '- [x] Run evals ✅'
+            ].join('\n');
+
             let body = p.isManual
               ? `## 🧪 Manual Eval Results\n\n` +
                 `| Parameter | Value |\n|-----------|-------|\n` +
@@ -385,8 +521,10 @@ jobs:
                 (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
                 `| **Iterations** | ${p.iterations} |\n` +
                 `| **Duration** | ${p.duration} |\n` +
-                `| **Workflow** | [View logs](${p.runUrl}) |\n\n`
-              : `## Results of HolmesGPT evals\n\n**Duration:** ${p.duration} | [View workflow logs](${p.runUrl})\n\n`;
+                `| **Workflow** | [View logs](${p.runUrl}) |\n\n` +
+                `**Progress:**\n${completedProgress}\n\n`
+              : `## Results of HolmesGPT evals\n\n**Duration:** ${p.duration} | [View workflow logs](${p.runUrl})\n\n` +
+                `**Progress:**\n${completedProgress}\n\n`;
 
             body += report || '⚠️ No eval report was generated.\n\n';
             if (regressions) body += `\n### ⚠️ ${regressions} Regression${regressions === '1' ? '' : 's'} Detected\n\n`;
