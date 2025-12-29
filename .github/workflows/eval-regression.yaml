@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'PR number to run evals on (leave empty for current branch)'
+        description: 'PR number to comment on (auto-detects from branch if empty)'
         required: false
         default: ''
       model:
@@ -143,8 +143,30 @@ jobs:
               if ([model, markers, filter, iterations, prNum].includes(null)) return;
               isManual = true;
               triggerSource = 'workflow_dispatch';
-              prNumber = prNum ? parseInt(prNum, 10) : null;
               triggeredBy = context.actor;
+
+              // Auto-detect PR from branch if pr_number not provided
+              if (prNum) {
+                prNumber = parseInt(prNum, 10);
+              } else {
+                const branch = context.ref.replace('refs/heads/', '');
+                const prs = await github.rest.pulls.list({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  head: `${context.repo.owner}:${branch}`,
+                  state: 'open'
+                });
+                if (prs.data.length === 1) {
+                  prNumber = prs.data[0].number;
+                  core.info(`Auto-detected PR #${prNumber} from branch ${branch}`);
+                } else if (prs.data.length > 1) {
+                  core.warning(`Multiple open PRs found for branch ${branch}, please specify pr_number`);
+                  prNumber = null;
+                } else {
+                  core.info(`No open PR found for branch ${branch}`);
+                  prNumber = null;
+                }
+              }
             } else {
               model = '';
               markers = 'regression';
