@@ -22,7 +22,7 @@ before_test: |
   done
   
   if [ "$PROVISIONING_FAILED" = false ]; then
-    echo "❌ ProvisioningFailed event not detected after 30 seconds"
+    echo "❌ ProvisioningFailed event not detected"
     kubectl describe pvc redis-standard-pvc -n app-24  # Diagnostic info
     kubectl get events -n app-24  # Show all events for debugging
     exit 1  # CRITICAL: Fail the test early

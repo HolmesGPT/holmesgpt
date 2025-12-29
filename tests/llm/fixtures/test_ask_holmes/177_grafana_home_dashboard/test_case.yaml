@@ -49,7 +49,7 @@ before_test: |
   done
   
   if [ "$API_READY" = false ]; then
-    echo "❌ Grafana home dashboard API failed verification after 30 seconds"
+    echo "❌ Grafana home dashboard API failed verification"
     echo "Checking pod logs..."
     kubectl logs -l app=grafana -n app-177 --tail=20
     exit 1
