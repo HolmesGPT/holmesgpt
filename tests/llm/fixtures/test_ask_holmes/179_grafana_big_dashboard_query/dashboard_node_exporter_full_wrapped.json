@@ -15671,6 +15671,68 @@
         ],
         "title": "Node Exporter",
         "type": "row"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds_prometheus}"
+        },
+        "description": "Average checkout processing time for payment transactions",
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "decimals": 1,
+            "mappings": [],
+            "max": 5000,
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green"
+                },
+                {
+                  "color": "yellow",
+                  "value": 2000
+                },
+                {
+                  "color": "red",
+                  "value": 4000
+                }
+              ]
+            },
+            "unit": "ms"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 0,
+          "y": 4250
+        },
+        "id": 340,
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "textMode": "auto"
+        },
+        "pluginVersion": "11.6.1",
+        "targets": [
+          {
+            "editorMode": "code",
+            "expr": "ecommerce_checkout_processing_delay_seconds{payment_gateway=\"stripe\",region=\"us_east\"} * 1000",
+            "legendFormat": "Processing Delay (ms)",
+            "range": true,
+            "refId": "A"
+          }
+        ],
+        "title": "Checkout Processing Delays",
+        "type": "stat"
       }
     ],
     "refresh": "1m",

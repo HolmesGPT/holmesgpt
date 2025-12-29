@@ -1,12 +1,10 @@
 # This test uses the Node Exporter Full dashboard from https://grafana.com/grafana/dashboards/1860-node-exporter-full/
 # but renames it to "E-Commerce Platform Monitoring" to prevent Holmes from using domain knowledge cheats
 
-user_prompt: "In the 'E-Commerce Platform Monitoring' dashboard, find the Prometheus query that monitors CPU pressure waiting time and tell me the exact query expression"
+user_prompt: "In the 'E-Commerce Platform Monitoring' dashboard, find the Prometheus query that tracks checkout processing delays and tell me the exact query expression"
 
 expected_output:
-  - 'Found the E-Commerce Platform Monitoring dashboard'
-  - 'CPU pressure waiting time is monitored'
-  - 'irate(node_pressure_cpu_waiting_seconds_total{instance="$node"'
+  - 'ecommerce_checkout_processing_delay_seconds{payment_gateway="stripe",region="us_east"} * 1000'
 
 before_test: |
   set -e  # Exit immediately if any command fails
