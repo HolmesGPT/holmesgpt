@@ -1,0 +1,183 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "app-metrics-001",
+    "title": "Application Metrics",
+    "tags": ["application", "metrics", "test"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "panels": [
+      {
+        "id": 1,
+        "title": "CPU Usage",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "rate(cpu_usage_total[5m])",
+            "refId": "A",
+            "legendFormat": "CPU Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "options": {
+          "tooltip": {
+            "mode": "single"
+          },
+          "legend": {
+            "displayMode": "visible"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Memory Usage", 
+        "type": "stat",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "memory_usage_bytes",
+            "refId": "B",
+            "legendFormat": "Memory"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "min": 0
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": ""
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Request Rate",
+        "type": "timeseries", 
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[1m])",
+            "refId": "C",
+            "legendFormat": "Request Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "min": 0
+          }
+        },
+        "options": {
+          "tooltip": {
+            "mode": "single"
+          },
+          "legend": {
+            "displayMode": "visible"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Error Rate",
+        "type": "gauge",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+            "refId": "D", 
+            "legendFormat": "5xx Errors"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 10
+                },
+                {
+                  "color": "red",
+                  "value": 50
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": ""
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "value"
+        }
+      }
+    ],
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "links": [],
+    "liveNow": false,
+    "style": "dark"
+  },
+  "overwrite": true,
+  "message": "Test dashboard for Holmes evaluation"
+}

@@ -120,36 +120,33 @@ poetry run mypy
 
 **Running LLM Tests**:
 ```bash
-# IMPORTANT: Always use RUN_LIVE=true for accurate test results
-# This ensures tests match real-world behavior
-
 # Run all LLM tests
-RUN_LIVE=true poetry run pytest -m 'llm' --no-cov
+poetry run pytest -m 'llm' --no-cov
 
 # Run specific test - IMPORTANT: Use -k flag, NOT full test path!
 # CORRECT - use -k flag with test name pattern:
-RUN_LIVE=true poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
-RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
+poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
+poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
 
 # WRONG - DO NOT specify full test path with brackets:
-# RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
+# poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
 # This syntax fails when environment variables are passed!
 
 # Run regression tests (easy marker) - all should pass with ITERATIONS=10
-RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
-RUN_LIVE=true ITERATIONS=10 poetry run pytest -m 'llm and easy' --no-cov
+poetry run pytest -m 'llm and easy' --no-cov
+ITERATIONS=10 poetry run pytest -m 'llm and easy' --no-cov
 
 # Run tests in parallel
-RUN_LIVE=true poetry run pytest tests/llm/ -n 6
+poetry run pytest tests/llm/ -n 6
 
 # Test with different models
 # Note: When using Anthropic models, set CLASSIFIER_MODEL to OpenAI (Anthropic not supported as classifier)
-RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
+MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
 
 # Setting environment variables - IMPORTANT:
 # Environment variables must be set BEFORE the poetry command, NOT as pytest arguments
 # CORRECT:
-RUN_LIVE=true EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
+EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
 
 # WRONG - this won't work:
 # poetry run pytest EVAL_SETUP_TIMEOUT=600 -m 'llm' -k "slow_test"
@@ -164,7 +161,7 @@ RUN_LIVE=true EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" -
 **Environment Variables**:
 - `MODEL`: LLM model(s) to use - supports comma-separated list (e.g., `gpt-4.1` or `gpt-4.1,anthropic/claude-sonnet-4-20250514`)
 - `CLASSIFIER_MODEL`: Model for scoring answers (defaults to MODEL)
-- `RUN_LIVE=true`: Execute real commands (recommended for all tests)
+- `RUN_LIVE=true`: Execute real commands (now enabled by default)
 - `ITERATIONS=<number>`: Run each test multiple times
 - `UPLOAD_DATASET=true`: Sync dataset to Braintrust
 - `EXPERIMENT_ID`: Custom experiment name for tracking
@@ -177,22 +174,40 @@ RUN_LIVE=true EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" -
 
 ```bash
 # Run tests multiple times for reliability
-RUN_LIVE=true ITERATIONS=100 poetry run pytest tests/llm/test_ask_holmes.py -k "flaky_test"
+ITERATIONS=100 poetry run pytest tests/llm/test_ask_holmes.py -k "flaky_test"
 
 # Model comparison workflow
-RUN_LIVE=true EXPERIMENT_ID=gpt41_baseline MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
-RUN_LIVE=true EXPERIMENT_ID=claude_opus41_test MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
+EXPERIMENT_ID=gpt41_baseline MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
+EXPERIMENT_ID=claude_opus41_test MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
 
 # Debug with verbose output
-RUN_LIVE=true poetry run pytest -vv -s tests/llm/test_ask_holmes.py -k "failing_test" --no-cov
+poetry run pytest -vv -s tests/llm/test_ask_holmes.py -k "failing_test" --no-cov
 
 # List tests by marker
 poetry run pytest -m "llm and not network" --collect-only -q
 
 # Test marker combinations
-RUN_LIVE=true poetry run pytest -m "llm and easy" --no-cov  # Regression tests
-RUN_LIVE=true poetry run pytest -m "llm and not easy" --no-cov  # Non-regression tests
+poetry run pytest -m "llm and easy" --no-cov  # Regression tests
+poetry run pytest -m "llm and not easy" --no-cov  # Non-regression tests
 ```
+
+## Tag Management Guidelines
+
+**Before adding new tags**:
+1. Check existing tags in `pyproject.toml` markers section
+2. Ask user permission for new tags  
+3. Use descriptive, hyphenated names (e.g., `grafana-dashboard`, not `grafana_dashboard`)
+
+**Tag naming conventions**:
+- Service-specific: `grafana-dashboard`, `prometheus-metrics`, `loki`
+- Functionality: `question-answer`, `chain-of-causation` 
+- Difficulty: `easy`, `medium`, `hard`
+- Infrastructure: `kubernetes`, `database`, `traces`
+
+**Adding new tags workflow**:
+1. Add tag to `pyproject.toml` markers section with description
+2. Apply tag to relevant test files
+3. Verify tag filtering works: `pytest -m "new-tag" --collect-only`
 
 **Available Test Markers (same as eval tags)**:
 Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask the user before adding a new one.
@@ -238,7 +253,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - New toolsets require integration tests
 - Complex investigations should have LLM evaluation tests
 - Maintain 40% minimum test coverage
-- **ALWAYS use `RUN_LIVE=true` when running LLM tests** to ensure tests match real-world behavior
+- **Live execution is now enabled by default** to ensure tests match real-world behavior
 
 **Pull Request Process**:
 - PRs require maintainer approval
@@ -262,111 +277,172 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 ## Eval Notes
 
+### Creating New Eval Tests
+
+**Test Structure:**
+- Use sequential test numbers: check existing tests for next available number
+- Required files: `test_case.yaml`, infrastructure manifests, `toolsets.yaml` (if needed)
+- Use dedicated namespace per test: `app-<testid>` (e.g., `app-177`)
+- All resource names must be unique across tests to prevent conflicts
+
+**Tags:**
+- **CRITICAL**: Only use valid tags from `pyproject.toml` - invalid tags cause test collection failures
+- Check existing tags before adding new ones, ask user permission for new tags
+
+**User Prompts & Expected Outputs:**
+- **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
+- **Match prompt to test**: User prompt must explicitly request what you're testing
+  - BAD: `"Get the dashboard"`
+  - GOOD: `"Get the dashboard and tell me the title, panels, and time range"`
+- **Anti-cheat prompts**: Don't use technical terms that give away solutions
+  - BAD: `"Find node_exporter metrics"`
+  - GOOD: `"Find CPU pressure monitoring queries"`
+- **Test discovery, not recognition**: Holmes should search/analyze, not guess from context
+
+**Infrastructure Setup:**
+- **Don't just test pod readiness** - verify actual service functionality
+- Poll real API endpoints and check for expected content (e.g., `"title":"Home"`, `"type":"welcome"`)
+- **CRITICAL**: Use `exit 1` when setup verification fails to fail the test early
+- **Never use `:latest` container tags** - use specific versions like `grafana/grafana:12.3.1`
+
 ### Running and Testing Evals
-- **ALWAYS use `RUN_LIVE=true`** when testing evals to ensure tests match real-world behavior
-- Use `--skip-cleanup` when troubleshooting setup issues (resources remain after test)
-- Use `--skip-setup` if you are debugging the eval itself
-- **kubectl wait race condition warning**: Never use bare `kubectl wait --for=condition=ready pod -l app=foo` immediately after creating resources. This will fail with "no matching resources found" if the pod hasn't been scheduled yet. Instead, use a retry loop:
-  ```bash
-  # WRONG - fails if pod not scheduled yet
-  kubectl apply -f deployment.yaml
-  kubectl wait --for=condition=ready pod -l app=myapp --timeout=300s  # May fail immediately!
 
-  # CORRECT - retry loop handles race condition
-  kubectl apply -f deployment.yaml
-  POD_READY=false
-  for i in {1..60}; do
-    if kubectl wait --for=condition=ready pod -l app=myapp --timeout=5s 2>/dev/null; then
-      echo "✅ Pod is ready!"
-      POD_READY=true
-      break
-    else
-      echo "⏳ Attempt $i/60: Pod not ready yet, waiting 5s..."
-      sleep 5
-    fi
-  done
+## 🚨 CRITICAL: Always Test Your Changes
 
-  if [ "$POD_READY" = false ]; then
-    echo "❌ Pod failed to become ready after 300 seconds"
-    kubectl get pods -l app=myapp  # Show pod status for debugging
-    exit 1
+**NEVER submit test changes without verification**:
+
+### Required Testing Workflow:
+1. **Setup Phase**: `poetry run pytest -k "test_name" --only-setup --no-cov`
+2. **Full Test**: `poetry run pytest -k "test_name" --no-cov`
+3. **Verify Results**: Ensure 100% pass rate and expected behavior
+
+### When to Test:
+- ✅ After creating new tests
+- ✅ After modifying existing tests  
+- ✅ After refactoring shared infrastructure
+- ✅ After performance optimizations
+- ✅ After adding/changing tags
+
+### Red Flags - Never Skip Testing:
+- ❌ "The changes look good" without running
+- ❌ "It's just a small change"
+- ❌ "I'll test it later"
+
+**Testing is Part of Development**: Testing is not optional - it's an integral part of the development process. Untested code is broken code.
+
+**Testing Methodology:**
+- Phase 1: Test setup with `--only-setup` flag first
+- Phase 2: Run full test after confirming setup works
+- Use background execution for long tests: `nohup ... > logfile.log 2>&1 &`
+- Handle port conflicts: clean up previous test port forwards before running
+
+**Common Flags:**
+- `--skip-cleanup`: Keep resources after test (useful for debugging setup)
+- `--skip-setup`: Skip before_test commands (useful for iterative testing)
+
+## Shared Infrastructure Pattern
+
+**When to use shared infrastructure**:
+- Multiple tests use the same service (Grafana, Loki, Prometheus)
+- Service configuration is standardized across tests
+
+**Implementation**:
+```bash
+# Create shared manifest in tests/llm/fixtures/shared/servicename.yaml
+# Use in tests:
+kubectl apply -f ../../shared/servicename.yaml -n app-<testid>
+```
+
+**Benefits**:
+- Single place for version updates
+- Consistent configuration across tests
+- Reduced maintenance overhead
+- Follows established pattern (Loki, Prometheus, Grafana)
+
+## Setup Verification Best Practices
+
+**Prefer kubectl exec over port forwarding for setup verification**:
+```bash
+# GOOD - kubectl exec pattern (no port conflicts)
+kubectl exec -n namespace deployment/service -- wget -q -O- http://localhost:port/health
+
+# AVOID - port forward for setup verification (causes conflicts)
+kubectl port-forward svc/service port:port &
+curl localhost:port/health
+kill $PORTFWD_PID
+```
+
+**Performance optimization guidelines**:
+- Use `sleep 1` instead of `sleep 5` for most retry loops
+- Remove sleeps after straightforward operations (port forward start)
+- Reduce timeout values: 60s for pod readiness, 30s for API verification
+- Question every sleep - many are unnecessary
+
+**Race Condition Handling:**
+Never use bare `kubectl wait` immediately after resource creation. Use retry loops:
+```bash
+# WRONG - fails if pod not scheduled yet
+kubectl apply -f deployment.yaml
+kubectl wait --for=condition=ready pod -l app=myapp --timeout=300s
+
+# CORRECT - retry loop handles race condition
+kubectl apply -f deployment.yaml
+POD_READY=false
+for i in {1..60}; do
+  if kubectl wait --for=condition=ready pod -l app=myapp --timeout=5s 2>/dev/null; then
+    echo "✅ Pod is ready!"
+    POD_READY=true
+    break
   fi
-  ```
-- Test cases can specify custom runbooks by adding a `runbooks` field in test_case.yaml:
-  - `runbooks: {}` - No runbooks available (empty catalog)
-  - `runbooks: {catalog: [...]}` - Custom runbook catalog with entries pointing to .md files in the same directory
-  - If `runbooks` field is not specified, default system runbooks are used
-- Test cases can specify custom toolsets by creating a separate `toolsets.yaml` file in the test directory:
-  - The `toolsets.yaml` file should follow the format shown in `_EXAMPLE_01_toolsets_config/toolsets.yaml`
-  - You can enable/disable specific toolsets and provide custom configurations
-  - If no `toolsets.yaml` file exists, default system toolsets are used
-  - Note: Do NOT put toolsets configuration directly in test_case.yaml - it must be in a separate file
-- For mock data usage (rare cases), see [Using Mock Data](docs/using-mock-data.md)
+  sleep 1
+done
+if [ "$POD_READY" = false ]; then
+  echo "❌ Pod failed to become ready after 60 seconds"
+  kubectl logs -l app=myapp --tail=20  # Diagnostic info
+  exit 1  # CRITICAL: Fail the test early
+fi
+```
 
-**Realism is Critical:**
+### Eval Best Practices
+
+**Realism:**
 - No fake/obvious logs like "Memory usage stabilized at 800MB"
 - No hints in filenames like "disk_consumer.py" - use realistic names like "training_pipeline.py"
 - No error messages that give away it's simulated like "Simulated processing error"
-- Use real-world scenarios: ML pipelines with checkpoint issues, database connection pools, diagnostic logging left enabled
-- Implement realistic application behavior with proper business logic
-
-**Code Organization Standards:**
-- **ALWAYS use Secrets for scripts**, not inline manifests or ConfigMaps (prevents code visibility with kubectl describe)
-- Follow existing eval patterns - check similar test cases for reference
+- Use real-world scenarios: ML pipelines with checkpoint issues, database connection pools
 - Resource naming should be neutral, not hint at the problem (avoid "broken-pod", "crashloop-app")
-- Each test must use a dedicated namespace `app-<testid>` to prevent conflicts
-- All pod names must be unique across tests
 
-**Architectural Preferences:**
-- Implement the full architecture even if it's complex (e.g., use Loki for log aggregation, not simplified alternatives)
-- Don't take shortcuts - if the scenario needs Loki, implement Loki properly
+**Architecture:**
+- Implement full architecture even if complex (e.g., use Loki for log aggregation, not simplified alternatives)
 - Proper separation of concerns (app → file → Promtail → Loki → Holmes)
-- Use minimal resource footprints (e.g., reduce memory/CPU for Loki in tests)
+- **ALWAYS use Secrets for scripts**, not inline manifests or ConfigMaps
+- Use minimal resource footprints (reduce memory/CPU for test services)
 
-**Expected Analysis Quality:**
-- Holmes should identify root causes from historical data
-- Expected outputs should be comprehensive but realistic
-- Include specific details like file paths, configuration issues, metrics
-- Don't expect Holmes to find information that isn't in the data
+**Anti-Cheat Testing Guidelines:**
+- **Prevent Domain Knowledge Cheats**: Use neutral, application-specific names instead of obvious technical terms
+  - Example: "E-Commerce Platform Monitoring" not "Node Exporter Full"
+  - Example: "Payment Service Dashboard" not "MySQL Error Dashboard"
+  - Add source comments: `# Uses Node Exporter dashboard but renamed to prevent cheats`
+- **Resource Naming Rules**: Avoid hint-giving names
+  - Use realistic business context: "checkout-api", "user-service", "inventory-db" 
+  - Avoid obvious problem indicators: "broken-pod" → "payment-service-1"
+  - Test discovery ability, not pattern recognition
+- **Prompt Design**: Don't give away solutions in prompts
+  - BAD: "Find the node_pressure_cpu_waiting_seconds_total query"
+  - GOOD: "Find the Prometheus query that monitors CPU pressure waiting time"
+  - Test Holmes's search/analysis skills, not domain knowledge shortcuts
 
-**Common Pitfalls to Avoid:**
-- Don't use invalid tags - check pyproject.toml for the list of valid markers/tags
-- Don't add convenience logs that give away the problem
-- Don't write logs that directly state the issue
-- Ensure historical timestamps are properly handled in logs (especially with Loki)
-- Verify that data sources (like Loki) are actually working before expecting Holmes to query them
-
-**Toolset Configuration in Evals:**
-When configuring toolsets in `toolsets.yaml` files, ALL toolset-specific configuration must go under a `config` field:
-
+**Configuration:**
+- Custom runbooks: Add `runbooks` field in test_case.yaml (`runbooks: {}` for empty catalog)
+- Custom toolsets: Create separate `toolsets.yaml` file (never put in test_case.yaml)
+- Toolset config must go under `config` field:
 ```yaml
-# CORRECT - toolset-specific config under 'config' field
 toolsets:
-  grafana/loki:
+  grafana/dashboards:
     enabled: true
-    config:
-      url: http://loki.app-143.svc.cluster.local:3100
-      api_key: ""
-      grafana_datasource_uid: "loki"
-
-  rabbitmq/core:
-    enabled: true
-    config:
-      clusters:
-        - id: rabbitmq
-          username: user
-          password: "{{env.RABBITMQ_PASSWORD}}"
-          management_url: http://localhost:15672
-
-# WRONG - toolset config at top level
-toolsets:
-  grafana/loki:
-    enabled: true
-    url: http://loki.app-143.svc.cluster.local:3100
-    api_key: ""
+    config:  # All toolset-specific config under 'config'
+      url: http://localhost:10177
 ```
-
-The only valid top-level fields for toolsets in YAML are: `enabled`, `name`, `description`, `additional_instructions`, `prerequisites`, `tools`, `docs_url`, `icon_url`, `installation_instructions`, `config`, `url` (for MCP toolsets only).
 
 ## Documentation Lookup
 

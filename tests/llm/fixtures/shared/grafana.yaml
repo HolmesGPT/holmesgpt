@@ -1,0 +1,85 @@
+# Shared Grafana deployment configuration for test fixtures
+# Apply with: kubectl apply -f grafana.yaml -n <namespace>
+# Note: Namespace must be created separately
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+      annotations:
+        admission.datadoghq.com/enabled: "false"
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:12.3.1
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "true"
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: "Admin"
+        volumeMounts:
+        - name: grafana-data
+          mountPath: /var/lib/grafana
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          periodSeconds: 5
+          failureThreshold: 30   # ~150s max startup
+      volumes:
+      - name: grafana-data
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http
