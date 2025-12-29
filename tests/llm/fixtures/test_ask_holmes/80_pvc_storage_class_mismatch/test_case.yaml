@@ -1,15 +1,29 @@
-# similar to 24b - not sure we need both
 user_prompt: "Why is the database not running in namespace app-80?"
 tags:
   - kubernetes
-  - hard
+  - easy
 expected_output:
   - Database PVC not binding because it requests storage class fast-ssd which doesn't exist
   - Output suggests changing to a different storage class that does exist
 before_test: |
   kubectl apply -f ./manifest.yaml
   
-  # Wait for ProvisioningFailed event (check every 2s for up to 60s)
-  for i in {1..30}; do kubectl get events -n app-80 --field-selector reason=ProvisioningFailed -o name 2>/dev/null | grep -q event && break || sleep 2; done
+  # Wait for specific ProvisioningFailed event
+  PROVISIONING_FAILED=false
+  for i in {1..60}; do
+    if kubectl get events -n app-80 --field-selector involvedObject.name=database-pvc | grep -q "ProvisioningFailed.*fast-ssd.*not found"; then
+      echo "✅ ProvisioningFailed event detected"
+      PROVISIONING_FAILED=true
+      break
+    fi
+    sleep 1
+  done
+  
+  if [ "$PROVISIONING_FAILED" = false ]; then
+    echo "❌ ProvisioningFailed event not detected"
+    kubectl describe pvc database-pvc -n app-80  # Diagnostic info
+    kubectl get events -n app-80  # Show all events for debugging
+    exit 1  # CRITICAL: Fail the test early
+  fi
 after_test: |
   kubectl delete -f ./manifest.yaml
