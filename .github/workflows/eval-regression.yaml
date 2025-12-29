@@ -151,9 +151,19 @@ jobs:
               filter = '';
               iterations = '1';
               isManual = false;
-              triggerSource = 'automatic';
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
               triggeredBy = '';
+              // Build descriptive trigger source for automatic runs
+              if (event === 'pull_request') {
+                const sha = context.payload.pull_request.head.sha.substring(0, 7);
+                triggerSource = `PR #${prNumber} (${sha})`;
+              } else if (event === 'push') {
+                const sha = context.sha.substring(0, 7);
+                const branch = context.ref.replace('refs/heads/', '');
+                triggerSource = `push to ${branch} (${sha})`;
+              } else {
+                triggerSource = 'automatic';
+              }
             }
 
             // Apply defaults
@@ -212,7 +222,9 @@ jobs:
                 `| **Iterations** | ${p.iterations} |\n` +
                 `| **Status** | ⏳ Running... |\n` +
                 `| **Workflow** | [View logs](${p.runUrl}) |\n`
-              : `## ⏳ HolmesGPT evals running...\n\n[View workflow logs](${p.runUrl})\n`;
+              : `## ⏳ HolmesGPT evals running...\n\n` +
+                `Automatically triggered by ${p.trigger}\n\n` +
+                `[View workflow logs](${p.runUrl})\n`;
 
             const comment = await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -288,6 +300,7 @@ jobs:
                 `| **Status** | ⏳ Running... |\n` +
                 `| **Workflow** | [View logs](${p.runUrl}) |\n`
               : `## ⏳ HolmesGPT evals running...\n\n` +
+                `Automatically triggered by ${p.trigger}\n\n` +
                 `**Tests to run:** ${p.testCount}\n\n` +
                 `[View workflow logs](${p.runUrl})\n`;
 
