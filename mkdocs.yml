@@ -5,138 +5,234 @@ repo_url: https://github.com/HolmesGPT/holmesgpt
 repo_name: HolmesGPT/holmesgpt
 edit_uri: edit/master/docs/
 exclude_docs: |
-  _*
-  snippets/
-  README.md
-  cncf-self-assesment.md
+    _*
+    snippets/
+    README.md
+    cncf-self-assesment.md
+
+nav:
+    - Home: index.md
+    - Installation:
+          - "CLI": installation/cli-installation.md
+          - "Web UI (3rd party)": installation/ui-installation.md
+          - "Slack Bot (3rd party)": installation/slack-installation.md
+          - "Backstage (3rd party)": installation/backstage-integration.md
+          - "K9s": installation/k9s-installation.md
+          - "Helm Chart": installation/kubernetes-installation.md
+          - "Python SDK": installation/python-installation.md
+    - Walkthrough:
+          - "Overview": walkthrough/index.md
+          - "Interactive Mode": walkthrough/interactive-mode.md
+          - "CI/CD Troubleshooting": walkthrough/cicd-troubleshooting.md
+          - "Investigating Prometheus Alerts": walkthrough/investigating-prometheus-alerts.md
+          - "Investigating using AKS MCP Server": walkthrough/investigating-using-aks-mcp-server.md
+    - "AI Providers":
+          - "Overview": ai-providers/index.md
+          - Anthropic: ai-providers/anthropic.md
+          - "AWS Bedrock": ai-providers/aws-bedrock.md
+          - "Azure OpenAI": ai-providers/azure-openai.md
+          - Gemini: ai-providers/gemini.md
+          - "Google Vertex AI": ai-providers/google-vertex-ai.md
+          - Ollama: ai-providers/ollama.md
+          - OpenAI: ai-providers/openai.md
+          - "OpenAI-Compatible": ai-providers/openai-compatible.md
+          - Other: ai-providers/other.md
+          - "Robusta AI": ai-providers/robusta-ai.md
+          - "Using Multiple Providers": ai-providers/using-multiple-providers.md
+    - "Data Sources":
+          - "Overview": data-sources/index.md
+          - "Built-in Toolsets":
+                - "Overview": data-sources/builtin-toolsets/index.md
+                - "AKS Node Health": data-sources/builtin-toolsets/aks-node-health.md
+                - "ArgoCD": data-sources/builtin-toolsets/argocd.md
+                - "AWS (MCP)": data-sources/builtin-toolsets/aws.md
+                - "Azure Kubernetes Service": data-sources/builtin-toolsets/aks.md
+                - "Azure SQL Database": data-sources/builtin-toolsets/azure-sql.md
+                - "Bash": data-sources/builtin-toolsets/bash.md
+                - "Cilium": data-sources/builtin-toolsets/cilium.md
+                - "Confluence": data-sources/builtin-toolsets/confluence.md
+                - "Coralogix": data-sources/builtin-toolsets/coralogix-logs.md
+                - "DataDog": data-sources/builtin-toolsets/datadog.md
+                - "Datetime": data-sources/builtin-toolsets/datetime.md
+                - "Docker": data-sources/builtin-toolsets/docker.md
+                - "GitHub": data-sources/builtin-toolsets/github.md
+                - "Grafana Dashboards": data-sources/builtin-toolsets/grafanadashboards.md
+                - "Loki": data-sources/builtin-toolsets/grafanaloki.md
+                - "Tempo": data-sources/builtin-toolsets/grafanatempo.md
+                - "Helm": data-sources/builtin-toolsets/helm.md
+                - "Internet": data-sources/builtin-toolsets/internet.md
+                - "Kafka": data-sources/builtin-toolsets/kafka.md
+                - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
+                - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
+                - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
+                - "New Relic": data-sources/builtin-toolsets/newrelic.md
+                - "Notion": data-sources/builtin-toolsets/notion.md
+                - "OpenSearch logs": data-sources/builtin-toolsets/opensearch-logs.md
+                - "OpenSearch status": data-sources/builtin-toolsets/opensearch-status.md
+                - "OpenShift": data-sources/builtin-toolsets/openshift.md
+                - "Prometheus": data-sources/builtin-toolsets/prometheus.md
+                - "RabbitMQ": data-sources/builtin-toolsets/rabbitmq.md
+                - "Robusta": data-sources/builtin-toolsets/robusta.md
+                - "ServiceNow": data-sources/builtin-toolsets/servicenow.md
+                - "Slab": data-sources/builtin-toolsets/slab.md
+          - "Custom Toolsets": data-sources/custom-toolsets.md
+          - "MCP Servers": data-sources/remote-mcp-servers.md
+          - "Adding Permissions for Additional Resources": data-sources/permissions.md
+    - Benchmarks:
+          - "Overview": development/evaluations/index.md
+          - "Latest Results": development/evaluations/latest-results.md
+          - "Historical Results":
+                - "Overview": development/evaluations/history/index.md
+                - "September 28, 2025": development/evaluations/history/results_20250928_001434.md
+                - "September 30, 2025 (custom Claude)": development/evaluations/history/custom_claude_results_20250930_153753.md
+                - "September 30, 2025": development/evaluations/history/results_20250930_085923.md
+                - "October 12, 2025": development/evaluations/history/results_20251012_170303.md
+                - "Self-Hosted Models v1": development/evaluations/history/custom_self_hosted_results_20251008_053744.md
+                - "November 27, 2025": development/evaluations/history/results_20251127_042958.md
+          - "Running Evaluations": development/evaluations/running-evals.md
+          - "Adding New Evaluations": development/evaluations/adding-evals.md
+          - "Benchmarking New Models": development/evaluations/benchmarking-new-models.md
+          - "Reporting with Braintrust": development/evaluations/reporting.md
+    - Development:
+          - "Overview": development/index.md
+          - "Tool Output Transformers": development/transformers.md
+    - Reference:
+          - "Environment Variables": reference/environment-variables.md
+          - "Helm Configuration": reference/helm-configuration.md
+          - "Kubernetes Permissions": reference/kubernetes-permissions.md
+          - "HTTP API": reference/http-api.md
+          - "Slash Commands": reference/slash-commands.md
+          - "Troubleshooting": reference/troubleshooting.md
+    - Community: community.md
+    - "CNCF Self Assessment": cncf-self-assesment.md
 
 theme:
-  name: material
-  custom_dir: docs/overrides
-  features:
-    - announce.dismiss
-    - content.action.edit
-    - content.action.view
-    - content.code.annotate
-    - content.code.copy
-    - content.tooltips
-    - navigation.footer
-    - navigation.indexes
-    - navigation.instant
-    - navigation.instant.prefetch
-    - navigation.path
-    - navigation.top
-    - navigation.tracking
-    - search.highlight
-    - search.share
-    - search.suggest
-    - toc.follow
-  palette:
-    - media: "(prefers-color-scheme)"
-      toggle:
-        icon: material/brightness-auto
-        name: Switch to light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: teal
-      accent: teal
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: teal
-      accent: teal
-      toggle:
-        icon: material/brightness-4
-        name: Switch to system preference
-  font:
-    text: Inter
-    code: Fira Code
-  favicon: assets/favicon.png
-  logo: assets/logo.png
+    name: material
+    custom_dir: docs/overrides
+    features:
+        - announce.dismiss
+        - content.action.edit
+        - content.action.view
+        - content.code.annotate
+        - content.code.copy
+        - content.tooltips
+        - navigation.footer
+        - navigation.indexes
+        - navigation.instant
+        - navigation.instant.prefetch
+        - navigation.path
+        - navigation.top
+        - navigation.tracking
+        - search.highlight
+        - search.share
+        - search.suggest
+        - toc.follow
+    palette:
+        - media: "(prefers-color-scheme)"
+          toggle:
+              icon: material/brightness-auto
+              name: Switch to light mode
+        - media: "(prefers-color-scheme: light)"
+          scheme: default
+          primary: teal
+          accent: teal
+          toggle:
+              icon: material/brightness-7
+              name: Switch to dark mode
+        - media: "(prefers-color-scheme: dark)"
+          scheme: slate
+          primary: teal
+          accent: teal
+          toggle:
+              icon: material/brightness-4
+              name: Switch to system preference
+    font:
+        text: Inter
+        code: Fira Code
+    favicon: assets/favicon.png
+    logo: assets/logo.png
 
 copyright: |
-  Copyright HolmesGPT a Series of LF Projects, LLC
-  For website terms of use, trademark policy and other project policies please see lfprojects.org/policies/.
+    Copyright HolmesGPT a Series of LF Projects, LLC
+    For website terms of use, trademark policy and other project policies please see lfprojects.org/policies/.
 
 plugins:
-  - awesome-nav
-  - search:
-      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
-  - glightbox
-  # - git-revision-date-localized:
-  #     enable_creation_date: true
-  #     type: timeago
-  # - git-committers:
-  #     repository: HolmesGPT/holmesgpt
-  #     branch: master
-  #     docs_path: docs/
-  # - minify:
-  #     minify_html: true
+    - awesome-nav
+    - search:
+          separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+    - glightbox
+    # - git-revision-date-localized:
+    #     enable_creation_date: true
+    #     type: timeago
+    # - git-committers:
+    #     repository: HolmesGPT/holmesgpt
+    #     branch: master
+    #     docs_path: docs/
+    # - minify:
+    #     minify_html: true
 
 markdown_extensions:
-  - abbr
-  - admonition
-  - attr_list
-  - def_list
-  - footnotes
-  - md_in_html
-  - toc:
-      permalink: true
-  - pymdownx.arithmatex:
-      generic: true
-  - pymdownx.betterem:
-      smart_enable: all
-  - pymdownx.caret
-  - pymdownx.details
-  - pymdownx.emoji:
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-  - pymdownx.highlight:
-      anchor_linenums: true
-      line_spans: __span
-      pygments_lang_class: true
-  - pymdownx.inlinehilite
-  - pymdownx.keys
-  - pymdownx.magiclink:
-      normalize_issue_symbols: true
-      repo_url_shorthand: true
-      user: robusta-dev
-      repo: holmesgpt
-  - pymdownx.mark
-  - pymdownx.smartsymbols
-  - pymdownx.snippets:
-      base_path: docs
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
-        - name: yaml-helm-values
-          class: yaml
-          format: !!python/name:docs.custom_fences.helm_tabs_fence_format
-        - name: yaml-toolset-config
-          class: yaml
-          format: !!python/name:docs.custom_fences.toolset_config_fence_format
-  - pymdownx.tabbed:
-      alternate_style: true
-      combine_header_slug: true
-      slugify: !!python/object/apply:pymdownx.slugs.slugify
-        kwds:
-          case: lower
-  - pymdownx.tasklist:
-      custom_checkbox: true
-  - pymdownx.tilde
+    - abbr
+    - admonition
+    - attr_list
+    - def_list
+    - footnotes
+    - md_in_html
+    - toc:
+          permalink: true
+    - pymdownx.arithmatex:
+          generic: true
+    - pymdownx.betterem:
+          smart_enable: all
+    - pymdownx.caret
+    - pymdownx.details
+    - pymdownx.emoji:
+          emoji_generator: !!python/name:material.extensions.emoji.to_svg
+          emoji_index: !!python/name:material.extensions.emoji.twemoji
+    - pymdownx.highlight:
+          anchor_linenums: true
+          line_spans: __span
+          pygments_lang_class: true
+    - pymdownx.inlinehilite
+    - pymdownx.keys
+    - pymdownx.magiclink:
+          normalize_issue_symbols: true
+          repo_url_shorthand: true
+          user: robusta-dev
+          repo: holmesgpt
+    - pymdownx.mark
+    - pymdownx.smartsymbols
+    - pymdownx.snippets:
+          base_path: docs
+    - pymdownx.superfences:
+          custom_fences:
+              - name: mermaid
+                class: mermaid
+                format: !!python/name:pymdownx.superfences.fence_code_format
+              - name: yaml-helm-values
+                class: yaml
+                format: !!python/name:docs.custom_fences.helm_tabs_fence_format
+              - name: yaml-toolset-config
+                class: yaml
+                format: !!python/name:docs.custom_fences.toolset_config_fence_format
+    - pymdownx.tabbed:
+          alternate_style: true
+          combine_header_slug: true
+          slugify: !!python/object/apply:pymdownx.slugs.slugify
+              kwds:
+                  case: lower
+    - pymdownx.tasklist:
+          custom_checkbox: true
+    - pymdownx.tilde
 
 extra_css:
-  - stylesheets/extra.css
+    - stylesheets/extra.css
 
 extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/HolmesGPT/holmesgpt
-    - icon: fontawesome/brands/slack
-      link: https://cloud-native.slack.com/archives/C0A1SPQM5PZ
-    - icon: fontawesome/brands/twitter
-      link: https://twitter.com/RobustaDev
+    social:
+        - icon: fontawesome/brands/github
+          link: https://github.com/HolmesGPT/holmesgpt
+        - icon: fontawesome/brands/slack
+          link: https://cloud-native.slack.com/archives/C0A1SPQM5PZ
+        - icon: fontawesome/brands/twitter
+          link: https://twitter.com/RobustaDev

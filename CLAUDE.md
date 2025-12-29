@@ -245,6 +245,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Pre-commit hooks must pass
 - LLM evaluation tests run automatically in CI
 - Keep PRs focused and include tests
+- **ALWAYS use `git commit -s`** to sign off commits (required for DCO)
 
 **File Structure Conventions**:
 - Toolsets: `holmes/plugins/toolsets/{name}.yaml` or `{name}/`
