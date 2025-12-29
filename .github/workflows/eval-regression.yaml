@@ -183,6 +183,18 @@ jobs:
             core.setOutput('marker_expr', markers ? `llm and (${markers})` : 'llm');
             core.setOutput('run_url', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
 
+            // Output all common params as JSON for DRY usage in subsequent steps
+            core.setOutput('base_params', JSON.stringify({
+              is_manual: isManual.toString(),
+              trigger_source: triggerSource,
+              model,
+              markers,
+              filter,
+              iterations: iterNum.toString(),
+              run_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              pr_number: prNumber ? prNumber.toString() : ''
+            }));
+
       - name: Check if tests should run
         id: check-tests
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
@@ -202,16 +214,7 @@ jobs:
         with:
           script: |
             const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
-            const p = buildParams({
-              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
-              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }},
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
-              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
-              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              pr_number: ${{ toJSON(steps.eval-params.outputs.pr_number) }}
-            });
+            const p = buildParams(JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}));
             const progressSteps = [
               [false, 'Setup HolmesGPT environment'],
               [false, 'Collect evals to run'],
@@ -241,13 +244,7 @@ jobs:
           script: |
             const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
-              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
-              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }},
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
-              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
-              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }}
             });
             const progressSteps = [
@@ -320,13 +317,7 @@ jobs:
           script: |
             const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
-              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
-              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }},
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
-              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
-              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }}
@@ -358,13 +349,7 @@ jobs:
           script: |
             const { buildParams, buildBody } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
-              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
-              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }},
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
-              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
-              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
+              ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }}
@@ -432,14 +417,7 @@ jobs:
             const fs = require('fs');
             const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
-              is_manual: ${{ toJSON(steps.eval-params.outputs.is_manual) }},
-              trigger_source: ${{ toJSON(steps.eval-params.outputs.trigger_source) }},
-              model: ${{ toJSON(steps.eval-params.outputs.model) }},
-              markers: ${{ toJSON(steps.eval-params.outputs.markers) }},
-              filter: ${{ toJSON(steps.eval-params.outputs.filter) }},
-              iterations: ${{ toJSON(steps.eval-params.outputs.iterations) }},
-              run_url: ${{ toJSON(steps.eval-params.outputs.run_url) }},
-              pr_number: ${{ toJSON(steps.eval-params.outputs.pr_number) }},
+              ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               duration: ${{ toJSON(steps.evals.outputs.duration) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
