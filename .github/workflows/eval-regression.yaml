@@ -454,10 +454,7 @@ jobs:
             });
             body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
             if (failures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
-            // Add re-run footer for automatic runs only
-            if (!p.isManual) {
-              body += buildRerunFooter(p, context);
-            }
+            body += buildRerunFooter(p, context);
             if (p.commentId) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner, repo: context.repo.repo,
