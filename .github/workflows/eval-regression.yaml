@@ -248,8 +248,8 @@ jobs:
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
 
           # Collect test names
-          TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" || echo "")
-          TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || echo "0")
+          TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" || true)
+          TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || true)
 
           # Output for next step
           echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
