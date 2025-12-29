@@ -66,12 +66,12 @@ jobs:
             });
             core.setOutput('pr_sha', pr.data.head.sha);
 
-            // Add rocket reaction
+            // Add eyes reaction to indicate the comment was seen and is being processed
             await github.rest.reactions.createForIssueComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: context.payload.comment.id,
-              content: 'rocket'
+              content: 'eyes'
             });
 
       - uses: actions/checkout@v4
@@ -173,13 +173,8 @@ jobs:
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
         shell: bash
         run: |
-          if [[ "${{ steps.eval-params.outputs.is_manual }}" == "true" ]]; then
-            if [[ -n "${{ secrets.OPENAI_API_KEY }}" ]] || [[ -n "${{ secrets.AZURE_API_KEY }}" ]] || [[ -n "${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}" ]]; then
-              echo "should-run=true" >> $GITHUB_OUTPUT
-            else
-              echo "should-run=false" >> $GITHUB_OUTPUT
-            fi
-          elif [[ "${{ github.event_name }}" != "pull_request" ]] || [[ -n "${{ secrets.BRAINTRUST_API_KEY }}" && (-n "${{ secrets.AZURE_API_KEY }}" || -n "${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}") ]]; then
+          # Check one secret as proxy for secrets access (repo has all or none)
+          if [[ -n "${{ secrets.AZURE_API_KEY }}" ]]; then
             echo "should-run=true" >> $GITHUB_OUTPUT
           else
             echo "should-run=false" >> $GITHUB_OUTPUT
@@ -313,7 +308,7 @@ jobs:
             if (regressions) body += `\n### ⚠️ ${regressions} Regression${regressions === '1' ? '' : 's'} Detected\n\n`;
 
             if (!p.isManual) {
-              const workflowUrl = p.runUrl.replace(/\/runs\/.*/, '');
+              const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
               body += '\n---\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
                 '**Option 1: Comment on this PR** with `/eval`:\n\n' +
                 '```\n/eval\n```\n\n' +
