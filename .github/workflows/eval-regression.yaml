@@ -236,7 +236,7 @@ jobs:
           python-version: '3.12'
           install-kubectl: 'true'
 
-      - name: Preview tests to run
+      - name: Collect evals to run
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         id: test-preview
         shell: bash
@@ -248,25 +248,17 @@ jobs:
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
 
           # Collect test names
-          TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" | head -50 || echo "")
+          TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" || echo "")
           TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || echo "0")
 
-          # Truncate if too many
-          if [[ $TEST_COUNT -gt 20 ]]; then
-            PREVIEW=$(echo "$TEST_LIST" | head -20)
-            PREVIEW="${PREVIEW}"$'\n'"... and $((TEST_COUNT - 20)) more tests"
-          else
-            PREVIEW="$TEST_LIST"
-          fi
-
-          # Output for next step (escape for JSON)
+          # Output for next step
           echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "test_preview<<$EOF" >> $GITHUB_OUTPUT
-          echo "$PREVIEW" >> $GITHUB_OUTPUT
+          echo "$TEST_LIST" >> $GITHUB_OUTPUT
           echo "$EOF" >> $GITHUB_OUTPUT
 
-      - name: Update comment with test preview
+      - name: Update comment with evals list
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
         uses: actions/github-script@v7
         with:
@@ -300,7 +292,7 @@ jobs:
                 `[View workflow logs](${p.runUrl})\n\n_Results will appear here when complete._\n`;
 
             if (p.testPreview && p.testCount !== '0') {
-              body += `\n<details>\n<summary>📋 Test preview</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
+              body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${p.testPreview}\n\`\`\`\n</details>\n`;
             }
 
             await github.rest.issues.updateComment({
