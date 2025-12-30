@@ -204,7 +204,7 @@ Before configuring Holmes, make sure you have:
 * Google Managed Prometheus enabled
 * A Prometheus Frontend endpoint accessible from your cluster
   (If you don’t already have one, you can create it following the instructions
-  [here](https://docs.cloud.google.com/stackdriver/docs/managed-prometheus/query-api-ui#ui-prometheus>) )
+  [here](https://docs.cloud.google.com/stackdriver/docs/managed-prometheus/query-api-ui#ui-prometheus) )
 
 To connect HolmesGPT to Google Cloud Managed Prometheus:
 
