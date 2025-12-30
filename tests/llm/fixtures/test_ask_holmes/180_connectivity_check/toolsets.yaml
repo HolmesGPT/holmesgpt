@@ -1,5 +1,3 @@
 toolsets:
   internet:
     enabled: false
-  connectivity_check:
-    enabled: true
