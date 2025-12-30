@@ -123,13 +123,15 @@ def generate_markdown_report(
     # Fetch historical metrics for comparison (only for passing tests)
     historical: Dict[str, HistoricalMetrics] = {}
     comparison_map: Dict[str, HistoricalComparison] = {}
+    historical_status = ""  # Empty = success, otherwise explains why missing
     if include_historical:
         try:
-            historical = get_historical_metrics(limit=10)
+            historical, historical_status = get_historical_metrics(limit=10)
             if historical:
                 comparison_map = _build_comparison_map(sorted_results, historical)
                 logging.info(f"Loaded historical data for {len(historical)} test/model combinations")
         except Exception as e:
+            historical_status = f"API error: {e}"
             logging.warning(f"Failed to fetch historical metrics: {e}")
 
     # Count results by test type and status
@@ -292,6 +294,12 @@ def generate_markdown_report(
     avg_tools_str = f"{total_tools / tools_count:.1f}" if tools_count > 0 else "—"
     total_cost_str = f"${total_cost:.4f}" if total_cost > 0 else "—"
     markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** |\n"
+
+    # Add footer explaining historical comparison status
+    if historical and comparison_map:
+        markdown += f"\n_Time/Cost columns show comparison with last 10 master runs (↑slower/costlier, ↓faster/cheaper). Based on {len(historical)} test/model combinations._\n"
+    elif historical_status:
+        markdown += f"\n_Historical comparison unavailable: {historical_status}_\n"
 
     return (
         markdown,

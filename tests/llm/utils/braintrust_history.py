@@ -267,31 +267,35 @@ def build_historical_metrics(
 
 def get_historical_metrics(
     limit: int = DEFAULT_HISTORY_LIMIT,
-) -> Dict[str, HistoricalMetrics]:
+) -> tuple[Dict[str, HistoricalMetrics], str]:
     """Fetch historical metrics from recent master branch experiments.
 
     Args:
         limit: Number of recent experiments to analyze
 
     Returns:
-        Dictionary mapping "test_id:model" to HistoricalMetrics
+        Tuple of (metrics_dict, status_message)
+        - metrics_dict: Dictionary mapping "test_id:model" to HistoricalMetrics
+        - status_message: Empty string if successful, otherwise explains why data is missing
     """
     if not BRAINTRUST_API_KEY:
-        logging.debug("Braintrust API key not configured, skipping historical fetch")
-        return {}
+        return {}, "BRAINTRUST_API_KEY not configured"
 
     project_id = get_project_id()
     if not project_id:
-        logging.warning(f"Could not find Braintrust project: {BRAINTRUST_PROJECT}")
-        return {}
+        return {}, f"Braintrust project '{BRAINTRUST_PROJECT}' not found"
 
     experiments = list_master_experiments(project_id, limit=limit)
     if not experiments:
-        logging.info("No master branch experiments found for historical comparison")
-        return {}
+        return {}, "No master branch experiments found in Braintrust"
 
     logging.info(f"Fetching historical metrics from {len(experiments)} experiments")
-    return build_historical_metrics(experiments)
+    metrics = build_historical_metrics(experiments)
+
+    if not metrics:
+        return {}, "No historical metrics found (no passing tests with duration data)"
+
+    return metrics, ""
 
 
 def compare_with_historical(
