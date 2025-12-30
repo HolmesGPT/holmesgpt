@@ -196,6 +196,7 @@ holmes:
 - Credentials refresh automatically based on `refresh_interval_seconds`
 
 ---
+
 ## Google Managed Prometheus Configuration
 
 Before configuring up Holmes, make sure you have:
@@ -222,7 +223,7 @@ holmes:
 
 **Notes:**
 
-* Authentication is handled automatically via Google Cloud (Workload Identity or default service account)
+* Authentication is handled automatically via Google Cloud (Workload Identity or default service account in the frontend deployed app)
 * No additional headers or credentials are required
 * The Prometheus Frontend endpoint must be accessible from the cluster
 
