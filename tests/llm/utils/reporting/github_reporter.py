@@ -151,10 +151,10 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
             time_str = "—"
 
         # Format turns (LLM calls)
-        llm_calls = result.get("llm_calls")
-        if llm_calls and llm_calls > 0:
-            turns_str = str(llm_calls)
-            total_turns += llm_calls
+        num_llm_calls = result.get("num_llm_calls")
+        if num_llm_calls and num_llm_calls > 0:
+            turns_str = str(num_llm_calls)
+            total_turns += num_llm_calls
             turns_count += 1
         else:
             turns_str = "—"

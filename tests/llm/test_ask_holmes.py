@@ -255,8 +255,8 @@ def ask_holmes(
         # Store metrics in user_properties for GitHub report
         if request:
             request.node.user_properties.append(("holmes_duration", holmes_duration))
-            if result.llm_calls is not None:
-                request.node.user_properties.append(("llm_calls", result.llm_calls))
+            if result.num_llm_calls is not None:
+                request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
             if result.tool_calls is not None:
                 request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
 

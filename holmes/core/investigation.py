@@ -74,7 +74,7 @@ def investigate_issues(
         analysis=text_response,
         sections=sections,
         tool_calls=investigation.tool_calls or [],
-        llm_calls=investigation.llm_calls,
+        num_llm_calls=investigation.num_llm_calls,
         instructions=investigation.instructions,
         metadata=investigation.metadata,
     )

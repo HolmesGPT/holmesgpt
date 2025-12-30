@@ -234,8 +234,8 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
         time_str = _format_time(exec_time)
 
         # Format turns (LLM calls)
-        llm_calls = result.get("llm_calls")
-        turns_str = str(llm_calls) if llm_calls and llm_calls > 0 else "—"
+        num_llm_calls = result.get("num_llm_calls")
+        turns_str = str(num_llm_calls) if num_llm_calls and num_llm_calls > 0 else "—"
 
         # Format tool calls
         tool_call_count = result.get("tool_call_count")

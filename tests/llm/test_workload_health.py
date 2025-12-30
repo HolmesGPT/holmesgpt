@@ -128,8 +128,8 @@ def test_health_check(
                     eval_span.log(metadata={"holmes_duration": holmes_duration})
                     # Store metrics in user_properties for GitHub report
                     request.node.user_properties.append(("holmes_duration", holmes_duration))
-                    if result and result.llm_calls is not None:
-                        request.node.user_properties.append(("llm_calls", result.llm_calls))
+                    if result and result.num_llm_calls is not None:
+                        request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
                     if result and result.tool_calls is not None:
                         request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
 
