@@ -301,9 +301,18 @@ jobs:
           TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" || true)
           TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || true)
 
-          # Collect valid markers from pyproject.toml (excluding 'llm' which is internal)
-          # Uses sed to extract just the markers section, then grep to find marker definitions
-          VALID_MARKERS=$(sed -n '/^\[tool\.pytest\.ini_options\]/,/^\[/p' pyproject.toml | grep -E '"[a-zA-Z]' | sed 's/.*"\([^:]*\):.*/\1/' | grep -v '^llm$' | sort | awk '{print "- \x60" $0 "\x60"}')
+          # Collect valid markers from pyproject.toml using Python/tomllib (excluding 'llm' which is internal)
+          VALID_MARKERS=$(python3 << 'PYEOF'
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              config = tomllib.load(f)
+          markers = config.get('tool', {}).get('pytest', {}).get('ini_options', {}).get('markers', [])
+          for m in sorted(markers):
+              name = m.split(':')[0]
+              if name != 'llm':
+                  print(f'- `{name}`')
+          PYEOF
+          )
 
           # Collect valid eval names from fixture directories
           ASK_HOLMES_EVALS=$(ls -1 tests/llm/fixtures/test_ask_holmes/ 2>/dev/null | grep -v '^\.' | sort | awk '{print "- \x60" $0 "\x60"}')
