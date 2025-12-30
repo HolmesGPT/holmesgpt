@@ -214,11 +214,8 @@ holmes:
     prometheus/metrics:
       enabled: true
       config:
-        # Set this to the URL of your Prometheus Frontend endpoint
-        prometheus_url: http://my-prometheus-frontend:9090
-
-        # Example (Google Managed Prometheus in-cluster frontend):
-        # prometheus_url: http://frontend.default.svc.cluster.local:9090
+        # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
+        prometheus_url: http://frontend.default.svc.cluster.local:9090
 ````
 
 **Notes:**
