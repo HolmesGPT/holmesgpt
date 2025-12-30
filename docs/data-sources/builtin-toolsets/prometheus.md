@@ -199,12 +199,12 @@ holmes:
 
 ## Google Managed Prometheus Configuration
 
-Before configuring up Holmes, make sure you have:
+Before configuring Holmes, make sure you have:
 
 * Google Managed Prometheus enabled
 * A Prometheus Frontend endpoint accessible from your cluster
   (If you don’t already have one, you can create it following the instructions
-  `here <https://docs.cloud.google.com/stackdriver/docs/managed-prometheus/query-api-ui#ui-prometheus>`_)
+  [here](https://docs.cloud.google.com/stackdriver/docs/managed-prometheus/query-api-ui#ui-prometheus>) )
 
 To connect HolmesGPT to Google Cloud Managed Prometheus:
 
@@ -216,7 +216,7 @@ holmes:
       config:
         # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
         prometheus_url: http://frontend.default.svc.cluster.local:9090
-````
+```
 
 **Notes:**
 
