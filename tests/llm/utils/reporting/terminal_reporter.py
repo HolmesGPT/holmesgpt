@@ -190,11 +190,13 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
     # Add columns with specific widths (reduced to fit terminal width)
     table.add_column("Test", style="cyan", width=12)
     table.add_column("Status", justify="center", width=13)
-    table.add_column("Time", justify="right", width=10)
+    table.add_column("Time", justify="right", width=8)
+    table.add_column("Turns", justify="right", width=5)
+    table.add_column("Tools", justify="right", width=5)
     table.add_column("Cost", justify="right", width=8)
-    table.add_column("User Prompt", style="white", width=18)
-    table.add_column("Expected", style="green", width=18)
-    table.add_column("Actual", style="yellow", width=18)
+    table.add_column("User Prompt", style="white", width=16)
+    table.add_column("Expected", style="green", width=16)
+    table.add_column("Actual", style="yellow", width=16)
 
     # Add rows to table
     for result in sorted_results:
@@ -231,6 +233,14 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
         exec_time = result.get("holmes_duration")
         time_str = _format_time(exec_time)
 
+        # Format turns (LLM calls)
+        llm_calls = result.get("llm_calls")
+        turns_str = str(llm_calls) if llm_calls and llm_calls > 0 else "—"
+
+        # Format tool calls
+        tool_call_count = result.get("tool_call_count")
+        tools_str = str(tool_call_count) if tool_call_count and tool_call_count > 0 else "—"
+
         # Format cost - show individual cost for this specific test run
         cost = result.get("cost", 0)
         if cost > 0:
@@ -245,6 +255,8 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
             test_name_wrapped,
             status.console_status,
             time_str,
+            turns_str,
+            tools_str,
             cost_str,
             user_prompt_wrapped,
             expected_wrapped,

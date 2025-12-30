@@ -17,6 +17,8 @@ class TestResult:
     user_prompt: Optional[str] = None
     execution_time: Optional[float] = None
     holmes_duration: Optional[float] = None  # Pure agent execution time (excludes setup/teardown)
+    llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
+    tool_call_count: Optional[int] = None  # Total number of tool calls
     expected_correctness_score: float = 1.0
     actual_correctness_score: float = 0.0
     mock_data_failure: bool = False

@@ -263,6 +263,7 @@ def workload_health_check(request: WorkloadHealthRequest):
         return InvestigationResult(
             analysis=ai_call.result,
             tool_calls=ai_call.tool_calls,
+            llm_calls=ai_call.llm_calls,
             instructions=issue_instructions,
             metadata=ai_call.metadata,
         )

@@ -117,13 +117,17 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
         markdown += "\n"
 
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Cost |\n"
-    markdown += "| --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
     total_cost = 0.0
+    total_turns = 0
+    total_tools = 0
     time_count = 0
+    turns_count = 0
+    tools_count = 0
 
     for result in sorted_results:
         test_case_name = result["test_case_name"]
@@ -146,6 +150,24 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
         else:
             time_str = "—"
 
+        # Format turns (LLM calls)
+        llm_calls = result.get("llm_calls")
+        if llm_calls and llm_calls > 0:
+            turns_str = str(llm_calls)
+            total_turns += llm_calls
+            turns_count += 1
+        else:
+            turns_str = "—"
+
+        # Format tool calls
+        tool_call_count = result.get("tool_call_count")
+        if tool_call_count and tool_call_count > 0:
+            tools_str = str(tool_call_count)
+            total_tools += tool_call_count
+            tools_count += 1
+        else:
+            tools_str = "—"
+
         # Format cost
         cost = result.get("cost", 0)
         if cost and cost > 0:
@@ -154,12 +176,14 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
         else:
             cost_str = "—"
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {cost_str} |\n"
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
+    avg_turns_str = f"{total_turns / turns_count:.1f}" if turns_count > 0 else "—"
+    avg_tools_str = f"{total_tools / tools_count:.1f}" if tools_count > 0 else "—"
     total_cost_str = f"${total_cost:.4f}" if total_cost > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{total_cost_str}** |\n"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** |\n"
 
     return (
         markdown,
