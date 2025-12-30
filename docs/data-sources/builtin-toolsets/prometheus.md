@@ -196,6 +196,35 @@ holmes:
 - Credentials refresh automatically based on `refresh_interval_seconds`
 
 ---
+## Google Managed Prometheus Configuration
+
+Before configuring up Holmes, make sure you have:
+
+* Google Managed Prometheus enabled
+* A Prometheus Frontend endpoint accessible from your cluster
+  (If you don’t already have one, you can create it following the instructions
+  `here <https://docs.cloud.google.com/stackdriver/docs/managed-prometheus/query-api-ui#ui-prometheus>`_)
+
+To connect HolmesGPT to Google Cloud Managed Prometheus:
+
+```yaml
+holmes:
+  toolsets:
+    prometheus/metrics:
+      enabled: true
+      config:
+        # Set this to the URL of your Prometheus Frontend endpoint
+        prometheus_url: http://my-prometheus-frontend:9090
+
+        # Example (Google Managed Prometheus in-cluster frontend):
+        # prometheus_url: http://frontend.default.svc.cluster.local:9090
+````
+
+**Notes:**
+
+* Authentication is handled automatically via Google Cloud (Workload Identity or default service account)
+* No additional headers or credentials are required
+* The Prometheus Frontend endpoint must be accessible from the cluster
 
 ## Grafana Cloud (Mimir) Configuration
 
