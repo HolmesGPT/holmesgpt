@@ -1,10 +1,94 @@
 """GitHub Actions reporting functionality."""
 
+import logging
 import os
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from tests.llm.utils.test_results import TestStatus
 from tests.llm.utils.braintrust import get_braintrust_url
+from tests.llm.utils.braintrust_history import (
+    HistoricalComparison,
+    HistoricalMetrics,
+    compare_with_historical,
+    get_historical_metrics,
+)
+
+
+def _build_comparison_map(
+    sorted_results: List[dict],
+    historical: Dict[str, HistoricalMetrics],
+) -> Dict[str, HistoricalComparison]:
+    """Build a map of test_id:model to HistoricalComparison.
+
+    Args:
+        sorted_results: List of test result dictionaries
+        historical: Historical metrics from Braintrust
+
+    Returns:
+        Dictionary mapping "test_id:model" to HistoricalComparison
+    """
+    comparisons = compare_with_historical(sorted_results, historical)
+    return {f"{c.test_id}:{c.model}": c for c in comparisons}
+
+
+def _format_time_with_comparison(
+    exec_time: Optional[float],
+    comparison: Optional[HistoricalComparison],
+) -> str:
+    """Format execution time with optional historical comparison indicator.
+
+    Args:
+        exec_time: Current execution time in seconds
+        comparison: Historical comparison data (optional)
+
+    Returns:
+        Formatted string like "12.3s" or "12.3s ↑15%" with comparison
+    """
+    if not exec_time or exec_time <= 0:
+        return "—"
+
+    base = f"{exec_time:.1f}s"
+
+    # Add comparison indicator if we have enough historical data
+    if comparison and comparison.duration_diff_pct is not None and comparison.sample_count >= 3:
+        diff = comparison.duration_diff_pct
+        if abs(diff) >= 10:  # Only show if difference is >= 10%
+            if diff > 0:
+                return f"{base} ↑{diff:.0f}%"  # Slower
+            else:
+                return f"{base} ↓{abs(diff):.0f}%"  # Faster
+
+    return base
+
+
+def _format_cost_with_comparison(
+    cost: Optional[float],
+    comparison: Optional[HistoricalComparison],
+) -> str:
+    """Format cost with optional historical comparison indicator.
+
+    Args:
+        cost: Current cost in dollars
+        comparison: Historical comparison data (optional)
+
+    Returns:
+        Formatted string like "$0.0234" or "$0.0234 ↑10%" with comparison
+    """
+    if not cost or cost <= 0:
+        return "—"
+
+    base = f"${cost:.4f}"
+
+    # Add comparison indicator if we have enough historical data
+    if comparison and comparison.cost_diff_pct is not None and comparison.sample_count >= 3:
+        diff = comparison.cost_diff_pct
+        if abs(diff) >= 10:  # Only show if difference is >= 10%
+            if diff > 0:
+                return f"{base} ↑{diff:.0f}%"  # More expensive
+            else:
+                return f"{base} ↓{abs(diff):.0f}%"  # Cheaper
+
+    return base
 
 
 def handle_github_output(sorted_results: List[dict]) -> None:
@@ -21,9 +105,32 @@ def handle_github_output(sorted_results: List[dict]) -> None:
             file.write(f"{total_regressions}")
 
 
-def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict], int]:
-    """Generate markdown report from sorted test results."""
+def generate_markdown_report(
+    sorted_results: List[dict],
+    include_historical: bool = True,
+) -> Tuple[str, List[dict], int]:
+    """Generate markdown report from sorted test results.
+
+    Args:
+        sorted_results: List of test result dictionaries
+        include_historical: Whether to fetch and include historical comparison
+
+    Returns:
+        Tuple of (markdown, sorted_results, total_regressions)
+    """
     markdown = "## Results of HolmesGPT evals\n\n"
+
+    # Fetch historical metrics for comparison (only for passing tests)
+    historical: Dict[str, HistoricalMetrics] = {}
+    comparison_map: Dict[str, HistoricalComparison] = {}
+    if include_historical:
+        try:
+            historical = get_historical_metrics(limit=10)
+            if historical:
+                comparison_map = _build_comparison_map(sorted_results, historical)
+                logging.info(f"Loaded historical data for {len(historical)} test/model combinations")
+        except Exception as e:
+            logging.warning(f"Failed to fetch historical metrics: {e}")
 
     # Count results by test type and status
     ask_holmes_total = 0
@@ -131,6 +238,7 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
 
     for result in sorted_results:
         test_case_name = result["test_case_name"]
+        model = result.get("model", "")
 
         braintrust_url = get_braintrust_url(
             result.get("braintrust_span_id"),
@@ -141,14 +249,16 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
 
         status = TestStatus(result)
 
-        # Format time (use holmes_duration for pure agent time)
+        # Get historical comparison for this test/model
+        comparison_key = f"{result.get('test_case_name', '')}:{model}"
+        comparison = comparison_map.get(comparison_key)
+
+        # Format time with historical comparison
         exec_time = result.get("holmes_duration")
+        time_str = _format_time_with_comparison(exec_time, comparison)
         if exec_time and exec_time > 0:
-            time_str = f"{exec_time:.1f}s"
             total_time += exec_time
             time_count += 1
-        else:
-            time_str = "—"
 
         # Format turns (LLM calls)
         num_llm_calls = result.get("num_llm_calls")
@@ -168,13 +278,11 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
         else:
             tools_str = "—"
 
-        # Format cost
+        # Format cost with historical comparison
         cost = result.get("cost", 0)
+        cost_str = _format_cost_with_comparison(cost, comparison)
         if cost and cost > 0:
-            cost_str = f"${cost:.4f}"
             total_cost += cost
-        else:
-            cost_str = "—"
 
         markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} |\n"
 

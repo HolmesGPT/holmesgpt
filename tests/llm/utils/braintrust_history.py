@@ -1,0 +1,403 @@
+"""Fetch historical data from Braintrust for comparison with current eval results."""
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+import requests
+
+from holmes.core.tracing import BRAINTRUST_API_KEY, BRAINTRUST_ORG, BRAINTRUST_PROJECT
+
+# Braintrust API base URL
+BRAINTRUST_API_URL = "https://api.braintrust.dev/v1"
+
+# Number of historical runs to fetch for comparison
+DEFAULT_HISTORY_LIMIT = 10
+
+
+@dataclass
+class HistoricalMetrics:
+    """Historical metrics for a specific test case."""
+
+    test_id: str
+    model: str
+    avg_duration: Optional[float] = None
+    avg_cost: Optional[float] = None
+    avg_turns: Optional[float] = None
+    avg_tools: Optional[float] = None
+    sample_count: int = 0
+    durations: List[float] = field(default_factory=list)
+    costs: List[float] = field(default_factory=list)
+
+
+@dataclass
+class HistoricalComparison:
+    """Comparison data between current and historical metrics."""
+
+    test_id: str
+    model: str
+    current_duration: Optional[float] = None
+    historical_avg_duration: Optional[float] = None
+    duration_diff_pct: Optional[float] = None  # Positive = slower, negative = faster
+    current_cost: Optional[float] = None
+    historical_avg_cost: Optional[float] = None
+    cost_diff_pct: Optional[float] = None
+    sample_count: int = 0
+
+
+def _make_api_request(
+    endpoint: str,
+    method: str = "GET",
+    params: Optional[Dict[str, Any]] = None,
+    json_data: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Make an authenticated request to the Braintrust API.
+
+    Args:
+        endpoint: API endpoint path (e.g., "/project")
+        method: HTTP method
+        params: Query parameters
+        json_data: JSON body for POST requests
+
+    Returns:
+        JSON response or None if request failed
+    """
+    if not BRAINTRUST_API_KEY:
+        logging.debug("Braintrust API key not configured")
+        return None
+
+    url = f"{BRAINTRUST_API_URL}{endpoint}"
+    headers = {
+        "Authorization": f"Bearer {BRAINTRUST_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        if method == "GET":
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+        elif method == "POST":
+            response = requests.post(
+                url, headers=headers, params=params, json=json_data, timeout=30
+            )
+        else:
+            logging.error(f"Unsupported HTTP method: {method}")
+            return None
+
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"Braintrust API request failed: {e}")
+        return None
+
+
+def get_project_id() -> Optional[str]:
+    """Get the Braintrust project ID for the configured project.
+
+    Returns:
+        Project ID string or None if not found
+    """
+    # List projects and find the one matching BRAINTRUST_PROJECT
+    result = _make_api_request("/project", params={"org_name": BRAINTRUST_ORG})
+    if not result or "objects" not in result:
+        return None
+
+    for project in result.get("objects", []):
+        if project.get("name") == BRAINTRUST_PROJECT:
+            return project.get("id")
+
+    return None
+
+
+def list_master_experiments(
+    project_id: str, limit: int = DEFAULT_HISTORY_LIMIT
+) -> List[Dict[str, Any]]:
+    """List recent experiments that ran on the master branch.
+
+    Args:
+        project_id: Braintrust project ID
+        limit: Maximum number of experiments to return
+
+    Returns:
+        List of experiment objects
+    """
+    # Fetch experiments for the project
+    result = _make_api_request(
+        "/experiment",
+        params={
+            "project_id": project_id,
+            "limit": limit * 2,  # Fetch more to filter by branch
+        },
+    )
+
+    if not result or "objects" not in result:
+        return []
+
+    # Filter to only master branch experiments
+    master_experiments = []
+    for exp in result.get("objects", []):
+        metadata = exp.get("metadata", {})
+        branch = metadata.get("branch", "")
+        # Match master, main, or experiments with master-like names
+        if branch in ("master", "main") or "master" in exp.get("name", "").lower():
+            master_experiments.append(exp)
+            if len(master_experiments) >= limit:
+                break
+
+    return master_experiments
+
+
+def fetch_experiment_spans(
+    experiment_id: str, limit: int = 1000
+) -> List[Dict[str, Any]]:
+    """Fetch spans from a specific experiment.
+
+    Args:
+        experiment_id: Braintrust experiment ID
+        limit: Maximum number of spans to fetch
+
+    Returns:
+        List of span objects with metrics
+    """
+    result = _make_api_request(
+        f"/experiment/{experiment_id}/fetch",
+        method="POST",
+        json_data={
+            "limit": limit,
+            "filters": [
+                # Only fetch top-level eval spans (not nested LLM calls)
+                {"type": "span_type", "path": ["span_attributes", "type"], "value": "eval"}
+            ],
+        },
+    )
+
+    if not result or "events" not in result:
+        return []
+
+    return result.get("events", [])
+
+
+def extract_span_metrics(span: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract relevant metrics from a span.
+
+    Args:
+        span: Braintrust span object
+
+    Returns:
+        Dictionary with extracted metrics
+    """
+    metadata = span.get("metadata", {})
+    metrics = span.get("metrics", {})
+
+    # Extract test_id from metadata or span name
+    test_id = metadata.get("eval_id") or metadata.get("test_id", "")
+    if not test_id:
+        # Try to extract from span name (format: "test_id[model]")
+        name = span.get("span_attributes", {}).get("name", "")
+        if "[" in name:
+            test_id = name.split("[")[0]
+
+    return {
+        "test_id": test_id,
+        "model": metadata.get("model", ""),
+        "holmes_duration": metadata.get("holmes_duration"),
+        "cost": metrics.get("cost"),
+        "tool_call_count": metadata.get("tool_call_count"),
+        "passed": span.get("scores", {}).get("correctness", 0) >= 0.5,
+    }
+
+
+def build_historical_metrics(
+    experiments: List[Dict[str, Any]],
+) -> Dict[str, HistoricalMetrics]:
+    """Build historical metrics from a list of experiments.
+
+    Args:
+        experiments: List of experiment objects
+
+    Returns:
+        Dictionary mapping "test_id:model" to HistoricalMetrics
+    """
+    metrics_map: Dict[str, HistoricalMetrics] = {}
+
+    for exp in experiments:
+        exp_id = exp.get("id")
+        if not exp_id:
+            continue
+
+        spans = fetch_experiment_spans(exp_id)
+        for span in spans:
+            span_metrics = extract_span_metrics(span)
+            test_id = span_metrics.get("test_id", "")
+            model = span_metrics.get("model", "")
+
+            if not test_id or not model:
+                continue
+
+            # Only include passing tests for fair comparison
+            if not span_metrics.get("passed", False):
+                continue
+
+            key = f"{test_id}:{model}"
+            if key not in metrics_map:
+                metrics_map[key] = HistoricalMetrics(test_id=test_id, model=model)
+
+            hist = metrics_map[key]
+
+            # Collect duration
+            duration = span_metrics.get("holmes_duration")
+            if duration and duration > 0:
+                hist.durations.append(duration)
+
+            # Collect cost
+            cost = span_metrics.get("cost")
+            if cost and cost > 0:
+                hist.costs.append(cost)
+
+            hist.sample_count += 1
+
+    # Calculate averages
+    for hist in metrics_map.values():
+        if hist.durations:
+            hist.avg_duration = sum(hist.durations) / len(hist.durations)
+        if hist.costs:
+            hist.avg_cost = sum(hist.costs) / len(hist.costs)
+
+    return metrics_map
+
+
+def get_historical_metrics(
+    limit: int = DEFAULT_HISTORY_LIMIT,
+) -> Dict[str, HistoricalMetrics]:
+    """Fetch historical metrics from recent master branch experiments.
+
+    Args:
+        limit: Number of recent experiments to analyze
+
+    Returns:
+        Dictionary mapping "test_id:model" to HistoricalMetrics
+    """
+    if not BRAINTRUST_API_KEY:
+        logging.debug("Braintrust API key not configured, skipping historical fetch")
+        return {}
+
+    project_id = get_project_id()
+    if not project_id:
+        logging.warning(f"Could not find Braintrust project: {BRAINTRUST_PROJECT}")
+        return {}
+
+    experiments = list_master_experiments(project_id, limit=limit)
+    if not experiments:
+        logging.info("No master branch experiments found for historical comparison")
+        return {}
+
+    logging.info(f"Fetching historical metrics from {len(experiments)} experiments")
+    return build_historical_metrics(experiments)
+
+
+def compare_with_historical(
+    current_results: List[Dict[str, Any]],
+    historical: Dict[str, HistoricalMetrics],
+) -> List[HistoricalComparison]:
+    """Compare current test results with historical metrics.
+
+    Args:
+        current_results: List of current test result dictionaries
+        historical: Historical metrics from get_historical_metrics()
+
+    Returns:
+        List of HistoricalComparison objects
+    """
+    comparisons = []
+
+    for result in current_results:
+        test_id = result.get("test_case_name", result.get("clean_test_case_id", ""))
+        model = result.get("model", "")
+
+        if not test_id or not model:
+            continue
+
+        key = f"{test_id}:{model}"
+        hist = historical.get(key)
+
+        comparison = HistoricalComparison(
+            test_id=test_id,
+            model=model,
+            current_duration=result.get("holmes_duration"),
+            current_cost=result.get("cost"),
+        )
+
+        if hist and hist.sample_count > 0:
+            comparison.historical_avg_duration = hist.avg_duration
+            comparison.historical_avg_cost = hist.avg_cost
+            comparison.sample_count = hist.sample_count
+
+            # Calculate percentage differences
+            if comparison.current_duration and hist.avg_duration:
+                comparison.duration_diff_pct = (
+                    (comparison.current_duration - hist.avg_duration)
+                    / hist.avg_duration
+                    * 100
+                )
+
+            if comparison.current_cost and hist.avg_cost:
+                comparison.cost_diff_pct = (
+                    (comparison.current_cost - hist.avg_cost) / hist.avg_cost * 100
+                )
+
+        comparisons.append(comparison)
+
+    return comparisons
+
+
+def format_duration_comparison(comparison: HistoricalComparison) -> str:
+    """Format duration comparison as a string with indicator.
+
+    Args:
+        comparison: HistoricalComparison object
+
+    Returns:
+        Formatted string like "12.3s (↑15%)" or "12.3s" if no historical data
+    """
+    if comparison.current_duration is None:
+        return "—"
+
+    base = f"{comparison.current_duration:.1f}s"
+
+    if comparison.duration_diff_pct is not None and comparison.sample_count >= 3:
+        diff = comparison.duration_diff_pct
+        if abs(diff) < 5:
+            indicator = ""  # Within 5%, no indicator
+        elif diff > 0:
+            indicator = f" (↑{diff:.0f}%)"  # Slower
+        else:
+            indicator = f" (↓{abs(diff):.0f}%)"  # Faster
+        return f"{base}{indicator}"
+
+    return base
+
+
+def format_cost_comparison(comparison: HistoricalComparison) -> str:
+    """Format cost comparison as a string with indicator.
+
+    Args:
+        comparison: HistoricalComparison object
+
+    Returns:
+        Formatted string like "$0.0234 (↑10%)" or "$0.0234" if no historical data
+    """
+    if comparison.current_cost is None or comparison.current_cost <= 0:
+        return "—"
+
+    base = f"${comparison.current_cost:.4f}"
+
+    if comparison.cost_diff_pct is not None and comparison.sample_count >= 3:
+        diff = comparison.cost_diff_pct
+        if abs(diff) < 5:
+            indicator = ""  # Within 5%, no indicator
+        elif diff > 0:
+            indicator = f" (↑{diff:.0f}%)"  # More expensive
+        else:
+            indicator = f" (↓{abs(diff):.0f}%)"  # Cheaper
+        return f"{base}{indicator}"
+
+    return base
