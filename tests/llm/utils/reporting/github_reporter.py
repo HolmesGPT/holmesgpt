@@ -162,7 +162,12 @@ def generate_markdown_report(
     Returns:
         Tuple of (markdown, sorted_results, total_regressions)
     """
-    markdown = "## Results of HolmesGPT evals\n\n"
+    # Check if running on a specific branch (for cross-branch comparison)
+    eval_branch = os.environ.get("EVAL_BRANCH", "")
+    if eval_branch:
+        markdown = f"## Results of HolmesGPT evals (branch: `{eval_branch}`)\n\n"
+    else:
+        markdown = "## Results of HolmesGPT evals\n\n"
 
     # Fetch historical metrics for comparison (only for passing tests)
     historical: Dict[str, HistoricalMetrics] = {}
@@ -341,7 +346,7 @@ def generate_markdown_report(
 
     # Add footer explaining historical comparison status
     if historical and comparison_map:
-        markdown += f"\n_Time/Cost columns show comparison with last 30 runs from other branches (↑slower/costlier, ↓faster/cheaper). Based on {len(historical)} test/model combinations._\n"
+        markdown += f"\n_Time/Cost columns compare each test+model pair against its own historical average from other branches (↑slower/costlier, ↓faster/cheaper). Historical data available for {len(historical)} unique test+model pairs._\n"
     elif historical_details and historical_details.status:
         markdown += f"\n_Historical comparison unavailable: {historical_details.status}_\n"
 

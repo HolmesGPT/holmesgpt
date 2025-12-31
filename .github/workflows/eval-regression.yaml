@@ -449,6 +449,7 @@ jobs:
           GENERATE_REGRESSIONS_FILE: "true"
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
+          EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
