@@ -58,7 +58,22 @@ jobs:
               return;
             }
 
-            // Get PR SHA for checkout
+            // Parse branch parameter from comment if specified (for cross-branch comparison)
+            const body = context.payload.comment.body;
+            let targetBranch = '';
+            for (const line of body.split('\n').slice(1)) {
+              const colonIdx = line.indexOf(':');
+              if (colonIdx === -1) continue;
+              const key = line.slice(0, colonIdx).trim().toLowerCase();
+              const value = line.slice(colonIdx + 1).trim();
+              if (key === 'branch' && value && /^[a-zA-Z0-9_.\/-]*$/.test(value)) {
+                targetBranch = value;
+                break;
+              }
+            }
+            core.setOutput('branch', targetBranch);
+
+            // Get PR SHA for checkout (only used if no branch override)
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -77,7 +92,8 @@ jobs:
       - uses: actions/checkout@v4
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
         with:
-          ref: ${{ steps.eval-comment.outputs.pr_sha || github.ref }}
+          # For /eval with branch: checkout the specified branch; otherwise checkout PR SHA or current ref
+          ref: ${{ steps.eval-comment.outputs.branch || steps.eval-comment.outputs.pr_sha || github.ref }}
 
       - name: Determine eval parameters
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
@@ -95,7 +111,8 @@ jobs:
               markers: /^[a-zA-Z0-9_\- ]*$/,
               filter: /^[a-zA-Z0-9_\-]*$/,
               iterations: /^[0-9]+$/,
-              pr_number: /^[0-9]*$/
+              pr_number: /^[0-9]*$/,
+              branch: /^[a-zA-Z0-9_.\/-]*$/
             };
 
             function validate(value, name) {
@@ -108,7 +125,7 @@ jobs:
             }
 
             function parseComment(body) {
-              const params = { model: '', markers: '', filter: '', iterations: '1' };
+              const params = { model: '', markers: '', filter: '', iterations: '1', branch: '' };
               const validKeys = new Set(Object.keys(params));
               for (const line of body.split('\n').slice(1)) {
                 const colonIdx = line.indexOf(':');
@@ -120,7 +137,7 @@ jobs:
               return params;
             }
 
-            let model, markers, filter, iterations, isManual, triggerSource, prNumber, triggeredBy;
+            let model, markers, filter, iterations, isManual, triggerSource, prNumber, triggeredBy, branch;
             const event = context.eventName;
 
             if (event === 'issue_comment') {
@@ -129,9 +146,10 @@ jobs:
               markers = validate(parsed.markers, 'markers');
               filter = validate(parsed.filter, 'filter');
               iterations = validate(parsed.iterations, 'iterations');
-              if ([model, markers, filter, iterations].includes(null)) return;
+              branch = validate(parsed.branch, 'branch');
+              if ([model, markers, filter, iterations, branch].includes(null)) return;
               isManual = true;
-              triggerSource = '/eval comment';
+              triggerSource = branch ? `/eval on branch \`${branch}\`` : '/eval comment';
               prNumber = context.issue.number;
               triggeredBy = context.payload.comment.user.login;
             } else if (event === 'workflow_dispatch') {
@@ -140,6 +158,7 @@ jobs:
               filter = validate(${{ toJSON(github.event.inputs.filter) }} || '', 'filter');
               iterations = validate(${{ toJSON(github.event.inputs.iterations) }} || '', 'iterations');
               const prNum = validate(${{ toJSON(github.event.inputs.pr_number) }} || '', 'pr_number');
+              branch = ''; // workflow_dispatch doesn't support branch override yet
               if ([model, markers, filter, iterations, prNum].includes(null)) return;
               isManual = true;
               triggerSource = 'workflow_dispatch';
@@ -172,6 +191,7 @@ jobs:
               markers = 'regression';
               filter = '';
               iterations = '1';
+              branch = '';
               isManual = false;
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
               triggeredBy = '';
@@ -202,6 +222,7 @@ jobs:
             core.setOutput('trigger_source', triggerSource);
             core.setOutput('pr_number', prNumber ? prNumber.toString() : '');
             core.setOutput('triggered_by', triggeredBy);
+            core.setOutput('branch', branch);
             core.setOutput('marker_expr', markers ? `llm and (${markers})` : 'llm');
             core.setOutput('run_url', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
 
@@ -213,6 +234,7 @@ jobs:
               markers,
               filter,
               iterations: iterNum.toString(),
+              branch,
               run_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               pr_number: prNumber ? prNumber.toString() : ''
             }));
