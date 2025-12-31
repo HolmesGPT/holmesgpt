@@ -170,7 +170,7 @@ def generate_markdown_report(
     historical_details: Optional[HistoricalComparisonDetails] = None
     if include_historical:
         try:
-            historical, historical_details = get_historical_metrics(limit=10)
+            historical, historical_details = get_historical_metrics(limit=30)
             if historical:
                 comparison_map = _build_comparison_map(sorted_results, historical)
                 logging.info(f"Loaded historical data for {len(historical)} test/model combinations")
@@ -341,7 +341,7 @@ def generate_markdown_report(
 
     # Add footer explaining historical comparison status
     if historical and comparison_map:
-        markdown += f"\n_Time/Cost columns show comparison with last 10 runs from other branches (↑slower/costlier, ↓faster/cheaper). Based on {len(historical)} test/model combinations._\n"
+        markdown += f"\n_Time/Cost columns show comparison with last 30 runs from other branches (↑slower/costlier, ↓faster/cheaper). Based on {len(historical)} test/model combinations._\n"
     elif historical_details and historical_details.status:
         markdown += f"\n_Historical comparison unavailable: {historical_details.status}_\n"
 
