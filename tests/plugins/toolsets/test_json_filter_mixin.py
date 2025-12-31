@@ -1,5 +1,3 @@
-import pytest
-
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.grafana.toolset_grafana import (
     GrafanaDashboardConfig,
