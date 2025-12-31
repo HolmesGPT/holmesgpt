@@ -198,11 +198,12 @@ jobs:
               // Build descriptive trigger source for automatic runs
               if (event === 'pull_request') {
                 const sha = context.payload.pull_request.head.sha.substring(0, 7);
-                triggerSource = `commit ${sha}`;
+                const prBranch = context.payload.pull_request.head.ref;
+                triggerSource = `commit ${sha} on branch \`${prBranch}\``;
               } else if (event === 'push') {
                 const sha = context.sha.substring(0, 7);
-                const branch = context.ref.replace('refs/heads/', '');
-                triggerSource = `push to ${branch} (${sha})`;
+                const pushBranch = context.ref.replace('refs/heads/', '');
+                triggerSource = `push to \`${pushBranch}\` (${sha})`;
               } else {
                 triggerSource = 'automatic';
               }
