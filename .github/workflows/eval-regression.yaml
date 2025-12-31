@@ -172,7 +172,8 @@ jobs:
                 const colonIdx = line.indexOf(':');
                 if (colonIdx === -1) continue;
                 const key = line.slice(0, colonIdx).trim().toLowerCase();
-                const value = line.slice(colonIdx + 1).trim();
+                // Strip leading/trailing quotes (users sometimes add them unnecessarily)
+                const value = line.slice(colonIdx + 1).trim().replace(/^['"]|['"]$/g, '');
                 if (validKeys.has(key) && value) params[key] = value;
               }
               return params;
