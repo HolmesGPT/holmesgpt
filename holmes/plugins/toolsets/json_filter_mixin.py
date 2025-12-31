@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from jsonpath_ng import parse as jsonpath_parse  # type: ignore
+from jsonpath_ng.ext import parse as jsonpath_parse  # type: ignore
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus, ToolParameter
 
@@ -54,7 +54,7 @@ class JsonFilterMixin:
             required=False,
         ),
         "jsonpath": ToolParameter(
-            description="Optional jsonpath expression to extract specific parts of the JSON.",
+            description="Optional jsonpath expression to extract specific parts of the JSON. Supports extended syntax including filters, slicing, arithmetic, and sorting (e.g., '$.items[?(@.price > 10)]', '$.items[0:5]', '$.items[*].name').",
             type="string",
             required=False,
         ),
