@@ -149,7 +149,7 @@ jobs:
             // passed via env vars not inline, (3) bash references use double quotes.
             const patterns = {
               model: /^[a-zA-Z0-9_.,:\/-]*$/,
-              markers: /^[a-zA-Z0-9_\- ]*$/,
+              markers: /^[a-zA-Z0-9_\- ()]*$/,
               filter: /^[a-zA-Z0-9_\-]*$/,
               iterations: /^[0-9]+$/,
               pr_number: /^[0-9]*$/,
