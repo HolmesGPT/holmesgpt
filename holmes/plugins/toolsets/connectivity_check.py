@@ -60,10 +60,16 @@ def http_check(
     try:
         port = int(port)
     except (TypeError, ValueError):
-        return {"ok": False, "error": "invalid port"}
+        return {
+            "ok": False,
+            "error": "invalid port (must be 1-65535)",
+        }
 
     if not (1 <= port <= 65535):
-        return {"ok": False, "error": "invalid port"}
+        return {
+            "ok": False,
+            "error": "invalid port (must be 1-65535)",
+        }
 
     conn_class = http.client.HTTPSConnection if https else http.client.HTTPConnection
 
