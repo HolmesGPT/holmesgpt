@@ -1,5 +1,0 @@
-{
-  "work": [
-    "pytest -m \"llm and easy\" --no-cov"
-  ]
-}
