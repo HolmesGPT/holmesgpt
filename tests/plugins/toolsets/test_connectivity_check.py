@@ -65,7 +65,7 @@ def test_tcp_check_success():
 
 
 def test_tcp_check_invalid_port():
-    result = tcp_check("127.0.0.1", 70000)
+    result = tcp_check("127.0.0.1", 70000, timeout=3.0)
     assert result["ok"] is False
     assert "invalid port" in result["error"]
 
@@ -80,7 +80,9 @@ def test_tcp_check_unreachable_port():
 def test_http_check_success():
     server, port, thread = start_http_server()
     try:
-        result = http_check("127.0.0.1", port, path="/", timeout=1)
+        result = http_check(
+            "127.0.0.1", port, path="/", timeout=1, https=False, user_agent="none"
+        )
         assert result["ok"] is True
         assert result["status"] == 204
     finally:
@@ -90,6 +92,8 @@ def test_http_check_success():
 
 
 def test_http_check_invalid_port():
-    result = http_check("127.0.0.1", 0)
+    result = http_check(
+        "127.0.0.1", 0, path="/", timeout=3.0, https=False, user_agent="none"
+    )
     assert result["ok"] is False
     assert result["error"] == "invalid port (must be 1-65535)"

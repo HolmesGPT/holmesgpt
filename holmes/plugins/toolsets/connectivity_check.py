@@ -2,6 +2,7 @@ import http.client
 import socket
 from typing import Any, Dict, Literal
 
+
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -22,15 +23,7 @@ BROWSER_LIKE_UA = (
 UserAgentMode = Literal["none", "browser"]
 
 
-def tcp_check(host: str, port: int, timeout: float = 3.0) -> Dict[str, Any]:
-    try:
-        port = int(port)
-    except (TypeError, ValueError):
-        return {
-            "ok": False,
-            "error": "invalid port (must be 1-65535)",
-        }
-
+def tcp_check(host: str, port: int, timeout: float) -> Dict[str, Any]:
     if not (1 <= port <= 65535):
         return {
             "ok": False,
@@ -52,19 +45,11 @@ def tcp_check(host: str, port: int, timeout: float = 3.0) -> Dict[str, Any]:
 def http_check(
     host: str,
     port: int,
-    path: str = "/",
-    timeout: float = 3.0,
-    https: bool = False,
-    user_agent: UserAgentMode = "none",
+    path: str,
+    timeout: float,
+    https: bool,
+    user_agent: UserAgentMode,
 ) -> Dict[str, Any]:
-    try:
-        port = int(port)
-    except (TypeError, ValueError):
-        return {
-            "ok": False,
-            "error": "invalid port (must be 1-65535)",
-        }
-
     if not (1 <= port <= 65535):
         return {
             "ok": False,
@@ -268,6 +253,7 @@ class ConnectivityCheckToolset(Toolset):
                 ToolsetTag.CORE,
             ],
             is_default=True,
+            enabled=True,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/connectivity-check/",
         )
 

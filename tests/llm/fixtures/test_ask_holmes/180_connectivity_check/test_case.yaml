@@ -1,4 +1,4 @@
-user_prompt: "Are these addresses accessible via http, and if so, what is the status code? google.com and burgergooglenetworkspam.co.uk"
+user_prompt: "Try these addresses accessible via http, and if so, what is the status code? google.com and burgergooglenetworkspam.co.uk"
 tags:
   - question-answer
   - network
@@ -6,3 +6,4 @@ tags:
 expected_output:
   - "google.com is accessible via HTTP with a 2xx-3xx status code"
   - "burgergooglenetworkspam.co.uk is not accessible"
+  - "The AI must directly verify the accessibility of each address, not just guess"
