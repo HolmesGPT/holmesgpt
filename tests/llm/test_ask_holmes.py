@@ -252,6 +252,13 @@ def ask_holmes(
         holmes_duration = time.time() - start_time
         # Log duration directly to eval_span
         eval_span.log(metadata={"holmes_duration": holmes_duration})
+        # Store metrics in user_properties for GitHub report
+        if request:
+            request.node.user_properties.append(("holmes_duration", holmes_duration))
+            if result.num_llm_calls is not None:
+                request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
+            if result.tool_calls is not None:
+                request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
 
     # Check for any mock errors that occurred during tool execution
     # This will raise an exception if any mock data errors happened

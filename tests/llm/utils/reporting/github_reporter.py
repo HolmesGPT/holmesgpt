@@ -117,11 +117,19 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
         markdown += "\n"
 
     # Generate detailed table
-    markdown += "\n\n| Test suite | Test case | Status |\n"
-    markdown += "| --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- |\n"
+
+    # Track totals for summary row
+    total_time = 0.0
+    total_cost = 0.0
+    total_turns = 0
+    total_tools = 0
+    time_count = 0
+    turns_count = 0
+    tools_count = 0
 
     for result in sorted_results:
-        test_suite = result["test_type"]
         test_case_name = result["test_case_name"]
 
         braintrust_url = get_braintrust_url(
@@ -132,22 +140,50 @@ def generate_markdown_report(sorted_results: List[dict]) -> Tuple[str, List[dict
             test_case_name = f"[{test_case_name}]({braintrust_url})"
 
         status = TestStatus(result)
-        markdown += f"| {test_suite} | {test_case_name} | {status.markdown_symbol} |\n"
 
-    markdown += "\n\n**Legend**\n"
-    markdown += "\n- :white_check_mark: the test was successful"
-    markdown += "\n- :minus: the test was skipped"
-    markdown += (
-        "\n- :warning: the test failed but is known to be flaky or known to fail"
-    )
-    markdown += (
-        "\n- :construction: the test had a setup failure (not a code regression)"
-    )
-    markdown += (
-        "\n- :wrench: the test failed due to mock data issues (not a code regression)"
-    )
-    markdown += "\n- :no_entry_sign: the test was throttled by API rate limits/overload"
-    markdown += "\n- :x: the test failed and should be fixed before merging the PR"
+        # Format time (use holmes_duration for pure agent time)
+        exec_time = result.get("holmes_duration")
+        if exec_time and exec_time > 0:
+            time_str = f"{exec_time:.1f}s"
+            total_time += exec_time
+            time_count += 1
+        else:
+            time_str = "—"
+
+        # Format turns (LLM calls)
+        num_llm_calls = result.get("num_llm_calls")
+        if num_llm_calls and num_llm_calls > 0:
+            turns_str = str(num_llm_calls)
+            total_turns += num_llm_calls
+            turns_count += 1
+        else:
+            turns_str = "—"
+
+        # Format tool calls
+        tool_call_count = result.get("tool_call_count")
+        if tool_call_count and tool_call_count > 0:
+            tools_str = str(tool_call_count)
+            total_tools += tool_call_count
+            tools_count += 1
+        else:
+            tools_str = "—"
+
+        # Format cost
+        cost = result.get("cost", 0)
+        if cost and cost > 0:
+            cost_str = f"${cost:.4f}"
+            total_cost += cost
+        else:
+            cost_str = "—"
+
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} |\n"
+
+    # Add summary row
+    avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
+    avg_turns_str = f"{total_turns / turns_count:.1f}" if turns_count > 0 else "—"
+    avg_tools_str = f"{total_tools / tools_count:.1f}" if tools_count > 0 else "—"
+    total_cost_str = f"${total_cost:.4f}" if total_cost > 0 else "—"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** |\n"
 
     return (
         markdown,

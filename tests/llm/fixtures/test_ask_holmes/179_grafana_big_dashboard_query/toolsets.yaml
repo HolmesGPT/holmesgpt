@@ -1,0 +1,8 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  grafana/dashboards:
+    enabled: true
+    config:
+      url: http://localhost:10179
+      api_key: ""
