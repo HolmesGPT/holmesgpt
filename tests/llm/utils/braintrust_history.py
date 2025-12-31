@@ -1,6 +1,7 @@
 """Fetch historical data from Braintrust for comparison with current eval results."""
 
 import logging
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -185,33 +186,37 @@ def fetch_experiment_spans(
     return result.get("events", [])
 
 
-def extract_span_metrics(span: Dict[str, Any]) -> Dict[str, Any]:
+def extract_span_metrics(span: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Extract relevant metrics from a span.
 
     Args:
         span: Braintrust span object
 
     Returns:
-        Dictionary with extracted metrics
+        Dictionary with extracted metrics, or None if span is invalid
     """
-    metadata = span.get("metadata", {})
-    metrics = span.get("metrics", {})
+    if span is None:
+        return None
+    metadata = span.get("metadata") or {}
+    metrics = span.get("metrics") or {}
 
     # Extract test_id from metadata or span name
     test_id = metadata.get("eval_id") or metadata.get("test_id", "")
     if not test_id:
         # Try to extract from span name (format: "test_id[model]")
-        name = span.get("span_attributes", {}).get("name", "")
+        span_attrs = span.get("span_attributes") or {}
+        name = span_attrs.get("name", "")
         if "[" in name:
             test_id = name.split("[")[0]
 
+    scores = span.get("scores") or {}
     return {
         "test_id": test_id,
         "model": metadata.get("model", ""),
         "holmes_duration": metadata.get("holmes_duration"),
         "cost": metrics.get("cost"),
         "tool_call_count": metadata.get("tool_call_count"),
-        "passed": span.get("scores", {}).get("correctness", 0) >= 0.5,
+        "passed": scores.get("correctness", 0) >= 0.5,
     }
 
 
@@ -236,6 +241,8 @@ def build_historical_metrics(
         spans = fetch_experiment_spans(exp_id)
         for span in spans:
             span_metrics = extract_span_metrics(span)
+            if span_metrics is None:
+                continue
             test_id = span_metrics.get("test_id", "")
             model = span_metrics.get("model", "")
 
@@ -287,24 +294,31 @@ def get_historical_metrics(
         - metrics_dict: Dictionary mapping "test_id:model" to HistoricalMetrics
         - status_message: Empty string if successful, otherwise explains why data is missing
     """
-    if not BRAINTRUST_API_KEY:
-        return {}, "BRAINTRUST_API_KEY not configured"
+    try:
+        if not BRAINTRUST_API_KEY:
+            return {}, "BRAINTRUST_API_KEY not configured"
 
-    project_id = get_project_id()
-    if not project_id:
-        return {}, f"Braintrust project '{BRAINTRUST_PROJECT}' not found"
+        project_id = get_project_id()
+        if not project_id:
+            return {}, f"Braintrust project '{BRAINTRUST_PROJECT}' not found"
 
-    experiments, filter_desc = list_historical_experiments(project_id, limit=limit)
-    if not experiments:
-        return {}, f"No experiments found ({filter_desc})"
+        experiments, filter_desc = list_historical_experiments(project_id, limit=limit)
+        if not experiments:
+            return {}, f"No experiments found ({filter_desc})"
 
-    logging.info(f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})")
-    metrics = build_historical_metrics(experiments)
+        logging.info(f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})")
+        metrics = build_historical_metrics(experiments)
 
-    if not metrics:
-        return {}, f"No historical metrics found (no passing tests with duration data, {filter_desc})"
+        if not metrics:
+            return {}, f"No historical metrics found (no passing tests with duration data, {filter_desc})"
 
-    return metrics, ""
+        return metrics, ""
+    except Exception as e:
+        # Get the full traceback to identify exact location
+        tb = traceback.format_exc()
+        logging.error(f"Error in get_historical_metrics: {e}\n{tb}")
+        # Return a more detailed error message
+        return {}, f"Error in get_historical_metrics: {e} (see logs for traceback)"
 
 
 def compare_with_historical(
