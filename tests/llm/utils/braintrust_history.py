@@ -323,6 +323,8 @@ def compare_with_historical(
     comparisons = []
 
     for result in current_results:
+        if result is None:
+            continue
         test_id = result.get("test_case_name", result.get("clean_test_case_id", ""))
         model = result.get("model", "")
 
