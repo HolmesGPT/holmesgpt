@@ -41,16 +41,6 @@ def test_jsonpath_filter_applies_before_returning_data():
     assert result.data == "CPU"
 
 
-def test_jq_filter_applies_before_returning_data():
-    data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
-    tool = _build_tool(data)
-
-    result = tool._invoke({"uid": "abc", "jq": ".dashboard.panels[].id"}, context=None)
-
-    assert result.status is StructuredToolResultStatus.SUCCESS
-    assert result.data == 1
-
-
 def test_invalid_jsonpath_returns_error():
     data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
     tool = _build_tool(data)

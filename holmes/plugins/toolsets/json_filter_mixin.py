@@ -2,7 +2,6 @@ import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-import jq  # type: ignore
 from jsonpath_ng import parse as jsonpath_parse  # type: ignore
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus, ToolParameter
@@ -45,18 +44,6 @@ def _apply_jsonpath_filter(data: Any, expression: str) -> Tuple[Optional[Any], O
         return None, f"Invalid jsonpath expression: {exc}"
 
 
-def _apply_jq_filter(data: Any, expression: str) -> Tuple[Optional[Any], Optional[str]]:
-    try:
-        compiled = jq.compile(expression)
-        results = compiled.input(data).all()
-        if len(results) == 1:
-            return results[0], None
-        return results, None
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("Failed to apply jq filter", exc_info=exc)
-        return None, f"Invalid jq filter: {exc}"
-
-
 class JsonFilterMixin:
     """Opt-in mixin for tools that return JSON and want filtering controls."""
 
@@ -68,11 +55,6 @@ class JsonFilterMixin:
         ),
         "jsonpath": ToolParameter(
             description="Optional jsonpath expression to extract specific parts of the JSON.",
-            type="string",
-            required=False,
-        ),
-        "jq": ToolParameter(
-            description="Optional jq filter to apply to the JSON.",
             type="string",
             required=False,
         ),
@@ -95,11 +77,6 @@ class JsonFilterMixin:
 
         if params.get("jsonpath"):
             parsed_data, error = _apply_jsonpath_filter(parsed_data, params["jsonpath"])
-            if error:
-                return None, error
-
-        if params.get("jq"):
-            parsed_data, error = _apply_jq_filter(parsed_data, params["jq"])
             if error:
                 return None, error
 

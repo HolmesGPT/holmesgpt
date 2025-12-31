@@ -55,7 +55,7 @@ prometrix = "0.2.5"
 httpx = {version = "<0.28", extras = ["socks"]}
 ag-ui-protocol = "^0.1.9"
 google-cloud-aiplatform = ">=1.38"
-jq = "^1.8.0"
+
 jsonpath-ng = "^1.6.1"
 
 [tool.poetry.group.dev]
