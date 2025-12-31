@@ -21,7 +21,7 @@ def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
     """Format a diff percentage as an indicator string, bold if >25%."""
     if diff is None or sample_count < 3:
         return ""
-    if abs(diff) < 5:
+    if abs(diff) < 10:
         return " ±0%"
     bold = abs(diff) > 25
     arrow = "↑" if diff > 0 else "↓"
@@ -93,6 +93,12 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
         for error in details.errors:
             lines.append(error)
         lines.append("```\n")
+
+    # Document comparison thresholds
+    lines.append("**Comparison indicators:**")
+    lines.append("- `±0%` — diff under 10% (within noise threshold)")
+    lines.append("- `↑N%`/`↓N%` — diff 10-25%")
+    lines.append("- **`↑N%`**/**`↓N%`** — diff over 25% (significant)\n")
 
     lines.append("</details>\n")
     return "\n".join(lines)
