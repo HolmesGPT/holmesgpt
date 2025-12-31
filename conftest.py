@@ -226,4 +226,10 @@ def responses():
         rsps.add_passthru("https://app.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.eu")
         rsps.add_passthru("https://ng-api-http.eu2.coralogix.com")
+
+        # Allow
+        rsps.add_passthru("https://google.com")
+        rsps.add_passthru("https://burgergooglenetworkspam.co.uk")
+        rsps.add_passthru("https://www.google.com")
+        rsps.add_passthru("https://www.burgergooglenetworkspam.co.uk")
         yield rsps
