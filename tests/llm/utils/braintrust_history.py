@@ -6,7 +6,12 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from holmes.core.tracing import BRAINTRUST_API_KEY, BRAINTRUST_ORG, BRAINTRUST_PROJECT
+from holmes.core.tracing import (
+    BRAINTRUST_API_KEY,
+    BRAINTRUST_ORG,
+    BRAINTRUST_PROJECT,
+    get_active_branch_name,
+)
 
 # Braintrust API base URL
 BRAINTRUST_API_URL = "https://api.braintrust.dev/v1"
@@ -108,42 +113,45 @@ def get_project_id() -> Optional[str]:
     return None
 
 
-def list_master_experiments(
+def list_historical_experiments(
     project_id: str, limit: int = DEFAULT_HISTORY_LIMIT
-) -> List[Dict[str, Any]]:
-    """List recent experiments that ran on the master branch.
+) -> tuple[List[Dict[str, Any]], str]:
+    """List recent experiments, excluding the current branch.
 
     Args:
         project_id: Braintrust project ID
         limit: Maximum number of experiments to return
 
     Returns:
-        List of experiment objects
+        Tuple of (list of experiment objects, filter description for display)
     """
+    current_branch = get_active_branch_name()
+    filter_desc = f"excluding branch '{current_branch}'"
+
     # Fetch experiments for the project
     result = _make_api_request(
         "/experiment",
         params={
             "project_id": project_id,
-            "limit": limit * 2,  # Fetch more to filter by branch
+            "limit": limit * 3,  # Fetch more to filter by branch
         },
     )
 
     if not result or "objects" not in result:
-        return []
+        return [], filter_desc
 
-    # Filter to only master branch experiments
-    master_experiments = []
+    # Filter to exclude current branch
+    filtered_experiments = []
     for exp in result.get("objects", []):
         metadata = exp.get("metadata", {})
         branch = metadata.get("branch", "")
-        # Match master, main, or experiments with master-like names
-        if branch in ("master", "main") or "master" in exp.get("name", "").lower():
-            master_experiments.append(exp)
-            if len(master_experiments) >= limit:
+        # Exclude experiments from the current branch
+        if branch and branch != current_branch:
+            filtered_experiments.append(exp)
+            if len(filtered_experiments) >= limit:
                 break
 
-    return master_experiments
+    return filtered_experiments, filter_desc
 
 
 def fetch_experiment_spans(
@@ -268,7 +276,7 @@ def build_historical_metrics(
 def get_historical_metrics(
     limit: int = DEFAULT_HISTORY_LIMIT,
 ) -> tuple[Dict[str, HistoricalMetrics], str]:
-    """Fetch historical metrics from recent master branch experiments.
+    """Fetch historical metrics from recent experiments (excluding current branch).
 
     Args:
         limit: Number of recent experiments to analyze
@@ -285,15 +293,15 @@ def get_historical_metrics(
     if not project_id:
         return {}, f"Braintrust project '{BRAINTRUST_PROJECT}' not found"
 
-    experiments = list_master_experiments(project_id, limit=limit)
+    experiments, filter_desc = list_historical_experiments(project_id, limit=limit)
     if not experiments:
-        return {}, "No master branch experiments found in Braintrust"
+        return {}, f"No experiments found ({filter_desc})"
 
-    logging.info(f"Fetching historical metrics from {len(experiments)} experiments")
+    logging.info(f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})")
     metrics = build_historical_metrics(experiments)
 
     if not metrics:
-        return {}, "No historical metrics found (no passing tests with duration data)"
+        return {}, f"No historical metrics found (no passing tests with duration data, {filter_desc})"
 
     return metrics, ""
 
