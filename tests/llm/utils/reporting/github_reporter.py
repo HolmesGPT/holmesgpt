@@ -55,12 +55,16 @@ def _format_time_with_comparison(
     # Add comparison indicator if we have enough historical data
     if comparison and comparison.duration_diff_pct is not None and comparison.sample_count >= 3:
         diff = comparison.duration_diff_pct
+        # Bold significant differences (>25%)
+        bold = abs(diff) > 25
         if diff > 0:
-            return f"{base} ↑{diff:.0f}%"  # Slower
+            indicator = f"↑{diff:.0f}%"
+            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
         elif diff < 0:
-            return f"{base} ↓{abs(diff):.0f}%"  # Faster
+            indicator = f"↓{abs(diff):.0f}%"
+            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
         else:
-            return f"{base} ±0%"  # No change
+            return f"{base} ±0%"
 
     return base
 
@@ -86,12 +90,16 @@ def _format_cost_with_comparison(
     # Add comparison indicator if we have enough historical data
     if comparison and comparison.cost_diff_pct is not None and comparison.sample_count >= 3:
         diff = comparison.cost_diff_pct
+        # Bold significant differences (>25%)
+        bold = abs(diff) > 25
         if diff > 0:
-            return f"{base} ↑{diff:.0f}%"  # More expensive
+            indicator = f"↑{diff:.0f}%"
+            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
         elif diff < 0:
-            return f"{base} ↓{abs(diff):.0f}%"  # Cheaper
+            indicator = f"↓{abs(diff):.0f}%"
+            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
         else:
-            return f"{base} ±0%"  # No change
+            return f"{base} ±0%"
 
     return base
 
