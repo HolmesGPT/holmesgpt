@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Tuple
 from tests.llm.utils.test_results import TestStatus
 from tests.llm.utils.braintrust import get_braintrust_url
 from tests.llm.utils.braintrust_history import (
+    BRAINTRUST_ORG,
+    BRAINTRUST_PROJECT,
     HistoricalComparison,
     HistoricalComparisonDetails,
     HistoricalMetrics,
@@ -120,7 +122,7 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
         lines.append(f"\n**Experiments compared ({len(details.experiments)}):**\n")
         for exp in details.experiments:
             # Build Braintrust URL for the experiment
-            exp_url = f"https://www.braintrust.dev/app/robustadev/p/HolmesGPT/experiments/{exp.id}"
+            exp_url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{exp.id}"
             branch_info = f" (branch: `{exp.branch}`)" if exp.branch else ""
             lines.append(f"- [{exp.name}]({exp_url}){branch_info}")
         lines.append("")
