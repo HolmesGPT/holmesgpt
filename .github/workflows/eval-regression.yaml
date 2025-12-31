@@ -153,7 +153,8 @@ jobs:
               const prBranch = ${{ toJSON(steps.eval-comment.outputs.pr_branch) }} || '';
               displayBranch = branch || prBranch;
               isManual = true;
-              triggerSource = branch ? `/eval on branch \`${branch}\`` : '/eval comment';
+              const commentUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}#issuecomment-${context.payload.comment.id}`;
+              triggerSource = branch ? `[/eval on branch \`${branch}\`](${commentUrl})` : `[/eval comment](${commentUrl})`;
               prNumber = context.issue.number;
               triggeredBy = context.payload.comment.user.login;
             } else if (event === 'workflow_dispatch') {
