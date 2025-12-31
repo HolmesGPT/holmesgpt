@@ -171,6 +171,159 @@ Why: "my-release" and "./chart" are instance-specific
 
 ---
 
+### Handling Composed Commands (pipes, &, ;)
+
+When commands are composed using `|`, `&&`, `||`, `;`, or `&`, each segment must be validated separately.
+
+**AI provides a list of prefixes (one per segment):**
+
+```yaml
+Tool: bash
+Parameters:
+  command: "kubectl get pods -n default | grep error | head -10"
+  suggested_prefixes:    # List - one prefix per segment
+    - "kubectl get pod"
+    - "grep"
+    - "head"
+```
+
+**Validation rules:**
+
+1. System parses command into segments (split on `|`, `&&`, `||`, `;`, `&`)
+2. Number of `suggested_prefixes` must equal number of segments
+3. Each prefix must be a valid prefix of its corresponding segment
+4. If any validation fails → tool call fails, AI must retry
+
+```python
+def validate_composed_command(command: str, suggested_prefixes: List[str]) -> ValidationResult:
+    segments = parse_command_segments(command)  # Split on |, &&, ||, ;, &
+
+    if len(segments) != len(suggested_prefixes):
+        return ValidationResult.FAIL, \
+            f"Expected {len(segments)} prefixes, got {len(suggested_prefixes)}"
+
+    for i, (segment, prefix) in enumerate(zip(segments, suggested_prefixes)):
+        segment = segment.strip()
+        if not segment.startswith(prefix):
+            return ValidationResult.FAIL, \
+                f"Prefix '{prefix}' is not a prefix of segment {i+1}: '{segment}'"
+
+    return ValidationResult.OK
+```
+
+**Approval flow:**
+
+1. Check each segment against whitelist
+2. Collect segments that need approval
+3. If ALL segments approved → execute
+4. If ANY need approval → prompt user with unapproved prefixes
+
+**Approval prompt (multiple prefixes need approval):**
+
+```
+Bash command
+
+  kubectl get pods -n default | grep error | head -10
+  List pods and filter for errors
+
+The following command prefixes need approval:
+  • kubectl get pod
+  • grep
+
+Already approved: head
+
+Do you want to proceed?
+❯ 1. Yes (approve once)
+  2. Yes, and remember these prefixes for this session
+  3. Type here to tell Holmes what to do differently
+```
+
+**Option 2 behavior:** Saves ALL unapproved prefixes to session whitelist.
+
+**Security rules:**
+- ALL segments must pass validation before execution
+- A whitelisted command cannot "carry" a non-whitelisted command
+- Example: `cat safe.txt | rm -rf /` → `rm -rf` still needs approval
+
+**For single commands:** AI can provide either:
+- `suggested_prefix: "kubectl get pod"` (string) - single command
+- `suggested_prefixes: ["kubectl get pod"]` (list with one item) - also valid
+
+System accepts both formats for convenience.
+
+**Command Parsing Implementation:**
+
+Use a proper shell parser library (similar to Claude Code's approach):
+
+**Recommended: `bashlex`** - Python library that parses bash syntax into AST
+
+```python
+import bashlex
+
+def parse_command_segments(command: str) -> List[str]:
+    """
+    Split command on shell operators using proper bash parsing.
+    Returns list of command segments.
+    """
+    try:
+        parts = bashlex.parse(command)
+    except bashlex.errors.ParsingError:
+        # Fallback: treat as single command if parsing fails
+        return [command.strip()]
+
+    segments = []
+    for part in parts:
+        segments.extend(_extract_commands_from_ast(part))
+
+    return segments
+
+def _extract_commands_from_ast(node) -> List[str]:
+    """
+    Recursively extract command strings from bashlex AST.
+    Handles: pipelines, lists (&&, ||, ;), and simple commands.
+    """
+    if node.kind == 'pipeline':
+        # Pipeline: cmd1 | cmd2 | cmd3
+        return [_node_to_string(cmd) for cmd in node.parts]
+
+    elif node.kind == 'list':
+        # List: cmd1 && cmd2, cmd1 || cmd2, cmd1 ; cmd2
+        result = []
+        for part in node.parts:
+            result.extend(_extract_commands_from_ast(part))
+        return result
+
+    elif node.kind == 'command':
+        return [_node_to_string(node)]
+
+    else:
+        # Other node types - return as single segment
+        return [_node_to_string(node)]
+
+def _node_to_string(node) -> str:
+    """Convert AST node back to command string."""
+    # bashlex nodes have 'pos' attribute with (start, end) positions
+    # Use original command substring
+    return command[node.pos[0]:node.pos[1]]
+```
+
+**Why bashlex over manual parsing:**
+- Handles all bash syntax edge cases (quotes, escapes, subshells, etc.)
+- Battle-tested library
+- Produces AST that can be inspected for operator types
+- Same approach as Claude Code (tokenize first, then find operators)
+
+**Example:**
+```python
+parse_command_segments("kubectl get pods | grep 'error | msg' && echo done")
+# Returns: ["kubectl get pods", "grep 'error | msg'", "echo done"]
+# Note: pipe inside quotes is correctly handled
+```
+
+**Fallback:** If bashlex fails to parse (malformed command), treat entire input as single segment and let bash report the error at execution time.
+
+---
+
 ### User Approval Prompt (Interactive Mode)
 
 When a command is not in the whitelist, present the user with three options:
@@ -238,6 +391,72 @@ def handle_user_approval(command: str, suggested_prefix: str, description: str) 
 
 ---
 
+### Whitelist in System Prompt
+
+The whitelist should be communicated to the AI via the existing `llm_instructions` pattern used by toolsets.
+
+**Existing pattern** (in `_toolsets_instructions.jinja2`):
+```jinja2
+{%- for toolset in enabled_toolsets_with_instructions -%}
+## {{ toolset.name }}
+{{ toolset.llm_instructions }}
+{%- endfor -%}
+```
+
+**Implementation for bash toolset:**
+
+The bash toolset should dynamically build its `llm_instructions` when loaded, including the current whitelist:
+
+```python
+class BashToolset:
+    def build_llm_instructions(self) -> str:
+        """Build instructions including the current whitelist."""
+        allowed_prefixes = self.get_allowed_prefixes()  # From config
+
+        return f"""
+## Bash Command Execution
+
+You can execute bash commands using the `bash` tool.
+
+### Allowed Command Prefixes (no approval needed)
+The following command prefixes are pre-approved and will execute without user confirmation:
+{self._format_whitelist(allowed_prefixes)}
+
+### Commands Requiring Approval
+For commands not matching the whitelist above, you must provide a `suggested_prefix` parameter.
+The user will be asked to approve the command.
+
+### How to Choose `suggested_prefix`
+[Include the AI guidelines documented earlier]
+"""
+```
+
+**For `bash_limited` tool (non-interactive mode):**
+
+The instructions should be more restrictive:
+
+```python
+def build_llm_instructions(self) -> str:
+    allowed_prefixes = self.get_allowed_prefixes()
+
+    return f"""
+## Bash Command Execution (Limited Mode)
+
+You can ONLY execute commands matching these prefixes:
+{self._format_whitelist(allowed_prefixes)}
+
+Do NOT attempt to run any other commands - they will fail.
+There is no user approval mechanism in this mode.
+"""
+```
+
+**This ensures:**
+- AI sees the whitelist at the start of every session
+- Whitelist is single source of truth (config → llm_instructions)
+- Different instructions for interactive vs non-interactive mode
+
+---
+
 ### #2: Two Tools Architecture
 
 **Approach:** Create two separate tools that share execution code:
@@ -267,40 +486,17 @@ toolsets:
 
 ---
 
-### #3: Communicating Whitelist to AI (Non-interactive Mode)
+### #3: Communicating Whitelist to AI
 
-In `bash_limited` mode, the AI must know what commands are available.
+**Decision:** Use the existing `llm_instructions` pattern (see "Whitelist in System Prompt" section above).
 
-**Option A: Include whitelist in tool description**
+The whitelist is dynamically injected into the system prompt via the toolset's `llm_instructions` field, which is rendered by `_toolsets_instructions.jinja2` at session start.
 
-```
-Tool: bash_limited
-Description: Execute bash commands. Only the following commands are allowed:
-- kubectl get, kubectl describe, kubectl logs
-- cat, grep, head, tail
-- ls, find, stat
-Do not attempt other commands - they will fail.
-```
-
-- Pros: AI sees it every time, clear guidance
-- Cons: Long tool description, must stay in sync with actual whitelist
-
-**Option B: Separate tool to query whitelist**
-
-```
-Tool: list_allowed_commands
-Returns: ["kubectl get", "kubectl describe", ...]
-```
-
-- Pros: Single source of truth, AI can check dynamically
-- Cons: Extra tool call, AI might not call it
-
-**Option C: Include in system prompt**
-
-- Pros: Prominent placement
-- Cons: Couples system prompt to toolset config
-
-**Recommendation:** Option A with auto-generation - the tool description is dynamically built from the actual whitelist config.
+This approach:
+- Uses existing HolmesGPT infrastructure (no new patterns needed)
+- Single source of truth (config → llm_instructions → system prompt)
+- Different instructions for `bash` vs `bash_limited` modes
+- AI sees whitelist prominently at start of every session
 
 ## New Plugin Design
 
