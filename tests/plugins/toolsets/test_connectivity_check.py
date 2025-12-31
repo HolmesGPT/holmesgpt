@@ -92,4 +92,4 @@ def test_http_check_success():
 def test_http_check_invalid_port():
     result = http_check("127.0.0.1", 0)
     assert result["ok"] is False
-    assert result["error"] == "invalid port"
+    assert result["error"] == "invalid port (must be 1-65535)"
