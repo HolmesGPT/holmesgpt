@@ -4,6 +4,6 @@ tags:
   - network
   - hard
 expected_output:
-  - "google.com is accessible via HTTP with a 2xx-3xx status code. The AI must explicitly say which status code it got."
+  - "google.com is accessible via HTTPS with a 2xx-3xx status code. The AI must explicitly say which status code it got."
   - "burgergooglenetworkspam.co.uk is not accessible"
   - "The AI must directly verify the accessibility of each address, not just guess"
