@@ -36,9 +36,11 @@ from tests.llm.utils.test_env_vars import (
     MODEL,
     CLASSIFIER_MODEL,
     OPENAI_API_KEY,
+    OPENROUTER_API_KEY,
     ANTHROPIC_API_KEY,
     AZURE_API_KEY,
     AZURE_API_BASE,
+    OPENROUTER_API_BASE,
     ASK_HOLMES_TEST_TYPE,
     BRAINTRUST_API_KEY,
 )
@@ -370,6 +372,7 @@ def check_llm_api_with_test_call():
         model_name = model_name.strip()
 
         llm = None
+        using_openrouter = False
         if _model_list_exists():
             try:
                 llm = create_eval_llm(model_name)
@@ -392,6 +395,14 @@ def check_llm_api_with_test_call():
             ):
                 env_check = litellm.validate_environment(model=model_name)
 
+                if (
+                    not env_check["keys_in_environment"]
+                    and actual_provider == "openai"
+                    and OPENROUTER_API_KEY
+                ):
+                    using_openrouter = True
+                    env_check = {"keys_in_environment": True}
+
         if not env_check["keys_in_environment"]:
             # Environment is missing required keys
             failed_models.append(model_name)
@@ -403,7 +414,10 @@ def check_llm_api_with_test_call():
             elif actual_provider == "anthropic":
                 provider_msg = f"Missing environment variables for Anthropic (model: {model_name}): {missing_keys}"
             elif actual_provider == "openai":
-                provider_msg = f"Missing environment variables for OpenAI (model: {model_name}): {missing_keys}. Note: AZURE_API_BASE is set but this model uses OpenAI, not Azure."
+                provider_msg = (
+                    f"Missing environment variables for OpenAI (model: {model_name}): {missing_keys}. "
+                    "Set OPENAI_API_KEY or OPENROUTER_API_KEY. Note: AZURE_API_BASE is set but this model uses OpenAI, not Azure."
+                )
             elif actual_provider == "bedrock":
                 provider_msg = f"Missing environment variables for bedrock (model: {model_name}): {missing_keys}. Note: You can alternatively define AWS_BEARER_TOKEN_BEDROCK."
             else:
@@ -417,11 +431,15 @@ def check_llm_api_with_test_call():
             if llm:
                 llm.completion(messages=[{"role": "user", "content": "test"}])
             else:
-                litellm.completion(
-                    model=model_name,
-                    messages=[{"role": "user", "content": "test"}],
-                    max_tokens=1000,
-                )
+                completion_kwargs = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": "test"}],
+                    "max_tokens": 1000,
+                }
+                if using_openrouter:
+                    completion_kwargs["api_key"] = OPENROUTER_API_KEY
+                    completion_kwargs["api_base"] = OPENROUTER_API_BASE
+                litellm.completion(**completion_kwargs)
         except Exception as e:
             failed_models.append(model_name)
             error_str = str(e)
@@ -449,7 +467,7 @@ def check_llm_api_with_test_call():
     try:
         client, model = create_llm_client()
         client.chat.completions.create(
-            model=model, messages=[{"role": "user", "content": "test"}], max_tokens=1
+            model=model, messages=[{"role": "user", "content": "test"}], max_tokens=16
         )
     except Exception as e:
         failed_models.append(f"classifier:{classifier_model}")
@@ -459,7 +477,10 @@ def check_llm_api_with_test_call():
         if AZURE_API_BASE:
             provider_msg = f"Tried to use Azure for classifier (model: {classifier_model}). Check AZURE_API_BASE, AZURE_API_KEY, AZURE_API_VERSION, or unset AZURE_API_BASE to use OpenAI."
         else:
-            provider_msg = f"Tried to use OpenAI for classifier (model: {classifier_model}). Check OPENAI_API_KEY or set AZURE_API_BASE to use Azure."
+            provider_msg = (
+                f"Tried to use OpenAI-compatible API for classifier (model: {classifier_model}). "
+                "Check OPENAI_API_KEY or OPENROUTER_API_KEY, or set AZURE_API_BASE to use Azure."
+            )
 
         # Add helpful suggestion for gpt-5 models that may have parameter issues
         if "gpt-5" in classifier_model.lower():
@@ -484,6 +505,9 @@ def check_llm_api_with_test_call():
         error_msg += "\n\n".join(formatted_errors)
         error_msg += "\n\nEnvironment status:\n"
         error_msg += f"  - OPENAI_API_KEY: {'set' if OPENAI_API_KEY else 'not set'}\n"
+        error_msg += (
+            f"  - OPENROUTER_API_KEY: {'set' if OPENROUTER_API_KEY else 'not set'}\n"
+        )
         error_msg += (
             f"  - ANTHROPIC_API_KEY: {'set' if ANTHROPIC_API_KEY else 'not set'}\n"
         )

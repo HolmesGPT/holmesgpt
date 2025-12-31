@@ -10,12 +10,14 @@ MODEL_LIST_FILE_LOCATION = os.environ.get("MODEL_LIST_FILE_LOCATION", "").strip(
 
 # API Keys
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 AZURE_API_KEY = os.environ.get("AZURE_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 BRAINTRUST_API_KEY = os.environ.get("BRAINTRUST_API_KEY")
 
 # OpenAI configuration
 OPENAI_API_BASE = os.environ.get("OPENAI_API_BASE")
+OPENROUTER_API_BASE = os.environ.get("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
 
 # Azure configuration
 AZURE_API_BASE = os.environ.get("AZURE_API_BASE")
