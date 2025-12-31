@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, ClassVar, Optional, Tuple, Type
 from urllib.parse import quote
 
 from holmes.core.tools import (
@@ -181,6 +181,8 @@ class ExecuteDataPrimeQuery(Tool):
 
 
 class CoralogixToolset(Toolset):
+    config_class: ClassVar[Type[CoralogixConfig]] = CoralogixConfig
+
     def __init__(self):
         super().__init__(
             name="coralogix",

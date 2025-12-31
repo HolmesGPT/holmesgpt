@@ -12,11 +12,13 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Optional,
     OrderedDict,
     Tuple,
+    Type,
     Union,
 )
 
@@ -538,6 +540,7 @@ class ToolsetEnvironmentPrerequisite(BaseModel):
 class Toolset(BaseModel):
     model_config = ConfigDict(extra="forbid")
     experimental: bool = False
+    config_class: ClassVar[Optional[Type[BaseModel]]] = None
 
     enabled: bool = False
     name: str
@@ -763,6 +766,15 @@ class Toolset(BaseModel):
     @abstractmethod
     def get_example_config(self) -> Dict[str, Any]:
         return {}
+
+    def get_config_schema(self) -> Optional[Dict[str, Any]]:
+        """Returns JSON Schema for the toolset's configuration.
+
+        Uses config_class if defined, otherwise returns None.
+        """
+        if self.config_class is not None:
+            return self.config_class.model_json_schema()
+        return None
 
     def _load_llm_instructions(self, jinja_template: str):
         tool_names = [t.name for t in self.tools]

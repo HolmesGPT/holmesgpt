@@ -3,7 +3,7 @@ import logging
 import os
 import time
 import dateutil.parser
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 from urllib.parse import urljoin
 
 import requests  # type: ignore
@@ -1492,6 +1492,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
 
 
 class PrometheusToolset(Toolset):
+    config_class: ClassVar[Type[PrometheusConfig]] = PrometheusConfig
     config: Optional[Union[PrometheusConfig, AMPConfig]] = None
 
     def __init__(self):

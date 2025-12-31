@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 from opensearchpy import OpenSearch
 from pydantic import BaseModel, ConfigDict
@@ -191,6 +191,7 @@ class ListOpenSearchHosts(BaseOpenSearchTool):
 
 class OpenSearchToolset(Toolset):
     model_config = ConfigDict(arbitrary_types_allowed=True)
+    config_class: ClassVar[Type[OpenSearchConfig]] = OpenSearchConfig
     clients: List[OpenSearchClient] = []
 
     def __init__(self):

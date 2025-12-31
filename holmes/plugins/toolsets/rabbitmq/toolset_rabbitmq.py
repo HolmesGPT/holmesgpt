@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Any, List, Optional, Tuple
+from typing import Any, ClassVar, List, Optional, Tuple, Type
 
 from pydantic import BaseModel
 from holmes.core.tools import (
@@ -129,6 +129,8 @@ class GetRabbitMQClusterStatus(BaseRabbitMQTool):
 
 
 class RabbitMQToolset(Toolset):
+    config_class: ClassVar[Type[RabbitMQConfig]] = RabbitMQConfig
+
     def __init__(self):
         super().__init__(
             name="rabbitmq/core",

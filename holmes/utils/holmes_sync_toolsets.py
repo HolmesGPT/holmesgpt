@@ -1,6 +1,7 @@
+import json
 import logging
 from datetime import datetime
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 import yaml  # type: ignore
 
@@ -19,6 +20,38 @@ def log_toolsets_statuses(toolsets: List[Toolset]):
     ]
     logging.info(f"Enabled toolsets: {enabled_toolsets}")
     logging.info(f"Disabled toolsets: {disabled_toolsets}")
+
+
+def _json_serializer(obj: Any) -> Any:
+    """Custom JSON serializer for objects not serializable by default json code."""
+    if hasattr(obj, "__str__"):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def wrap_installation_instructions_with_schema(
+    instructions: str,
+    config_schema: Optional[Dict[str, Any]],
+    example_config: Optional[Dict[str, Any]],
+) -> str:
+    """Wraps installation instructions with config schema as JSON.
+
+    The frontend can parse this to extract:
+    - instructions: The markdown installation instructions
+    - config_schema: JSON Schema for the toolset's configuration
+    - example_config: Example configuration values
+
+    For backwards compatibility, frontend should check if the string
+    is valid JSON with an "instructions" key, otherwise treat as plain string.
+    """
+    return json.dumps(
+        {
+            "instructions": instructions,
+            "config_schema": config_schema,
+            "example_config": example_config,
+        },
+        default=_json_serializer,
+    )
 
 
 def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
@@ -48,13 +81,24 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if not toolset.installation_instructions:
             instructions = render_default_installation_instructions_for_toolset(toolset)
             toolset.installation_instructions = instructions
+
+        # Wrap installation_instructions with config schema for frontend
+        config_schema = toolset.get_config_schema()
+        example_config = toolset.get_example_config()
+        wrapped_instructions = wrap_installation_instructions_with_schema(
+            instructions=toolset.installation_instructions,
+            config_schema=config_schema,
+            example_config=example_config if example_config else None,
+        )
+
         db_toolsets.append(
             ToolsetDBModel(
-                **toolset.model_dump(exclude_none=True),
+                **toolset.model_dump(exclude_none=True, exclude={"installation_instructions"}),
                 toolset_name=toolset.name,
                 cluster_id=config.cluster_name,
                 account_id=dal.account_id,
                 updated_at=updated_at,
+                installation_instructions=wrapped_instructions,
             ).model_dump()
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)
