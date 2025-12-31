@@ -11,7 +11,7 @@ This document outlines the plan for redesigning the bash toolset in HolmesGPT.
 
 ## Current State
 
-_To be analyzed together_
+The existing `bash` toolset will remain as-is for backward compatibility. This redesign creates a new `bash_v2` toolset from scratch.
 
 ## Goals
 
@@ -28,8 +28,8 @@ _To be analyzed together_
 ### Mode 1: Interactive (user present)
 
 - AI can request permission from the user to run non-whitelisted commands
-- If user grants permission, that permission is **saved for the session**
-- Subsequent uses of the same command (prefix?) don't require re-approval
+- If user grants permission, that permission is **saved for the session** (by prefix)
+- Subsequent uses of commands matching the approved prefix don't require re-approval
 
 ### Mode 2: Non-interactive (automated/server)
 
@@ -320,7 +320,7 @@ parse_command_segments("kubectl get pods | grep 'error | msg' && echo done")
 # Note: pipe inside quotes is correctly handled
 ```
 
-**Fallback:** If bashlex fails to parse (malformed command), treat entire input as single segment and let bash report the error at execution time.
+**Fallback:** If bashlex fails to parse (malformed command), fail the tool call immediately with parsing error details. See "Parsing Failure Handling" section.
 
 ---
 
@@ -457,14 +457,41 @@ There is no user approval mechanism in this mode.
 
 ---
 
-### #2: Two Tools Architecture
+### #2: Mode Selection
 
-**Approach:** Create two separate tools that share execution code:
+**CLI Mode (default: interactive)**
 
-| Tool Name | Mode | Behavior |
-|-----------|------|----------|
-| `bash` | Interactive | Can request user permission for non-whitelisted commands |
-| `bash_limited` | Non-interactive | Only whitelisted commands, fails otherwise |
+When running Holmes as a CLI, interactive mode is enabled by default. Two override flags:
+
+| Flag | Behavior |
+|------|----------|
+| `--bash-dangerous-no-approval` | Skip approval prompts for non-whitelisted commands (deny list still enforced) |
+| `--bash-always-deny` | Never ask user, deny all non-whitelisted commands |
+
+**Important:** The deny list is ALWAYS enforced, even with `--bash-dangerous-no-approval`. This flag only skips user approval prompts—it does not bypass security restrictions.
+
+```bash
+# Default: interactive (can ask user)
+holmes ask "why is my pod crashing?"
+
+# Dangerous: skip all approval prompts
+holmes ask --bash-dangerous-no-approval "why is my pod crashing?"
+
+# Strict: never prompt, only whitelisted commands
+holmes ask --bash-always-deny "why is my pod crashing?"
+```
+
+**Non-CLI Mode (server/in-cluster)**
+
+When Holmes runs as a server or in-cluster, mode is determined by toolset configuration:
+
+```yaml
+toolsets:
+  bash_v2:
+    enabled: true
+    config:
+      allow_user_approval: false  # true = can ask, false = strict whitelist only
+```
 
 **Code structure:**
 
@@ -472,16 +499,8 @@ There is no user approval mechanism in this mode.
 bash_toolset/
 ├── executor.py          # Shared execution logic
 ├── whitelist.py         # Shared whitelist validation
-├── bash_tool.py         # Interactive tool (can ask permission)
-└── bash_limited_tool.py # Non-interactive tool (strict whitelist)
-```
-
-**Config determines which tool is enabled:**
-
-```yaml
-toolsets:
-  bash:
-    mode: interactive  # or "limited"
+├── validator.py         # Deny list, allow list, subshell detection
+└── approval.py          # User approval prompts (CLI only)
 ```
 
 ---
@@ -498,17 +517,361 @@ This approach:
 - Different instructions for `bash` vs `bash_limited` modes
 - AI sees whitelist prominently at start of every session
 
+## Default Whitelist
+
+Two separate whitelists based on deployment context:
+
+### Server / In-Cluster Whitelist (more permissive)
+
+When Holmes runs as a server or in-cluster, it operates in a controlled environment.
+
+```yaml
+allow:
+  # Kubernetes read-only
+  - "kubectl get"
+  - "kubectl describe"
+  - "kubectl logs"
+  - "kubectl top"
+  - "kubectl explain"
+  - "kubectl api-resources"
+
+  # Text processing (safe ones only - NO awk/sed which can run scripts)
+  - "cat"
+  - "grep"
+  - "head"
+  - "tail"
+  - "sort"
+  - "uniq"
+  - "wc"
+  - "cut"
+  - "tr"
+
+  # Filesystem read-only
+  - "ls"
+  - "find"
+  - "stat"
+  - "file"
+  - "du"
+  - "df"
+
+  # Process info
+  - "ps"
+  - "top -b"
+  - "free"
+  - "uptime"
+```
+
+### Local CLI Whitelist (more restrictive - subset)
+
+When Holmes runs as local CLI, restrict directory traversal and system access.
+
+```yaml
+allow:
+  # Kubernetes read-only (same as server)
+  - "kubectl get"
+  - "kubectl describe"
+  - "kubectl logs"
+  - "kubectl top"
+  - "kubectl explain"
+
+  # Text processing (safe ones only)
+  - "grep"
+  - "head"
+  - "tail"
+  - "sort"
+  - "uniq"
+  - "wc"
+
+  # NO filesystem traversal commands (ls, find, cat, etc.)
+  # User must explicitly approve these to prevent unintended access
+```
+
+**Rationale for local CLI restrictions:**
+- User's machine may have sensitive files
+- Prevent accidental directory traversal
+- User can approve additional commands as needed via interactive mode
+
+### Deny List (always blocked)
+
+These commands are NEVER allowed, even if user tries to approve them.
+Holmes is a diagnostic tool - it should not make drastic changes.
+
+**IMPORTANT:** The deny list MUST be checked FIRST, before checking the allow list. This ensures dangerous commands cannot be whitelisted by accident.
+
+```yaml
+deny:
+  # Destructive filesystem operations
+  - "rm -rf"
+  - "rm -r"
+  - "rmdir"
+  - "dd"
+  - "mkfs"
+  - "shred"
+
+  # Dangerous Kubernetes operations
+  - "kubectl delete"
+  - "kubectl exec"
+  - "kubectl apply"
+  - "kubectl patch"
+  - "kubectl edit"
+  - "kubectl replace"
+  - "kubectl scale"
+
+  # Kubernetes secrets (sensitive data)
+  - "kubectl get secret"
+  - "kubectl describe secret"
+
+  # System modification
+  - "chmod"
+  - "chown"
+  - "sudo"
+  - "su"
+
+  # Fork bombs and malicious patterns
+  - ":(){" # Fork bomb pattern
+```
+
+**Validation order:**
+1. Check deny list FIRST → if matched, REJECT immediately (no user override possible)
+2. Check allow list → if matched, ALLOW
+3. If neither matched → prompt user (interactive) or REJECT (non-interactive)
+
+**Allow list customization:**
+
+Users can add to OR remove from the allow list via config:
+
+```yaml
+toolsets:
+  bash_v2:
+    config:
+      allow_add:
+        - "docker ps"      # Add docker ps to allow list
+        - "helm list"
+      allow_remove:
+        - "cat"            # Remove cat from allow list (require approval)
+```
+
+**Deny list customization:**
+
+Users can add to OR remove from the deny list via config:
+
+```yaml
+toolsets:
+  bash_v2:
+    config:
+      deny_add:
+        - "curl"           # Add curl to deny list
+        - "wget"
+      deny_remove:
+        - "kubectl exec"   # Remove kubectl exec from deny list (use with caution!)
+```
+
+**Note:** Removing from deny list is dangerous and should be used sparingly. The default deny list exists for safety reasons.
+
+---
+
+### Error Messages to AI
+
+The AI should receive different error messages depending on the denial reason, so it can adjust its behavior appropriately.
+
+| Denial Reason | Error Should Convey |
+|---------------|---------------------|
+| Non-interactive mode, not in allow list | Command not allowed; remind AI to only use allowed prefixes from system prompt |
+| Deny list match | Command is blocked permanently; Holmes is diagnostic-only, no destructive ops |
+| User denied (interactive) | User chose to deny; include any feedback the user provided |
+
+**Rationale:** The AI needs context to recover gracefully. "Not allowed" vs "user said no" vs "permanently blocked" require different responses from the AI.
+
+---
+
+### Subshell Handling
+
+**Decision: Block subshells entirely**
+
+Commands containing subshells are blocked to prevent nested command execution that bypasses validation.
+
+**Blocked patterns:**
+- `$(...)` - Command substitution
+- Backtick command substitution
+- `<(...)` and `>(...)` - Process substitution
+
+**Rationale:** Subshells allow arbitrary command execution inside an otherwise-safe command. For example, `echo $(kubectl get secret)` would bypass secret access restrictions.
+
+**Detection:** Use bashlex AST to detect `commandsubstitution` and `processsubstitution` node types.
+
+**Error handling:** Fail the tool call and instruct AI to execute commands separately.
+
+---
+
+### Parsing Failure Handling
+
+**Decision: Fail the tool call when bashlex cannot parse**
+
+If bashlex fails to parse the command (malformed syntax), the tool call fails immediately.
+
+**Rationale:**
+- Malformed commands would fail in bash anyway
+- Better to catch early with clear error
+- Prevents fallback to unsafe "treat as single command" behavior
+- AI can fix syntax and retry
+
+**Error handling:** Return parsing error details and suggest splitting complex commands into separate tool calls.
+
+---
+
+### Environment Variables
+
+**Decision: Allow environment variables**
+
+Environment variables like `$HOME`, `$USER`, `${VAR}` are allowed in commands.
+
+**Rationale:**
+- Variables expand at execution time by bash, not by our validator
+- The expanded command is what actually runs
+- Blocking env vars would break many legitimate commands
+- The deny/allow list operates on the literal command string before expansion
+
+**Example:** `kubectl get pods -n $NAMESPACE` is validated as-is. The prefix `kubectl get pod` matches regardless of what `$NAMESPACE` expands to.
+
+---
+
+## Tool Parameters Schema
+
+```yaml
+Tool: bash
+Parameters:
+  command:
+    type: string
+    required: true
+    description: "The bash command to execute"
+
+  suggested_prefix:
+    type: string
+    required: false
+    description: "Suggested prefix for single commands (for approval prompt)"
+
+  suggested_prefixes:
+    type: array[string]
+    required: false
+    description: "List of prefixes for composed commands (one per segment)"
+
+  timeout:
+    type: integer
+    required: false
+    default: 30
+    description: "Command timeout in seconds"
+```
+
+**When is `suggested_prefix` / `suggested_prefixes` required?**
+
+- If command matches allow list → prefix parameter is optional (command executes directly)
+- If command does NOT match allow list → prefix parameter is REQUIRED
+  - Missing prefix → tool call fails with error asking AI to provide it
+  - This ensures AI always thinks about the appropriate prefix for non-whitelisted commands
+
+**Validation rules:**
+- Provide `suggested_prefix` (string) for single commands
+- Provide `suggested_prefixes` (array) for composed commands (pipes, &&, etc.)
+- Do not provide both
+
+**Description for approval prompt:** Reuse existing mechanism from HolmesGPT tool descriptions.
+
+---
+
 ## New Plugin Design
 
-_To be discussed_
+Design details will emerge during implementation. Key architectural decisions are captured in the Design Decisions section above.
 
 ## Deprecation Strategy
 
-_How to handle the old bash toolset_
+**Decision: Keep both toolsets**
 
-## Implementation Plan
+- New bash toolset is added alongside the old one
+- Old bash toolset remains available for backward compatibility
+- Users can choose which to use via config
+- Documentation maintained for both
 
-_To be finalized_
+```yaml
+# Config example
+toolsets:
+  bash_v2:          # New toolset (recommended)
+    enabled: true
+    mode: interactive
+
+  bash:             # Old toolset (deprecated but available)
+    enabled: false
+```
+
+**Future consideration:** After sufficient adoption of new toolset, old one may be removed in a major version release.
+
+---
+
+## Documentation
+
+- **New toolset:** Full documentation required (usage, config, whitelist customization)
+- **Old toolset:** Keep existing docs, add deprecation notice pointing to new toolset
+
+---
+
+## Success Criteria & Testing
+
+### Functional Requirements
+
+The implementation is complete when:
+
+1. **Whitelist enforcement works**
+   - Commands matching allow list execute without prompts
+   - Commands not in allow list trigger approval (interactive) or rejection (non-interactive)
+
+2. **Deny list takes precedence**
+   - Deny list checked before allow list
+   - Denied commands blocked even in `--dangerous-no-approval` mode
+   - Users cannot approve deny-listed commands
+
+3. **Composed commands validated correctly**
+   - Each segment validated independently
+   - All segments must pass for command to execute
+   - bashlex correctly parses pipes, &&, ||, ;, &
+
+4. **Subshells blocked**
+   - `$(...)`, backticks, `<(...)`, `>(...)` detected and rejected
+   - Clear error message guides AI to split commands
+
+5. **Mode selection works**
+   - CLI defaults to interactive
+   - `--bash-dangerous-no-approval` skips prompts (but respects deny list)
+   - `--bash-always-deny` rejects all non-whitelisted
+   - Server mode respects `allow_user_approval` config
+
+6. **Prefix validation works**
+   - AI-provided prefix must be actual prefix of command
+   - Invalid prefixes fail the tool call
+   - Prefix count matches segment count for composed commands
+
+7. **Config customization works**
+   - Users can add/remove from allow list
+   - Users can add/remove from deny list
+   - Server vs CLI whitelists apply correctly
+
+### Testing Approach
+
+**Unit tests:**
+- Prefix validation logic
+- Command parsing (bashlex integration)
+- Subshell detection
+- Deny list matching
+- Allow list matching
+- Config merging (defaults + user customization)
+
+**Integration tests:**
+- End-to-end command execution with mocked user approval
+- Mode switching (CLI flags)
+- Error message content verification
+
+**LLM evaluation tests:**
+- AI correctly provides `suggested_prefix` / `suggested_prefixes`
+- AI recovers from denial errors appropriately
+- AI doesn't attempt deny-listed commands after seeing system prompt
 
 ---
 
