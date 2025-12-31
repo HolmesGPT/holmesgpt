@@ -73,19 +73,9 @@ def _build_newrelic_query_url(
 
 class ExecuteNRQLQuery(Tool):
     def __init__(self, toolset: "NewRelicToolset"):
-        super().__init__(
-            name="newrelic_execute_nrql_query",
-            description="Get Traces, APM, Spans, Logs and more by executing a NRQL query in New Relic. "
-            "Returns the result of the NRQL function. "
-            "⚠️ CRITICAL: NRQL silently returns empty results for invalid queries instead of errors. "
-            "If you get empty results, your query likely has issues such as: "
-            "1) Wrong attribute names (use SELECT keyset() first to verify), "
-            "2) Type mismatches (string vs numeric fields), "
-            "3) Wrong event type. "
-            "Always verify attribute names and types before querying.",
-            parameters={
-                "query": ToolParameter(
-                    description="""The NRQL query string to execute.
+        parameters = {
+            "query": ToolParameter(
+                description="""The NRQL query string to execute.
 
 MANDATORY: Before querying any event type, ALWAYS run `SELECT keyset() FROM <EventType> SINCE <timeframe>` to discover available attributes. Never use attributes without confirming they exist first. Make sure to remember which fields are stringKeys, numericKeys or booleanKeys as this will be important in subsequent queries.
 
@@ -112,30 +102,61 @@ SELECT count(*), average(duration) FROM Transaction FACET transactionType
 SELECT count(*), transactionType FROM Transaction FACET transactionType
 ```
 """,
-                    type="string",
-                    required=True,
+                type="string",
+                required=True,
+            ),
+            "description": ToolParameter(
+                description="A breif 6 word human understandable description of the query you are running.",
+                type="string",
+                required=True,
+            ),
+            "query_type": ToolParameter(
+                description="Either 'Metrics', 'Logs', 'Traces', 'Discover Attributes' or 'Other'.",
+                type="string",
+                required=True,
+            ),
+        }
+
+        # Add account_id parameter only in multi-account mode
+        if toolset.enable_multi_account:
+            parameters["account_id"] = ToolParameter(
+                description=(
+                    "The New Relic account ID to query. "
+                    "How to determine the account_id:\n"
+                    "1. If available in context as 'nrAccountId', use that value\n"
+                    "2. If user provides an account name, first call "
+                    "newrelic_list_organization_accounts to find the matching account ID\n"
+                    '3. If no valid ID can be determined, use empty string ""\n'
+                    "Note: Use newrelic_list_organization_accounts to discover "
+                    "all available accounts and their IDs."
                 ),
-                "description": ToolParameter(
-                    description="A breif 6 word human understandable description of the query you are running.",
-                    type="string",
-                    required=True,
-                ),
-                "query_type": ToolParameter(
-                    description="Either 'Metrics', 'Logs', 'Traces', 'Discover Attributes' or 'Other'.",
-                    type="string",
-                    required=True,
-                ),
-            },
+                type="string",
+                required=True,
+            )
+
+        super().__init__(
+            name="newrelic_execute_nrql_query",
+            description="Get Traces, APM, Spans, Logs and more by executing a NRQL query in New Relic. "
+            "Returns the result of the NRQL function. "
+            "⚠️ CRITICAL: NRQL silently returns empty results for invalid queries instead of errors. "
+            "If you get empty results, your query likely has issues such as: "
+            "1) Wrong attribute names (use SELECT keyset() first to verify), "
+            "2) Type mismatches (string vs numeric fields), "
+            "3) Wrong event type. "
+            "Always verify attribute names and types before querying.",
+            parameters=parameters,
         )
         self._toolset = toolset
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        if not self._toolset.nr_api_key or not self._toolset.nr_account_id:
+        account_id = params.get("account_id") or self._toolset.nr_account_id
+
+        if not self._toolset.nr_api_key or not account_id:
             raise ValueError("NewRelic API key or account ID is not configured")
 
         api = NewRelicAPI(
             api_key=self._toolset.nr_api_key,
-            account_id=self._toolset.nr_account_id,
+            account_id=account_id,
             is_eu_datacenter=self._toolset.is_eu_datacenter,
         )
 
@@ -150,7 +171,7 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
         # Build New Relic query URL
         explore_url = _build_newrelic_query_url(
-            account_id=self._toolset.nr_account_id,
+            account_id=account_id,
             nrql_query=query,
             is_eu_datacenter=self._toolset.is_eu_datacenter,
         )
@@ -171,9 +192,14 @@ class ListOrganizationAccounts(Tool):
     def __init__(self, toolset: "NewRelicToolset"):
         super().__init__(
             name="newrelic_list_organization_accounts",
-            description="List all accounts names and ids accessible in the New Relic organization. "
-            "This is useful when you need to query data across multiple accounts or need to"
-            "correlate account name to account id to run an NRQL query.",
+            description=(
+                "List all account names and IDs accessible in the New Relic organization. "
+                "Use this tool to:\n"
+                "1. Find the account ID when given an account name\n"
+                "2. Map account names to IDs for running NRQL queries\n"
+                "3. Understand which accounts are available before querying data\n\n"
+                "Returns a list of accounts with 'id' and 'name' fields."
+            ),
             parameters={},
         )
         self._toolset = toolset
