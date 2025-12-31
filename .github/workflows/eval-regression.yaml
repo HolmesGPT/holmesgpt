@@ -64,15 +64,24 @@ jobs:
 
             // Handle /last command: find the last /eval comment on this PR
             if (isLastCommand) {
-              const comments = await github.rest.issues.listComments({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                per_page: 100
-              });
+              // Fetch all comments (paginate to handle PRs with 100+ comments)
+              let allComments = [];
+              let page = 1;
+              while (true) {
+                const response = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  per_page: 100,
+                  page: page
+                });
+                allComments = allComments.concat(response.data);
+                if (response.data.length < 100) break;
+                page++;
+              }
 
               // Find the last /eval comment before this /last comment
-              const evalComments = comments.data
+              const evalComments = allComments
                 .filter(c => c.id !== context.payload.comment.id && c.body.trim().toLowerCase().startsWith('/eval'))
                 .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
