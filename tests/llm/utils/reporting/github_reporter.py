@@ -8,6 +8,7 @@ from tests.llm.utils.test_results import TestStatus
 from tests.llm.utils.braintrust import get_braintrust_url
 from tests.llm.utils.braintrust_history import (
     HistoricalComparison,
+    HistoricalComparisonDetails,
     HistoricalMetrics,
     compare_with_historical,
     get_historical_metrics,
@@ -91,6 +92,49 @@ def _format_cost_with_comparison(
     return base
 
 
+def _generate_historical_details_section(details: HistoricalComparisonDetails) -> str:
+    """Generate a collapsible details section for historical comparison transparency.
+
+    Args:
+        details: HistoricalComparisonDetails with experiment info
+
+    Returns:
+        Markdown string with collapsible details section
+    """
+    lines = ["\n<details>", "<summary>Historical Comparison Details</summary>\n"]
+
+    # Filter description
+    if details.filter_description:
+        lines.append(f"**Filter:** {details.filter_description}\n")
+
+    # Status
+    if details.status:
+        lines.append(f"**Status:** {details.status}\n")
+    else:
+        lines.append(f"**Status:** Success - {details.metrics_count} test/model combinations loaded\n")
+
+    # Experiments used
+    if details.experiments:
+        lines.append(f"\n**Experiments compared ({len(details.experiments)}):**\n")
+        for exp in details.experiments:
+            # Build Braintrust URL for the experiment
+            exp_url = f"https://www.braintrust.dev/app/robustadev/p/HolmesGPT/experiments/{exp.id}"
+            branch_info = f" (branch: `{exp.branch}`)" if exp.branch else ""
+            lines.append(f"- [{exp.name}]({exp_url}){branch_info}")
+        lines.append("")
+
+    # Errors
+    if details.errors:
+        lines.append("\n**Errors:**\n")
+        lines.append("```")
+        for error in details.errors:
+            lines.append(error)
+        lines.append("```\n")
+
+    lines.append("</details>\n")
+    return "\n".join(lines)
+
+
 def handle_github_output(sorted_results: List[dict]) -> None:
     """Generate and write GitHub Actions report files."""
     # Generate markdown report
@@ -123,15 +167,15 @@ def generate_markdown_report(
     # Fetch historical metrics for comparison (only for passing tests)
     historical: Dict[str, HistoricalMetrics] = {}
     comparison_map: Dict[str, HistoricalComparison] = {}
-    historical_status = ""  # Empty = success, otherwise explains why missing
+    historical_details: Optional[HistoricalComparisonDetails] = None
     if include_historical:
         try:
-            historical, historical_status = get_historical_metrics(limit=10)
+            historical, historical_details = get_historical_metrics(limit=10)
             if historical:
                 comparison_map = _build_comparison_map(sorted_results, historical)
                 logging.info(f"Loaded historical data for {len(historical)} test/model combinations")
         except Exception as e:
-            historical_status = f"API error: {e}"
+            historical_details = HistoricalComparisonDetails(status=f"API error: {e}")
             logging.warning(f"Failed to fetch historical metrics: {e}")
 
     # Count results by test type and status
@@ -298,8 +342,12 @@ def generate_markdown_report(
     # Add footer explaining historical comparison status
     if historical and comparison_map:
         markdown += f"\n_Time/Cost columns show comparison with last 10 runs from other branches (↑slower/costlier, ↓faster/cheaper). Based on {len(historical)} test/model combinations._\n"
-    elif historical_status:
-        markdown += f"\n_Historical comparison unavailable: {historical_status}_\n"
+    elif historical_details and historical_details.status:
+        markdown += f"\n_Historical comparison unavailable: {historical_details.status}_\n"
+
+    # Add collapsible details section for historical comparison transparency
+    if historical_details:
+        markdown += _generate_historical_details_section(historical_details)
 
     return (
         markdown,

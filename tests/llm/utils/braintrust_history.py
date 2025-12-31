@@ -51,6 +51,28 @@ class HistoricalComparison:
     sample_count: int = 0
 
 
+@dataclass
+class ExperimentInfo:
+    """Information about an experiment used for historical comparison."""
+
+    id: str
+    name: str
+    branch: str
+    created: Optional[str] = None
+
+
+@dataclass
+class HistoricalComparisonDetails:
+    """Detailed information about the historical comparison."""
+
+    experiments: List[ExperimentInfo] = field(default_factory=list)
+    filter_description: str = ""
+    status: str = ""  # Empty = success, otherwise explains why data is missing
+    errors: List[str] = field(default_factory=list)
+    project_id: Optional[str] = None
+    metrics_count: int = 0
+
+
 def _make_api_request(
     endpoint: str,
     method: str = "GET",
@@ -283,42 +305,65 @@ def build_historical_metrics(
 
 def get_historical_metrics(
     limit: int = DEFAULT_HISTORY_LIMIT,
-) -> tuple[Dict[str, HistoricalMetrics], str]:
+) -> tuple[Dict[str, HistoricalMetrics], HistoricalComparisonDetails]:
     """Fetch historical metrics from recent experiments (excluding current branch).
 
     Args:
         limit: Number of recent experiments to analyze
 
     Returns:
-        Tuple of (metrics_dict, status_message)
+        Tuple of (metrics_dict, details)
         - metrics_dict: Dictionary mapping "test_id:model" to HistoricalMetrics
-        - status_message: Empty string if successful, otherwise explains why data is missing
+        - details: HistoricalComparisonDetails with experiment info and status
     """
+    details = HistoricalComparisonDetails()
+
     try:
         if not BRAINTRUST_API_KEY:
-            return {}, "BRAINTRUST_API_KEY not configured"
+            details.status = "BRAINTRUST_API_KEY not configured"
+            return {}, details
 
         project_id = get_project_id()
         if not project_id:
-            return {}, f"Braintrust project '{BRAINTRUST_PROJECT}' not found"
+            details.status = f"Braintrust project '{BRAINTRUST_PROJECT}' not found"
+            return {}, details
 
+        details.project_id = project_id
         experiments, filter_desc = list_historical_experiments(project_id, limit=limit)
+        details.filter_description = filter_desc
+
         if not experiments:
-            return {}, f"No experiments found ({filter_desc})"
+            details.status = f"No experiments found ({filter_desc})"
+            return {}, details
+
+        # Extract experiment info for transparency
+        for exp in experiments:
+            metadata = exp.get("metadata") or {}
+            details.experiments.append(
+                ExperimentInfo(
+                    id=exp.get("id", ""),
+                    name=exp.get("name", ""),
+                    branch=metadata.get("branch", "Unknown"),
+                    created=exp.get("created"),
+                )
+            )
 
         logging.info(f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})")
         metrics = build_historical_metrics(experiments)
 
         if not metrics:
-            return {}, f"No historical metrics found (no passing tests with duration data, {filter_desc})"
+            details.status = f"No historical metrics found (no passing tests with duration data, {filter_desc})"
+            return {}, details
 
-        return metrics, ""
+        details.metrics_count = len(metrics)
+        return metrics, details
     except Exception as e:
         # Get the full traceback to identify exact location
         tb = traceback.format_exc()
         logging.error(f"Error in get_historical_metrics: {e}\n{tb}")
-        # Return a more detailed error message
-        return {}, f"Error in get_historical_metrics: {e} (see logs for traceback)"
+        details.status = f"Error: {e}"
+        details.errors.append(f"{e}\n{tb}")
+        return {}, details
 
 
 def compare_with_historical(
