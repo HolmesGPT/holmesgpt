@@ -262,7 +262,7 @@ class ConnectivityCheckToolset(Toolset):
                 ToolsetTag.CORE,
             ],
             is_default=True,
-            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/connectivity-check/",
         )
 
     def get_example_config(self) -> Dict[str, Any]:
