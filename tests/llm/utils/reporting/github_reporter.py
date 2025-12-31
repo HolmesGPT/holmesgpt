@@ -101,7 +101,7 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
     Returns:
         Markdown string with collapsible details section
     """
-    lines = ["\n<details>", "<summary>Historical Comparison Details</summary>\n"]
+    lines = ["<details>", "<summary>Historical Comparison Details</summary>\n"]
 
     # Filter description
     if details.filter_description:
