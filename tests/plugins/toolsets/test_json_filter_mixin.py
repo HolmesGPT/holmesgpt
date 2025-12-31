@@ -29,26 +29,26 @@ def test_truncate_to_depth_limits_nested_values():
     assert truncated["list"] == "...truncated at depth 1"
 
 
-def test_jsonpath_filter_applies_before_returning_data():
+def test_jq_filter_applies_before_returning_data():
     data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
     tool = _build_tool(data)
 
     result = tool._invoke(
-        {"uid": "abc", "jsonpath": "$.dashboard.panels[*].title"}, context=None
+        {"uid": "abc", "jq": ".dashboard.panels[].title"}, context=None
     )
 
     assert result.status is StructuredToolResultStatus.SUCCESS
     assert result.data == "CPU"
 
 
-def test_invalid_jsonpath_returns_error():
+def test_invalid_jq_returns_error():
     data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
     tool = _build_tool(data)
 
-    result = tool._invoke({"uid": "abc", "jsonpath": "$.["}, context=None)
+    result = tool._invoke({"uid": "abc", "jq": ".["}, context=None)
 
     assert result.status is StructuredToolResultStatus.ERROR
-    assert "Invalid jsonpath expression" in result.error
+    assert "Invalid jq expression" in result.error
 
 
 def test_depth_applies_after_filters():

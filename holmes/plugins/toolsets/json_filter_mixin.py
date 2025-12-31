@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from jsonpath_ng.ext import parse as jsonpath_parse  # type: ignore
+import jq
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus, ToolParameter
 
@@ -32,16 +32,16 @@ def _truncate_to_depth(value: Any, max_depth: Optional[int], current_depth: int 
     return value
 
 
-def _apply_jsonpath_filter(data: Any, expression: str) -> Tuple[Optional[Any], Optional[str]]:
+def _apply_jq_filter(data: Any, expression: str) -> Tuple[Optional[Any], Optional[str]]:
     try:
-        jsonpath_expr = jsonpath_parse(expression)
-        matches = [match.value for match in jsonpath_expr.find(data)]
+        compiled = jq.compile(expression)
+        matches = compiled.input(data).all()
         if len(matches) == 1:
             return matches[0], None
         return matches, None
     except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("Failed to apply jsonpath filter", exc_info=exc)
-        return None, f"Invalid jsonpath expression: {exc}"
+        logger.debug("Failed to apply jq filter", exc_info=exc)
+        return None, f"Invalid jq expression: {exc}"
 
 
 class JsonFilterMixin:
@@ -53,8 +53,8 @@ class JsonFilterMixin:
             type="integer",
             required=False,
         ),
-        "jsonpath": ToolParameter(
-            description="Optional jsonpath expression to extract specific parts of the JSON. Supports extended syntax including filters, slicing, arithmetic, and sorting (e.g., '$.items[?(@.price > 10)]', '$.items[0:5]', '$.items[*].name').",
+        "jq": ToolParameter(
+            description="Optional jq expression to extract specific parts of the JSON. Supports full jq syntax including filters, slicing, transformations, and more (e.g., '.items[] | select(.price > 10)', '.items[0:5]', '.items[].name').",
             type="string",
             required=False,
         ),
@@ -75,8 +75,8 @@ class JsonFilterMixin:
                 # Not JSON, leave as-is
                 return data, None
 
-        if params.get("jsonpath"):
-            parsed_data, error = _apply_jsonpath_filter(parsed_data, params["jsonpath"])
+        if params.get("jq"):
+            parsed_data, error = _apply_jq_filter(parsed_data, params["jq"])
             if error:
                 return None, error
 
