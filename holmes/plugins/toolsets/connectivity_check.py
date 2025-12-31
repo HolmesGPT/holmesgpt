@@ -28,13 +28,13 @@ def tcp_check(host: str, port: int, timeout: float = 3.0) -> Dict[str, Any]:
     except (TypeError, ValueError):
         return {
             "ok": False,
-            "error": "invalid port (must be 1–65535)",
+            "error": "invalid port (must be 1-65535)",
         }
 
     if not (1 <= port <= 65535):
         return {
             "ok": False,
-            "error": "invalid port (must be 1–65535)",
+            "error": "invalid port (must be 1-65535)",
         }
 
     try:
@@ -91,7 +91,7 @@ def http_check(
 
 
 class HttpCheckTool(Tool):
-    toolset: "ConnectivityCheckToolset"
+    toolset: "ConnectivityCheckToolset" = None  # type: ignore
 
     def __init__(self, toolset: "ConnectivityCheckToolset"):
         super().__init__(
@@ -133,17 +133,42 @@ class HttpCheckTool(Tool):
                     required=False,
                 ),
             },
-            toolset=toolset,
         )
+        self.toolset = toolset
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        host = params.get("host")
+        port = params.get("port")
+        if host is None:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data={"error": "host parameter is required"},
+                params=params,
+            )
+        if port is None:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data={"error": "port parameter is required"},
+                params=params,
+            )
+
+        user_agent_value = params.get("user_agent", "none")
+        if user_agent_value not in ["none", "browser"]:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data={
+                    "error": f"Invalid user_agent '{user_agent_value}'. Must be 'none' or 'browser'"
+                },
+                params=params,
+            )
+
         result = http_check(
-            host=params.get("host"),
-            port=params.get("port"),
+            host=host,
+            port=int(port),
             path=params.get("path", "/"),
             timeout=float(params.get("timeout", 3.0)),
             https=bool(params.get("https", False)),
-            user_agent=params.get("user_agent", "none"),
+            user_agent=user_agent_value,
         )
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
@@ -161,7 +186,7 @@ class HttpCheckTool(Tool):
 
 
 class TcpCheckTool(Tool):
-    toolset: "ConnectivityCheckToolset"
+    toolset: "ConnectivityCheckToolset" = None  # type: ignore
 
     def __init__(self, toolset: "ConnectivityCheckToolset"):
         super().__init__(
@@ -184,13 +209,28 @@ class TcpCheckTool(Tool):
                     required=False,
                 ),
             },
-            toolset=toolset,
         )
+        self.toolset = toolset
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        host = params.get("host")
+        port = params.get("port")
+        if host is None:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data={"error": "host parameter is required"},
+                params=params,
+            )
+        if port is None:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data={"error": "port parameter is required"},
+                params=params,
+            )
+
         result = tcp_check(
-            host=params.get("host"),
-            port=params.get("port"),
+            host=host,
+            port=int(port),
             timeout=float(params.get("timeout", 3.0)),
         )
         return StructuredToolResult(
