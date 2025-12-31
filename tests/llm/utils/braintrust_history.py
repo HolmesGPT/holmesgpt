@@ -238,7 +238,7 @@ def extract_span_metrics(span: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "holmes_duration": metadata.get("holmes_duration"),
         "cost": metrics.get("cost"),
         "tool_call_count": metadata.get("tool_call_count"),
-        "passed": scores.get("correctness", 0) >= 0.5,
+        "passed": int(scores.get("correctness", 0)) == 1,
     }
 
 
