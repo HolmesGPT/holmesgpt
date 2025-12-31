@@ -34,38 +34,28 @@ def _build_comparison_map(
     return {f"{c.test_id}:{c.model}": c for c in comparisons}
 
 
+def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
+    """Format a diff percentage as an indicator string, bold if >25%."""
+    if diff is None or sample_count < 3:
+        return ""
+    if diff == 0:
+        return " ±0%"
+    bold = abs(diff) > 25
+    arrow = "↑" if diff > 0 else "↓"
+    indicator = f"{arrow}{abs(diff):.0f}%"
+    return f" **{indicator}**" if bold else f" {indicator}"
+
+
 def _format_time_with_comparison(
     exec_time: Optional[float],
     comparison: Optional[HistoricalComparison],
 ) -> str:
-    """Format execution time with optional historical comparison indicator.
-
-    Args:
-        exec_time: Current execution time in seconds
-        comparison: Historical comparison data (optional)
-
-    Returns:
-        Formatted string like "12.3s" or "12.3s ↑15%" with comparison
-    """
+    """Format execution time with optional historical comparison indicator."""
     if not exec_time or exec_time <= 0:
         return "—"
-
     base = f"{exec_time:.1f}s"
-
-    # Add comparison indicator if we have enough historical data
-    if comparison and comparison.duration_diff_pct is not None and comparison.sample_count >= 3:
-        diff = comparison.duration_diff_pct
-        # Bold significant differences (>25%)
-        bold = abs(diff) > 25
-        if diff > 0:
-            indicator = f"↑{diff:.0f}%"
-            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
-        elif diff < 0:
-            indicator = f"↓{abs(diff):.0f}%"
-            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
-        else:
-            return f"{base} ±0%"
-
+    if comparison and comparison.duration_diff_pct is not None:
+        return base + _format_diff_indicator(comparison.duration_diff_pct, comparison.sample_count)
     return base
 
 
@@ -73,34 +63,12 @@ def _format_cost_with_comparison(
     cost: Optional[float],
     comparison: Optional[HistoricalComparison],
 ) -> str:
-    """Format cost with optional historical comparison indicator.
-
-    Args:
-        cost: Current cost in dollars
-        comparison: Historical comparison data (optional)
-
-    Returns:
-        Formatted string like "$0.0234" or "$0.0234 ↑10%" with comparison
-    """
+    """Format cost with optional historical comparison indicator."""
     if not cost or cost <= 0:
         return "—"
-
     base = f"${cost:.4f}"
-
-    # Add comparison indicator if we have enough historical data
-    if comparison and comparison.cost_diff_pct is not None and comparison.sample_count >= 3:
-        diff = comparison.cost_diff_pct
-        # Bold significant differences (>25%)
-        bold = abs(diff) > 25
-        if diff > 0:
-            indicator = f"↑{diff:.0f}%"
-            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
-        elif diff < 0:
-            indicator = f"↓{abs(diff):.0f}%"
-            return f"{base} **{indicator}**" if bold else f"{base} {indicator}"
-        else:
-            return f"{base} ±0%"
-
+    if comparison and comparison.cost_diff_pct is not None:
+        return base + _format_diff_indicator(comparison.cost_diff_pct, comparison.sample_count)
     return base
 
 
