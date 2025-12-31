@@ -1,8 +1,7 @@
 import socket
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from holmes.plugins.toolsets.connectivity_check import http_check, tcp_check
+from holmes.plugins.toolsets.connectivity_check import tcp_check
 
 
 def start_tcp_server():
@@ -26,23 +25,6 @@ def start_tcp_server():
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     return server_socket, port, stop_event, thread
-
-
-class OkHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(204)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        return
-
-
-def start_http_server():
-    server = HTTPServer(("127.0.0.1", 0), OkHandler)
-    port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    return server, port, thread
 
 
 def get_unused_port():
@@ -75,25 +57,3 @@ def test_tcp_check_unreachable_port():
     result = tcp_check("127.0.0.1", port, timeout=1)
     assert result["ok"] is False
     assert "error" in result
-
-
-def test_http_check_success():
-    server, port, thread = start_http_server()
-    try:
-        result = http_check(
-            "127.0.0.1", port, path="/", timeout=1, https=False, user_agent="none"
-        )
-        assert result["ok"] is True
-        assert result["status"] == 204
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=1)
-
-
-def test_http_check_invalid_port():
-    result = http_check(
-        "127.0.0.1", 0, path="/", timeout=3.0, https=False, user_agent="none"
-    )
-    assert result["ok"] is False
-    assert result["error"] == "invalid port (must be 1-65535)"

@@ -2,7 +2,7 @@ user_prompt: "Try these addresses accessible via http, and if so, what is the st
 tags:
   - question-answer
   - network
-  - easy
+  - medium
 expected_output:
   - "google.com is accessible via HTTP with a 2xx-3xx status code"
   - "burgergooglenetworkspam.co.uk is not accessible"
