@@ -21,7 +21,7 @@ def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
     """Format a diff percentage as an indicator string, bold if >25%."""
     if diff is None or sample_count < 3:
         return ""
-    if diff == 0:
+    if abs(diff) < 5:
         return " ±0%"
     bold = abs(diff) > 25
     arrow = "↑" if diff > 0 else "↓"
