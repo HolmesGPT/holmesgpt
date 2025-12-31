@@ -18,6 +18,7 @@ function buildParams(raw) {
     filter: raw.filter,
     iterations: raw.iterations,
     branch: raw.branch || '',
+    displayBranch: raw.display_branch || '',
     runUrl: raw.run_url,
     prNumber: raw.pr_number ? parseInt(raw.pr_number, 10) : null,
     commentId: raw.comment_id ? parseInt(raw.comment_id, 10) : null,
@@ -49,7 +50,7 @@ function renderProgress(steps) {
 function renderParamsTable(p) {
   return `| Parameter | Value |\n|-----------|-------|\n` +
     `| **Triggered via** | ${p.trigger} |\n` +
-    (p.branch ? `| **Branch** | \`${p.branch}\` |\n` : '') +
+    (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') +
     `| **Model** | \`${p.model}\` |\n` +
     `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
     (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
