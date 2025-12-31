@@ -141,12 +141,13 @@ def list_historical_experiments(
         return [], filter_desc
 
     # Filter to exclude current branch
+    # Include "Unknown" branches as valid historical data (from before branch tracking fix)
     filtered_experiments = []
     for exp in result.get("objects", []):
         metadata = exp.get("metadata", {})
         branch = metadata.get("branch", "")
-        # Exclude experiments from the current branch
-        if branch and branch != current_branch:
+        # Exclude experiments from the current branch, but include Unknown branches
+        if branch == "Unknown" or (branch and branch != current_branch):
             filtered_experiments.append(exp)
             if len(filtered_experiments) >= limit:
                 break
