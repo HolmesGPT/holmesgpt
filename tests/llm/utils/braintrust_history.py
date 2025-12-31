@@ -369,7 +369,7 @@ def get_historical_metrics(
 def compare_with_historical(
     current_results: List[Dict[str, Any]],
     historical: Dict[str, HistoricalMetrics],
-) -> List[HistoricalComparison]:
+) -> Dict[str, HistoricalComparison]:
     """Compare current test results with historical metrics.
 
     Args:
@@ -377,9 +377,9 @@ def compare_with_historical(
         historical: Historical metrics from get_historical_metrics()
 
     Returns:
-        List of HistoricalComparison objects
+        Dict mapping "test_id:model" to HistoricalComparison
     """
-    comparisons = []
+    comparisons: Dict[str, HistoricalComparison] = {}
 
     for result in current_results:
         if result is None:
@@ -418,6 +418,6 @@ def compare_with_historical(
                     (comparison.current_cost - hist.avg_cost) / hist.avg_cost * 100
                 )
 
-        comparisons.append(comparison)
+        comparisons[key] = comparison
 
     return comparisons

@@ -17,23 +17,6 @@ from tests.llm.utils.braintrust_history import (
 )
 
 
-def _build_comparison_map(
-    sorted_results: List[dict],
-    historical: Dict[str, HistoricalMetrics],
-) -> Dict[str, HistoricalComparison]:
-    """Build a map of test_id:model to HistoricalComparison.
-
-    Args:
-        sorted_results: List of test result dictionaries
-        historical: Historical metrics from Braintrust
-
-    Returns:
-        Dictionary mapping "test_id:model" to HistoricalComparison
-    """
-    comparisons = compare_with_historical(sorted_results, historical)
-    return {f"{c.test_id}:{c.model}": c for c in comparisons}
-
-
 def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
     """Format a diff percentage as an indicator string, bold if >25%."""
     if diff is None or sample_count < 3:
@@ -157,7 +140,7 @@ def generate_markdown_report(
         try:
             historical, historical_details = get_historical_metrics(limit=30)
             if historical:
-                comparison_map = _build_comparison_map(sorted_results, historical)
+                comparison_map = compare_with_historical(sorted_results, historical)
                 logging.info(f"Loaded historical data for {len(historical)} test/model combinations")
         except Exception as e:
             historical_details = HistoricalComparisonDetails(status=f"API error: {e}")
