@@ -27,7 +27,8 @@ function buildParams(raw) {
     duration: raw.duration || 'N/A',
     validMarkers: raw.valid_markers || '',
     askHolmesEvals: raw.ask_holmes_evals || '',
-    investigateEvals: raw.investigate_evals || ''
+    investigateEvals: raw.investigate_evals || '',
+    triggered_by: raw.triggered_by || ''
   };
 }
 

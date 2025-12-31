@@ -493,49 +493,39 @@ jobs:
               duration: ${{ toJSON(steps.evals.outputs.duration) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
               ask_holmes_evals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }},
-              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }}
+              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }},
+              triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
             const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
             const failures = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
-            let body = buildBody(p, null, {
+            const hasFailures = failures && failures !== '0';
+
+            // Build notification header for the user who triggered the eval
+            const triggeredBy = p.triggered_by || '';
+            const statusText = hasFailures
+              ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
+              : '✅ Completed successfully';
+            const notifyHeader = triggeredBy ? `@${triggeredBy} Your eval run has finished. ${statusText}\n\n---\n\n` : '';
+
+            let body = notifyHeader + buildBody(p, null, {
               icon: p.isManual ? '🧪' : '✅',
               title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals'
             });
             body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
-            if (failures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
+            if (hasFailures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
             body += buildRerunFooter(p, context);
+
+            // Delete progress comment and create fresh results comment
+            // This ensures the user gets a GitHub notification when evals complete
             if (p.commentId) {
-              await github.rest.issues.updateComment({
+              await github.rest.issues.deleteComment({
                 owner: context.repo.owner, repo: context.repo.repo,
-                comment_id: p.commentId, body
-              });
-            } else if (!p.isManual) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: p.prNumber, body
+                comment_id: p.commentId
               });
             }
-
-      - name: Notify user of completion
-        if: always() && steps.eval-params.outputs.is_manual == 'true' && steps.eval-params.outputs.pr_number != '' && steps.eval-params.outputs.triggered_by != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const triggeredBy = ${{ toJSON(steps.eval-params.outputs.triggered_by) }};
-            const prNumber = parseInt(${{ toJSON(steps.eval-params.outputs.pr_number) }}, 10);
-            const failures = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
-            const hasFailures = failures && failures !== '0';
-
-            const status = hasFailures
-              ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
-              : '✅ Completed successfully';
-
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `@${triggeredBy} Your eval run has finished. ${status}\n\n👆 See updated results above.`
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: p.prNumber, body
             });
 
       - name: Add completion reaction
