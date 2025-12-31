@@ -91,8 +91,7 @@ function buildBody(p, progressSteps, extras = {}) {
  */
 function buildRerunFooter(p, context) {
   const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
-  return '\n---\n' +
-    '<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
+  return '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
     '| Icon | Meaning |\n|------|--------|\n' +
     '| ✅ | The test was successful |\n' +
     '| ➖ | The test was skipped |\n' +
