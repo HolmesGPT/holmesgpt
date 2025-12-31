@@ -8,7 +8,9 @@ from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
 from tests.llm.utils.test_env_vars import (
     CLASSIFIER_MODEL,
     OPENAI_API_KEY,
+    OPENROUTER_API_KEY,
     OPENAI_API_BASE,
+    OPENROUTER_API_BASE,
     AZURE_API_KEY,
     AZURE_API_BASE,
     AZURE_API_VERSION,
@@ -38,11 +40,20 @@ def get_classifier_model_params() -> ClassifierModelParams:
         client_base_url = llm.api_base
         client_api_version = llm.api_version
     else:
-        if not OPENAI_API_KEY and not AZURE_API_KEY:
-            raise ValueError("No API key found (AZURE_API_KEY or OPENAI_API_KEY)")
+        if not OPENAI_API_KEY and not AZURE_API_KEY and not OPENROUTER_API_KEY:
+            raise ValueError(
+                "No API key found (AZURE_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY)"
+            )
         model_for_api = CLASSIFIER_MODEL
-        client_api_key = AZURE_API_KEY if AZURE_API_BASE else OPENAI_API_KEY
-        client_base_url = AZURE_API_BASE if AZURE_API_BASE else OPENAI_API_BASE
+        if AZURE_API_BASE:
+            client_api_key = AZURE_API_KEY
+            client_base_url = AZURE_API_BASE
+        elif OPENAI_API_KEY:
+            client_api_key = OPENAI_API_KEY
+            client_base_url = OPENAI_API_BASE
+        else:
+            client_api_key = OPENROUTER_API_KEY
+            client_base_url = OPENROUTER_API_BASE
         client_api_version = AZURE_API_VERSION
 
         if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure"):
@@ -84,7 +95,7 @@ def create_llm_client():
         model_for_api = deployment
     else:
         if not params.api_key:
-            raise ValueError("No OPENAI_API_KEY")
+            raise ValueError("No OPENAI_API_KEY or OPENROUTER_API_KEY")
         client = openai.OpenAI(api_key=params.api_key, base_url=params.api_base)
         model_for_api = params.model
 

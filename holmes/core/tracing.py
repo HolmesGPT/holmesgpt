@@ -41,7 +41,16 @@ def readable_timestamp():
 
 def get_active_branch_name():
     try:
-        # First check if .git is a file (worktree case)
+        # First check GitHub Actions environment variables (CI)
+        github_head_ref = os.environ.get("GITHUB_HEAD_REF")  # Set for PRs
+        if github_head_ref:
+            return github_head_ref
+
+        github_ref = os.environ.get("GITHUB_REF", "")  # Set for pushes: refs/heads/branch-name
+        if github_ref.startswith("refs/heads/"):
+            return github_ref.replace("refs/heads/", "")
+
+        # Check if .git is a file (worktree case)
         git_path = Path(".git")
         if git_path.is_file():
             # Read the worktree git directory path

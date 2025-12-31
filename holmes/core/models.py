@@ -87,6 +87,7 @@ class InvestigationResult(BaseModel):
     analysis: Optional[str] = None
     sections: Optional[Dict[str, Union[str, None]]] = None
     tool_calls: List[ToolCallResult] = []
+    num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
     instructions: List[str] = []
     metadata: Optional[Dict[Any, Any]] = None
 

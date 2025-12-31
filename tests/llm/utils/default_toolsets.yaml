@@ -18,3 +18,5 @@ toolsets:
     enabled: true
   robusta:
     enabled: true
+  connectivity_check:
+    enabled: true

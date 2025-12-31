@@ -141,6 +141,7 @@ def _process_cost_info(
 
 class LLMResult(LLMCosts):
     tool_calls: Optional[List[ToolCallResult]] = None
+    num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
     result: Optional[str] = None
     unprocessed_result: Optional[str] = None
     instructions: List[str] = Field(default_factory=list)
@@ -430,6 +431,7 @@ class ToolCallingLLM:
                         result=post_processed_response,
                         unprocessed_result=raw_response,
                         tool_calls=all_tool_calls,
+                        num_llm_calls=i,
                         prompt=json.dumps(messages, indent=2),
                         messages=messages,
                         **costs.model_dump(),  # Include all cost fields
@@ -439,6 +441,7 @@ class ToolCallingLLM:
                 return LLMResult(
                     result=text_response,
                     tool_calls=all_tool_calls,
+                    num_llm_calls=i,
                     prompt=json.dumps(messages, indent=2),
                     messages=messages,
                     **costs.model_dump(),  # Include all cost fields

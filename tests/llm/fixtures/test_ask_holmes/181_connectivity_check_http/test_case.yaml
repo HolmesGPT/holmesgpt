@@ -1,0 +1,9 @@
+user_prompt: "Try these addresses accessible via https, and if so, what is the status code of each: google.com and burgergooglenetworkspam.co.uk"
+tags:
+  - question-answer
+  - network
+  - hard
+expected_output:
+  - "google.com is accessible via HTTPS with a 2xx-3xx status code. The AI must explicitly say which status code it got."
+  - "burgergooglenetworkspam.co.uk is not accessible"
+  - "The AI must directly verify the accessibility of each address, not just guess"
