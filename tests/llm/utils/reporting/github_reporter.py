@@ -318,7 +318,7 @@ def generate_markdown_report(
 
     # Add footer explaining historical comparison status
     if historical and comparison_map:
-        markdown += f"\n_Time/Cost columns compare each test+model pair against its own historical average from other branches (↑slower/costlier, ↓faster/cheaper). Historical data available for {len(historical)} unique test+model pairs._\n"
+        markdown += "\n_Time/Cost columns show % change vs historical average (↑slower/costlier, ↓faster/cheaper). Changes under 10% shown as ±0%._\n"
     elif historical_details and historical_details.status:
         markdown += f"\n_Historical comparison unavailable: {historical_details.status}_\n"
 
