@@ -439,12 +439,12 @@ def format_duration_comparison(comparison: HistoricalComparison) -> str:
 
     if comparison.duration_diff_pct is not None and comparison.sample_count >= 3:
         diff = comparison.duration_diff_pct
-        if abs(diff) < 5:
-            indicator = ""  # Within 5%, no indicator
-        elif diff > 0:
+        if diff > 0:
             indicator = f" (↑{diff:.0f}%)"  # Slower
-        else:
+        elif diff < 0:
             indicator = f" (↓{abs(diff):.0f}%)"  # Faster
+        else:
+            indicator = " (±0%)"  # No change
         return f"{base}{indicator}"
 
     return base
@@ -466,12 +466,12 @@ def format_cost_comparison(comparison: HistoricalComparison) -> str:
 
     if comparison.cost_diff_pct is not None and comparison.sample_count >= 3:
         diff = comparison.cost_diff_pct
-        if abs(diff) < 5:
-            indicator = ""  # Within 5%, no indicator
-        elif diff > 0:
+        if diff > 0:
             indicator = f" (↑{diff:.0f}%)"  # More expensive
-        else:
+        elif diff < 0:
             indicator = f" (↓{abs(diff):.0f}%)"  # Cheaper
+        else:
+            indicator = " (±0%)"  # No change
         return f"{base}{indicator}"
 
     return base

@@ -53,11 +53,12 @@ def _format_time_with_comparison(
     # Add comparison indicator if we have enough historical data
     if comparison and comparison.duration_diff_pct is not None and comparison.sample_count >= 3:
         diff = comparison.duration_diff_pct
-        if abs(diff) >= 10:  # Only show if difference is >= 10%
-            if diff > 0:
-                return f"{base} ↑{diff:.0f}%"  # Slower
-            else:
-                return f"{base} ↓{abs(diff):.0f}%"  # Faster
+        if diff > 0:
+            return f"{base} ↑{diff:.0f}%"  # Slower
+        elif diff < 0:
+            return f"{base} ↓{abs(diff):.0f}%"  # Faster
+        else:
+            return f"{base} ±0%"  # No change
 
     return base
 
@@ -83,11 +84,12 @@ def _format_cost_with_comparison(
     # Add comparison indicator if we have enough historical data
     if comparison and comparison.cost_diff_pct is not None and comparison.sample_count >= 3:
         diff = comparison.cost_diff_pct
-        if abs(diff) >= 10:  # Only show if difference is >= 10%
-            if diff > 0:
-                return f"{base} ↑{diff:.0f}%"  # More expensive
-            else:
-                return f"{base} ↓{abs(diff):.0f}%"  # Cheaper
+        if diff > 0:
+            return f"{base} ↑{diff:.0f}%"  # More expensive
+        elif diff < 0:
+            return f"{base} ↓{abs(diff):.0f}%"  # Cheaper
+        else:
+            return f"{base} ±0%"  # No change
 
     return base
 
