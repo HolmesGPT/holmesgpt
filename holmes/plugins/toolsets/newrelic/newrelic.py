@@ -265,13 +265,9 @@ class NewRelicToolset(Toolset):
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/",
             icon_url="https://companieslogo.com/img/orig/NEWR-de5fcb2e.png?t=1720244493",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],  # type: ignore
-            tools=tools_list,
+            tools=[],
             tags=[ToolsetTag.CORE],
         )
-        template_file_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "newrelic.jinja2")
-        )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
 
     def prerequisites_callable(
         self, config: dict[str, Any]
@@ -288,6 +284,15 @@ class NewRelicToolset(Toolset):
 
             if not self.nr_account_id or not self.nr_api_key:
                 return False, "New Relic account ID or API key is missing"
+
+            # Tool uses enable_multi_account flag.
+            self.tools = [ExecuteNRQLQuery(self)]
+            if self.enable_multi_account:
+                self.tools.append(ListOrganizationAccounts(self))
+            template_file_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "newrelic.jinja2")
+            )
+            self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
 
             return True, None
         except Exception as e:
