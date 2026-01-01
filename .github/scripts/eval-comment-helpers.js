@@ -165,7 +165,8 @@ function buildRerunFooter(p, context, options = {}) {
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
     markersFormatted +
-    '\n</details>\n';
+    '\n</details>\n' +
+    '\n---\n**Commands:** `/eval` · `/last` · `/list`\n';
 
   return footer;
 }
