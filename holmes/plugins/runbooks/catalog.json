@@ -11,6 +11,12 @@
       "update_date": "2025-07-08",
       "description": "Runbook to troubleshoot upgrade issues in Azure Kubernetes Service clusters",
       "link": "upgrade/upgrade_troubleshooting_instructions.md"
+    },
+    {
+      "id": "tempo-trace-comparison.md",
+      "update_date": "2025-12-30",
+      "description": "Use when investigating latency or error spikes in tracing backends (Tempo, Datadog, etc.); compare unhealthy vs. healthy traces to isolate the bottleneck",
+      "link": "tracing/tempo-trace-comparison.md"
     }
   ]
 }

@@ -52,34 +52,34 @@ Your task is to generate a strictly executable runbook for AI Agent to follow. T
 ### Catalog Registration
 After creating your runbook, you must add an entry to `catalog.json` in the runbooks directory to make it discoverable by AI agents.
 
-**Steps to add a new catalog entry:**
+**Steps to add a new catalog entry (actual schema):**
 
 1. **Open** `holmes/plugins/runbooks/catalog.json`
-2. **Add your entry** to the JSON array following this structure:
+2. **Add your entry** to the `catalog` array with the following fields:
    ```json
    {
-     "name": "Brief, descriptive name of the runbook",
-     "path": "category-folder/your-runbook-filename.md",
-     "description": "Clear description of what issues this runbook addresses",
-     "tags": ["relevant", "tags", "for", "search"]
+     "id": "unique-id-or-filename.md",          // required, unique identifier
+     "update_date": "2025-12-30",               // required, ISO date (YYYY-MM-DD)
+     "description": "What issues this runbook covers", // required, short summary
+     "link": "category-folder/runbook-file.md"  // required, path relative to runbooks root
    }
    ```
 
-3. **Ensure proper JSON formatting** - add a comma after the previous entry if needed
-4. **Validate the JSON** is properly formatted before committing
+3. **Ensure proper JSON formatting** - add a comma after the previous entry if needed.
+4. **Validate the JSON** is properly formatted before committing.
 
 **Field Guidelines:**
-- `name`: Keep concise but descriptive (e.g., "Redis Connection Issues")
-- `path`: Always include the category folder (e.g., "database/redis-connection-issues.md")
-- `description`: Explain what specific problems this runbook solves
-- `tags`: Include technology names, issue types, and relevant keywords
+- `id` (required): Unique identifier for the runbook (often matches the filename).
+- `update_date` (required): ISO 8601 date string (`YYYY-MM-DD`) representing last update.
+- `description` (required): Clear, concise description of what the runbook addresses.
+- `link` (required): Relative path to the markdown file, including the category folder (e.g., `"networking/dns_troubleshooting_instructions.md"`).
 
 Example catalog entry:
 ```json
 {
-  "name": "DNS Resolution Troubleshooting",
-  "path": "networking/dns-resolution-troubleshooting.md",
-  "description": "Comprehensive guide for diagnosing and resolving DNS resolution issues in Kubernetes clusters",
-  "tags": ["dns", "networking", "kubernetes", "troubleshooting"]
+  "id": "tempo-trace-comparison.md",
+  "update_date": "2025-12-30",
+  "description": "Use when investigating reported latency or tail-latency spikes; compares fast, typical, and slow Tempo traces to isolate the bottleneck",
+  "link": "tracing/tempo-trace-comparison.md"
 }
 ```

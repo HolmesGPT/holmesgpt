@@ -129,7 +129,7 @@ poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
 poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
 
 # WRONG - DO NOT specify full test path with brackets:
-# poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
+# poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tempo-gpt-4o]
 # This syntax fails when environment variables are passed!
 
 # Run regression tests (easy marker) - all should pass with ITERATIONS=10

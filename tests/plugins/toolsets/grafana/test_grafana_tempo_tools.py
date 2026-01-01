@@ -702,7 +702,6 @@ class TestGrafanaTempoToolset:
             "tempo_search_tag_values",
             "tempo_query_metrics_instant",
             "tempo_query_metrics_range",
-            "tempo_fetch_traces_comparative_sample",
         ]
 
         for expected in expected_tools:

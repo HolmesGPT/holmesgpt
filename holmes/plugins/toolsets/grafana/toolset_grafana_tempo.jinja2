@@ -233,7 +233,7 @@ TraceQL metrics parse your traces in aggregate to provide RED (Rate, Error, Dura
 - You need to correlate metrics with specific time periods
 
 ## Special workflow for performance issues
-When investigating performance issues in kubernetes via traces, call tempo_fetch_traces_comparative_sample. This tool provides comprehensive analysis for identifying patterns.
+When investigating performance issues in Kubernetes via traces, fetch the Tempo trace comparison runbook from the runbook catalog. Follow its steps to compare slow vs. fast traces using `tempo_search_traces_by_query`, `tempo_search_traces_by_tags`, and `tempo_query_trace_by_id`.
 
 ## Important Notes
 - TraceQL is the modern query language - prefer it over tag-based search

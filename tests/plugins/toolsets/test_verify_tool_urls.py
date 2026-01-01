@@ -12,7 +12,6 @@ from holmes.plugins.toolsets.grafana.common import (
 from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaDashboardConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     GrafanaTempoToolset,
-    FetchTracesSimpleComparison,
     SearchTracesByQuery,
     SearchTracesByTags,
     QueryTraceById,
@@ -230,16 +229,6 @@ class TestTempoURLs:
         return toolset
 
     TEST_CASES = [
-        (
-            FetchTracesSimpleComparison,
-            {"service_name": "test-service", "start": "-3600", "end": "0"},
-            lambda url, cls: (
-                cls.EXTERNAL_URL in url
-                and "/explore" in url
-                and "schemaVersion=1" in url
-                and url_panes_to_dict(url)["tmp"]["datasource"] == cls.DATASOURCE_UID
-            ),
-        ),
         (
             SearchTracesByQuery,
             {

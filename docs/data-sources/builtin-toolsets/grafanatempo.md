@@ -158,7 +158,6 @@ Holmes will search using:
 
 | Tool Name | Description |
 |-----------|-------------|
-| tempo_fetch_traces_comparative_sample | Fetches statistics and samples of fast/slow/typical traces for performance analysis |
 | tempo_search_traces_by_query | Search traces using TraceQL query language (recommended) |
 | tempo_search_traces_by_tags | Search traces using logfmt-encoded tags (legacy) |
 | tempo_query_trace_by_id | Retrieve detailed trace information by trace ID |

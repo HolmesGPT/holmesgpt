@@ -1,0 +1,9 @@
+{
+  "work": [
+    {
+      "file": "tests/llm/test_ask_holmes.py",
+      "filter": "tempo",
+      "reason": "Verify Tempo trace workflows after replacing the comparative sampling tool with the runbook-driven approach."
+    }
+  ]
+}

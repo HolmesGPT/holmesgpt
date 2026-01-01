@@ -13,6 +13,7 @@ tags:
   - hard
   - chain-of-causation
   - datadog
+  - traces
 
 before_test: |
   set -e  # Exit immediately if any command fails

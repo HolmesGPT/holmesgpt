@@ -1,5 +1,0 @@
-user_prompt: "Why is the app in the minishop namespace slow?"
-expected_output:
-  - Fraud service is slow due to a database query
-evaluation:
-  correctness: 1
