@@ -121,16 +121,9 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
         if toolset.enable_multi_account:
             parameters["account_id"] = ToolParameter(
                 description=(
-                    "The New Relic account ID to query. "
-                    "How to determine the account_id:\n"
-                    "1. If available in context as 'nrAccountId', use that value\n"
-                    "2. If user provides an account name, first call "
-                    "newrelic_list_organization_accounts to find the matching account ID\n"
-                    '3. If no valid ID can be determined, use empty string ""\n'
-                    "Note: Use newrelic_list_organization_accounts to discover "
-                    "all available accounts and their IDs."
+                    "A New Relic account ID is a numeric identifier, typically a 6–8 digit integer (e.g., 1234567). It contains only digits, has no prefixes or separators, and uniquely identifies a New Relic account"
                 ),
-                type="string",
+                type="integer",
                 required=True,
             )
 
@@ -156,7 +149,7 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
         api = NewRelicAPI(
             api_key=self._toolset.nr_api_key,
-            account_id=account_id,
+            account_id=str(account_id),
             is_eu_datacenter=self._toolset.is_eu_datacenter,
         )
 
@@ -197,7 +190,6 @@ class ListOrganizationAccounts(Tool):
                 "Use this tool to:\n"
                 "1. Find the account ID when given an account name\n"
                 "2. Map account names to IDs for running NRQL queries\n"
-                "3. Understand which accounts are available before querying data\n\n"
                 "Returns a list of accounts with 'id' and 'name' fields."
             ),
             parameters={},
@@ -255,10 +247,6 @@ class NewRelicToolset(Toolset):
     enable_multi_account: bool = False
 
     def __init__(self):
-        tools_list = [ExecuteNRQLQuery(self)]
-        if self.enable_multi_account:
-            tools_list.append(ListOrganizationAccounts(self))
-
         super().__init__(
             name="newrelic",
             description="Toolset for interacting with New Relic to fetch logs, traces, and execute freeform NRQL queries",
