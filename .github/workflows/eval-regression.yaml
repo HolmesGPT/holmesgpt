@@ -603,7 +603,7 @@ jobs:
             });
             body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
             if (hasFailures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
-            body += buildRerunFooter(p, context);
+            body += buildRerunFooter(p, context, { includeLegend: true });
 
             // Delete progress comment and create fresh results comment
             // This ensures the user gets a GitHub notification when evals complete
