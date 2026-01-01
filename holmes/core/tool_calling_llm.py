@@ -53,7 +53,7 @@ from holmes.utils import sentry_helper
 from holmes.utils.global_instructions import (
     Instructions,
 )
-from holmes.utils.tags import format_tags_in_string, parse_messages_tags
+from holmes.utils.tags import parse_messages_tags
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import DummySpan
 from holmes.utils.colors import AI_COLOR
@@ -269,7 +269,6 @@ class ToolCallingLLM:
         self,
         system_prompt: str,
         user_prompt: str,
-        post_process_prompt: Optional[str] = None,
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
@@ -280,8 +279,7 @@ class ToolCallingLLM:
         ]
         return self.call(
             messages,
-            post_process_prompt,
-            response_format,
+            response_format=response_format,
             user_prompt=user_prompt,
             sections=sections,
             trace_span=trace_span,
@@ -290,19 +288,15 @@ class ToolCallingLLM:
     def messages_call(
         self,
         messages: List[Dict[str, str]],
-        post_process_prompt: Optional[str] = None,
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         trace_span=DummySpan(),
     ) -> LLMResult:
-        return self.call(
-            messages, post_process_prompt, response_format, trace_span=trace_span
-        )
+        return self.call(messages, response_format=response_format, trace_span=trace_span)
 
     @sentry_sdk.trace
     def call(  # type: ignore
         self,
         messages: List[Dict[str, str]],
-        post_process_prompt: Optional[str] = None,
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         user_prompt: Optional[str] = None,
         sections: Optional[InputSectionsDataType] = None,
@@ -403,40 +397,15 @@ class ToolCallingLLM:
                 )
 
             if not tools_to_call:
-                # For chatty models post process and summarize the result
-                # this only works for calls where user prompt is explicitly passed through
-                if post_process_prompt and user_prompt:
-                    logging.info("Running post processing on investigation.")
-                    raw_response = text_response
-                    post_processed_response, post_processing_cost = (
-                        self._post_processing_call(
-                            prompt=user_prompt,
-                            investigation=raw_response,
-                            user_prompt=post_process_prompt,
-                        )
-                    )
-                    costs.total_cost += post_processing_cost
+                tokens = self.llm.count_tokens(messages=messages, tools=tools)
 
-                    tokens = self.llm.count_tokens(messages=messages, tools=tools)
-
-                    add_token_count_to_metadata(
-                        tokens=tokens,
-                        full_llm_response=full_response,
-                        max_context_size=limit_result.max_context_size,
-                        maximum_output_token=limit_result.maximum_output_token,
-                        metadata=metadata,
-                    )
-
-                    return LLMResult(
-                        result=post_processed_response,
-                        unprocessed_result=raw_response,
-                        tool_calls=all_tool_calls,
-                        num_llm_calls=i,
-                        prompt=json.dumps(messages, indent=2),
-                        messages=messages,
-                        **costs.model_dump(),  # Include all cost fields
-                        metadata=metadata,
-                    )
+                add_token_count_to_metadata(
+                    tokens=tokens,
+                    full_llm_response=full_response,
+                    max_context_size=limit_result.max_context_size,
+                    maximum_output_token=limit_result.maximum_output_token,
+                    metadata=metadata,
+                )
 
                 return LLMResult(
                     result=text_response,
@@ -749,54 +718,6 @@ class ToolCallingLLM:
 
         return tool_call_result
 
-    @staticmethod
-    def __load_post_processing_user_prompt(
-        input_prompt, investigation, user_prompt: Optional[str] = None
-    ) -> str:
-        if not user_prompt:
-            user_prompt = "builtin://generic_post_processing.jinja2"
-        return load_and_render_prompt(
-            user_prompt, {"investigation": investigation, "prompt": input_prompt}
-        )
-
-    def _post_processing_call(
-        self,
-        prompt,
-        investigation,
-        user_prompt: Optional[str] = None,
-        system_prompt: str = "You are an AI assistant summarizing Kubernetes issues.",
-    ) -> tuple[Optional[str], float]:
-        try:
-            user_prompt = ToolCallingLLM.__load_post_processing_user_prompt(
-                prompt, investigation, user_prompt
-            )
-
-            logging.debug(f'Post processing prompt:\n"""\n{user_prompt}\n"""')
-            messages = [
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": format_tags_in_string(user_prompt),
-                },
-            ]
-            full_response = self.llm.completion(messages=messages, temperature=0)
-            logging.debug(f"Post processing response {full_response}")
-
-            # Extract and log cost information for post-processing
-            post_processing_cost = _extract_cost_from_response(full_response)
-            if post_processing_cost > 0:
-                cost_logger.debug(
-                    f"Post-processing LLM cost: ${post_processing_cost:.6f}"
-                )
-
-            return full_response.choices[0].message.content, post_processing_cost  # type: ignore
-        except Exception:
-            logging.exception("Failed to run post processing", exc_info=True)
-            return investigation, 0.0
-
     def call_stream(
         self,
         system_prompt: str = "",
@@ -1080,7 +1001,6 @@ class IssueInvestigator(ToolCallingLLM):
         prompt: str,
         console: Optional[Console] = None,
         global_instructions: Optional[Instructions] = None,
-        post_processing_prompt: Optional[str] = None,
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
         runbooks: Optional[RunbookCatalog] = None,
@@ -1154,7 +1074,6 @@ class IssueInvestigator(ToolCallingLLM):
         res = self.prompt_call(
             system_prompt,
             user_prompt,
-            post_processing_prompt,
             response_format=response_format,
             sections=sections,
             trace_span=trace_span,

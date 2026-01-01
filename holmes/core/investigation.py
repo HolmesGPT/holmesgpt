@@ -1,8 +1,6 @@
 import logging
 from typing import Optional
 
-
-from holmes.common.env_vars import HOLMES_POST_PROCESSING_PROMPT
 from holmes.config import Config
 from holmes.core.investigation_structured_output import process_response_into_sections
 from holmes.core.issue import Issue
@@ -57,7 +55,6 @@ def investigate_issues(
     investigation = ai.investigate(
         issue,
         prompt=investigate_request.prompt_template,
-        post_processing_prompt=HOLMES_POST_PROCESSING_PROMPT,
         global_instructions=global_instructions,
         sections=investigate_request.sections,
         trace_span=trace_span,

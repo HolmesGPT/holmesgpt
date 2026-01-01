@@ -991,7 +991,6 @@ def run_interactive_loop(
     console: Console,
     initial_user_input: Optional[str],
     include_files: Optional[List[Path]],
-    post_processing_prompt: Optional[str],
     show_tool_output: bool,
     tracer=None,
     runbooks=None,
@@ -1268,7 +1267,6 @@ def run_interactive_loop(
                 )
                 response = ai.call(
                     messages,
-                    post_processing_prompt,
                     trace_span=trace_span,
                     tool_number_offset=len(all_tool_calls_history),
                 )
