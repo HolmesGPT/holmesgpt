@@ -71,7 +71,7 @@ Parameters:
 
 ## Composed Commands
 
-For `bash_v2`, commands with `|`, `&&`, `||`, `;`, `&` require one prefix per segment:
+Commands with `|`, `&&`, `||`, `;`, `&` are parsed into segments. One prefix per segment is required:
 
 ```yaml
 Tool: bash_v2
@@ -84,13 +84,10 @@ Parameters:
 ```
 
 
-**Validation (`bash_v2`):**
+**Validation:**
+- Tool parses command into segments using bashlex
 - Segment count must equal prefix count
 - Each prefix must match its segment
-- ALL segments must pass allow/deny validation
-
-**Validation (`bash_v2_limited`):**
-- Tool parses command into segments using bashlex
 - ALL segments must pass allow/deny validation
 
 **Parsing:** Use `bashlex` library for proper shell parsing (handles quotes, escapes correctly).
@@ -117,60 +114,31 @@ All environment variables are allowed (`$HOME`, `$USER`, `${VAR}`, etc.).
 
 **Why:** Variables expand at execution time by bash, not by our validator. The allow/deny lists operate on the literal command string before expansion. Blocking env vars would break many legitimate commands.
 
-## Two Tools Architecture
+## Tool Behavior
 
-Two separate tools that share execution logic. **Only one is registered** based on configuration:
+One tool `bash_v2`. The toolset always returns `APPROVAL_REQUIRED` for non-whitelisted commands. How that approval is handled is controlled by the calling layer (CLI/server), not the toolset.
 
-| Tool | Description | When Registered |
-|------|-------------|-----------------|
-| `bash_v2` | Can trigger approval flow for non-whitelisted commands | When approval is possible (CLI interactive, or server with `enable_tool_approval=true`) |
-| `bash_v2_limited` | Strict whitelist only, no approval possible | When approval is not possible (CLI with `--bash-always-deny`, or server default) |
+**Toolset behavior:**
+1. Hardcoded blocks → `ERROR` (always, cannot be overridden)
+2. Deny list → `ERROR`
+3. Allow list → Execute
+4. Neither → `APPROVAL_REQUIRED`
 
-**Why two tools:** AI clearly understands what it's calling. Different tool descriptions guide AI behavior. No confusion about whether approval is possible.
-
-**Tool descriptions (for AI):**
-- `bash_v2`: "Execute bash commands. Non-whitelisted commands will prompt user for approval."
-- `bash_v2_limited`: "Execute bash commands. Only whitelisted commands allowed, others will fail."
-
-### `bash_v2` - Approval Possible
-
-Registered when user approval is possible.
-
-**Behavior:** Non-whitelisted commands return `APPROVAL_REQUIRED` status. System handles approval based on context:
+**Calling layer handles approval:**
 - **CLI (`call()`)**: Uses `approval_callback` to prompt user synchronously
-- **Server (`call_stream()`)**: Stream ends with `APPROVAL_REQUIRED` event, client handles approval externally
+- **Server (`call_stream()`)**: Stream ends with `APPROVAL_REQUIRED` event, client handles externally
 
-**CLI flags:**
-| Flag | Behavior |
-|------|----------|
-| (default) | Register `bash_v2`, prompt user for non-whitelisted commands |
-| `--bash-always-deny` | Register `bash_v2_limited` instead |
+**CLI flags** control how approval is handled (not the toolset):
 
-### `bash_v2_limited` - Strict Mode
-
-Registered when no user approval is possible.
-
-**Behavior:** Non-whitelisted commands return `ERROR` immediately. AI sees error and should use only whitelisted commands.
-
-**Modes (via config):**
-
-```yaml
-toolsets:
-  bash_v2:
-    config:
-      mode: "strict"  # or "permissive"
-```
-
-| Mode | Behavior |
-|------|----------|
-| `strict` (default) | Only allow-listed commands execute. Others return ERROR. |
-| `permissive` | All commands execute (hardcoded blocks still enforced). |
-
-**Why `permissive` mode:** For users who want to dangerously allow everything. Hardcoded blocks (sudo, fork bombs) are still enforced.
+| Flag | Effect |
+|------|--------|
+| (default) | Prompt user for approval |
+| `--bash-always-deny` | Auto-deny all `APPROVAL_REQUIRED` |
+| `--bash-always-allow` | Auto-approve all `APPROVAL_REQUIRED` (dangerous) |
 
 ### Approval Data Flow
 
-When `bash_v2` returns `APPROVAL_REQUIRED`:
+When command is not in allow/deny list:
 
 ```python
 StructuredToolResult(
@@ -222,48 +190,13 @@ Do you want to proceed?
 
 ## Default Lists
 
-### Server/In-Cluster Allow List
+### Local CLI
 
-```yaml
-# Kubernetes read-only
-- "kubectl get"
-- "kubectl describe"
-- "kubectl logs"
-- "kubectl top"
-- "kubectl explain"
-- "kubectl api-resources"
+Empty allow and deny lists by default. User builds their own trusted command set over time via approval prompts, which persist to `~/.holmes/`.
 
-# Text processing (no awk/sed - can run scripts)
-- "cat"
-- "grep"
-- "head"
-- "tail"
-- "sort"
-- "uniq"
-- "wc"
-- "cut"
-- "tr"
+### Server/In-Cluster
 
-# Filesystem read-only
-- "ls"
-- "find"
-- "stat"
-- "file"
-- "du"
-- "df"
-
-# Process info
-- "ps"
-- "top -b"
-- "free"
-- "uptime"
-```
-
-### Local CLI Allow List
-
-Empty by default.
-
-**Why:** User's machine may have sensitive files. All commands require explicit approval, which then persists to `~/.holmes/`. User builds their own trusted command set over time.
+See Helm Chart section for recommended defaults.
 
 ### Hardcoded Blocks (Not Overrideable)
 
@@ -278,47 +211,31 @@ These are always blocked regardless of configuration:
 - ":(){"  # Fork bomb
 ```
 
-**Why hardcoded:** These patterns are inherently dangerous and should never be allowed in any mode. Detected via pattern matching before any other validation.
-
-### Server Deny List
-
-Default denies access to sensitive resources:
-
-```yaml
-- "kubectl get secret"
-- "kubectl describe secret"
-```
-
-Users can add more via `deny_add` or remove defaults via `deny_remove` in config.
-
-**Why deny secrets by default:** `kubectl get` and `kubectl describe` are in the allow list, but accessing secrets is sensitive. This prevents accidental secret exposure while allowing users who need it to explicitly opt-in.
-
-### Local CLI Deny List
-
-Empty by default. Users can add deny patterns via config.
+**Why hardcoded:** These patterns are inherently dangerous and should never be allowed. Detected via pattern matching before any other validation.
 
 ## Configuration
 
-Users can customize allow and deny lists:
+Users provide their own allow and deny lists:
 
 ```yaml
 toolsets:
   bash_v2:
+    enabled: true
     config:
-      allow_add:
-        - "docker ps"
-      allow_remove:
+      allow:
+        - "kubectl get"
+        - "kubectl describe"
+        - "kubectl logs"
+        - "grep"
         - "cat"
-      deny_add:
-        - "curl"
-        - "rm -rf"
-      deny_remove:
-        - "kubectl get secret"  # opt-in to secret access
+      deny:
+        - "kubectl get secret"
+        - "kubectl describe secret"
 ```
 
-## Tool Parameters
+**Note:** Users define the complete lists. There are no "add/remove" modifiers - the config specifies exactly what is allowed/denied.
 
-### `bash_v2` (approval possible)
+## Tool Parameters
 
 ```yaml
 Tool: bash_v2
@@ -328,20 +245,9 @@ Parameters:
   timeout:            # optional, default 30 seconds
 ```
 
-**`suggested_prefixes` is required and always an array:**
-- Single command: `["kubectl get"]`
-- Composed command: `["kubectl get", "grep", "head"]`
-
-**Why required:** Used for approval prompt ("don't ask again for X commands") and validation.
-
-### `bash_v2_limited` (strict mode)
-
-```yaml
-Tool: bash_v2_limited
-Parameters:
-  command:            # required, the bash command
-  timeout:            # optional, default 30 seconds
-```
+**`suggested_prefixes`:**
+- Required for approval prompt ("don't ask again for X commands")
+- Always an array: `["kubectl get"]` or `["kubectl get", "grep", "head"]`
 
 
 ## Whitelist in System Prompt
@@ -353,30 +259,81 @@ The allow list is injected into the system prompt via `llm_instructions` pattern
 ## Success Criteria
 
 1. Commands in allow list execute without prompts
-2. Hardcoded blocks enforced in all modes (including permissive)
-3. User-configured deny list blocks commands
-4. Composed commands: each segment validated independently
-5. Subshells detected and blocked
-6. Correct tool registered based on mode:
-   - `bash_v2` when approval possible (CLI default, server with `enable_tool_approval`)
-   - `bash_v2_limited` when no approval (CLI with `--bash-always-deny`, server default)
-7. `bash_v2` returns `APPROVAL_REQUIRED` for non-whitelisted commands
-8. `bash_v2_limited` returns `ERROR` for non-whitelisted commands
-9. `bash_v2`: Prefix validation enforced (required, always array)
-10. Config customization merges correctly with defaults
-11. Approved prefixes persist to `~/.holmes/` for CLI
+2. Hardcoded blocks return `ERROR` (always enforced)
+3. User-configured deny list returns `ERROR`
+4. Non-whitelisted commands return `APPROVAL_REQUIRED`
+5. Composed commands: each segment validated independently
+6. Subshells detected and blocked
+7. Prefix validation enforced (required, array, must match segments)
+8. CLI flags control approval handling (`--bash-always-deny`, `--bash-always-allow`)
+9. Config customization merges correctly with defaults
+10. Approved prefixes persist to `~/.holmes/` for CLI
 
 ## Testing
 
 **Unit tests:** Prefix validation, command parsing, subshell detection, list matching, config merging, hardcoded block detection
 
 **Integration tests:**
-- `bash_v2`: Returns `APPROVAL_REQUIRED` for non-whitelisted, approval flow works
-- `bash_v2_limited`: Returns `ERROR` for non-whitelisted, permissive mode works
-- Tool registration based on config/flags
+- Allow list commands execute
+- Deny list commands return `ERROR`
+- Non-whitelisted commands return `APPROVAL_REQUIRED`
+- CLI flags (`--bash-always-deny`, `--bash-always-allow`) work correctly
 - Persistent approval storage in `~/.holmes/`
 
 **LLM evals:**
-- `bash_v2`: AI provides correct prefixes (array), recovers from denials
-- `bash_v2_limited`: AI recovers from errors, only uses whitelisted commands
-- Both: Respects hardcoded blocks
+- AI provides correct prefixes (array, matches segments)
+- AI recovers from errors and denials
+- AI respects hardcoded blocks
+
+## Documentation
+
+Create documentation for the new bash toolset:
+
+1. **How to enable** the bash_v2 toolset
+2. **Example configuration** with allow/deny lists
+3. **CLI flags** (`--bash-always-deny`, `--bash-always-allow`)
+4. **Security considerations** (hardcoded blocks, why certain commands are denied)
+5. **Approval flow** (how user approval works in CLI and server)
+
+## Helm Chart
+
+Add recommended configuration to the Helm chart that installs Holmes:
+
+```yaml
+# values.yaml
+toolsets:
+  bash_v2:
+    enabled: true
+    config:
+      allow:
+        - "kubectl get"
+        - "kubectl describe"
+        - "kubectl logs"
+        - "kubectl top"
+        - "kubectl explain"
+        - "kubectl api-resources"
+        - "cat"
+        - "grep"
+        - "head"
+        - "tail"
+        - "sort"
+        - "uniq"
+        - "wc"
+        - "cut"
+        - "tr"
+        - "ls"
+        - "find"
+        - "stat"
+        - "file"
+        - "du"
+        - "df"
+        - "ps"
+        - "top -b"
+        - "free"
+        - "uptime"
+      deny:
+        - "kubectl get secret"
+        - "kubectl describe secret"
+```
+
+This provides a secure default for server deployments with read-only Kubernetes and filesystem commands.
