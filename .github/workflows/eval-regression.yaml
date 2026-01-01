@@ -42,7 +42,7 @@ jobs:
       github.event_name == 'pull_request' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/eval'))
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/last')))
 
     steps:
       - name: Handle /eval comment
@@ -58,8 +58,48 @@ jobs:
               return;
             }
 
+            let body = context.payload.comment.body;
+            let lastEvalCommentId = null;
+            const isLastCommand = body.trim().toLowerCase().startsWith('/last');
+
+            // Handle /last command: find the last /eval comment on this PR
+            if (isLastCommand) {
+              // Fetch all comments (paginate to handle PRs with 100+ comments)
+              let allComments = [];
+              let page = 1;
+              while (true) {
+                const response = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  per_page: 100,
+                  page: page
+                });
+                allComments = allComments.concat(response.data);
+                if (response.data.length < 100) break;
+                page++;
+              }
+
+              // Find the last /eval comment before this /last comment
+              const evalComments = allComments
+                .filter(c => c.id !== context.payload.comment.id && c.body.trim().toLowerCase().startsWith('/eval'))
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+              if (evalComments.length === 0) {
+                core.setFailed('No previous /eval comment found on this PR. Use /eval instead.');
+                return;
+              }
+
+              body = evalComments[0].body;
+              lastEvalCommentId = evalComments[0].id;
+              core.info(`Found last /eval comment: ${lastEvalCommentId}`);
+            }
+
+            core.setOutput('is_last_command', isLastCommand.toString());
+            core.setOutput('last_eval_comment_id', lastEvalCommentId ? lastEvalCommentId.toString() : '');
+            core.setOutput('resolved_body', body);
+
             // Parse branch parameter from comment if specified (for cross-branch comparison)
-            const body = context.payload.comment.body;
             let targetBranch = '';
             for (const line of body.split('\n').slice(1)) {
               const colonIdx = line.indexOf(':');
@@ -109,7 +149,7 @@ jobs:
             // passed via env vars not inline, (3) bash references use double quotes.
             const patterns = {
               model: /^[a-zA-Z0-9_.,:\/-]*$/,
-              markers: /^[a-zA-Z0-9_\- ]*$/,
+              markers: /^[a-zA-Z0-9_\- ()]*$/,
               filter: /^[a-zA-Z0-9_\-]*$/,
               iterations: /^[0-9]+$/,
               pr_number: /^[0-9]*$/,
@@ -132,7 +172,8 @@ jobs:
                 const colonIdx = line.indexOf(':');
                 if (colonIdx === -1) continue;
                 const key = line.slice(0, colonIdx).trim().toLowerCase();
-                const value = line.slice(colonIdx + 1).trim();
+                // Strip leading/trailing quotes (users sometimes add them unnecessarily)
+                const value = line.slice(colonIdx + 1).trim().replace(/^['"]|['"]$/g, '');
                 if (validKeys.has(key) && value) params[key] = value;
               }
               return params;
@@ -142,7 +183,12 @@ jobs:
             const event = context.eventName;
 
             if (event === 'issue_comment') {
-              const parsed = parseComment(context.payload.comment.body);
+              // Use resolved body (handles /last command by using the last /eval comment's body)
+              const resolvedBody = ${{ toJSON(steps.eval-comment.outputs.resolved_body) }} || context.payload.comment.body;
+              const isLastCommand = ${{ toJSON(steps.eval-comment.outputs.is_last_command) }} === 'true';
+              const lastEvalCommentId = ${{ toJSON(steps.eval-comment.outputs.last_eval_comment_id) }} || '';
+
+              const parsed = parseComment(resolvedBody);
               model = validate(parsed.model, 'model');
               markers = validate(parsed.markers, 'markers');
               filter = validate(parsed.filter, 'filter');
@@ -153,7 +199,16 @@ jobs:
               const prBranch = ${{ toJSON(steps.eval-comment.outputs.pr_branch) }} || '';
               displayBranch = branch || prBranch;
               isManual = true;
-              triggerSource = branch ? `/eval on branch \`${branch}\`` : '/eval comment';
+
+              // Build trigger source with links to both commands
+              const currentCommentUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}#issuecomment-${context.payload.comment.id}`;
+              if (isLastCommand && lastEvalCommentId) {
+                const evalCommentUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}#issuecomment-${lastEvalCommentId}`;
+                triggerSource = `[/last](${currentCommentUrl}) → [/eval](${evalCommentUrl})`;
+              } else {
+                triggerSource = branch ? `[/eval on branch \`${branch}\`](${currentCommentUrl})` : `[/eval comment](${currentCommentUrl})`;
+              }
+
               prNumber = context.issue.number;
               triggeredBy = context.payload.comment.user.login;
             } else if (event === 'workflow_dispatch') {

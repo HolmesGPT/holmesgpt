@@ -79,11 +79,14 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
     # Experiments used
     if details.experiments:
         lines.append(f"\n**Experiments compared ({len(details.experiments)}):**\n")
-        for exp in details.experiments:
+        # Show first 3 experiments, summarize the rest to reduce email spam
+        for exp in details.experiments[:3]:
             # Build Braintrust URL for the experiment
             exp_url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{exp.id}"
             branch_info = f" (branch: `{exp.branch}`)" if exp.branch else ""
             lines.append(f"- [{exp.name}]({exp_url}){branch_info}")
+        if len(details.experiments) > 3:
+            lines.append(f"- _...and {len(details.experiments) - 3} more_")
         lines.append("")
 
     # Errors
@@ -315,7 +318,7 @@ def generate_markdown_report(
 
     # Add footer explaining historical comparison status
     if historical and comparison_map:
-        markdown += f"\n_Time/Cost columns compare each test+model pair against its own historical average from other branches (↑slower/costlier, ↓faster/cheaper). Historical data available for {len(historical)} unique test+model pairs._\n"
+        markdown += "\n_Time/Cost columns show % change vs historical average (↑slower/costlier, ↓faster/cheaper). Changes under 10% shown as ±0%._\n"
     elif historical_details and historical_details.status:
         markdown += f"\n_Historical comparison unavailable: {historical_details.status}_\n"
 

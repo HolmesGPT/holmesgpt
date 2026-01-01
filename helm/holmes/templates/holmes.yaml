@@ -73,10 +73,6 @@ spec:
           - name: CERTIFICATE
             value: {{ .Values.certificate }}
           {{- end }}
-          {{ if .Values.enablePostProcessing -}}
-          - name: HOLMES_POST_PROCESSING_PROMPT
-            value: {{ .Values.postProcessingPrompt }}
-          {{- end }}
           {{ if .Values.openshift }}
           - name: IS_OPENSHIFT
             value: "True"

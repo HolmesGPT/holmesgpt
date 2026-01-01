@@ -33,7 +33,6 @@ from holmes.common.env_vars import (
     ENABLE_CONNECTION_KEEPALIVE,
     HOLMES_HOST,
     HOLMES_PORT,
-    HOLMES_POST_PROCESSING_PROMPT,
     LOG_PERFORMANCE,
     SENTRY_DSN,
     ENABLE_TELEMETRY,
@@ -254,7 +253,6 @@ def workload_health_check(request: WorkloadHealthRequest):
         ai_call = ai.prompt_call(
             system_prompt,
             request.ask,
-            HOLMES_POST_PROCESSING_PROMPT,
             workload_health_structured_output,
         )
 

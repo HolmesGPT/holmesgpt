@@ -1,6 +1,5 @@
 from rich.console import Console
 
-from holmes.common.env_vars import HOLMES_POST_PROCESSING_PROMPT
 from holmes.config import Config
 from holmes.core.issue import Issue
 from holmes.core.models import InvestigateRequest
@@ -36,7 +35,6 @@ def _test_investigate_issue_using_fetch_webpage():
         issue=issue,
         prompt=investigate_request.prompt_template,
         console=console,
-        post_processing_prompt=HOLMES_POST_PROCESSING_PROMPT,
     )
 
     webpage_tool_calls = list(
@@ -79,7 +77,6 @@ def _test_investigate_issue_without_fetch_webpage():
         issue=issue,
         prompt=investigate_request.prompt_template,
         console=console,
-        post_processing_prompt=HOLMES_POST_PROCESSING_PROMPT,
     )
 
     webpage_tool_calls = list(
