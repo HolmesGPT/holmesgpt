@@ -92,6 +92,19 @@ poetry run mypy
   - Include the full API error response (status code and message)
   - For "no data" responses, specify what was searched and where
 
+**Thin API Wrapper Pattern for Python Toolsets**:
+- Reference implementation: `servicenow_tables/servicenow_tables.py`
+- Use `requests` library for HTTP calls (not specialized client libraries like `opensearchpy`)
+- Simple config class with Pydantic validation
+- Health check in `prerequisites_callable()` method
+- Each tool is a thin wrapper around a single API endpoint
+
+**Server-Side Filtering is Critical**:
+- **Never return unbounded data from APIs** - this causes token overflow
+- Always include filter parameters on tools that query collections (e.g., `index` parameter for Elasticsearch _cat APIs)
+- Example problem: `opensearch_list_shards` returned ALL shards → 25K+ tokens on large clusters
+- Example fix: `elasticsearch_cat` tool requires `index` parameter for shards/segments endpoints
+
 **LLM Integration**:
 - Uses LiteLLM for multi-provider support (OpenAI, Anthropic, Azure, etc.)
 - Structured tool calling with automatic retry and error handling
@@ -235,10 +248,12 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
 - `MODEL`: Override default model(s) - supports comma-separated list
 - `RUN_LIVE`: Use live tools in tests (strongly recommended)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
+- `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`: For Elasticsearch/OpenSearch cloud testing
 
 ## Development Guidelines
 
@@ -289,6 +304,12 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - **CRITICAL**: Only use valid tags from `pyproject.toml` - invalid tags cause test collection failures
 - Check existing tags before adding new ones, ask user permission for new tags
 
+**Cloud Service Evals (No Kubernetes Required)**:
+- Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
+- Faster setup (<30 seconds vs minutes for K8s infrastructure)
+- `before_test` creates test data in the cloud service, `after_test` cleans up
+- Use `toolsets.yaml` to configure the toolset with env var references: `url: "{{ env.ELASTICSEARCH_URL }}"`
+
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
 - **Match prompt to test**: User prompt must explicitly request what you're testing
@@ -298,6 +319,13 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
   - BAD: `"Find node_exporter metrics"`
   - GOOD: `"Find CPU pressure monitoring queries"`
 - **Test discovery, not recognition**: Holmes should search/analyze, not guess from context
+- **Verify tool calls with `include_tool_calls: true`**: Allows expected_output to check which tools were called
+  ```yaml
+  include_tool_calls: true
+  expected_output:
+    - "Must call elasticsearch_search tool to query the index"
+    - "Must find error code ERR-7291 in the results"
+  ```
 
 **Infrastructure Setup:**
 - **Don't just test pod readiness** - verify actual service functionality
