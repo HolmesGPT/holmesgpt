@@ -5,15 +5,19 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster (e.g., https://cluster.es.cloud.io:443)
 # - ELASTICSEARCH_API_KEY: API key for authentication
 #
-# Anti-hallucination: The cluster name and node count are unique to the instance.
-# The LLM cannot know these values without actually querying the cluster.
+# Note: This test uses include_tool_calls because the expected values (cluster name, status, node count)
+# are generic enough that an LLM could hallucinate plausible values. Verifying the tool call
+# ensures Holmes actually queried the cluster rather than guessing.
 
 user_prompt: "What is the health status of the Elasticsearch cluster? Tell me the cluster name, health status, and number of nodes."
 
 expected_output:
-  - "Must report the actual cluster status (green, yellow, or red)"
+  - "Must call elasticsearch_cluster_health or elasticsearch_cat tool to query the cluster"
+  - "Must report the cluster status (green, yellow, or red)"
   - "Must include the number of nodes in the response"
-  - "Must mention the cluster name (which is unique to this Elasticsearch instance)"
+  - "Must mention a cluster name in the response"
+
+include_tool_calls: true
 
 tags:
   - elasticsearch

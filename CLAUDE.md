@@ -320,12 +320,17 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
   - BAD: `"Find node_exporter metrics"`
   - GOOD: `"Find CPU pressure monitoring queries"`
 - **Test discovery, not recognition**: Holmes should search/analyze, not guess from context
-- **Verify tool calls with `include_tool_calls: true`**: Allows expected_output to check which tools were called. **Use sparingly** - prefer checking the final answer is correct rather than specific tool calls, since the agent may take different investigation trajectories to achieve the same result. Only use when there's no other easy way to verify the behavior.
+- **Ruling out hallucinations is paramount**: When choosing between test approaches, prefer the one that rules out hallucinations:
+  - **Best**: Check specific values that can only be discovered by querying (e.g., unique IDs, injected error codes, exact counts)
+  - **Acceptable**: Use `include_tool_calls: true` to verify the tool was called when output values are too generic to rule out hallucinations
+  - **Bad**: Check generic output patterns that an LLM could plausibly guess (e.g., "cluster status is green/yellow/red", "has N nodes")
+- **`include_tool_calls: true`**: Use when expected output is too generic to be hallucination-proof. Prefer specific answer checking when possible, but verifying tool calls is better than a test that can't rule out hallucinations.
   ```yaml
+  # Use when values are generic (cluster health could be guessed)
   include_tool_calls: true
   expected_output:
-    - "Must call elasticsearch_search tool to query the index"
-    - "Must find error code ERR-7291 in the results"
+    - "Must call elasticsearch_cluster_health tool"
+    - "Must report cluster status"
   ```
 
 **Infrastructure Setup:**
