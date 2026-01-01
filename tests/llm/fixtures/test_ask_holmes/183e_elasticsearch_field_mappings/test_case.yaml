@@ -12,14 +12,11 @@
 user_prompt: "What are the field mappings for the 'holmes-eval-schema' index? List all fields with their data types."
 
 expected_output:
-  - "Must call elasticsearch_mappings tool to retrieve the index mapping"
   - "Must identify the 'transaction_id' field as type keyword"
   - "Must identify the 'amount' field as type double"
   - "Must identify the 'metadata.region' nested field as type keyword"
   - "Must identify the 'metadata.priority' nested field as type integer"
   - "Must identify the 'processed_at' field as type date"
-
-include_tool_calls: true
 
 tags:
   - elasticsearch

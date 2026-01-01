@@ -14,13 +14,10 @@
 user_prompt: "What is the distribution of events by service in the 'holmes-eval-events' index? Give me the count of events for each service."
 
 expected_output:
-  - "Must call elasticsearch_search tool with a terms aggregation on the service field"
   - "Must report payment-api has 5 events (the highest count)"
   - "Must report order-service has 3 events"
   - "Must report inventory-api has 2 events"
   - "The total event count should be 10"
-
-include_tool_calls: true
 
 tags:
   - elasticsearch

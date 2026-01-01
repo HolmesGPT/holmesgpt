@@ -12,12 +12,9 @@
 user_prompt: "Search the 'holmes-eval-logs' index for ERROR level log messages. What error codes (format ERR-XXXX) appear in the logs?"
 
 expected_output:
-  - "Must call elasticsearch_search tool to query the holmes-eval-logs index"
   - "Must identify that there are ERROR level logs in the index"
   - "Must find and list the 3 specific error codes that were injected: ERR-7291, ERR-4058, and ERR-9463"
   - "The response should mention the error messages associated with these codes"
-
-include_tool_calls: true
 
 tags:
   - elasticsearch

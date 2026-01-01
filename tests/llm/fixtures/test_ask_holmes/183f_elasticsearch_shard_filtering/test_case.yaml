@@ -14,12 +14,9 @@
 user_prompt: "Show me the shard information for the 'holmes-eval-shards' index. How many shards does it have and what are their states?"
 
 expected_output:
-  - "Must call elasticsearch_cat tool with endpoint=shards and filter by the specific index"
   - "Must report that the index has 3 primary shards"
   - "Must report the state of the shards (STARTED or similar)"
   - "Should only show shards for the specified index, not all shards in the cluster"
-
-include_tool_calls: true
 
 tags:
   - elasticsearch

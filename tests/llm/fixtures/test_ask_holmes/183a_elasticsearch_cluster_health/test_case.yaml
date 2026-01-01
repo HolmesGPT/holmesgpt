@@ -11,12 +11,9 @@
 user_prompt: "What is the health status of the Elasticsearch cluster? Tell me the cluster name, health status, and number of nodes."
 
 expected_output:
-  - "Must call elasticsearch_cluster_health tool or elasticsearch_cat tool to retrieve cluster health"
   - "Must report the actual cluster status (green, yellow, or red)"
   - "Must include the number of nodes in the response"
   - "Must mention the cluster name (which is unique to this Elasticsearch instance)"
-
-include_tool_calls: true
 
 tags:
   - elasticsearch

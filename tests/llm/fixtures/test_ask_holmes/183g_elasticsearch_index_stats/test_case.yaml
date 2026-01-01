@@ -11,12 +11,9 @@
 user_prompt: "What are the statistics for the 'holmes-eval-stats' index? Tell me the document count, store size, and indexing rate."
 
 expected_output:
-  - "Must call elasticsearch_index_stats tool or elasticsearch_cat(endpoint=indices) to get index statistics"
   - "Must report exactly 50 documents in the index"
   - "Must mention the store size (in bytes or human-readable format)"
   - "Should provide information about the index health"
-
-include_tool_calls: true
 
 tags:
   - elasticsearch

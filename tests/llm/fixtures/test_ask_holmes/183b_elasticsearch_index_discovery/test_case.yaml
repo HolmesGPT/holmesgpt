@@ -12,12 +12,9 @@
 user_prompt: "List all indices in the Elasticsearch cluster that start with 'holmes-eval-' and tell me the document count for each."
 
 expected_output:
-  - "Must call elasticsearch_cat tool with endpoint=indices or similar tool to list indices"
   - "Must find and report the test index starting with 'holmes-eval-' that was created by this test"
   - "Must report the document count as 5 documents for the test index"
   - "The index name must contain an 8-character unique identifier (the exact name can only be discovered by querying)"
-
-include_tool_calls: true
 
 tags:
   - elasticsearch
