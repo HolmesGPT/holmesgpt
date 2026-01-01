@@ -13,7 +13,6 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
 )
-from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.coralogix.api import (
     health_check,
@@ -59,7 +58,7 @@ def _build_coralogix_query_url(
         return None
 
 
-class ExecuteDataPrimeQuery(JsonFilterMixin, Tool):
+class ExecuteDataPrimeQuery(Tool):
     def __init__(self, toolset: "CoralogixToolset"):
         super().__init__(
             name="coralogix_execute_dataprime_query",
@@ -167,13 +166,14 @@ class ExecuteDataPrimeQuery(JsonFilterMixin, Tool):
             tier=tier,
         )
 
-        wrapped = StructuredToolResult(
+        # Return a pretty-printed JSON string for readability by the model/user.
+        final_result = json.dumps(result_dict, indent=2, sort_keys=False)
+        return StructuredToolResult(
             status=status,
-            data=result_dict,
+            data=final_result,
             params=params,
             url=explore_url,
         )
-        return self.filter_result(wrapped, params)
 
     def get_parameterized_one_liner(self, params) -> str:
         description = params.get("description", "")
