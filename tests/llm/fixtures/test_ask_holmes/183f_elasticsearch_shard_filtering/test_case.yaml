@@ -31,6 +31,10 @@ setup_timeout: 30
 before_test: |
   set -e
 
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
     echo "❌ ELASTICSEARCH_URL environment variable is not set"
@@ -39,21 +43,16 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="holmes-eval-shards"
 
-  # Build auth header
-  AUTH_HEADER=""
-  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
-    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
-  fi
-
   # Delete the index if it exists
   echo "⏳ Cleaning up any existing test index..."
-  eval curl -s -X DELETE "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" $AUTH_HEADER || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create the test index with 3 shards and 0 replicas
   echo "⏳ Creating test index with 3 shards..."
-  RESPONSE=$(eval curl -s -X PUT "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" \
-    -H 'Content-Type: application/json' \
-    $AUTH_HEADER \
+  RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
       "settings": {
         "number_of_shards": 3,
@@ -73,18 +72,18 @@ before_test: |
   sleep 2
 
   # Verify shard count
-  SHARD_INFO=$(eval curl -s -X GET "$ELASTICSEARCH_URL/_cat/shards/$HOLMES_ES_TEST_INDEX?format=json" $AUTH_HEADER)
+  SHARD_INFO=$(curl -s -X GET "${ELASTICSEARCH_URL}/_cat/shards/${HOLMES_ES_TEST_INDEX}?format=json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
   SHARD_COUNT=$(echo "$SHARD_INFO" | grep -o '"index":"holmes-eval-shards"' | wc -l)
 
   echo "✅ Test index has $SHARD_COUNT shards"
 
 after_test: |
-  # Clean up the test index
-  AUTH_HEADER=""
-  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
-    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
-  fi
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
 
   echo "⏳ Cleaning up test index: holmes-eval-shards"
-  eval curl -s -X DELETE "$ELASTICSEARCH_URL/holmes-eval-shards" $AUTH_HEADER || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-shards" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
   echo "✅ Cleanup complete"

@@ -29,6 +29,10 @@ setup_timeout: 30
 before_test: |
   set -e
 
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
     echo "❌ ELASTICSEARCH_URL environment variable is not set"
@@ -38,14 +42,8 @@ before_test: |
   # Verify Elasticsearch is reachable
   echo "⏳ Verifying Elasticsearch connectivity..."
 
-  # Build auth header
-  AUTH_HEADER=""
-  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
-    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
-  fi
-
   # Test connection to cluster health endpoint
-  HEALTH_RESPONSE=$(eval curl -s -X GET "$ELASTICSEARCH_URL/_cluster/health" $AUTH_HEADER)
+  HEALTH_RESPONSE=$(curl -s -X GET "${ELASTICSEARCH_URL}/_cluster/health" -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
 
   if echo "$HEALTH_RESPONSE" | grep -q '"cluster_name"'; then
     CLUSTER_NAME=$(echo "$HEALTH_RESPONSE" | grep -o '"cluster_name":"[^"]*"' | cut -d'"' -f4)

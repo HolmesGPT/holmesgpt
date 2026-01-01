@@ -32,6 +32,10 @@ setup_timeout: 30
 before_test: |
   set -e
 
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
     echo "❌ ELASTICSEARCH_URL environment variable is not set"
@@ -40,68 +44,62 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="holmes-eval-events"
 
-  # Build auth header
-  AUTH_HEADER=""
-  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
-    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
-  fi
-
   # Delete the index if it exists
   echo "⏳ Cleaning up any existing test index..."
-  eval curl -s -X DELETE "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" $AUTH_HEADER || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create the test index
   echo "⏳ Creating test index..."
-  eval curl -s -X PUT "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" \
-    -H 'Content-Type: application/json' \
-    $AUTH_HEADER \
-    -d '{
-      "settings": {
-        "number_of_shards": 1,
-        "number_of_replicas": 0
-      },
-      "mappings": {
-        "properties": {
-          "timestamp": {"type": "date"},
-          "service": {"type": "keyword"},
-          "event_type": {"type": "keyword"},
-          "duration_ms": {"type": "integer"}
-        }
-      }
-    }'
+  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"service":{"type":"keyword"},"event_type":{"type":"keyword"},"duration_ms":{"type":"integer"}}}}'
 
-  # Create documents with specific distribution:
-  # payment-api: 5 events
-  # order-service: 3 events
-  # inventory-api: 2 events
-  BULK_DATA=''
+  # Create bulk data file with specific distribution:
+  # payment-api: 5 events, order-service: 3 events, inventory-api: 2 events
+  cat > /tmp/es_bulk_183d.ndjson << 'BULK_EOF'
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:01:00Z","service":"payment-api","event_type":"request","duration_ms":110}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:02:00Z","service":"payment-api","event_type":"request","duration_ms":120}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:03:00Z","service":"payment-api","event_type":"request","duration_ms":130}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:04:00Z","service":"payment-api","event_type":"request","duration_ms":140}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:05:00Z","service":"payment-api","event_type":"request","duration_ms":150}
+  {"index":{}}
+  {"timestamp":"2025-01-01T11:01:00Z","service":"order-service","event_type":"request","duration_ms":210}
+  {"index":{}}
+  {"timestamp":"2025-01-01T11:02:00Z","service":"order-service","event_type":"request","duration_ms":220}
+  {"index":{}}
+  {"timestamp":"2025-01-01T11:03:00Z","service":"order-service","event_type":"request","duration_ms":230}
+  {"index":{}}
+  {"timestamp":"2025-01-01T12:01:00Z","service":"inventory-api","event_type":"request","duration_ms":310}
+  {"index":{}}
+  {"timestamp":"2025-01-01T12:02:00Z","service":"inventory-api","event_type":"request","duration_ms":320}
+  BULK_EOF
 
-  # payment-api: 5 events
-  for i in 1 2 3 4 5; do
-    BULK_DATA+="{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:0${i}:00Z\",\"service\":\"payment-api\",\"event_type\":\"request\",\"duration_ms\":$((100 + i * 10))}\n"
-  done
-
-  # order-service: 3 events
-  for i in 1 2 3; do
-    BULK_DATA+="{\"index\":{}}\n{\"timestamp\":\"2025-01-01T11:0${i}:00Z\",\"service\":\"order-service\",\"event_type\":\"request\",\"duration_ms\":$((200 + i * 10))}\n"
-  done
-
-  # inventory-api: 2 events
-  for i in 1 2; do
-    BULK_DATA+="{\"index\":{}}\n{\"timestamp\":\"2025-01-01T12:0${i}:00Z\",\"service\":\"inventory-api\",\"event_type\":\"request\",\"duration_ms\":$((300 + i * 10))}\n"
-  done
+  # Remove leading spaces from the bulk file
+  sed -i 's/^  //' /tmp/es_bulk_183d.ndjson
 
   # Index the documents
-  echo -e "$BULK_DATA" | eval curl -s -X POST "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_bulk" \
-    -H 'Content-Type: application/x-ndjson' \
-    $AUTH_HEADER \
-    --data-binary @-
+  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @/tmp/es_bulk_183d.ndjson
 
   # Refresh the index
-  eval curl -s -X POST "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_refresh" $AUTH_HEADER
+  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}"
+
+  # Clean up temp file
+  rm -f /tmp/es_bulk_183d.ndjson
 
   # Verify total document count
-  DOC_COUNT=$(eval curl -s -X GET "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_count" $AUTH_HEADER | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  DOC_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
 
   if [ "$DOC_COUNT" = "10" ]; then
     echo "✅ Test index created with $DOC_COUNT events (payment-api: 5, order-service: 3, inventory-api: 2)"
@@ -111,12 +109,11 @@ before_test: |
   fi
 
 after_test: |
-  # Clean up the test index
-  AUTH_HEADER=""
-  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
-    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
-  fi
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
 
   echo "⏳ Cleaning up test index: holmes-eval-events"
-  eval curl -s -X DELETE "$ELASTICSEARCH_URL/holmes-eval-events" $AUTH_HEADER || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-events" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
   echo "✅ Cleanup complete"

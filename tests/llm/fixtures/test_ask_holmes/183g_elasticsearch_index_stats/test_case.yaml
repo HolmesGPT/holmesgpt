@@ -28,6 +28,10 @@ setup_timeout: 30
 before_test: |
   set -e
 
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
     echo "❌ ELASTICSEARCH_URL environment variable is not set"
@@ -36,21 +40,16 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="holmes-eval-stats"
 
-  # Build auth header
-  AUTH_HEADER=""
-  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
-    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
-  fi
-
   # Delete the index if it exists
   echo "⏳ Cleaning up any existing test index..."
-  eval curl -s -X DELETE "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" $AUTH_HEADER || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create the test index
   echo "⏳ Creating test index..."
-  eval curl -s -X PUT "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" \
-    -H 'Content-Type: application/json' \
-    $AUTH_HEADER \
+  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
       "settings": {
         "number_of_shards": 1,
@@ -62,19 +61,21 @@ before_test: |
   echo "⏳ Indexing 50 documents..."
   BULK_DATA=""
   for i in $(seq 1 50); do
-    BULK_DATA+="{\"index\":{}}\n{\"id\":$i,\"message\":\"Test document number $i\",\"value\":$((i * 10))}\n"
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"id\":$i,\"message\":\"Test document number $i\",\"value\":$((i * 10))}\n"
   done
 
-  echo -e "$BULK_DATA" | eval curl -s -X POST "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_bulk" \
-    -H 'Content-Type: application/x-ndjson' \
-    $AUTH_HEADER \
+  echo -e "$BULK_DATA" | curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @-
 
   # Refresh the index to ensure all documents are searchable
-  eval curl -s -X POST "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_refresh" $AUTH_HEADER
+  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}"
 
   # Verify document count
-  DOC_COUNT=$(eval curl -s -X GET "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_count" $AUTH_HEADER | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  DOC_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
 
   if [ "$DOC_COUNT" = "50" ]; then
     echo "✅ Test index created with $DOC_COUNT documents"
@@ -84,12 +85,11 @@ before_test: |
   fi
 
 after_test: |
-  # Clean up the test index
-  AUTH_HEADER=""
-  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
-    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
-  fi
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
 
   echo "⏳ Cleaning up test index: holmes-eval-stats"
-  eval curl -s -X DELETE "$ELASTICSEARCH_URL/holmes-eval-stats" $AUTH_HEADER || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-stats" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
   echo "✅ Cleanup complete"
