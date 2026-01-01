@@ -120,6 +120,7 @@ function buildRerunFooter(p, context) {
     '| `filter` | Pytest -k filter |\n' +
     '| `iterations` | Number of runs, max 10 |\n' +
     '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
+    '**Quick re-run:** Use `/last` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
     (p.validMarkers || '_(Collecting from pyproject.toml...)_') +
