@@ -6,7 +6,7 @@ set -e  # Exit on error
 
 # Default values from workflow
 DEFAULT_MODELS="gpt-5.1,gpt-5,sonnet-4.5,haiku-4.5,deepseek-3.1"
-DEFAULT_MARKERS="easy or medium or hard"
+DEFAULT_MARKERS="regression or benchmark"
 DEFAULT_ITERATIONS="1"
 
 # Parse command line arguments
@@ -111,7 +111,7 @@ echo "Checking API keys..."
 echo ""
 
 # Build pytest command with optional arguments
-PYTEST_CMD="poetry run pytest tests/llm/ -m \"$TEST_MARKERS\""
+PYTEST_CMD="poetry run pytest tests/llm/test_ask_holmes.py -m \"$TEST_MARKERS\""
 [ -n "$K_FILTER" ] && PYTEST_CMD="$PYTEST_CMD -k \"$K_FILTER\""
 [ -n "$PARALLEL" ] && PYTEST_CMD="$PYTEST_CMD -n $PARALLEL"
 # Add strict setup mode for benchmarks to ensure all tests run properly (if enabled)

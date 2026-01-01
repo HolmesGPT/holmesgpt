@@ -2,6 +2,7 @@ user_prompt: "Use the custom-crd runbook and check why custom CRD whale-watcher 
 tags:
   - runbooks
   - medium
+  - benchmark
 
 expected_output: |
   - Does not find a matching runbook for custom CRD issues

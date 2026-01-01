@@ -93,6 +93,9 @@ For more control over which evals to run, you can use pytest directly with marke
 # Run all easy evals (regression tests - should always pass)
 RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
 
+# Run regression and benchmark tests (critical tests for CI/CD)
+RUN_LIVE=true poetry run pytest -m 'llm and (regression or benchmark)' --no-cov
+
 # Run challenging tests
 RUN_LIVE=true poetry run pytest -m 'llm and medium' --no-cov
 
@@ -108,6 +111,8 @@ RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py -k "01_how_many_pod
 - `medium` - More challenging scenarios
 - `logs` - Tests involving log analysis
 - `kubernetes` - Kubernetes-specific tests
+- `regression` - Critical regression tests
+- `benchmark` - Challenging tests for benchmarking model capabilities
 
 ### Testing Different Models
 

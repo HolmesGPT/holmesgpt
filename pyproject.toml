@@ -135,7 +135,8 @@ markers = [
     # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)  
     # - Tests core HolmesGPT functionality that should never regress
     # - Fast execution to avoid slowing CI/CD pipelines
-    "regression: Critical regression tests that must always pass"
+    "regression: Critical regression tests that must always pass",
+    "benchmark: Challenging tests for evaluating and benchmarking model capabilities"
 ]
 
 addopts = [
