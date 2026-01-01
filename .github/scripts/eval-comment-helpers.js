@@ -91,21 +91,30 @@ function buildBody(p, progressSteps, extras = {}) {
  * Build re-run instructions footer for automatic runs
  * @param {Object} p - Parameters object with validMarkers, askHolmesEvals, investigateEvals
  * @param {Object} context - GitHub context object
+ * @param {Object} options - Options object
+ * @param {boolean} options.showLegend - Whether to show the legend (only show with results)
  * @returns {string} Markdown footer
  */
-function buildRerunFooter(p, context) {
+function buildRerunFooter(p, context, options = {}) {
   const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
-  return '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
-    '| Icon | Meaning |\n|------|--------|\n' +
-    '| ✅ | The test was successful |\n' +
-    '| ➖ | The test was skipped |\n' +
-    '| ⚠️ | The test failed but is known to be flaky or known to fail |\n' +
-    '| 🚧 | The test had a setup failure (not a code regression) |\n' +
-    '| 🔧 | The test failed due to mock data issues (not a code regression) |\n' +
-    '| 🚫 | The test was throttled by API rate limits/overload |\n' +
-    '| ❌ | The test failed and should be fixed before merging the PR |\n' +
-    '</details>\n' +
-    '\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
+
+  let footer = '';
+
+  // Only show legend when results are present
+  if (options.showLegend) {
+    footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
+      '| Icon | Meaning |\n|------|--------|\n' +
+      '| ✅ | The test was successful |\n' +
+      '| ➖ | The test was skipped |\n' +
+      '| ⚠️ | The test failed but is known to be flaky or known to fail |\n' +
+      '| 🚧 | The test had a setup failure (not a code regression) |\n' +
+      '| 🔧 | The test failed due to mock data issues (not a code regression) |\n' +
+      '| 🚫 | The test was throttled by API rate limits/overload |\n' +
+      '| ❌ | The test failed and should be fixed before merging the PR |\n' +
+      '</details>\n';
+  }
+
+  footer += '\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
     '> ⚠️ **Warning:** Manual re-runs have NO default markers and will run ALL LLM tests (~100+), which can take 1+ hours. ' +
     'Use `markers: regression` or `filter: test_name` to limit scope.\n\n' +
     '**Option 1: Comment on this PR** with `/eval`:\n\n' +
@@ -131,6 +140,8 @@ function buildRerunFooter(p, context) {
     '\n\n**test_investigate:**\n' +
     (p.investigateEvals || '_(Collecting from tests/llm/fixtures/...)_') +
     '\n</details>\n';
+
+  return footer;
 }
 
 module.exports = {
