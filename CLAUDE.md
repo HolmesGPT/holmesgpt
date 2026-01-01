@@ -310,6 +310,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
 - `before_test` creates test data in the cloud service, `after_test` cleans up
 - Use `toolsets.yaml` to configure the toolset with env var references: `url: "{{ env.ELASTICSEARCH_URL }}"`
+- **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
