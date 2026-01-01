@@ -92,7 +92,7 @@ function buildBody(p, progressSteps, extras = {}) {
  * @param {Object} p - Parameters object with validMarkers, askHolmesEvals, investigateEvals
  * @param {Object} context - GitHub context object
  * @param {Object} options - Options object
- * @param {boolean} options.showLegend - Whether to show the legend (only show with results)
+ * @param {boolean} options.showLegend - Whether to show the legend (only when results are displayed)
  * @returns {string} Markdown footer
  */
 function buildRerunFooter(p, context, options = {}) {
@@ -100,7 +100,7 @@ function buildRerunFooter(p, context, options = {}) {
 
   let footer = '';
 
-  // Only show legend when results are present
+  // Only show legend when results table is present (not during progress updates)
   if (options.showLegend) {
     footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
       '| Icon | Meaning |\n|------|--------|\n' +
