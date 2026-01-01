@@ -335,7 +335,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: p.prNumber,
-              body: buildBody(p, progressSteps) + buildRerunFooter(p, context)
+              body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
             });
             core.setOutput('comment_id', comment.data.id.toString());
 
@@ -367,7 +367,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps) + buildRerunFooter(p, context)
+              body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
             });
 
       - name: Collect evals to run
@@ -454,7 +454,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null }) + buildRerunFooter(p, context)
+              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context)
             });
 
       - name: Setup KIND cluster
@@ -489,7 +489,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null }) + buildRerunFooter(p, context)
+              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context)
             });
 
       - name: Run tests
@@ -564,7 +564,8 @@ jobs:
 
             let body = notifyHeader + buildBody(p, null, {
               icon: p.isManual ? '🧪' : '✅',
-              title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals'
+              title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals',
+              context
             });
             body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
             if (hasFailures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;

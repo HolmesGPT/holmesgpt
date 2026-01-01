@@ -46,9 +46,16 @@ function renderProgress(steps) {
 /**
  * Render parameters table for manual runs
  * @param {Object} p - Parameters object
+ * @param {Object} context - GitHub context object (optional, for rerun link)
  * @returns {string} Markdown table
  */
-function renderParamsTable(p) {
+function renderParamsTable(p, context = null) {
+  let workflowLinks = `[View logs](${p.runUrl})`;
+  if (context) {
+    const baseWorkflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
+    const rerunUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
+    workflowLinks += ` \\| [Rerun](${rerunUrl})`;
+  }
   return `| Parameter | Value |\n|-----------|-------|\n` +
     `| **Triggered via** | ${p.trigger} |\n` +
     (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') +
@@ -57,20 +64,20 @@ function renderParamsTable(p) {
     (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
     `| **Iterations** | ${p.iterations} |\n` +
     (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
-    `| **Workflow** | [View logs](${p.runUrl}) |\n`;
+    `| **Workflow** | ${workflowLinks} |\n`;
 }
 
 /**
  * Build comment body based on state
  * @param {Object} p - Parameters object
  * @param {Array<[boolean, string]>} progressSteps - Progress steps (null to hide)
- * @param {Object} extras - Extra options (icon, title, testPreview)
+ * @param {Object} extras - Extra options (icon, title, testPreview, context)
  * @returns {string} Markdown body
  */
 function buildBody(p, progressSteps, extras = {}) {
   let body = p.isManual
     ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
-      renderParamsTable(p)
+      renderParamsTable(p, extras.context)
     : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
       `Automatically triggered by ${p.trigger}\n\n` +
       `[View workflow logs](${p.runUrl})\n`;
