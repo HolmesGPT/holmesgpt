@@ -4,6 +4,25 @@ By enabling this toolset, HolmesGPT can query Elasticsearch and OpenSearch clust
 
 This toolset works with both **Elasticsearch** (including Elastic Cloud) and **OpenSearch** since they share the same REST API.
 
+## Use Cases
+
+This toolset supports two main use cases:
+
+**1. Querying data stored in Elasticsearch** - Search logs, metrics, or other documents stored in your indices:
+
+- Search for errors in application logs
+- Query time-series data
+- Explore index mappings and structure
+
+**2. Troubleshooting Elasticsearch/OpenSearch cluster health** - Diagnose issues with the cluster itself:
+
+- Check cluster health status (green/yellow/red)
+- Investigate unassigned shards
+- Analyze node statistics and resource usage
+- Understand shard allocation decisions
+
+Both use cases are served by the same `elasticsearch/core` toolset.
+
 ## Configuration
 
 === "Holmes CLI"
@@ -73,25 +92,36 @@ The toolset supports multiple authentication methods:
 
 --8<-- "snippets/toolset_capabilities_intro.md"
 
+### Data Querying Tools
+
 | Tool Name | Description |
 |-----------|-------------|
-| elasticsearch_cat | Query _cat APIs (indices, shards, health, nodes, etc.) with optional index filtering |
 | elasticsearch_search | Search documents using Elasticsearch Query DSL |
-| elasticsearch_cluster_health | Get cluster health status |
 | elasticsearch_mappings | Get field mappings for an index |
-| elasticsearch_index_stats | Get statistics for an index |
+| elasticsearch_cat | Query _cat APIs (indices, shards, etc.) with optional index filtering |
+
+### Cluster Health Tools
+
+| Tool Name | Description |
+|-----------|-------------|
+| elasticsearch_cluster_health | Get cluster health status |
 | elasticsearch_allocation_explain | Explain shard allocation decisions |
 | elasticsearch_nodes_stats | Get node-level statistics |
+| elasticsearch_index_stats | Get statistics for an index |
 
 ## Example Queries
 
-HolmesGPT can use these tools to answer questions like:
+### Querying Data
+
+- "Search for ERROR logs in the application-logs index from the last hour"
+- "What are the field mappings for the metrics index?"
+- "Show me the shards for the logs-* indices"
+
+### Troubleshooting Cluster Health
 
 - "What is the cluster health status?"
-- "Show me the shards for the logs-* indices"
-- "Search for ERROR logs in the application-logs index from the last hour"
 - "Why are shards unassigned?"
-- "What are the field mappings for the metrics index?"
+- "Which nodes have high disk usage?"
 
 ## OpenSearch Compatibility
 
