@@ -5,12 +5,15 @@ New Relic provides distributed tracing data along with logs and metrics.
 
 ### Important Multi-Account Workflow
 
-**Each NRQL query MUST include the account_id parameter.** Here's how to determine which account_id to use:
+**Each NRQL query MUST include the account_id parameter.**
+1. A New Relic account ID is a numeric identifier, typically a 6–8 digit integer (e.g., 1234567).
 
-1. **Check context first**: Look for `nrAccountId` in the provided context (e.g., from alerts, traces, or previous queries). If found, use that value.
+**Here's how to determine which account_id to use**
 
-2. **Account name provided**: If the user mentions a specific account name (e.g., "Production Account", "Staging"):
-   - First call `newrelic_list_organization_accounts` to get the list of all accounts
+1. **ALWAYS Check context first**: Look for `nrAccountId` in the provided context (e.g., from alerts, traces, or previous queries). If found, use that value.
+
+2. **ALWAYS CHECK if Account name provided**: If the user mentions a specific account name (e.g., "Production Account", "Staging"):
+   - YOU MUST First call `newrelic_list_organization_accounts` to get the list of all accounts
    - Find the matching account by name and use its ID
 
 3. **No account specified**: If the user asks a general question without specifying an account:
