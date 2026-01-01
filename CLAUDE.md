@@ -319,7 +319,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
   - BAD: `"Find node_exporter metrics"`
   - GOOD: `"Find CPU pressure monitoring queries"`
 - **Test discovery, not recognition**: Holmes should search/analyze, not guess from context
-- **Verify tool calls with `include_tool_calls: true`**: Allows expected_output to check which tools were called
+- **Verify tool calls with `include_tool_calls: true`**: Allows expected_output to check which tools were called. **Use sparingly** - prefer checking the final answer is correct rather than specific tool calls, since the agent may take different investigation trajectories to achieve the same result. Only use when there's no other easy way to verify the behavior.
   ```yaml
   include_tool_calls: true
   expected_output:
