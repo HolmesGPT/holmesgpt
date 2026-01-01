@@ -94,7 +94,8 @@ function buildBody(p, progressSteps, extras = {}) {
  * @returns {string} Markdown footer
  */
 function buildRerunFooter(p, context) {
-  const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
+  const baseWorkflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
+  const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
   return '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
     '| Icon | Meaning |\n|------|--------|\n' +
     '| ✅ | The test was successful |\n' +
