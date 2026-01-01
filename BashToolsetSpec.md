@@ -67,14 +67,14 @@ Parameters:
 | Subcommand (`get`, `describe`) | Namespace values (`default`) |
 | Resource type (`pod`, `deployment`) | Flag values, file paths |
 
-**Always required:** `suggested_prefixes` must always be provided as an array, even for single commands.
+**`suggested_prefixes` must be provided as an array**, even for single commands.
 
 ## Composed Commands
 
-Commands with `|`, `&&`, `||`, `;`, `&` require one prefix per segment:
+For `bash_v2`, commands with `|`, `&&`, `||`, `;`, `&` require one prefix per segment:
 
 ```yaml
-Tool: bash
+Tool: bash_v2
 Parameters:
   command: "kubectl get pods | grep error | head -10"
   suggested_prefixes:
@@ -83,10 +83,15 @@ Parameters:
     - "head"
 ```
 
-**Validation:**
+
+**Validation (`bash_v2`):**
 - Segment count must equal prefix count
 - Each prefix must match its segment
-- ALL segments must pass validation
+- ALL segments must pass allow/deny validation
+
+**Validation (`bash_v2_limited`):**
+- Tool parses command into segments using bashlex
+- ALL segments must pass allow/deny validation
 
 **Parsing:** Use `bashlex` library for proper shell parsing (handles quotes, escapes correctly).
 
@@ -114,28 +119,38 @@ All environment variables are allowed (`$HOME`, `$USER`, `${VAR}`, etc.).
 
 ## Two Tools Architecture
 
-Two separate tools that share execution logic:
+Two separate tools that share execution logic. **Only one is registered** based on configuration:
 
-| Tool | Mode | Use Case |
-|------|------|----------|
-| `bash` | Interactive | CLI with user present. Can prompt for approval. |
-| `bash_noninteractive` | Non-interactive | Server/automated. No prompts. |
+| Tool | Description | When Registered |
+|------|-------------|-----------------|
+| `bash_v2` | Can trigger approval flow for non-whitelisted commands | When approval is possible (CLI interactive, or server with `enable_tool_approval=true`) |
+| `bash_v2_limited` | Strict whitelist only, no approval possible | When approval is not possible (CLI with `--bash-always-deny`, or server default) |
 
-**Why two tools:** Clear separation of capabilities. The toolset config determines which tool is registered.
+**Why two tools:** AI clearly understands what it's calling. Different tool descriptions guide AI behavior. No confusion about whether approval is possible.
 
-### Interactive Tool (`bash`)
+**Tool descriptions (for AI):**
+- `bash_v2`: "Execute bash commands. Non-whitelisted commands will prompt user for approval."
+- `bash_v2_limited`: "Execute bash commands. Only whitelisted commands allowed, others will fail."
 
-Used when user can be prompted. Default for CLI.
+### `bash_v2` - Approval Possible
+
+Registered when user approval is possible.
+
+**Behavior:** Non-whitelisted commands return `APPROVAL_REQUIRED` status. System handles approval based on context:
+- **CLI (`call()`)**: Uses `approval_callback` to prompt user synchronously
+- **Server (`call_stream()`)**: Stream ends with `APPROVAL_REQUIRED` event, client handles approval externally
 
 **CLI flags:**
 | Flag | Behavior |
 |------|----------|
-| (default) | Prompt user for non-whitelisted commands |
-| `--bash-always-deny` | Never prompt, reject all non-whitelisted |
+| (default) | Register `bash_v2`, prompt user for non-whitelisted commands |
+| `--bash-always-deny` | Register `bash_v2_limited` instead |
 
-### Non-Interactive Tool (`bash_noninteractive`)
+### `bash_v2_limited` - Strict Mode
 
-Used when no user is present. Default for server mode.
+Registered when no user approval is possible.
+
+**Behavior:** Non-whitelisted commands return `ERROR` immediately. AI sees error and should use only whitelisted commands.
 
 **Modes (via config):**
 
@@ -148,10 +163,25 @@ toolsets:
 
 | Mode | Behavior |
 |------|----------|
-| `strict` | Only allow-listed commands execute. Others rejected. |
+| `strict` (default) | Only allow-listed commands execute. Others return ERROR. |
 | `permissive` | All commands execute (hardcoded blocks still enforced). |
 
-**Why `permissive` mode:** For users who want to dangerously allow everything. Uses non-interactive tool so there's no expectation of user prompts. Hardcoded blocks (sudo, fork bombs) are still enforced.
+**Why `permissive` mode:** For users who want to dangerously allow everything. Hardcoded blocks (sudo, fork bombs) are still enforced.
+
+### Approval Data Flow
+
+When `bash_v2` returns `APPROVAL_REQUIRED`:
+
+```python
+StructuredToolResult(
+    status=APPROVAL_REQUIRED,
+    error="Command not in allow list",
+    params={"command": "...", "suggested_prefixes": ["kubectl get", "grep"]},
+    invocation="kubectl get pods | grep error"
+)
+```
+
+The `suggested_prefixes` from params provides everything needed for the approval prompt ("Yes, and don't ask again for `kubectl get`, `grep` commands").
 
 ## User Approval (Interactive)
 
@@ -288,19 +318,31 @@ toolsets:
 
 ## Tool Parameters
 
+### `bash_v2` (approval possible)
+
 ```yaml
-Tool: bash
+Tool: bash_v2
 Parameters:
   command:            # required, the bash command
   suggested_prefixes: # required, array of prefixes (one per command segment)
   timeout:            # optional, default 30 seconds
 ```
 
-**`suggested_prefixes` is always required and always an array:**
+**`suggested_prefixes` is required and always an array:**
 - Single command: `["kubectl get"]`
 - Composed command: `["kubectl get", "grep", "head"]`
 
-**Why always array:** Simplifies implementation. No conditional logic for single vs composed commands.
+**Why required:** Used for approval prompt ("don't ask again for X commands") and validation.
+
+### `bash_v2_limited` (strict mode)
+
+```yaml
+Tool: bash_v2_limited
+Parameters:
+  command:            # required, the bash command
+  timeout:            # optional, default 30 seconds
+```
+
 
 ## Whitelist in System Prompt
 
@@ -315,15 +357,26 @@ The allow list is injected into the system prompt via `llm_instructions` pattern
 3. User-configured deny list blocks commands
 4. Composed commands: each segment validated independently
 5. Subshells detected and blocked
-6. Two tools work correctly (interactive vs non-interactive)
-7. Prefix validation enforced (always required, always array)
-8. Config customization merges correctly with defaults
-9. Approved prefixes persist to `~/.holmes/` for CLI
+6. Correct tool registered based on mode:
+   - `bash_v2` when approval possible (CLI default, server with `enable_tool_approval`)
+   - `bash_v2_limited` when no approval (CLI with `--bash-always-deny`, server default)
+7. `bash_v2` returns `APPROVAL_REQUIRED` for non-whitelisted commands
+8. `bash_v2_limited` returns `ERROR` for non-whitelisted commands
+9. `bash_v2`: Prefix validation enforced (required, always array)
+10. Config customization merges correctly with defaults
+11. Approved prefixes persist to `~/.holmes/` for CLI
 
 ## Testing
 
 **Unit tests:** Prefix validation, command parsing, subshell detection, list matching, config merging, hardcoded block detection
 
-**Integration tests:** End-to-end execution, two tools behavior, mode switching (strict/permissive), persistent approval storage
+**Integration tests:**
+- `bash_v2`: Returns `APPROVAL_REQUIRED` for non-whitelisted, approval flow works
+- `bash_v2_limited`: Returns `ERROR` for non-whitelisted, permissive mode works
+- Tool registration based on config/flags
+- Persistent approval storage in `~/.holmes/`
 
-**LLM evals:** AI provides correct prefixes (always array), recovers from denials, respects hardcoded blocks
+**LLM evals:**
+- `bash_v2`: AI provides correct prefixes (array), recovers from denials
+- `bash_v2_limited`: AI recovers from errors, only uses whitelisted commands
+- Both: Respects hardcoded blocks
