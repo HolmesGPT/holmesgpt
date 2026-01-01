@@ -1,17 +1,17 @@
-# Bash Toolset v2 Specification
+# Bash Toolset Specification
 
-A new bash toolset for HolmesGPT with prefix-based command validation and user approval.
+Redesigned bash toolset for HolmesGPT with prefix-based command validation and user approval.
 
 ## Overview
 
-**Goal:** Enable bash command execution by default with security guardrails.
+**Goal:** Enable bash command execution with dynamic whitelisting. The old bash toolset had a rigid allow list; this redesign lets users approve commands on-the-fly and build their trusted command set over time.
 
-**Approach:** New `bash_v2` toolset. Existing `bash` toolset remains for backward compatibility.
+**Approach:** Replace the existing `bash` toolset with this new implementation.
 
 **Key features:**
 - Pre-configured allow list of safe command prefixes (server) or empty (local CLI)
 - Hardcoded blocks for inherently dangerous patterns (sudo, fork bombs)
-- User approval for non-whitelisted commands
+- User approval for non-whitelisted commands, with option to approve by prefix for future commands
 - Support for composed commands (pipes, &&, ||, ;, &)
 
 ## User Interaction
@@ -91,7 +91,7 @@ Users provide their own allow and deny lists:
 
 ```yaml
 toolsets:
-  bash_v2:
+  bash:
     enabled: true
     config:
       allow:
@@ -129,7 +129,7 @@ Recommended configuration for server deployments:
 ```yaml
 # values.yaml
 toolsets:
-  bash_v2:
+  bash:
     enabled: true
     config:
       allow:
@@ -216,7 +216,7 @@ Commands with `|`, `&&`, `||`, `;`, `&` are parsed into segments using bashlex. 
 ### Tool Parameters
 
 ```yaml
-Tool: bash_v2
+Tool: bash
 Parameters:
   command:            # required, the bash command
   suggested_prefixes: # required, array of prefixes (one per command segment)
@@ -225,7 +225,7 @@ Parameters:
 
 **Example:**
 ```yaml
-Tool: bash_v2
+Tool: bash
 Parameters:
   command: "kubectl get pods | grep error | head -10"
   suggested_prefixes:
@@ -250,7 +250,7 @@ The AI provides `suggested_prefixes` when calling the tool. System verifies each
 
 ### Tool Behavior
 
-One tool `bash_v2`. Validation follows the order defined above. How `APPROVAL_REQUIRED` is handled is controlled by the calling layer (CLI/server), not the toolset.
+One tool `bash`. Validation follows the order defined above. How `APPROVAL_REQUIRED` is handled is controlled by the calling layer (CLI/server), not the toolset.
 
 **Calling layer handles approval:**
 - **CLI (`call()`)**: Uses `approval_callback` to prompt user synchronously
@@ -305,7 +305,7 @@ The `suggested_prefixes` from params provides everything needed for the approval
 
 Create documentation for the new bash toolset:
 
-1. How to enable the bash_v2 toolset
+1. How to enable the bash toolset
 2. Example configuration with allow/deny lists
 3. CLI flags (`--bash-always-deny`, `--bash-always-allow`)
 4. Security considerations
