@@ -26,8 +26,6 @@ function buildParams(raw) {
     testPreview: raw.test_preview || '',
     duration: raw.duration || 'N/A',
     validMarkers: raw.valid_markers || '',
-    askHolmesEvals: raw.ask_holmes_evals || '',
-    investigateEvals: raw.investigate_evals || '',
     triggered_by: raw.triggered_by || ''
   };
 }
@@ -95,36 +93,37 @@ function buildBody(p, progressSteps, extras = {}) {
 }
 
 /**
- * Format comma-separated items as linked list
+ * Format comma-separated items as code-styled list
  * @param {string} items - Comma-separated items
- * @param {string} workflowUrl - Base workflow URL for links
- * @param {string} paramType - 'markers' or 'filter' for the workflow input
- * @returns {string} Formatted linked items
+ * @returns {string} Formatted items
  */
-function formatAsLinks(items, workflowUrl, paramType) {
+function formatAsCodes(items) {
   if (!items) return '_(loading...)_';
   return items.split(',').map(item => {
     const trimmed = item.trim();
     if (!trimmed) return '';
-    // Link to workflow dispatch - user will need to enter the value manually
-    return `[\`${trimmed}\`](${workflowUrl})`;
+    return `\`${trimmed}\``;
   }).filter(Boolean).join(', ');
 }
 
 /**
  * Build re-run instructions footer for automatic runs
- * @param {Object} p - Parameters object with validMarkers, askHolmesEvals, investigateEvals
+ * @param {Object} p - Parameters object with validMarkers
  * @param {Object} context - GitHub context object
  * @returns {string} Markdown footer
  */
 function buildRerunFooter(p, context) {
-  const baseWorkflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
+  const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+  const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`;
   const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
 
-  // Format markers and evals as comma-separated links
-  const markersFormatted = formatAsLinks(p.validMarkers, workflowUrl, 'markers');
-  const askHolmesFormatted = formatAsLinks(p.askHolmesEvals, workflowUrl, 'filter');
-  const investigateFormatted = formatAsLinks(p.investigateEvals, workflowUrl, 'filter');
+  // Format markers as comma-separated code-styled names
+  const markersFormatted = formatAsCodes(p.validMarkers);
+
+  // gh CLI command to run workflow from PR branch
+  const ghCommand = p.displayBranch
+    ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression`
+    : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression`;
 
   return '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
     '| Icon | Meaning |\n|------|--------|\n' +
@@ -139,7 +138,8 @@ function buildRerunFooter(p, context) {
     '\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
     '> ⚠️ **Warning:** `/eval` comments always run using the **workflow from master**, not from this PR branch. ' +
     'If you modified the GitHub Action (e.g., added secrets or env vars), those changes won\'t take effect.\n>\n' +
-    `> **To test workflow changes**, use [Trigger via GitHub Actions UI](${workflowUrl}) instead, which runs the workflow from your PR branch.\n\n` +
+    '> **To test workflow changes**, use the GitHub CLI or [Actions UI](' + workflowUrl + ') instead:\n>\n' +
+    '> ```\n> ' + ghCommand + '\n> ```\n\n' +
     '---\n\n' +
     '**Option 1: Comment on this PR** with `/eval`:\n\n' +
     '```\n/eval\nmarkers: regression\n```\n\n' +
@@ -150,17 +150,13 @@ function buildRerunFooter(p, context) {
     '| Option | Description |\n|--------|-------------|\n' +
     '| `model` | Model(s) to test (default: same as automatic runs) |\n' +
     '| `markers` | Pytest markers (**no default - runs all tests!**) |\n' +
-    '| `filter` | Pytest -k filter |\n' +
+    '| `filter` | Pytest -k filter (use `/list` to see valid eval names) |\n' +
     '| `iterations` | Number of runs, max 10 |\n' +
     '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
     '**Quick re-run:** Use `/last` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
     markersFormatted +
-    '\n</details>\n' +
-    '\n<details>\n<summary>📋 <b>Valid eval names (use with filter)</b></summary>\n\n' +
-    '**test_ask_holmes:** ' + askHolmesFormatted +
-    '\n\n**test_investigate:** ' + investigateFormatted +
     '\n</details>\n';
 }
 

@@ -36,6 +36,61 @@ permissions:
   issues: write
 
 jobs:
+  # Handle /list command - outputs available eval names
+  list_evals:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/list')
+    steps:
+      - name: Check permissions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const association = context.payload.comment.author_association;
+            if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
+              core.setFailed(`Permission denied: ${association} cannot use /list (requires OWNER, MEMBER, or COLLABORATOR)`);
+            }
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Post eval list
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // Collect eval names from fixture directories
+            const askHolmesPath = 'tests/llm/fixtures/test_ask_holmes';
+            const investigatePath = 'tests/llm/fixtures/test_investigate';
+
+            const getEvalNames = (dir) => {
+              try {
+                return fs.readdirSync(dir)
+                  .filter(f => !f.startsWith('.'))
+                  .sort()
+                  .map(f => `\`${f}\``)
+                  .join(', ');
+              } catch (e) {
+                return '_(none found)_';
+              }
+            };
+
+            const askHolmesEvals = getEvalNames(askHolmesPath);
+            const investigateEvals = getEvalNames(investigatePath);
+
+            const body = `## 📋 Available Eval Names\n\n` +
+              `Use these with \`filter:\` in your \`/eval\` command.\n\n` +
+              `**test_ask_holmes:**\n${askHolmesEvals}\n\n` +
+              `**test_investigate:**\n${investigateEvals}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
   llm_evals:
     runs-on: ubuntu-latest
     if: |
@@ -390,7 +445,7 @@ jobs:
           TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || true)
 
           # Collect valid markers from pyproject.toml using Python/tomllib (excluding 'llm' which is internal)
-          # Output as comma-separated plain names for JS to format as links
+          # Output as comma-separated plain names
           VALID_MARKERS=$(python3 << 'PYEOF'
           import tomllib
           with open('pyproject.toml', 'rb') as f:
@@ -400,10 +455,6 @@ jobs:
           print(','.join(names))
           PYEOF
           )
-
-          # Collect valid eval names from fixture directories (comma-separated for JS formatting)
-          ASK_HOLMES_EVALS=$(ls -1 tests/llm/fixtures/test_ask_holmes/ 2>/dev/null | grep -v '^\.' | sort | tr '\n' ',' | sed 's/,$//')
-          INVESTIGATE_EVALS=$(ls -1 tests/llm/fixtures/test_investigate/ 2>/dev/null | grep -v '^\.' | sort | tr '\n' ',' | sed 's/,$//')
 
           # Output for next steps
           echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
@@ -418,16 +469,6 @@ jobs:
           echo "$VALID_MARKERS" >> $GITHUB_OUTPUT
           echo "$EOF" >> $GITHUB_OUTPUT
 
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          echo "ask_holmes_evals<<$EOF" >> $GITHUB_OUTPUT
-          echo "$ASK_HOLMES_EVALS" >> $GITHUB_OUTPUT
-          echo "$EOF" >> $GITHUB_OUTPUT
-
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          echo "investigate_evals<<$EOF" >> $GITHUB_OUTPUT
-          echo "$INVESTIGATE_EVALS" >> $GITHUB_OUTPUT
-          echo "$EOF" >> $GITHUB_OUTPUT
-
       - name: Update progress - evals collected
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
         uses: actions/github-script@v7
@@ -439,9 +480,7 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
-              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
-              ask_holmes_evals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }},
-              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }}
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
             });
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
@@ -474,9 +513,7 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
-              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
-              ask_holmes_evals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }},
-              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }}
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
             });
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
@@ -546,8 +583,6 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               duration: ${{ toJSON(steps.evals.outputs.duration) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
-              ask_holmes_evals: ${{ toJSON(steps.test-preview.outputs.ask_holmes_evals) }},
-              investigate_evals: ${{ toJSON(steps.test-preview.outputs.investigate_evals) }},
               triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
             const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
