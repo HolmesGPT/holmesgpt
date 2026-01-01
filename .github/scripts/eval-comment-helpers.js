@@ -95,6 +95,23 @@ function buildBody(p, progressSteps, extras = {}) {
 }
 
 /**
+ * Format comma-separated items as linked list
+ * @param {string} items - Comma-separated items
+ * @param {string} workflowUrl - Base workflow URL for links
+ * @param {string} paramType - 'markers' or 'filter' for the workflow input
+ * @returns {string} Formatted linked items
+ */
+function formatAsLinks(items, workflowUrl, paramType) {
+  if (!items) return '_(loading...)_';
+  return items.split(',').map(item => {
+    const trimmed = item.trim();
+    if (!trimmed) return '';
+    // Link to workflow dispatch - user will need to enter the value manually
+    return `[\`${trimmed}\`](${workflowUrl})`;
+  }).filter(Boolean).join(', ');
+}
+
+/**
  * Build re-run instructions footer for automatic runs
  * @param {Object} p - Parameters object with validMarkers, askHolmesEvals, investigateEvals
  * @param {Object} context - GitHub context object
@@ -103,6 +120,12 @@ function buildBody(p, progressSteps, extras = {}) {
 function buildRerunFooter(p, context) {
   const baseWorkflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
   const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
+
+  // Format markers and evals as comma-separated links
+  const markersFormatted = formatAsLinks(p.validMarkers, workflowUrl, 'markers');
+  const askHolmesFormatted = formatAsLinks(p.askHolmesEvals, workflowUrl, 'filter');
+  const investigateFormatted = formatAsLinks(p.investigateEvals, workflowUrl, 'filter');
+
   return '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
     '| Icon | Meaning |\n|------|--------|\n' +
     '| ✅ | The test was successful |\n' +
@@ -114,8 +137,10 @@ function buildRerunFooter(p, context) {
     '| ❌ | The test failed and should be fixed before merging the PR |\n' +
     '</details>\n' +
     '\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
-    '> ⚠️ **Warning:** Manual re-runs have NO default markers and will run ALL LLM tests (~100+), which can take 1+ hours. ' +
-    'Use `markers: regression` or `filter: test_name` to limit scope.\n\n' +
+    '> ⚠️ **Warning:** `/eval` comments always run using the **workflow from master**, not from this PR branch. ' +
+    'If you modified the GitHub Action (e.g., added secrets or env vars), those changes won\'t take effect.\n>\n' +
+    `> **To test workflow changes**, use [Trigger via GitHub Actions UI](${workflowUrl}) instead, which runs the workflow from your PR branch.\n\n` +
+    '---\n\n' +
     '**Option 1: Comment on this PR** with `/eval`:\n\n' +
     '```\n/eval\nmarkers: regression\n```\n\n' +
     'Or with more options (one per line):\n\n' +
@@ -131,13 +156,11 @@ function buildRerunFooter(p, context) {
     '**Quick re-run:** Use `/last` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
-    (p.validMarkers || '_(Collecting from pyproject.toml...)_') +
+    markersFormatted +
     '\n</details>\n' +
     '\n<details>\n<summary>📋 <b>Valid eval names (use with filter)</b></summary>\n\n' +
-    '**test_ask_holmes:**\n' +
-    (p.askHolmesEvals || '_(Collecting from tests/llm/fixtures/...)_') +
-    '\n\n**test_investigate:**\n' +
-    (p.investigateEvals || '_(Collecting from tests/llm/fixtures/...)_') +
+    '**test_ask_holmes:** ' + askHolmesFormatted +
+    '\n\n**test_investigate:** ' + investigateFormatted +
     '\n</details>\n';
 }
 

@@ -390,21 +390,20 @@ jobs:
           TEST_COUNT=$(echo "$TEST_LIST" | grep -c "^tests/llm/" || true)
 
           # Collect valid markers from pyproject.toml using Python/tomllib (excluding 'llm' which is internal)
+          # Output as comma-separated plain names for JS to format as links
           VALID_MARKERS=$(python3 << 'PYEOF'
           import tomllib
           with open('pyproject.toml', 'rb') as f:
               config = tomllib.load(f)
           markers = config.get('tool', {}).get('pytest', {}).get('ini_options', {}).get('markers', [])
-          for m in sorted(markers):
-              name = m.split(':')[0]
-              if name != 'llm':
-                  print(f'- `{name}`')
+          names = [m.split(':')[0] for m in sorted(markers) if m.split(':')[0] != 'llm']
+          print(','.join(names))
           PYEOF
           )
 
-          # Collect valid eval names from fixture directories
-          ASK_HOLMES_EVALS=$(ls -1 tests/llm/fixtures/test_ask_holmes/ 2>/dev/null | grep -v '^\.' | sort | awk '{print "- \x60" $0 "\x60"}')
-          INVESTIGATE_EVALS=$(ls -1 tests/llm/fixtures/test_investigate/ 2>/dev/null | grep -v '^\.' | sort | awk '{print "- \x60" $0 "\x60"}')
+          # Collect valid eval names from fixture directories (comma-separated for JS formatting)
+          ASK_HOLMES_EVALS=$(ls -1 tests/llm/fixtures/test_ask_holmes/ 2>/dev/null | grep -v '^\.' | sort | tr '\n' ',' | sed 's/,$//')
+          INVESTIGATE_EVALS=$(ls -1 tests/llm/fixtures/test_investigate/ 2>/dev/null | grep -v '^\.' | sort | tr '\n' ',' | sed 's/,$//')
 
           # Output for next steps
           echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
