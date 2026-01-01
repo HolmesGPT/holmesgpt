@@ -104,6 +104,7 @@ poetry run mypy
 - Always include filter parameters on tools that query collections (e.g., `index` parameter for Elasticsearch _cat APIs)
 - Example problem: `opensearch_list_shards` returned ALL shards → 25K+ tokens on large clusters
 - Example fix: `elasticsearch_cat` tool requires `index` parameter for shards/segments endpoints
+- When server-side filtering is not possible, use `JsonFilterMixin` (see `json_filter_mixin.py`) to add `max_depth` and `jq` parameters for client-side filtering
 
 **LLM Integration**:
 - Uses LiteLLM for multi-provider support (OpenAI, Anthropic, Azure, etc.)
