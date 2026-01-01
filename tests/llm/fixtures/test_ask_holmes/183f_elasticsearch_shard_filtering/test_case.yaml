@@ -1,0 +1,90 @@
+# Test: Elasticsearch Shard Filtering
+# Tests that Holmes can query shards with proper filtering to avoid token overflow
+#
+# This test directly addresses the original issue where querying thousands of shards
+# caused token overflow. The new toolset must support server-side filtering.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+#
+# Anti-hallucination: The test creates an index with a known number of shards (3).
+# The LLM must query the shards for this specific index and report the correct count.
+
+user_prompt: "Show me the shard information for the 'holmes-eval-shards' index. How many shards does it have and what are their states?"
+
+expected_output:
+  - "Must call elasticsearch_cat tool with endpoint=shards and filter by the specific index"
+  - "Must report that the index has 3 primary shards"
+  - "Must report the state of the shards (STARTED or similar)"
+  - "Should only show shards for the specified index, not all shards in the cluster"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+
+setup_timeout: 30
+
+before_test: |
+  set -e
+
+  # Check required environment variables
+  if [ -z "$ELASTICSEARCH_URL" ]; then
+    echo "❌ ELASTICSEARCH_URL environment variable is not set"
+    exit 1
+  fi
+
+  export HOLMES_ES_TEST_INDEX="holmes-eval-shards"
+
+  # Build auth header
+  AUTH_HEADER=""
+  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
+    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
+  fi
+
+  # Delete the index if it exists
+  echo "⏳ Cleaning up any existing test index..."
+  eval curl -s -X DELETE "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" $AUTH_HEADER || true
+
+  # Create the test index with 3 shards and 0 replicas
+  echo "⏳ Creating test index with 3 shards..."
+  RESPONSE=$(eval curl -s -X PUT "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" \
+    -H 'Content-Type: application/json' \
+    $AUTH_HEADER \
+    -d '{
+      "settings": {
+        "number_of_shards": 3,
+        "number_of_replicas": 0
+      }
+    }')
+
+  if echo "$RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "✅ Test index created with 3 shards"
+  else
+    echo "❌ Failed to create test index"
+    echo "Response: $RESPONSE"
+    exit 1
+  fi
+
+  # Wait a moment for shards to initialize
+  sleep 2
+
+  # Verify shard count
+  SHARD_INFO=$(eval curl -s -X GET "$ELASTICSEARCH_URL/_cat/shards/$HOLMES_ES_TEST_INDEX?format=json" $AUTH_HEADER)
+  SHARD_COUNT=$(echo "$SHARD_INFO" | grep -o '"index":"holmes-eval-shards"' | wc -l)
+
+  echo "✅ Test index has $SHARD_COUNT shards"
+
+after_test: |
+  # Clean up the test index
+  AUTH_HEADER=""
+  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
+    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
+  fi
+
+  echo "⏳ Cleaning up test index: holmes-eval-shards"
+  eval curl -s -X DELETE "$ELASTICSEARCH_URL/holmes-eval-shards" $AUTH_HEADER || true
+  echo "✅ Cleanup complete"

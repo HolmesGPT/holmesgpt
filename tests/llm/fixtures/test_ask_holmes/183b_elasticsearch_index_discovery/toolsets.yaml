@@ -1,0 +1,14 @@
+toolsets:
+  # Disable kubernetes toolsets for this test - we're testing Elasticsearch only
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+
+  # Enable the new Elasticsearch toolset
+  elasticsearch/core:
+    enabled: true
+    config:
+      url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true

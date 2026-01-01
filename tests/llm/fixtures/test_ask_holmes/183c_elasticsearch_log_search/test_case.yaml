@@ -1,0 +1,116 @@
+# Test: Elasticsearch Log Search with Query DSL
+# Tests that Holmes can search logs using Elasticsearch Query DSL and find specific error patterns
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+#
+# Anti-hallucination: The test injects 3 specific error codes (ERR-XXXX format with random numbers).
+# The LLM cannot know these error codes without actually searching the index.
+# Expected output requires finding these specific error codes.
+
+user_prompt: "Search the 'holmes-eval-logs' index for ERROR level log messages. What error codes (format ERR-XXXX) appear in the logs?"
+
+expected_output:
+  - "Must call elasticsearch_search tool to query the holmes-eval-logs index"
+  - "Must identify that there are ERROR level logs in the index"
+  - "Must find and list the 3 specific error codes that were injected: ERR-7291, ERR-4058, and ERR-9463"
+  - "The response should mention the error messages associated with these codes"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - logs
+  - medium
+
+setup_timeout: 30
+
+before_test: |
+  set -e
+
+  # Check required environment variables
+  if [ -z "$ELASTICSEARCH_URL" ]; then
+    echo "❌ ELASTICSEARCH_URL environment variable is not set"
+    exit 1
+  fi
+
+  export HOLMES_ES_TEST_INDEX="holmes-eval-logs"
+
+  # Build auth header
+  AUTH_HEADER=""
+  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
+    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
+  fi
+
+  # Delete the index if it exists (clean slate)
+  echo "⏳ Cleaning up any existing test index..."
+  eval curl -s -X DELETE "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" $AUTH_HEADER || true
+
+  # Create the test index with mapping
+  echo "⏳ Creating test index with log mapping..."
+  eval curl -s -X PUT "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX" \
+    -H 'Content-Type: application/json' \
+    $AUTH_HEADER \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "timestamp": {"type": "date"},
+          "level": {"type": "keyword"},
+          "service": {"type": "keyword"},
+          "error_code": {"type": "keyword"},
+          "message": {"type": "text"}
+        }
+      }
+    }'
+
+  # Define the specific error codes for anti-hallucination testing
+  ERROR_CODE_1="ERR-7291"
+  ERROR_CODE_2="ERR-4058"
+  ERROR_CODE_3="ERR-9463"
+
+  # Create bulk data with mixed log levels and specific error codes
+  BULK_DATA='{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:00:00Z\",\"level\":\"INFO\",\"service\":\"payment-api\",\"message\":\"Service started successfully\"}\n'
+  BULK_DATA+=$'{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:05:00Z\",\"level\":\"ERROR\",\"service\":\"payment-api\",\"error_code\":\"'$ERROR_CODE_1'\",\"message\":\"Database connection timeout - '\'$ERROR_CODE_1\'': Failed to connect to primary database after 30s\"}\n'
+  BULK_DATA+='{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:06:00Z\",\"level\":\"WARN\",\"service\":\"payment-api\",\"message\":\"Retrying database connection\"}\n'
+  BULK_DATA+=$'{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:10:00Z\",\"level\":\"ERROR\",\"service\":\"order-service\",\"error_code\":\"'$ERROR_CODE_2'\",\"message\":\"Payment validation failed - '\'$ERROR_CODE_2\'': Invalid card number format\"}\n'
+  BULK_DATA+='{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:15:00Z\",\"level\":\"INFO\",\"service\":\"order-service\",\"message\":\"Processing order batch complete\"}\n'
+  BULK_DATA+=$'{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:20:00Z\",\"level\":\"ERROR\",\"service\":\"inventory-api\",\"error_code\":\"'$ERROR_CODE_3'\",\"message\":\"Stock sync failed - '\'$ERROR_CODE_3\'': External inventory API returned 503\"}\n'
+  BULK_DATA+='{\"index\":{}}\n{\"timestamp\":\"2025-01-01T10:25:00Z\",\"level\":\"INFO\",\"service\":\"inventory-api\",\"message\":\"Recovered from temporary outage\"}\n'
+
+  # Index the documents
+  echo -e "$BULK_DATA" | eval curl -s -X POST "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_bulk" \
+    -H 'Content-Type: application/x-ndjson' \
+    $AUTH_HEADER \
+    --data-binary @-
+
+  # Refresh the index
+  eval curl -s -X POST "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_refresh" $AUTH_HEADER
+
+  # Verify ERROR logs exist
+  ERROR_COUNT=$(eval curl -s -X GET "$ELASTICSEARCH_URL/$HOLMES_ES_TEST_INDEX/_count" \
+    -H 'Content-Type: application/json' \
+    $AUTH_HEADER \
+    -d '{"query":{"term":{"level":"ERROR"}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  if [ "$ERROR_COUNT" = "3" ]; then
+    echo "✅ Test index created with $ERROR_COUNT ERROR logs containing codes: $ERROR_CODE_1, $ERROR_CODE_2, $ERROR_CODE_3"
+  else
+    echo "❌ Expected 3 ERROR logs but found: $ERROR_COUNT"
+    exit 1
+  fi
+
+after_test: |
+  # Clean up the test index
+  AUTH_HEADER=""
+  if [ -n "$ELASTICSEARCH_API_KEY" ]; then
+    AUTH_HEADER="-H 'Authorization: ApiKey $ELASTICSEARCH_API_KEY'"
+  fi
+
+  echo "⏳ Cleaning up test index: holmes-eval-logs"
+  eval curl -s -X DELETE "$ELASTICSEARCH_URL/holmes-eval-logs" $AUTH_HEADER || true
+  echo "✅ Cleanup complete"
