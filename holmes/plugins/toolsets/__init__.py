@@ -50,6 +50,7 @@ from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
+from holmes.plugins.toolsets.elasticsearch.elasticsearch import ElasticsearchToolset
 from holmes.plugins.toolsets.investigator.core_investigation import (
     CoreInvestigationToolset,
 )
@@ -106,6 +107,7 @@ def load_python_toolsets(
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        ElasticsearchToolset(),
     ]
 
     if not DISABLE_PROMETHEUS_TOOLSET:
