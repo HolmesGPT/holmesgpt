@@ -286,10 +286,10 @@ function buildRerunFooter(p, context, options = {}) {
   // Format markers as comma-separated code-styled names
   const markersFormatted = formatAsCodes(p.validMarkers);
 
-  // gh CLI command to run workflow from PR branch
+  // gh CLI command to run workflow from PR branch (include empty filter= for easy copy-paste)
   const ghCommand = p.displayBranch
-    ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression`
-    : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression`;
+    ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=`
+    : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`;
 
   let footer = '';
 
