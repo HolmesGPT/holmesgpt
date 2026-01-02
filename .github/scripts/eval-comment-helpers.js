@@ -6,6 +6,9 @@
 // Identifier for the persistent automated eval comment (hidden HTML comment)
 const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
 
+// Marker to delimit end of history run content (avoids issues with nested <details> tags)
+const HISTORY_RUN_END_MARKER = '<!-- END_HISTORY_RUN -->';
+
 /**
  * Parse run history from an existing comment body
  * @param {string} body - Existing comment body
@@ -14,9 +17,9 @@ const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
 function parseRunHistory(body) {
   const runs = [];
 
-  // Match collapsed previous runs: <details><summary>...</summary>...</details>
-  // Pattern captures runs that are in history (collapsed)
-  const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<\/details>/g;
+  // Match collapsed previous runs using our unique end marker to handle nested <details> tags
+  // The marker ensures we capture the full content even if it contains its own <details> sections
+  const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g;
   let match;
   while ((match = historyRegex.exec(body)) !== null) {
     runs.push({
@@ -137,7 +140,8 @@ function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHi
     historySection = '## 📂 Previous Runs\n\n';
 
     for (const run of runsToShow) {
-      const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n</details>\n\n`;
+      // Use END_HISTORY_RUN marker to properly delimit content (handles nested <details> tags in reports)
+      const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
 
       // Check if adding this entry would exceed the limit
       const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length;
