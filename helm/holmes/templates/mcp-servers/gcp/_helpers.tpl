@@ -141,7 +141,6 @@ Common investigations:
 - Performance: Check bucket location and CORS configuration
 
 When providing storage-related findings, include relevant links:
-[Bucket Permission Settings](https://console.cloud.google.com/storage/browser/BUCKET_NAME;tab=permissions?project=PROJECT)
-[Object Lifecycle Rules](https://console.cloud.google.com/storage/browser/BUCKET_NAME;tab=lifecycle?project=PROJECT)
+[View Bucket in Console](https://console.cloud.google.com/storage/browser/BUCKET_NAME?project=PROJECT)
 {{- end -}}
 {{- end -}}

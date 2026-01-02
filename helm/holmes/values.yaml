@@ -160,7 +160,7 @@ mcpAddons:
     affinity: {}
 
   # Google Cloud Platform MCP addon - provides access to GCP services
-  # Docker images and deployment scripts: https://github.com/your-org/holmes-mcp-integrations/tree/main/servers/gcp
+  # Docker images and deployment scripts: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
   #
   # AUTHENTICATION:
   # The recommended method is using a service account key file:
@@ -195,7 +195,7 @@ mcpAddons:
     # Container registry for GCP MCP images
     # Build images from: https://github.com/your-org/holmes-mcp-integrations/tree/main/servers/gcp
     registry: "me-west1-docker.pkg.dev/robusta-development/development"
-    imagePullPolicy: "Always"
+    imagePullPolicy: "IfNotPresent"
 
     # Workload Identity configuration (works for observability/storage MCPs, not gcloud)
     workloadIdentity:
