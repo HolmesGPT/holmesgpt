@@ -30,14 +30,24 @@ function parseRunHistory(body) {
 
 /**
  * Extract the current (uncollapsed) run content from comment body
- * Returns the content between the header and the first history section or footer
+ * With the new structure, history is at the top, so current run comes after the "---" separator
  * Only extracts completed runs (not in-progress) to avoid saving incomplete results
  * @param {string} body - Existing comment body
  * @returns {{summary: string, content: string}|null} Current run info or null if not a completed run
  */
 function extractCurrentRun(body) {
   // Remove the identifier comment
-  const cleanBody = body.replace(AUTO_EVAL_COMMENT_IDENTIFIER, '').trim();
+  let cleanBody = body.replace(AUTO_EVAL_COMMENT_IDENTIFIER, '').trim();
+
+  // Skip past the "Previous Runs" section if present (new structure has history at top)
+  const previousRunsHeader = '## 📂 Previous Runs';
+  if (cleanBody.startsWith(previousRunsHeader)) {
+    // Find the separator that ends the history section
+    const separatorIndex = cleanBody.indexOf('\n---\n');
+    if (separatorIndex !== -1) {
+      cleanBody = cleanBody.substring(separatorIndex + 5).trim(); // Skip past "---\n"
+    }
+  }
 
   // Find the header line (## ✅ Results... or ## ⏳ HolmesGPT evals running...)
   const headerMatch = cleanBody.match(/^(## [^\n]+)/);
@@ -51,24 +61,22 @@ function extractCurrentRun(body) {
     return null;
   }
 
-  // Find where history starts (📜 Previous Run) or footer starts
-  const historyStart = cleanBody.indexOf('<details>\n<summary>📜');
+  // Find where footer starts (legend section)
   const footerStart = cleanBody.indexOf('<details>\n<summary>📖 <b>Legend</b>');
 
   // Determine end of current content
   let endPos = cleanBody.length;
-  if (historyStart !== -1 && (footerStart === -1 || historyStart < footerStart)) {
-    endPos = historyStart;
-  } else if (footerStart !== -1) {
+  if (footerStart !== -1) {
     endPos = footerStart;
   }
 
-  // Extract trigger info for the summary
-  const triggerMatch = cleanBody.match(/Automatically triggered by ([^\n]+)/);
+  // Extract trigger info for the summary (search in the current run section)
+  const currentSection = cleanBody.substring(0, endPos);
+  const triggerMatch = currentSection.match(/Automatically triggered by ([^\n]+)/);
   const trigger = triggerMatch ? triggerMatch[1] : '';
 
   // Extract workflow run URL for linking
-  const runUrlMatch = cleanBody.match(/\[View workflow logs\]\(([^)]+)\)/);
+  const runUrlMatch = currentSection.match(/\[View workflow logs\]\(([^)]+)\)/);
   const runUrl = runUrlMatch ? runUrlMatch[1] : '';
 
   // Build a descriptive summary with trigger info
@@ -87,7 +95,7 @@ function extractCurrentRun(body) {
     }
   }
 
-  // Build summary for when this run becomes collapsed
+  // Build content for when this run becomes collapsed
   const content = cleanBody.substring(0, endPos).trim();
 
   return {
@@ -101,6 +109,7 @@ const MAX_COMMENT_SIZE = 60000;
 
 /**
  * Build comment body with run history support for automated runs
+ * Previous runs appear at the top in a collapsible section, followed by current run
  * Automatically truncates history if approaching GitHub's 64KB comment limit
  * @param {string} currentContent - Current run's full content (before footer)
  * @param {Array<{summary: string, content: string}>} previousRuns - Previous runs to collapse
@@ -110,27 +119,37 @@ const MAX_COMMENT_SIZE = 60000;
  */
 function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) {
   let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n';
-  body += currentContent;
 
-  // Add collapsed history sections, stopping if we approach size limit
+  // Build previous runs section first (at top)
   const runsToShow = previousRuns.slice(0, maxHistory);
+  let historySection = '';
   let addedCount = 0;
 
-  for (const run of runsToShow) {
-    const historyEntry = `\n<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n</details>\n`;
+  if (runsToShow.length > 0) {
+    historySection = '## 📂 Previous Runs\n\n';
 
-    // Check if adding this entry would exceed the limit
-    if (body.length + historyEntry.length + footer.length > MAX_COMMENT_SIZE) {
-      // Add truncation notice instead
-      const remaining = runsToShow.length - addedCount;
-      body += `\n<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted to stay under GitHub's 64KB comment size limit._\n</details>\n`;
-      break;
+    for (const run of runsToShow) {
+      const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n</details>\n\n`;
+
+      // Check if adding this entry would exceed the limit
+      const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length;
+      if (projectedSize > MAX_COMMENT_SIZE) {
+        // Add truncation notice instead
+        const remaining = runsToShow.length - addedCount;
+        historySection += `<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted to stay under GitHub's 64KB comment size limit._\n</details>\n\n`;
+        break;
+      }
+
+      historySection += historyEntry;
+      addedCount++;
     }
 
-    body += historyEntry;
-    addedCount++;
+    historySection += '---\n\n';
   }
 
+  // Assemble: identifier + history + current + footer
+  body += historySection;
+  body += currentContent;
   body += footer;
 
   return body;
