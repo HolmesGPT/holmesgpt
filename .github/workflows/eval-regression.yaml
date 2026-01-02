@@ -99,6 +99,12 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/last')))
 
+    # Serialize automated regression runs per PR to avoid race conditions on persistent comment
+    # Manual runs (/eval, workflow_dispatch) get unique groups so they can run in parallel
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('eval-auto-pr-{0}', github.event.pull_request.number) || format('eval-{0}', github.run_id) }}
+      cancel-in-progress: false
+
     steps:
       - name: Handle /eval comment
         id: eval-comment
