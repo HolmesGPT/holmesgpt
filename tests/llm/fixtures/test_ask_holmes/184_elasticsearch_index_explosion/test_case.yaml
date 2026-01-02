@@ -1,0 +1,162 @@
+# Test: Elasticsearch Index Explosion - Find Needle Among 2000 Indexes
+#
+# This test simulates an enterprise Elasticsearch cluster with 2000 indexes.
+# Without proper filtering, _cat/indices would return ~300K chars (75K tokens),
+# far exceeding the 25K token limit per tool call.
+#
+# The LLM must:
+# 1. Recognize it cannot list all indexes
+# 2. Use elasticsearch_search with wildcard patterns to find the error
+# 3. Report the correct service and error details
+#
+# Anti-hallucination: Uses a unique random error code (ERR-EVAL-7X9K2M) that
+# can only be found by actually searching the cluster.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "Our monitoring system detected error code ERR-EVAL-7X9K2M in our logs. Find which service is affected and what the full error message says."
+
+expected_output:
+  - "Must identify that the billing service (or platform-billing) is affected"
+  - "Must include the phrase 'payment gateway timeout' or 'transaction processing failed' in the error description"
+  - "The unique error code ERR-EVAL-7X9K2M must appear in the response"
+
+tags:
+  - elasticsearch
+  - hard
+  - scale
+
+setup_timeout: 120
+
+before_test: |
+  set -e
+
+  # Strip quotes from env vars if present
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+
+  if [ -z "$ELASTICSEARCH_URL" ]; then
+    echo "ELASTICSEARCH_URL environment variable is not set"
+    exit 1
+  fi
+
+  echo "Creating 2000 test indexes using bulk API..."
+
+  # Clean up any existing test data first for idempotency
+  echo "Cleaning up any existing test data..."
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Define teams, services, and dates for 2000 indexes (5 x 10 x 40 = 2000)
+  TEAMS="engineering platform data ml security"
+  SERVICES="api web worker cache db auth billing notification search analytics"
+
+  # Generate bulk request body with 2000 documents (one per index)
+  BULK_FILE="/tmp/es_bulk_indexes.ndjson"
+  > "$BULK_FILE"
+
+  for team in $TEAMS; do
+    for service in $SERVICES; do
+      for day in $(seq -w 1 40); do
+        INDEX_NAME="holmes-eval-${team}-${service}-2024.01.${day}"
+        # Each index gets a dummy log entry
+        echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
+        echo "{\"@timestamp\": \"2024-01-${day}T12:00:00Z\", \"level\": \"INFO\", \"service\": \"${service}\", \"team\": \"${team}\", \"message\": \"Health check passed\"}" >> "$BULK_FILE"
+      done
+    done
+  done
+
+  # Count lines to verify (should be 4000 = 2000 action + 2000 doc lines)
+  LINE_COUNT=$(wc -l < "$BULK_FILE")
+  echo "Generated bulk file with $LINE_COUNT lines (expecting 4000 for 2000 indexes)"
+
+  # Upload in chunks to avoid request size limits
+  echo "Uploading bulk data to Elasticsearch..."
+
+  # Split into 10 chunks of 200 indexes each (400 lines per chunk)
+  split -l 400 "$BULK_FILE" /tmp/es_bulk_chunk_
+
+  CHUNK_NUM=0
+  for chunk in /tmp/es_bulk_chunk_*; do
+    CHUNK_NUM=$((CHUNK_NUM + 1))
+    RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$chunk")
+
+    if echo "$RESPONSE" | grep -q '"errors":false'; then
+      echo "Chunk $CHUNK_NUM uploaded successfully"
+    elif echo "$RESPONSE" | grep -q '"errors":true'; then
+      # Some errors but continue - might be index already exists
+      ERROR_COUNT=$(echo "$RESPONSE" | grep -o '"error"' | wc -l)
+      echo "Chunk $CHUNK_NUM: $ERROR_COUNT errors (may be expected if re-running)"
+    else
+      echo "Chunk $CHUNK_NUM failed: $RESPONSE"
+    fi
+    rm "$chunk"
+  done
+
+  # Now insert the needle - a unique error in ONE specific index
+  echo "Inserting needle (unique error) into holmes-eval-platform-billing-2024.01.17..."
+
+  NEEDLE_RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/holmes-eval-platform-billing-2024.01.17/_doc" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "@timestamp": "2024-01-17T14:32:17Z",
+      "level": "ERROR",
+      "service": "billing",
+      "team": "platform",
+      "error_code": "ERR-EVAL-7X9K2M",
+      "message": "CRITICAL: Transaction processing failed - payment gateway timeout after 30s. Error code: ERR-EVAL-7X9K2M. Customer transaction ID: TXN-98765 was not completed.",
+      "stack_trace": "com.company.billing.PaymentProcessor.processTransaction(PaymentProcessor.java:142)\n  at com.company.billing.GatewayClient.sendRequest(GatewayClient.java:89)"
+    }')
+
+  if echo "$NEEDLE_RESPONSE" | grep -q '"result":"created"\|"result":"updated"'; then
+    echo "Needle document inserted successfully"
+  else
+    echo "Failed to insert needle: $NEEDLE_RESPONSE"
+    exit 1
+  fi
+
+  # Wait for indexing
+  sleep 2
+
+  # Refresh all indexes to make sure data is searchable
+  curl -s -X POST "${ELASTICSEARCH_URL}/holmes-eval-*/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify the needle is searchable
+  VERIFY=$(curl -s -X GET "${ELASTICSEARCH_URL}/holmes-eval-*/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query": {"match": {"error_code": "ERR-EVAL-7X9K2M"}}}')
+
+  if echo "$VERIFY" | grep -q '"ERR-EVAL-7X9K2M"'; then
+    echo "Verified: Needle is searchable"
+  else
+    echo "Warning: Could not verify needle is searchable"
+    echo "$VERIFY"
+  fi
+
+  # Count total indexes created
+  INDEX_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/_cat/indices/holmes-eval-*?format=json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"index"' | wc -l)
+  echo "Total test indexes created: $INDEX_COUNT"
+  echo "Setup complete!"
+
+after_test: |
+  set -e
+
+  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+
+  echo "Cleaning up test indexes (holmes-eval-*)..."
+
+  # Delete all test indexes
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "Cleanup complete"
