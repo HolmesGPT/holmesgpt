@@ -125,8 +125,8 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         regenerate_all = request.config.getoption("--regenerate-all-mocks")
 
         if regenerate_all:
-            from tests.llm.utils.mock_toolset import (
-                clear_all_mocks,  # type: ignore[attr-defined]
+            from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
+                clear_all_mocks,
             )
 
             cleared_directories = clear_all_mocks(request.session)
@@ -636,7 +636,8 @@ def llm_availability_check(request):
                 # Check if Braintrust is enabled
                 if BRAINTRUST_API_KEY:
                     print(
-                        f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"  # type: ignore[no-untyped-call]
+                        # type: ignore[no-untyped-call]
+                        f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"
                     )
                 else:
                     print(

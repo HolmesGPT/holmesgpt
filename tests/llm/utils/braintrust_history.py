@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from holmes.core.tracing import (
     BRAINTRUST_API_KEY,
