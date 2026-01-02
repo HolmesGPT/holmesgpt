@@ -96,8 +96,12 @@ function extractCurrentRun(body) {
   };
 }
 
+// GitHub comment body size limit (64KB), with buffer for safety
+const MAX_COMMENT_SIZE = 60000;
+
 /**
  * Build comment body with run history support for automated runs
+ * Automatically truncates history if approaching GitHub's 64KB comment limit
  * @param {string} currentContent - Current run's full content (before footer)
  * @param {Array<{summary: string, content: string}>} previousRuns - Previous runs to collapse
  * @param {string} footer - Footer content (legend, rerun instructions)
@@ -108,10 +112,23 @@ function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHi
   let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n';
   body += currentContent;
 
-  // Add collapsed history sections (limit to maxHistory)
+  // Add collapsed history sections, stopping if we approach size limit
   const runsToShow = previousRuns.slice(0, maxHistory);
+  let addedCount = 0;
+
   for (const run of runsToShow) {
-    body += `\n<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n</details>\n`;
+    const historyEntry = `\n<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n</details>\n`;
+
+    // Check if adding this entry would exceed the limit
+    if (body.length + historyEntry.length + footer.length > MAX_COMMENT_SIZE) {
+      // Add truncation notice instead
+      const remaining = runsToShow.length - addedCount;
+      body += `\n<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted to stay under GitHub's 64KB comment size limit._\n</details>\n`;
+      break;
+    }
+
+    body += historyEntry;
+    addedCount++;
   }
 
   body += footer;
