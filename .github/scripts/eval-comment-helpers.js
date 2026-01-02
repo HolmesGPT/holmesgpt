@@ -3,6 +3,122 @@
  * Used by multiple steps in .github/workflows/eval-regression.yaml
  */
 
+// Identifier for the persistent automated eval comment (hidden HTML comment)
+const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
+
+/**
+ * Parse run history from an existing comment body
+ * @param {string} body - Existing comment body
+ * @returns {Array<{summary: string, content: string}>} Array of previous runs
+ */
+function parseRunHistory(body) {
+  const runs = [];
+
+  // Match collapsed previous runs: <details><summary>...</summary>...</details>
+  // Pattern captures runs that are in history (collapsed)
+  const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<\/details>/g;
+  let match;
+  while ((match = historyRegex.exec(body)) !== null) {
+    runs.push({
+      summary: match[1].trim(),
+      content: match[2].trim()
+    });
+  }
+
+  return runs;
+}
+
+/**
+ * Extract the current (uncollapsed) run content from comment body
+ * Returns the content between the header and the first history section or footer
+ * Only extracts completed runs (not in-progress) to avoid saving incomplete results
+ * @param {string} body - Existing comment body
+ * @returns {{summary: string, content: string}|null} Current run info or null if not a completed run
+ */
+function extractCurrentRun(body) {
+  // Remove the identifier comment
+  const cleanBody = body.replace(AUTO_EVAL_COMMENT_IDENTIFIER, '').trim();
+
+  // Find the header line (## ✅ Results... or ## ⏳ HolmesGPT evals running...)
+  const headerMatch = cleanBody.match(/^(## [^\n]+)/);
+  if (!headerMatch) return null;
+
+  const header = headerMatch[1];
+
+  // Only save completed runs to history (not in-progress runs)
+  // Completed runs have "Results" in the title
+  if (!header.includes('Results')) {
+    return null;
+  }
+
+  // Find where history starts (📜 Previous Run) or footer starts
+  const historyStart = cleanBody.indexOf('<details>\n<summary>📜');
+  const footerStart = cleanBody.indexOf('<details>\n<summary>📖 <b>Legend</b>');
+
+  // Determine end of current content
+  let endPos = cleanBody.length;
+  if (historyStart !== -1 && (footerStart === -1 || historyStart < footerStart)) {
+    endPos = historyStart;
+  } else if (footerStart !== -1) {
+    endPos = footerStart;
+  }
+
+  // Extract trigger info for the summary
+  const triggerMatch = cleanBody.match(/Automatically triggered by ([^\n]+)/);
+  const trigger = triggerMatch ? triggerMatch[1] : '';
+
+  // Extract workflow run URL for linking
+  const runUrlMatch = cleanBody.match(/\[View workflow logs\]\(([^)]+)\)/);
+  const runUrl = runUrlMatch ? runUrlMatch[1] : '';
+
+  // Build a descriptive summary with trigger info
+  let summary = 'Previous Run';
+  if (trigger) {
+    // Extract commit and branch info from trigger like "commit abc1234 on branch `feature`"
+    const commitMatch = trigger.match(/commit ([a-f0-9]+)/);
+    const commit = commitMatch ? commitMatch[1] : '';
+    summary = commit ? `Run @ ${commit}` : `Run: ${trigger.substring(0, 50)}`;
+  }
+  if (runUrl) {
+    // Extract run ID from URL for reference
+    const runIdMatch = runUrl.match(/runs\/(\d+)/);
+    if (runIdMatch) {
+      summary += ` (#${runIdMatch[1]})`;
+    }
+  }
+
+  // Build summary for when this run becomes collapsed
+  const content = cleanBody.substring(0, endPos).trim();
+
+  return {
+    summary: summary,
+    content: content
+  };
+}
+
+/**
+ * Build comment body with run history support for automated runs
+ * @param {string} currentContent - Current run's full content (before footer)
+ * @param {Array<{summary: string, content: string}>} previousRuns - Previous runs to collapse
+ * @param {string} footer - Footer content (legend, rerun instructions)
+ * @param {number} maxHistory - Maximum number of historical runs to keep (default 5)
+ * @returns {string} Complete comment body with identifier
+ */
+function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) {
+  let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n';
+  body += currentContent;
+
+  // Add collapsed history sections (limit to maxHistory)
+  const runsToShow = previousRuns.slice(0, maxHistory);
+  for (const run of runsToShow) {
+    body += `\n<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n</details>\n`;
+  }
+
+  body += footer;
+
+  return body;
+}
+
 /**
  * Build params object from raw step outputs
  * Handles all type conversions and defaults in one place
@@ -172,9 +288,13 @@ function buildRerunFooter(p, context, options = {}) {
 }
 
 module.exports = {
+  AUTO_EVAL_COMMENT_IDENTIFIER,
   buildParams,
   renderProgress,
   renderParamsTable,
   buildBody,
-  buildRerunFooter
+  buildRerunFooter,
+  parseRunHistory,
+  extractCurrentRun,
+  buildAutoCommentWithHistory
 };

@@ -378,7 +378,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            const { AUTO_EVAL_COMMENT_IDENTIFIER, buildParams, buildBody, buildRerunFooter, parseRunHistory, extractCurrentRun, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams(JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}));
             const progressSteps = [
               [false, 'Setup HolmesGPT environment'],
@@ -386,13 +386,71 @@ jobs:
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
-            const comment = await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: p.prNumber,
-              body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
-            });
-            core.setOutput('comment_id', comment.data.id.toString());
+
+            // For automated runs (not /eval or workflow_dispatch), use persistent comment
+            if (!p.isManual) {
+              // Find existing persistent comment
+              let existingComment = null;
+              let page = 1;
+              while (true) {
+                const response = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: p.prNumber,
+                  per_page: 100,
+                  page: page
+                });
+                const found = response.data.find(c => c.body.includes(AUTO_EVAL_COMMENT_IDENTIFIER));
+                if (found) {
+                  existingComment = found;
+                  break;
+                }
+                if (response.data.length < 100) break;
+                page++;
+              }
+
+              const currentContent = buildBody(p, progressSteps, { context });
+              const footer = buildRerunFooter(p, context);
+
+              if (existingComment) {
+                // Parse history from existing comment, including moving current run to history
+                const previousRuns = parseRunHistory(existingComment.body);
+                const currentRun = extractCurrentRun(existingComment.body);
+                if (currentRun && currentRun.content) {
+                  previousRuns.unshift(currentRun);
+                }
+                const body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: body
+                });
+                core.setOutput('comment_id', existingComment.id.toString());
+                core.setOutput('is_persistent', 'true');
+              } else {
+                // Create new persistent comment
+                const body = buildAutoCommentWithHistory(currentContent, [], footer);
+                const comment = await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: p.prNumber,
+                  body: body
+                });
+                core.setOutput('comment_id', comment.data.id.toString());
+                core.setOutput('is_persistent', 'true');
+              }
+            } else {
+              // Manual runs: create a fresh comment (original behavior)
+              const comment = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: p.prNumber,
+                body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
+              });
+              core.setOutput('comment_id', comment.data.id.toString());
+              core.setOutput('is_persistent', 'false');
+            }
 
       # Reordered: Setup HolmesGPT first (needed for pytest), then collect evals, then KIND
       - name: Setup HolmesGPT environment
@@ -407,22 +465,40 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }}
             });
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [false, 'Collect evals to run'],
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
+
+            let body;
+            if (isPersistent) {
+              // Preserve history for automated runs
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId
+              });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const currentContent = buildBody(p, progressSteps, { context });
+              const footer = buildRerunFooter(p, context);
+              body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+            } else {
+              body = buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context);
+            }
+
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
+              body: body
             });
 
       - name: Collect evals to run
@@ -474,7 +550,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -482,17 +558,35 @@ jobs:
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
             });
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
+
+            let body;
+            if (isPersistent) {
+              // Preserve history for automated runs
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId
+              });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const currentContent = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context });
+              const footer = buildRerunFooter(p, context);
+              body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+            } else {
+              body = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context);
+            }
+
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context)
+              body: body
             });
 
       - name: Setup KIND cluster
@@ -507,7 +601,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -515,17 +609,35 @@ jobs:
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
             });
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
               [true, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
+
+            let body;
+            if (isPersistent) {
+              // Preserve history for automated runs
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId
+              });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const currentContent = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context });
+              const footer = buildRerunFooter(p, context);
+              body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+            } else {
+              body = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context);
+            }
+
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context)
+              body: body
             });
 
       - name: Run tests
@@ -577,7 +689,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -585,38 +697,58 @@ jobs:
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
               triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
             const failures = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
             const hasFailures = failures && failures !== '0';
 
-            // Build notification header for the user who triggered the eval
+            // Build notification header for the user who triggered the eval (only for manual runs)
             const triggeredBy = p.triggered_by || '';
             const statusText = hasFailures
               ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
               : '✅ Completed successfully';
             const notifyHeader = triggeredBy ? `@${triggeredBy} Your eval run has finished. ${statusText}\n\n---\n\n` : '';
 
-            let body = notifyHeader + buildBody(p, null, {
+            // Build current run content
+            let currentContent = buildBody(p, null, {
               icon: p.isManual ? '🧪' : '✅',
               title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals',
               context
             });
-            body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
-            if (hasFailures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
-            body += buildRerunFooter(p, context, { includeLegend: true });
+            currentContent += '\n' + (report || '⚠️ No eval report was generated.\n\n');
+            if (hasFailures) currentContent += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
+            const footer = buildRerunFooter(p, context, { includeLegend: true });
 
-            // Delete progress comment and create fresh results comment
-            // This ensures the user gets a GitHub notification when evals complete
-            if (p.commentId) {
-              await github.rest.issues.deleteComment({
-                owner: context.repo.owner, repo: context.repo.repo,
+            if (isPersistent && p.commentId) {
+              // For automated runs: update the persistent comment, preserving history
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
                 comment_id: p.commentId
               });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId,
+                body: body
+              });
+            } else {
+              // For manual runs: delete progress comment and create fresh results comment
+              // This ensures the user gets a GitHub notification when evals complete
+              const body = notifyHeader + currentContent + footer;
+              if (p.commentId) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  comment_id: p.commentId
+                });
+              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: p.prNumber, body
+              });
             }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: p.prNumber, body
-            });
 
       - name: Add completion reaction
         if: always() && github.event_name == 'issue_comment' && steps.eval-comment.outcome == 'success'
