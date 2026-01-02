@@ -1,5 +1,4 @@
 import json
-import os
 from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
@@ -59,6 +58,7 @@ class ElasticsearchToolset(Toolset):
             tools=[
                 ElasticsearchCat(self),
                 ElasticsearchSearch(self),
+                ElasticsearchSearchProfile(self),
                 ElasticsearchClusterHealth(self),
                 ElasticsearchMappings(self),
                 ElasticsearchIndexStats(self),
@@ -176,6 +176,10 @@ class BaseElasticsearchTool(Tool, ABC):
     def __init__(self, toolset: ElasticsearchToolset, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._toolset = toolset
+
+    @property
+    def toolset(self) -> ElasticsearchToolset:
+        return self._toolset
 
     def _make_request(
         self,
@@ -630,3 +634,100 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
     def get_parameterized_one_liner(self, params: Dict) -> str:
         node_id = params.get("node_id", "_all")
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Node stats ({node_id})"
+
+
+class ElasticsearchSearchProfile(BaseElasticsearchTool):
+    """Profile Elasticsearch search queries to analyze performance."""
+
+    def __init__(self, toolset: ElasticsearchToolset):
+        super().__init__(
+            toolset=toolset,
+            name="elasticsearch_search_profile",
+            description=(
+                "Execute a search query with profiling enabled to get detailed performance breakdown. "
+                "Shows time spent in each query phase, which collectors were used, and identifies slow components. "
+                "Use this to diagnose slow queries and understand query execution."
+            ),
+            parameters={
+                "index": ToolParameter(
+                    description="Index name or pattern to search",
+                    type="string",
+                    required=True,
+                ),
+                "query": ToolParameter(
+                    description=(
+                        "Elasticsearch Query DSL query object. Example: "
+                        '{"bool": {"must": [{"match": {"message": "error"}}]}}. '
+                        "The query will be executed with profiling enabled."
+                    ),
+                    type="object",
+                    required=True,
+                ),
+                "size": ToolParameter(
+                    description="Maximum documents to return (default: 0 for profile-only, increase to see results)",
+                    type="integer",
+                    required=False,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        index = params["index"]
+        path = f"{index}/_search"
+
+        body: Dict[str, Any] = {
+            "profile": True,
+            "query": params["query"],
+            "size": params.get("size", 0),  # Default 0 to focus on profiling
+        }
+
+        result = self._make_request("POST", path, params, body=body)
+
+        # If successful, extract and summarize profile data for easier analysis
+        if result.status == StructuredToolResultStatus.SUCCESS and result.data:
+            profile_data = result.data.get("profile", {})
+            shards = profile_data.get("shards", [])
+
+            shard_timings: list[Dict[str, Any]] = []
+
+            for shard in shards:
+                shard_searches: list[Dict[str, Any]] = []
+
+                for search in shard.get("searches", []):
+                    queries_list: list[Dict[str, Any]] = []
+                    total_time_ns = 0
+
+                    for query in search.get("query", []):
+                        query_info = {
+                            "type": query.get("type", "unknown"),
+                            "description": query.get("description", "")[:100],
+                            "time_in_nanos": query.get("time_in_nanos", 0),
+                            "time_ms": query.get("time_in_nanos", 0) / 1_000_000,
+                        }
+                        queries_list.append(query_info)
+                        total_time_ns += query.get("time_in_nanos", 0)
+
+                    shard_searches.append({
+                        "total_time_ns": total_time_ns,
+                        "total_time_ms": total_time_ns / 1_000_000,
+                        "queries": queries_list,
+                    })
+
+                shard_timings.append({
+                    "id": shard.get("id", "unknown"),
+                    "searches": shard_searches,
+                })
+
+            summary: Dict[str, Any] = {
+                "total_shards_profiled": len(shards),
+                "shard_timings": shard_timings,
+            }
+
+            # Add summary to result data
+            result.data["_profile_summary"] = summary
+
+        return result
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        index = params.get("index", "")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Profile query on {index}"
