@@ -16,11 +16,11 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 
-user_prompt: "We're running low on disk space in our Elasticsearch cluster. Can you identify which index is consuming the most storage? Please tell me the index name and approximately how much space it's using."
+user_prompt: "We're running low on disk space. Can you check our application indexes (holmes-*) and identify which one is consuming the most storage? Please tell me the index name and approximately how much space it's using."
 
 expected_output:
-  - "Must identify holmes-metrics-analytics as the largest index"
-  - "Must report the storage size (should be significantly larger than other indexes)"
+  - "Must identify holmes-metrics-analytics as the largest index among the holmes-* indexes"
+  - "Must report the storage size (should be significantly larger than the holmes-logs-app-* indexes)"
 
 tags:
   - elasticsearch

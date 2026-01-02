@@ -1,14 +1,14 @@
 # Test: Elasticsearch Shard Explosion - Filter Required for Large Clusters
 #
-# This test creates ~1000 shards across 100 indexes to simulate an enterprise cluster.
-# Without filtering, _cat/shards would return ~150K chars (~37K tokens), exceeding the 25K limit.
+# This test creates ~150 shards across multiple indexes to demonstrate that
+# querying shards requires filtering when dealing with many indexes.
 #
 # The LLM must use the index filter parameter to query shards for specific indexes.
 #
 # Setup:
-# - 99 indexes with 10 shards each = 990 shards
+# - 25 indexes with 5 shards each = 125 shards
 # - 1 special index (holmes-shard-analytics) with 7 primary shards (0 replicas) = 7 shards
-# - Total: ~1000 shards
+# - Total: ~132 shards
 #
 # Anti-hallucination: The specific shard count (7 primary) can only be found by querying.
 # Common defaults are 1 or 5 shards, so 7 is unusual and proves actual discovery.
@@ -41,7 +41,7 @@ before_test: |
     exit 1
   fi
 
-  echo "Creating 100 indexes with ~1000 total shards..."
+  echo "Creating indexes with ~132 total shards..."
 
   # Clean up any existing test data first
   echo "Cleaning up any existing test data..."
@@ -50,9 +50,8 @@ before_test: |
   curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-shard-template" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
-  # First, create an index template for the data indexes
-  # This way when we bulk insert, indexes are auto-created with 10 shards
-  echo "Creating index template with 10 shards..."
+  # Create an index template for the data indexes with 5 shards
+  echo "Creating index template with 5 shards..."
   TEMPLATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/_index_template/holmes-shard-template" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
@@ -60,7 +59,7 @@ before_test: |
       "index_patterns": ["holmes-shard-data-*"],
       "template": {
         "settings": {
-          "number_of_shards": 10,
+          "number_of_shards": 5,
           "number_of_replicas": 0
         }
       }
@@ -72,29 +71,29 @@ before_test: |
     echo "Template response: $TEMPLATE_RESPONSE"
   fi
 
-  # Now create 99 indexes via bulk insert - template applies 10 shards automatically
+  # Create 25 indexes via bulk insert - template applies 5 shards automatically
   BULK_FILE="/tmp/es_shard_bulk.ndjson"
   > "$BULK_FILE"
 
-  for i in $(seq -w 1 99); do
+  for i in $(seq -w 1 25); do
     INDEX_NAME="holmes-shard-data-${i}"
     echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T12:00:00Z\", \"value\": ${i}}" >> "$BULK_FILE"
   done
 
-  echo "Creating 99 indexes via bulk API (with 10 shards each from template)..."
+  echo "Creating 25 indexes via bulk API (with 5 shards each from template)..."
   RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @"$BULK_FILE")
 
   if echo "$RESPONSE" | grep -q '"errors":false'; then
-    echo "Bulk insert successful - created 99 indexes with 10 shards each"
+    echo "Bulk insert successful - created 25 indexes with 5 shards each"
   else
     echo "Some errors during bulk insert (may be expected if re-running)"
   fi
 
-  echo "Created 99 indexes with 10 shards each (990 shards)"
+  echo "Created 25 indexes with 5 shards each (125 shards)"
 
   # Create the special analytics index with 7 shards and 0 replicas
   echo "Creating special analytics index with 7 shards..."

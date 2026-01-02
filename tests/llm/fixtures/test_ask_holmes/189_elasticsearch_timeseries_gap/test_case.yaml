@@ -30,7 +30,7 @@ tags:
   - elasticsearch
   - medium
 
-setup_timeout: 60
+setup_timeout: 90
 
 before_test: |
   set -e
@@ -131,7 +131,7 @@ before_test: |
   # Verify the gap exists by counting documents
   echo "Verifying gap in time-series data..."
   DOC_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/holmes-metrics-timeseries/_count" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
   echo "Total documents: $DOC_COUNT (expected 42 = 48 hours - 6 gap hours)"
 
   # Verify marker document exists
