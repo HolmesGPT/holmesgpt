@@ -6,12 +6,12 @@
 # - ELASTICSEARCH_API_KEY: API key for authentication
 #
 # Anti-hallucination: The test runs specific query types that have distinct profile signatures.
-# Holmes must use the elasticsearch_search_profile tool and report the query type from profile output.
+# Holmes must use elasticsearch_search with profile=true and report the query type from profile output.
 
-user_prompt: "I have a slow query on the 'holmes-eval-profile' index. Use the profile API to analyze this query and tell me the query type used: {\"wildcard\": {\"message\": \"*timeout*\"}}"
+user_prompt: "I have a slow query on the 'holmes-eval-profile' index. Use the profile option to analyze this query and tell me the query type used: {\"wildcard\": {\"message\": \"*timeout*\"}}"
 
 expected_output:
-  - "Must use the elasticsearch_search_profile tool to profile the query"
+  - "Must use elasticsearch_search with profile enabled to analyze the query"
   - "Must identify the query type as 'WildcardQuery' or 'wildcard' from the profile output"
   - "Should report timing information from the profile"
 
