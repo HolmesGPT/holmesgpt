@@ -61,13 +61,21 @@ function extractCurrentRun(body) {
     return null;
   }
 
-  // Find where footer starts (legend section)
-  const footerStart = cleanBody.indexOf('<details>\n<summary>📖 <b>Legend</b>');
+  // Find where footer starts - look for any footer section (Legend, Re-run, or Valid markers)
+  const footerMarkers = [
+    '<details>\n<summary>📖 <b>Legend</b>',
+    '<details>\n<summary>🔄 <b>Re-run evals manually</b>',
+    '<details>\n<summary>🏷️ <b>Valid markers</b>',
+    '\n---\n**Commands:**'
+  ];
 
-  // Determine end of current content
+  // Find the earliest footer marker
   let endPos = cleanBody.length;
-  if (footerStart !== -1) {
-    endPos = footerStart;
+  for (const marker of footerMarkers) {
+    const pos = cleanBody.indexOf(marker);
+    if (pos !== -1 && pos < endPos) {
+      endPos = pos;
+    }
   }
 
   // Extract trigger info for the summary (search in the current run section)
