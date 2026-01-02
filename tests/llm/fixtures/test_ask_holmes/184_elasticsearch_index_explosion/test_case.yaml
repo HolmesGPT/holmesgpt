@@ -1,6 +1,6 @@
-# Test: Elasticsearch Index Explosion - Find Needle Among 2000 Indexes
+# Test: Elasticsearch Index Explosion - Find Needle Among 1800 Indexes
 #
-# This test simulates an enterprise Elasticsearch cluster with 2000 indexes.
+# This test simulates an enterprise Elasticsearch cluster with 1800 indexes.
 # Without proper filtering, _cat/indices would return ~300K chars (75K tokens),
 # far exceeding the 25K token limit per tool call.
 #
@@ -48,18 +48,37 @@ before_test: |
   echo "Cleaning up any existing test data..."
   curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-eval-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
 
-  # Define teams, services, and dates for 2000 indexes (5 x 10 x 40 = 2000)
+  # Create index template with 0 replicas to fit within cluster shard limits
+  # (Elastic Cloud small clusters have ~2000 shard capacity)
+  echo "Creating index template with 0 replicas..."
+  curl -s -X PUT "${ELASTICSEARCH_URL}/_index_template/holmes-eval-template" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "index_patterns": ["holmes-eval-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        }
+      }
+    }' > /dev/null
+
+  # Define teams, services, and dates for 1800 indexes (5 x 10 x 36 = 1800)
+  # Note: Reduced from 2000 to fit within Elastic Cloud shard limits (~1900 available)
   TEAMS="engineering platform data ml security"
   SERVICES="api web worker cache db auth billing notification search analytics"
 
-  # Generate bulk request body with 2000 documents (one per index)
+  # Generate bulk request body with 1800 documents (one per index)
   BULK_FILE="/tmp/es_bulk_indexes.ndjson"
   > "$BULK_FILE"
 
   for team in $TEAMS; do
     for service in $SERVICES; do
-      for day in $(seq -w 1 40); do
+      for day in $(seq -w 1 36); do
         INDEX_NAME="holmes-eval-${team}-${service}-2024.01.${day}"
         # Each index gets a dummy log entry
         echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
@@ -68,9 +87,9 @@ before_test: |
     done
   done
 
-  # Count lines to verify (should be 4000 = 2000 action + 2000 doc lines)
+  # Count lines to verify (should be 3600 = 1800 action + 1800 doc lines)
   LINE_COUNT=$(wc -l < "$BULK_FILE")
-  echo "Generated bulk file with $LINE_COUNT lines (expecting 4000 for 2000 indexes)"
+  echo "Generated bulk file with $LINE_COUNT lines (expecting 3600 for 1800 indexes)"
 
   # Upload in chunks to avoid request size limits
   echo "Uploading bulk data to Elasticsearch..."
@@ -154,9 +173,11 @@ after_test: |
   ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
 
   echo "Cleaning up test indexes (holmes-eval-*)..."
-
-  # Delete all test indexes
   curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "Cleaning up index template..."
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-eval-template" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   echo "Cleanup complete"

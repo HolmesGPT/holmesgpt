@@ -1,12 +1,12 @@
 # Test: Elasticsearch Cross-Region Search - Index Pattern Discovery
 #
-# This test simulates an enterprise with geo-distributed logging across 2000 indexes.
+# This test simulates an enterprise with geo-distributed logging across 1620 indexes.
 # Index naming follows: holmes-geo-{region}-{service}-{date}
 #
 # Regions: us-east, us-west, eu-west, eu-central, ap-south, ap-northeast (6 regions)
-# Services: 33+ services per region
+# Services: 27 services per region
 # Dates: 10 days
-# Total: ~2000 indexes
+# Total: 1620 indexes (still exceeds 25K token limit at ~61K tokens)
 #
 # Challenge: User asks about an issue in a specific region but doesn't know the
 # exact index. LLM must discover the naming pattern and search appropriately.
@@ -44,19 +44,35 @@ before_test: |
     exit 1
   fi
 
-  echo "Creating 2000 geo-distributed indexes..."
+  echo "Creating 1620 geo-distributed indexes..."
 
   # Clean up any existing test data first for idempotency
   echo "Cleaning up any existing test data..."
   curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-geo-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-geo-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
 
-  # 6 regions x 34 services x 10 days = 2040 indexes (close to 2000)
+  # Create index template with 0 replicas to fit within cluster shard limits
+  echo "Creating index template with 0 replicas..."
+  curl -s -X PUT "${ELASTICSEARCH_URL}/_index_template/holmes-geo-template" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "index_patterns": ["holmes-geo-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        }
+      }
+    }' > /dev/null
+
+  # 6 regions x 27 services x 10 days = 1620 indexes
   REGIONS="us-east us-west eu-west eu-central ap-south ap-northeast"
   SERVICES="api web worker cache db auth billing notification search analytics \
     orders payments inventory shipping tracking reviews ratings users profiles \
-    catalog pricing promotions recommendations cart checkout wishlist subscriptions \
-    reports dashboard admin support chat email sms push webhooks scheduler"
+    catalog pricing promotions recommendations cart checkout wishlist subscriptions"
 
   BULK_FILE="/tmp/es_geo_bulk.ndjson"
   > "$BULK_FILE"
@@ -149,4 +165,9 @@ after_test: |
   echo "Cleaning up test indexes (holmes-geo-*)..."
   curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-geo-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "Cleaning up index template..."
+  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-geo-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
   echo "Cleanup complete"
