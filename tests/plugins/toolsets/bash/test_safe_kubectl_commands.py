@@ -11,13 +11,13 @@ Covers kubectl commands.
 """
 
 import pytest
+
 from holmes.plugins.toolsets.bash.common.config import (
     BashExecutorConfig,
     KubectlConfig,
     KubectlImageConfig,
 )
 from holmes.plugins.toolsets.bash.parse_command import make_command_safe
-
 
 TEST_CONFIG = BashExecutorConfig(
     kubectl=KubectlConfig(

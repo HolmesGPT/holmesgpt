@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, NamedTuple, Optional, Dict, List
+from typing import Any, Dict, List, NamedTuple, Optional
 
 from pydantic import BaseModel
 

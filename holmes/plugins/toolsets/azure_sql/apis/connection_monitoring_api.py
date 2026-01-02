@@ -1,8 +1,10 @@
-from typing import Dict, List
 import logging
 from datetime import datetime, timedelta
+from typing import Dict, List
+
 from azure.core.credentials import TokenCredential
 from azure.monitor.query import MetricsQueryClient
+
 from .azure_sql_api import AzureSQLAPIClient
 
 

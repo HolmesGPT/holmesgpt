@@ -1,8 +1,10 @@
 import logging
-from typing import Optional, Dict, Any
-import requests  # type: ignore
 from functools import cache
+from typing import Any, Dict, Optional
+
+import requests  # type: ignore
 from pydantic import BaseModel, ConfigDict
+
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 
 HOLMES_GET_INFO_URL = f"{ROBUSTA_API_ENDPOINT}/api/holmes/get_info"

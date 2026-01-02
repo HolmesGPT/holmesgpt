@@ -6,9 +6,10 @@ Config.fast_model to ToolsetManager.global_fast_model.
 """
 
 import tempfile
-import yaml
 from pathlib import Path
 from unittest.mock import patch
+
+import yaml
 
 from holmes.config import Config
 

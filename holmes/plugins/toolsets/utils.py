@@ -1,7 +1,7 @@
 import datetime
 import math
-import time
 import re
+import time
 from typing import Dict, Optional, Tuple, Union
 
 from dateutil import parser

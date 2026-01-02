@@ -2,8 +2,8 @@ import pytest
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 from holmes.utils.memory_limit import (
-    get_ulimit_prefix,
     check_oom_and_append_hint,
+    get_ulimit_prefix,
 )
 
 

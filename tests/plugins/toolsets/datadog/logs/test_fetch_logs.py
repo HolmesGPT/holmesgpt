@@ -7,12 +7,14 @@ Run with:
 """
 
 import os
+
 import pytest
+
+from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
     DatadogLogsToolset,
     GetLogs,
 )
-from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from tests.conftest import create_mock_tool_invoke_context
 
 

@@ -15,7 +15,7 @@ def ensure_transformers_registered():
         registry: The transformer registry instance
     """
     # Import the transformers module to trigger automatic registration
-    from holmes.core.transformers import registry, LLMSummarizeTransformer
+    from holmes.core.transformers import LLMSummarizeTransformer, registry
 
     # Re-register if missing (some tests may clear the global registry)
     if not registry.is_registered("llm_summarize"):

@@ -3,6 +3,7 @@ Memory limit utilities for tool subprocess execution.
 """
 
 import logging
+
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
 logger = logging.getLogger(__name__)

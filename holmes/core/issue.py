@@ -1,7 +1,7 @@
-from strenum import StrEnum
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
+from strenum import StrEnum
 
 
 class IssueStatus(StrEnum):

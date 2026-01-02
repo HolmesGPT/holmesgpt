@@ -1,22 +1,23 @@
-from typing import List, Optional, Union
-from dataclasses import dataclass
-from autoevals import LLMClassifier, init
-from braintrust.oai import wrap_openai
-import openai
-from braintrust import Span, SpanTypeAttribute
-from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
-from tests.llm.utils.test_env_vars import (
-    CLASSIFIER_MODEL,
-    OPENAI_API_KEY,
-    OPENROUTER_API_KEY,
-    OPENAI_API_BASE,
-    OPENROUTER_API_BASE,
-    AZURE_API_KEY,
-    AZURE_API_BASE,
-    AZURE_API_VERSION,
-)
-
 import logging
+from dataclasses import dataclass
+from typing import List, Optional, Union
+
+import openai
+from autoevals import LLMClassifier, init
+from braintrust import Span, SpanTypeAttribute
+from braintrust.oai import wrap_openai
+
+from tests.llm.utils.test_case_utils import _model_list_exists, create_eval_llm
+from tests.llm.utils.test_env_vars import (
+    AZURE_API_BASE,
+    AZURE_API_KEY,
+    AZURE_API_VERSION,
+    CLASSIFIER_MODEL,
+    OPENAI_API_BASE,
+    OPENAI_API_KEY,
+    OPENROUTER_API_BASE,
+    OPENROUTER_API_KEY,
+)
 
 
 @dataclass

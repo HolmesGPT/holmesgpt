@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )

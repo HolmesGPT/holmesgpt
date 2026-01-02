@@ -7,7 +7,6 @@ import pytest
 from confluent_kafka.admin import NewTopic
 
 from holmes.core.tools import ToolsetStatusEnum
-from tests.conftest import create_mock_tool_invoke_context
 from holmes.plugins.toolsets.kafka import (
     DescribeConsumerGroup,
     DescribeTopic,
@@ -16,6 +15,7 @@ from holmes.plugins.toolsets.kafka import (
     ListKafkaConsumers,
     ListTopics,
 )
+from tests.conftest import create_mock_tool_invoke_context
 from tests.utils.kafka import wait_for_kafka_ready
 
 dir_path = os.path.dirname(os.path.realpath(__file__))

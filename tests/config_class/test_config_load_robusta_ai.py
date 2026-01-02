@@ -1,7 +1,7 @@
 from unittest.mock import patch
-from holmes.config import Config
-from holmes.clients.robusta_client import RobustaModelsResponse, RobustaModel
 
+from holmes.clients.robusta_client import RobustaModel, RobustaModelsResponse
+from holmes.config import Config
 
 ROBUSTA_TEST_MODELS = RobustaModelsResponse(
     models={

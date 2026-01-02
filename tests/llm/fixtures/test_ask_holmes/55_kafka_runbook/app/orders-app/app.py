@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
 import json
+import random
 import time
 import uuid
 from datetime import datetime
+
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
-import random
 
 # Fake order data
 PRODUCTS = [

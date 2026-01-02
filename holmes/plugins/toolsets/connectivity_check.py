@@ -1,7 +1,6 @@
 import socket
 from typing import Any, Dict, Literal
 
-
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,

@@ -3,14 +3,14 @@ import logging
 import re
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Dict, Union, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse, urlunparse
+
 import requests  # type: ignore
 from pydantic import AnyUrl, BaseModel
 from requests.structures import CaseInsensitiveDict  # type: ignore
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_incrementing
 from tenacity.wait import wait_base
-
 
 START_RETRY_DELAY = (
     5.0  # Initial fallback delay if datadog does not return a reset_time

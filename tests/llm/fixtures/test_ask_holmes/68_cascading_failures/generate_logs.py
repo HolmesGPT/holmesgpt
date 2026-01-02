@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import json
-from datetime import datetime, timedelta
-import time
 import random
+import time
+from datetime import datetime, timedelta
 
 
 def generate_log_entry(service, level, message, timestamp_offset=0, trace_id=None):

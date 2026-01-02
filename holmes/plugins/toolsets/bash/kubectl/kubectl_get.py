@@ -1,6 +1,8 @@
+import argparse
 from typing import Any, Optional
 
-import argparse
+from holmes.plugins.toolsets.bash.common.bash_command import BashCommand
+from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.common.stringify import escape_shell_args
 from holmes.plugins.toolsets.bash.common.validators import (
     whitelist_validator,
@@ -8,9 +10,6 @@ from holmes.plugins.toolsets.bash.common.validators import (
 from holmes.plugins.toolsets.bash.kubectl.constants import (
     VALID_RESOURCE_TYPES,
 )
-
-from holmes.plugins.toolsets.bash.common.bash_command import BashCommand
-from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 
 
 class KubectlGetCommand(BashCommand):

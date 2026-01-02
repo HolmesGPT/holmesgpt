@@ -13,7 +13,6 @@ from holmes.plugins.toolsets.grafana.common import (
     get_base_url,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
