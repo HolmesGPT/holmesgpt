@@ -97,7 +97,7 @@ jobs:
       github.event_name == 'pull_request' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/last')))
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/rerun')))
 
     # Serialize automated regression runs per PR to avoid race conditions on persistent comment
     # Manual runs (/eval, workflow_dispatch) get unique groups so they can run in parallel
@@ -121,10 +121,10 @@ jobs:
 
             let body = context.payload.comment.body;
             let lastEvalCommentId = null;
-            const isLastCommand = body.trim().toLowerCase().startsWith('/last');
+            const isRerunCommand = body.trim().toLowerCase().startsWith('/rerun');
 
-            // Handle /last command: find the last /eval comment on this PR
-            if (isLastCommand) {
+            // Handle /rerun command: find the last /eval comment on this PR
+            if (isRerunCommand) {
               // Fetch all comments (paginate to handle PRs with 100+ comments)
               let allComments = [];
               let page = 1;
@@ -141,7 +141,7 @@ jobs:
                 page++;
               }
 
-              // Find the last /eval comment before this /last comment
+              // Find the last /eval comment before this /rerun comment
               const evalComments = allComments
                 .filter(c => c.id !== context.payload.comment.id && c.body.trim().toLowerCase().startsWith('/eval'))
                 .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -156,7 +156,7 @@ jobs:
               core.info(`Found last /eval comment: ${lastEvalCommentId}`);
             }
 
-            core.setOutput('is_last_command', isLastCommand.toString());
+            core.setOutput('is_rerun_command', isRerunCommand.toString());
             core.setOutput('last_eval_comment_id', lastEvalCommentId ? lastEvalCommentId.toString() : '');
             core.setOutput('resolved_body', body);
 
@@ -244,9 +244,9 @@ jobs:
             const event = context.eventName;
 
             if (event === 'issue_comment') {
-              // Use resolved body (handles /last command by using the last /eval comment's body)
+              // Use resolved body (handles /rerun command by using the last /eval comment's body)
               const resolvedBody = ${{ toJSON(steps.eval-comment.outputs.resolved_body) }} || context.payload.comment.body;
-              const isLastCommand = ${{ toJSON(steps.eval-comment.outputs.is_last_command) }} === 'true';
+              const isRerunCommand = ${{ toJSON(steps.eval-comment.outputs.is_rerun_command) }} === 'true';
               const lastEvalCommentId = ${{ toJSON(steps.eval-comment.outputs.last_eval_comment_id) }} || '';
 
               const parsed = parseComment(resolvedBody);
@@ -263,9 +263,9 @@ jobs:
 
               // Build trigger source with links to both commands
               const currentCommentUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}#issuecomment-${context.payload.comment.id}`;
-              if (isLastCommand && lastEvalCommentId) {
+              if (isRerunCommand && lastEvalCommentId) {
                 const evalCommentUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}#issuecomment-${lastEvalCommentId}`;
-                triggerSource = `[/last](${currentCommentUrl}) → [/eval](${evalCommentUrl})`;
+                triggerSource = `[/rerun](${currentCommentUrl}) → [/eval](${evalCommentUrl})`;
               } else {
                 triggerSource = branch ? `[/eval on branch \`${branch}\`](${currentCommentUrl})` : `[/eval comment](${currentCommentUrl})`;
               }
