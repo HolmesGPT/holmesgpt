@@ -193,7 +193,7 @@ mcpAddons:
       annotations: {}  # Add GKE Workload Identity annotations if needed
 
     # Container registry for GCP MCP images
-    # Build images from: https://github.com/your-org/holmes-mcp-integrations/tree/main/servers/gcp
+    # Build images from: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
     registry: "me-west1-docker.pkg.dev/robusta-development/development"
     imagePullPolicy: "IfNotPresent"
 
