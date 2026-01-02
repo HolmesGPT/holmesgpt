@@ -111,60 +111,6 @@ holmes ask "what pods are failing?" --model="azure/<your-deployment-name>" --api
 
 HolmesGPT supports several Azure AD authentication methods through LiteLLM, allowing you to avoid using API keys.
 
-### Managed Identity (UAMI/SAMI)
-
-For Azure VMs, AKS clusters, or other Azure services with managed identity enabled, use the `oidc/azure/` token provider. This works with both User Assigned Managed Identity (UAMI) and System Assigned Managed Identity (SAMI).
-
-=== "Holmes Helm Chart"
-
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: AZURE_CLIENT_ID
-        value: "your-managed-identity-client-id"  # Required for User Assigned Managed Identity
-      - name: AZURE_TENANT_ID
-        value: "your-tenant-id"
-
-    modelList:
-      azure-gpt-41:
-        model: azure/gpt-4.1
-        api_base: https://your-resource.openai.azure.com/
-        api_version: "2025-01-01-preview"
-        azure_ad_token: "oidc/azure/https://cognitiveservices.azure.com"
-        # No api_key needed - uses managed identity
-
-    config:
-      model: "azure-gpt-41"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: AZURE_CLIENT_ID
-          value: "your-managed-identity-client-id"  # Required for User Assigned Managed Identity
-        - name: AZURE_TENANT_ID
-          value: "your-tenant-id"
-
-      modelList:
-        azure-gpt-41:
-          model: azure/gpt-4.1
-          api_base: https://your-resource.openai.azure.com/
-          api_version: "2025-01-01-preview"
-          azure_ad_token: "oidc/azure/https://cognitiveservices.azure.com"
-          # No api_key needed - uses managed identity
-
-      config:
-        model: "azure-gpt-41"
-    ```
-
-!!! note "System Assigned vs User Assigned Managed Identity"
-
-    - **System Assigned (SAMI)**: No `AZURE_CLIENT_ID` needed - Azure automatically provides the identity
-    - **User Assigned (UAMI)**: Set `AZURE_CLIENT_ID` to your managed identity's client ID
-
 ### Workload Identity (AKS)
 
 For AKS clusters with [Workload Identity](https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview){:target="_blank"} enabled, use the `oidc/azure/` token provider.
@@ -178,13 +124,14 @@ For AKS clusters with [Workload Identity](https://learn.microsoft.com/en-us/azur
         value: "your-app-client-id"
       - name: AZURE_TENANT_ID
         value: "your-tenant-id"
+      # AZURE_FEDERATED_TOKEN_FILE is auto-injected by AKS Workload Identity
 
     modelList:
       azure-gpt-41:
         model: azure/gpt-4.1
         api_base: https://your-resource.openai.azure.com/
         api_version: "2025-01-01-preview"
-        azure_ad_token: "oidc/azure/https://cognitiveservices.azure.com"
+        azure_ad_token: "oidc/azure/api://AzureADTokenExchange"
         # No api_key needed - uses workload identity
 
     config:
@@ -201,13 +148,14 @@ For AKS clusters with [Workload Identity](https://learn.microsoft.com/en-us/azur
           value: "your-app-client-id"
         - name: AZURE_TENANT_ID
           value: "your-tenant-id"
+        # AZURE_FEDERATED_TOKEN_FILE is auto-injected by AKS Workload Identity
 
       modelList:
         azure-gpt-41:
           model: azure/gpt-4.1
           api_base: https://your-resource.openai.azure.com/
           api_version: "2025-01-01-preview"
-          azure_ad_token: "oidc/azure/https://cognitiveservices.azure.com"
+          azure_ad_token: "oidc/azure/api://AzureADTokenExchange"
           # No api_key needed - uses workload identity
 
       config:
@@ -216,6 +164,14 @@ For AKS clusters with [Workload Identity](https://learn.microsoft.com/en-us/azur
 
 !!! tip "AKS Workload Identity Setup"
     Ensure your AKS cluster has workload identity enabled and the Holmes service account is federated with your Azure AD application. See [Microsoft's Workload Identity documentation](https://learn.microsoft.com/en-us/azure/aks/workload-identity-deploy-cluster){:target="_blank"}.
+
+!!! note "Environment Variables"
+    When running on AKS with Workload Identity enabled:
+
+    - `AZURE_CLIENT_ID` - Required: Your Azure AD application client ID
+    - `AZURE_TENANT_ID` - Required: Your Azure tenant ID
+    - `AZURE_FEDERATED_TOKEN_FILE` - Auto-injected by AKS Workload Identity
+    - `AZURE_AUTHORITY_HOST` - Optional: Defaults to `https://login.microsoftonline.com`
 
 ### Service Principal
 
