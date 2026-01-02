@@ -1,15 +1,15 @@
 # Test: Elasticsearch Cross-Region Search - Index Pattern Discovery
 #
-# This test simulates an enterprise with geo-distributed logging across 1620 indexes.
+# This test simulates an enterprise with geo-distributed logging across 320 indexes.
 # Index naming follows: holmes-geo-{region}-{service}-{date}
 #
-# Regions: us-east, us-west, eu-west, eu-central, ap-south, ap-northeast (6 regions)
-# Services: 27 services per region
-# Dates: 10 days
-# Total: 1620 indexes (still exceeds 25K token limit at ~61K tokens)
+# Regions: us-east, us-west, eu-west, eu-central (4 regions)
+# Services: 10 services per region
+# Dates: 8 days
+# Total: 320 indexes
 #
-# Challenge: User asks about an issue in a specific region but doesn't know the
-# exact index. LLM must discover the naming pattern and search appropriately.
+# Note: Reduced from 1620 to 320 indexes to allow concurrent execution with
+# other ES tests within the 2000 shard cluster limit.
 #
 # Anti-hallucination: Uses unique request ID (REQ-EU-8K4M2) and specific error
 # message that can only be found by actually searching.
@@ -44,7 +44,7 @@ before_test: |
     exit 1
   fi
 
-  echo "Creating 1620 geo-distributed indexes..."
+  echo "Creating 320 geo-distributed indexes..."
 
   # Clean up any existing test data first for idempotency
   echo "Cleaning up any existing test data..."
@@ -68,18 +68,17 @@ before_test: |
       }
     }' > /dev/null
 
-  # 6 regions x 27 services x 10 days = 1620 indexes
-  REGIONS="us-east us-west eu-west eu-central ap-south ap-northeast"
-  SERVICES="api web worker cache db auth billing notification search analytics \
-    orders payments inventory shipping tracking reviews ratings users profiles \
-    catalog pricing promotions recommendations cart checkout wishlist subscriptions"
+  # 4 regions x 10 services x 8 days = 320 indexes
+  # Reduced to allow concurrent execution with other ES scale tests
+  REGIONS="us-east us-west eu-west eu-central"
+  SERVICES="api web worker cache db auth billing notification search analytics"
 
   BULK_FILE="/tmp/es_geo_bulk.ndjson"
   > "$BULK_FILE"
 
   for region in $REGIONS; do
     for service in $SERVICES; do
-      for day in $(seq -w 1 10); do
+      for day in $(seq -w 1 8); do
         INDEX_NAME="holmes-geo-${region}-${service}-2024.01.${day}"
         echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
         echo "{\"@timestamp\": \"2024-01-${day}T12:00:00Z\", \"level\": \"INFO\", \"service\": \"${service}\", \"region\": \"${region}\", \"message\": \"Request completed successfully\", \"response_time_ms\": 150}" >> "$BULK_FILE"
