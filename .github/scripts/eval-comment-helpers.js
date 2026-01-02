@@ -330,7 +330,8 @@ function buildRerunFooter(p, context, options = {}) {
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
     markersFormatted +
     '\n</details>\n' +
-    '\n---\n**Commands:** `/eval` · `/rerun` · `/list`\n';
+    '\n---\n**Commands:** `/eval` · `/rerun` · `/list`\n\n' +
+    '**CLI:** `' + ghCommand + '`\n';
 
   return footer;
 }
