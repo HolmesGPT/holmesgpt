@@ -26,8 +26,6 @@ function buildParams(raw) {
     testPreview: raw.test_preview || '',
     duration: raw.duration || 'N/A',
     validMarkers: raw.valid_markers || '',
-    askHolmesEvals: raw.ask_holmes_evals || '',
-    investigateEvals: raw.investigate_evals || '',
     triggered_by: raw.triggered_by || ''
   };
 }
@@ -46,9 +44,16 @@ function renderProgress(steps) {
 /**
  * Render parameters table for manual runs
  * @param {Object} p - Parameters object
+ * @param {Object} context - GitHub context object (optional, for rerun link)
  * @returns {string} Markdown table
  */
-function renderParamsTable(p) {
+function renderParamsTable(p, context = null) {
+  let workflowLinks = `[View logs](${p.runUrl})`;
+  if (context) {
+    const baseWorkflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
+    const rerunUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
+    workflowLinks += ` \\| [Rerun](${rerunUrl})`;
+  }
   return `| Parameter | Value |\n|-----------|-------|\n` +
     `| **Triggered via** | ${p.trigger} |\n` +
     (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') +
@@ -57,20 +62,20 @@ function renderParamsTable(p) {
     (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
     `| **Iterations** | ${p.iterations} |\n` +
     (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
-    `| **Workflow** | [View logs](${p.runUrl}) |\n`;
+    `| **Workflow** | ${workflowLinks} |\n`;
 }
 
 /**
  * Build comment body based on state
  * @param {Object} p - Parameters object
  * @param {Array<[boolean, string]>} progressSteps - Progress steps (null to hide)
- * @param {Object} extras - Extra options (icon, title, testPreview)
+ * @param {Object} extras - Extra options (icon, title, testPreview, context)
  * @returns {string} Markdown body
  */
 function buildBody(p, progressSteps, extras = {}) {
   let body = p.isManual
     ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
-      renderParamsTable(p)
+      renderParamsTable(p, extras.context)
     : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
       `Automatically triggered by ${p.trigger}\n\n` +
       `[View workflow logs](${p.runUrl})\n`;
@@ -88,20 +93,44 @@ function buildBody(p, progressSteps, extras = {}) {
 }
 
 /**
+ * Format comma-separated items as code-styled list
+ * @param {string} items - Comma-separated items
+ * @returns {string} Formatted items
+ */
+function formatAsCodes(items) {
+  if (!items) return '_(loading...)_';
+  return items.split(',').map(item => {
+    const trimmed = item.trim();
+    if (!trimmed) return '';
+    return `\`${trimmed}\``;
+  }).filter(Boolean).join(', ');
+}
+
+/**
  * Build re-run instructions footer for automatic runs
- * @param {Object} p - Parameters object with validMarkers, askHolmesEvals, investigateEvals
+ * @param {Object} p - Parameters object with validMarkers
  * @param {Object} context - GitHub context object
- * @param {Object} options - Options object
- * @param {boolean} options.showLegend - Whether to show the legend (only when results are displayed)
+ * @param {Object} options - Options (includeLegend: boolean)
  * @returns {string} Markdown footer
  */
 function buildRerunFooter(p, context, options = {}) {
-  const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/eval-regression.yaml`;
+  const { includeLegend = false } = options;
+  const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+  const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`;
+  const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
+
+  // Format markers as comma-separated code-styled names
+  const markersFormatted = formatAsCodes(p.validMarkers);
+
+  // gh CLI command to run workflow from PR branch
+  const ghCommand = p.displayBranch
+    ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression`
+    : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression`;
 
   let footer = '';
 
-  // Only show legend when results table is present (not during progress updates)
-  if (options.showLegend) {
+  // Only show legend when results are displayed
+  if (includeLegend) {
     footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
       '| Icon | Meaning |\n|------|--------|\n' +
       '| ✅ | The test was successful |\n' +
@@ -115,8 +144,11 @@ function buildRerunFooter(p, context, options = {}) {
   }
 
   footer += '\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
-    '> ⚠️ **Warning:** Manual re-runs have NO default markers and will run ALL LLM tests (~100+), which can take 1+ hours. ' +
-    'Use `markers: regression` or `filter: test_name` to limit scope.\n\n' +
+    '> ⚠️ **Warning:** `/eval` comments always run using the **workflow from master**, not from this PR branch. ' +
+    'If you modified the GitHub Action (e.g., added secrets or env vars), those changes won\'t take effect.\n>\n' +
+    '> **To test workflow changes**, use the GitHub CLI or [Actions UI](' + workflowUrl + ') instead:\n>\n' +
+    '> ```\n> ' + ghCommand + '\n> ```\n\n' +
+    '---\n\n' +
     '**Option 1: Comment on this PR** with `/eval`:\n\n' +
     '```\n/eval\nmarkers: regression\n```\n\n' +
     'Or with more options (one per line):\n\n' +
@@ -126,20 +158,15 @@ function buildRerunFooter(p, context, options = {}) {
     '| Option | Description |\n|--------|-------------|\n' +
     '| `model` | Model(s) to test (default: same as automatic runs) |\n' +
     '| `markers` | Pytest markers (**no default - runs all tests!**) |\n' +
-    '| `filter` | Pytest -k filter |\n' +
+    '| `filter` | Pytest -k filter (use `/list` to see valid eval names) |\n' +
     '| `iterations` | Number of runs, max 10 |\n' +
     '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
     '**Quick re-run:** Use `/last` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
-    (p.validMarkers || '_(Collecting from pyproject.toml...)_') +
+    markersFormatted +
     '\n</details>\n' +
-    '\n<details>\n<summary>📋 <b>Valid eval names (use with filter)</b></summary>\n\n' +
-    '**test_ask_holmes:**\n' +
-    (p.askHolmesEvals || '_(Collecting from tests/llm/fixtures/...)_') +
-    '\n\n**test_investigate:**\n' +
-    (p.investigateEvals || '_(Collecting from tests/llm/fixtures/...)_') +
-    '\n</details>\n';
+    '\n---\n**Commands:** `/eval` · `/last` · `/list`\n';
 
   return footer;
 }
