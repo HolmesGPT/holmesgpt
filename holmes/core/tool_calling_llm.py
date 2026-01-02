@@ -5,6 +5,16 @@ import textwrap
 import os
 from typing import Dict, List, Optional, Type, Union, Callable, Any
 
+from holmes.utils.tags import format_tags_in_string, parse_messages_tags
+from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.tracing import DummySpan
+from holmes.utils.colors import AI_COLOR
+from holmes.utils.stream import (
+    StreamEvents,
+    StreamMessage,
+    add_token_count_to_metadata,
+    build_stream_event_token_count,
+)
 from holmes.core.models import (
     ToolApprovalDecision,
     ToolCallResult,
@@ -80,16 +90,7 @@ def get_tool_choice(tools: bool) -> Optional[str]:
     
     logging.debug(f"KAITO enabled: {kaito_enabled}, using tool_choice: {tool_choice}")
     return tool_choice
-from holmes.utils.tags import format_tags_in_string, parse_messages_tags
-from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.core.tracing import DummySpan
-from holmes.utils.colors import AI_COLOR
-from holmes.utils.stream import (
-    StreamEvents,
-    StreamMessage,
-    add_token_count_to_metadata,
-    build_stream_event_token_count,
-)
+
 
 # Create a named logger for cost tracking
 cost_logger = logging.getLogger("holmes.costs")
@@ -414,7 +415,7 @@ class ToolCallingLLM:
             logging.debug(f"running iteration {i}")
             # on the last step we don't allow tools - we want to force a reply, not a request to run another tool
             tools = None if i == max_steps else tools
-            tool_choice = "auto" if tools else None
+            tool_choice = get_tool_choice(bool(tools))
 
             limit_result = limit_input_context_window(
                 llm=self.llm, messages=messages, tools=tools
@@ -869,7 +870,7 @@ class ToolCallingLLM:
             logging.debug(f"running iteration {i}")
 
             tools = None if i == max_steps else tools
-            tool_choice = "auto" if tools else None
+            tool_choice = get_tool_choice(bool(tools))
 
             limit_result = limit_input_context_window(
                 llm=self.llm, messages=messages, tools=tools
@@ -1088,7 +1089,7 @@ class ToolCallingLLM:
             # Create a fresh conversation for termination check
             termination_messages = [
                 {"role": "system", "content": "You are a helpful assistant that evaluates whether investigations should continue."},
-                {"role": "user", "content": f"Based on this conversation history:\n\n{str(messages)}\n\n{termination_prompt}"}
+                {"role": "user", "content": f"Based on this conversation history:\n\n{messages!s}\n\n{termination_prompt}"}
             ]
 
             response = self.llm.completion(
@@ -1098,20 +1099,19 @@ class ToolCallingLLM:
                 temperature=0.1,
                 drop_params=True,
             )
-            
+        except (ValueError, RuntimeError, IOError, BadRequestError) as e:
+            logging.warning(f"Failed to check for intelligent termination: {e}")
+            return False  # Continue normally if check fails
+        else:
             response_text = response.choices[0].message.content.upper()
             should_stop = "STOP" in response_text
             
             logging.info(f"🔍 TERMINATION DEBUG: LLM response: '{response_text}' → should_stop={should_stop}")
             
             if should_stop:
-                logging.info(f"🎯 Intelligent termination: Investigation should stop based on conversation context")
+                logging.info("🎯 Intelligent termination: Investigation should stop based on conversation context")
             
             return should_stop
-            
-        except Exception as e:
-            logging.warning(f"Failed to check for intelligent termination: {e}")
-            return False  # Continue normally if check fails
 
 
 # TODO: consider getting rid of this entirely and moving templating into the cmds in holmes_cli.py
