@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 from abc import abstractmethod
 from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
@@ -20,6 +21,7 @@ from holmes.clients.robusta_client import (
 
 from holmes.common.env_vars import (
     FALLBACK_CONTEXT_WINDOW_SIZE,
+    LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
     REASONING_EFFORT,
     ROBUSTA_AI,
@@ -396,6 +398,12 @@ class DefaultLLM(LLM):
                 "reasoning_effort"
             ]  # can be removed after next litelm version
 
+        existing_allowed = self.args.pop("allowed_openai_params", None)
+        if existing_allowed:
+            if allowed_openai_params is None:
+                allowed_openai_params = []
+            allowed_openai_params.extend(existing_allowed)
+
         self.args.setdefault("temperature", temperature)
 
         self._add_cache_control_to_last_message(messages)
@@ -414,6 +422,7 @@ class DefaultLLM(LLM):
             drop_params=drop_params,
             allowed_openai_params=allowed_openai_params,
             stream=stream,
+            timeout=LLM_REQUEST_TIMEOUT,
             **tools_args,
             **self.args,
         )
@@ -524,6 +533,7 @@ class LLMModelRegistry:
         self._llms: dict[str, ModelEntry] = {}
         self._default_robusta_model = None
         self.dal = dal
+        self._lock = threading.RLock()
 
         self._init_models()
 
@@ -549,6 +559,9 @@ class LLMModelRegistry:
 
     def _should_load_config_model(self) -> bool:
         if self.config.model is not None:
+            if self._llms and self.config.model in self._llms:
+                # model already loaded from file
+                return False
             return True
 
         # backward compatibility - in the past config.model was set by default to gpt-4o.
@@ -628,39 +641,46 @@ class LLMModelRegistry:
         return True
 
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
-        if not self._llms:
-            raise Exception("No llm models were loaded")
+        with self._lock:
+            if not self._llms:
+                raise Exception("No llm models were loaded")
 
-        if model_key:
-            model_params = self._llms.get(model_key)
-            if model_params is not None:
-                logging.info(f"Using selected model: {model_key}")
-                return model_params.copy()
+            if model_key:
+                model_params = self._llms.get(model_key)
+                if model_params:
+                    logging.info(f"Using selected model: {model_key}")
+                    return model_params.model_copy()
 
-            logging.error(f"Couldn't find model: {model_key} in model list")
+                if model_key.startswith("Robusta/"):
+                    logging.warning("Resyncing Registry and Robusta models.")
+                    self._init_models()
+                    model_params = self._llms.get(model_key)
+                    if model_params:
+                        logging.info(f"Using selected model: {model_key}")
+                        return model_params.model_copy()
 
-        if self._default_robusta_model:
-            model_params = self._llms.get(self._default_robusta_model)
-            if model_params is not None:
-                logging.info(
-                    f"Using default Robusta AI model: {self._default_robusta_model}"
+                logging.error(f"Couldn't find model: {model_key} in model list")
+
+            if self._default_robusta_model:
+                model_params = self._llms.get(self._default_robusta_model)
+                if model_params is not None:
+                    logging.info(
+                        f"Using default Robusta AI model: {self._default_robusta_model}"
+                    )
+                    return model_params.model_copy()
+
+                logging.error(
+                    f"Couldn't find default Robusta AI model: {self._default_robusta_model} in model list"
                 )
-                return model_params.copy()
 
-            logging.error(
-                f"Couldn't find default Robusta AI model: {self._default_robusta_model} in model list"
-            )
-
-        model_key, first_model_params = next(iter(self._llms.items()))
-        logging.debug(f"Using first available model: {model_key}")
-        return first_model_params.copy()
-
-    def get_llm(self, name: str) -> LLM:  # TODO: fix logic
-        return self._llms[name]  # type: ignore
+            model_key, first_model_params = next(iter(self._llms.items()))
+            logging.debug(f"Using first available model: {model_key}")
+            return first_model_params.model_copy()
 
     @property
     def models(self) -> dict[str, ModelEntry]:
-        return self._llms
+        with self._lock:
+            return self._llms
 
     def _parse_models_file(self, path: str) -> dict[str, ModelEntry]:
         models = load_yaml_file(path, raise_error=False, warn_not_found=False)

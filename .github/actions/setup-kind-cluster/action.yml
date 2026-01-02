@@ -17,7 +17,7 @@ runs:
     - name: Install KIND
       shell: bash
       run: |
-        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
         chmod +x ./kind
         sudo mv ./kind /usr/local/bin/kind
         kind version
@@ -28,6 +28,8 @@ runs:
         cat <<EOF > kind-config.yaml
         kind: Cluster
         apiVersion: kind.x-k8s.io/v1alpha4
+        networking:
+          disableDefaultCNI: true  # Disable default kindnet to install Calico
         nodes:
         - role: control-plane
           extraPortMappings:
@@ -42,30 +44,153 @@ runs:
             kind: InitConfiguration
             nodeRegistration:
               kubeletExtraArgs:
-                max-pods: "200"
+                max-pods: "300"
           - |
             kind: KubeProxyConfiguration
             metricsBindAddress: "0.0.0.0:10249"
           - |
             kind: KubeletConfiguration
-            maxPods: 200
-        - role: worker
-          kubeadmConfigPatches:
-          - |
-            kind: JoinConfiguration
-            nodeRegistration:
-              kubeletExtraArgs:
-                max-pods: "200"
-          - |
-            kind: KubeletConfiguration
-            maxPods: 200
+            maxPods: 300
         EOF
 
-        # Create cluster with resource limits appropriate for GitHub Actions (7GB RAM, 2 CPU)
-        kind create cluster --name ${{ inputs.cluster-name }} --config kind-config.yaml --wait 5m
+        # Create cluster without waiting for full readiness (CNI needed first)
+        kind create cluster --name ${{ inputs.cluster-name }} --config kind-config.yaml
 
         # Configure kubectl
         kubectl cluster-info --context kind-${{ inputs.cluster-name }}
+
+    - name: Install Calico CNI
+      shell: bash
+      run: |
+        set -e  # Exit on any error
+        
+        # Calico version configuration
+        CALICO_VERSION="v3.31.3"
+        
+        echo "Installing Calico CNI ${CALICO_VERSION} for NetworkPolicy support..."
+        
+        # Install Calico operator
+        echo "Installing Calico operator..."
+        if ! kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml; then
+          echo "❌ Failed to install Calico operator"
+          exit 1
+        fi
+        
+        # Wait for operator to be ready
+        echo "Waiting for Calico operator to be ready..."
+        
+        # First, wait for operator pods to exist (max 60 attempts, 5s each = 300s total)
+        OPERATOR_PODS_FOUND=false
+        for i in $(seq 1 60); do
+          if kubectl get pods -n tigera-operator --no-headers 2>/dev/null | grep -q "tigera-operator"; then
+            echo "✅ Calico operator pods found!"
+            OPERATOR_PODS_FOUND=true
+            break
+          else
+            echo "⏳ Attempt $i/60: waiting for operator pods to be created, checking in 5s..."
+            sleep 5
+          fi
+        done
+        
+        if [ "$OPERATOR_PODS_FOUND" = false ]; then
+          echo "❌ Calico operator pods failed to appear after 300 seconds"
+          kubectl get pods -n tigera-operator
+          kubectl describe pods -n tigera-operator
+          exit 1
+        fi
+        
+        # Now wait for operator pods to be ready
+        echo "Waiting for operator pods to become ready..."
+        if ! kubectl wait --for=condition=Ready --timeout=300s -n tigera-operator pods --all; then
+          echo "❌ Calico operator failed to become ready"
+          kubectl get pods -n tigera-operator
+          kubectl describe pods -n tigera-operator
+          exit 1
+        fi
+        
+        # Wait for operator to register CRDs
+        echo "Waiting for Calico operator CRDs to be registered..."
+        CRD_FOUND=false
+        for i in $(seq 1 60); do
+          if kubectl get crd installations.operator.tigera.io 2>/dev/null; then
+            echo "✅ Calico Installation CRD found!"
+            CRD_FOUND=true
+            break
+          else
+            echo "⏳ Attempt $i/60: waiting for Installation CRD to be registered, checking in 5s..."
+            sleep 5
+          fi
+        done
+        
+        if [ "$CRD_FOUND" = false ]; then
+          echo "❌ Calico Installation CRD failed to be registered after 300 seconds"
+          kubectl get crds | grep -i tigera || echo "No tigera CRDs found"
+          kubectl get pods -n tigera-operator
+          kubectl describe pods -n tigera-operator
+          exit 1
+        fi
+        
+        # Create custom resource for Calico installation optimized for KIND
+        echo "Creating Calico installation resource..."
+        if ! cat <<EOF | kubectl create -f -
+        apiVersion: operator.tigera.io/v1
+        kind: Installation
+        metadata:
+          name: default
+        spec:
+          calicoNetwork:
+            ipPools:
+            - blockSize: 26
+              cidr: 10.244.0.0/16  # Match KIND's default pod CIDR
+              encapsulation: IPIP
+              natOutgoing: Enabled
+              nodeSelector: all()
+        EOF
+        then
+          echo "❌ Failed to create Calico installation resource"
+          exit 1
+        fi
+        
+        # Wait for Calico to be installed
+        echo "Waiting for Calico installation to complete..."
+        
+        # First, wait for Calico system pods to exist (max 60 attempts, 5s each = 300s total)
+        CALICO_PODS_FOUND=false
+        for i in $(seq 1 60); do
+          if kubectl get pods -n calico-system --no-headers 2>/dev/null | grep -q "calico"; then
+            echo "✅ Calico system pods found!"
+            CALICO_PODS_FOUND=true
+            break
+          else
+            echo "⏳ Attempt $i/60: waiting for Calico system pods to be created, checking in 5s..."
+            sleep 5
+          fi
+        done
+        
+        if [ "$CALICO_PODS_FOUND" = false ]; then
+          echo "❌ Calico system pods failed to appear after 300 seconds"
+          echo "=== Calico system pod status ==="
+          kubectl get pods -n calico-system
+          echo "=== Calico installation status ==="
+          kubectl get installations.operator.tigera.io default -o yaml || echo "Installation resource not found"
+          exit 1
+        fi
+        
+        # Now wait for Calico system pods to be ready
+        echo "Waiting for Calico system pods to become ready..."
+        if ! kubectl wait --for=condition=Ready --timeout=300s -n calico-system pods --all; then
+          echo "❌ Calico pods failed to become ready within 300 seconds"
+          echo "=== Calico system pod status ==="
+          kubectl get pods -n calico-system
+          echo "=== Calico installation status ==="
+          kubectl get installations.operator.tigera.io default -o yaml || echo "Installation resource not found"
+          echo "=== Calico system pod descriptions ==="
+          kubectl describe pods -n calico-system
+          exit 1
+        fi
+        
+        
+        echo "✅ Calico CNI installed successfully with NetworkPolicy support"
 
     - name: Wait for cluster to be ready
       if: inputs.wait-for-ready == 'true'
@@ -79,6 +204,8 @@ runs:
         # Wait for all system pods to be ready
         echo "Waiting for system pods to be ready..."
         kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+        
+        
 
         # Verify cluster is working by creating a test pod
         echo "Creating test pod to verify cluster..."
@@ -93,4 +220,8 @@ runs:
         kubectl get nodes -o wide
         echo "=== System pods ==="
         kubectl get pods -n kube-system
-        echo "=== Cluster is ready for tests ==="
+        echo "=== Calico pods ==="
+        kubectl get pods -n calico-system
+        echo "=== CNI configuration ==="
+        kubectl get installations.operator.tigera.io default -o yaml | grep -A 10 "status:" || echo "Installation status not available yet"
+        echo "=== Cluster is ready for tests with NetworkPolicy support ==="

@@ -1,0 +1,117 @@
+user_prompt: "Can you see any issues in recent logs for traffic-manager deployment in namespace app-102b"
+
+description: |
+  This test verifies that the agent can and handle multiple pods logs for a deployment and find issue in one of the pods.
+
+expected_output: |
+  - The answer should mention  traffic manager had memory event in the logs.
+
+tags:
+  - logs
+  - kubernetes
+  - loki
+
+
+before_test: |
+  # Start Loki stack
+  docker compose -p 102a_loki_end_of_logs up -d
+
+  # Wait for Loki to be ready
+  echo "Waiting for Loki to be ready..."
+  while ! curl -fs http://localhost:3100/ready >/dev/null; do sleep 1; done
+  echo "Loki is ready!"
+
+  # Deploy nginx to Kubernetes
+  kubectl create namespace app-102b --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f nginx.yaml -n app-102b
+
+  # Wait for pods to be ready
+  echo "Waiting for nginx pods to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=nginx -n app-102b --timeout=5s 2>/dev/null; then
+      echo "✅ Nginx pods are ready!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/60: Pods not ready yet, waiting 3s..."
+      sleep 3
+    fi
+  done
+
+  # Get the pod names
+  POD_NAMES=$(kubectl get pods -n app-102b -l app=nginx -o jsonpath='{.items[*].metadata.name}')
+  echo "Found pods: $POD_NAMES"
+
+  # Convert to array
+  read -ra PODS <<< "$POD_NAMES"
+
+  # Push 50 success logs for each pod
+  LOKI_URL="http://localhost:3100/loki/api/v1/push"
+  TIMESTAMP_NS=$(date +%s)000000000
+
+  for POD in "${PODS[@]}"; do
+    echo "Pushing 50 success logs for pod: $POD"
+
+    # Build log entries for this pod
+    LOG_ENTRIES=""
+    for i in $(seq 1 50); do
+      # Increment timestamp for each log
+      TS=$((TIMESTAMP_NS + i * 1000000))
+      STATUS_CODES=(200 200 200 200 201 204)
+      STATUS=${STATUS_CODES[$((RANDOM % ${#STATUS_CODES[@]}))]}
+      ENDPOINTS=("/api/v1/users" "/api/v1/products" "/api/v1/orders" "/api/v1/inventory" "/health")
+      ENDPOINT=${ENDPOINTS[$((RANDOM % ${#ENDPOINTS[@]}))]}
+      RESPONSE_TIME=$((50 + RANDOM % 150))
+
+      LOG_LINE="{\\\"level\\\":\\\"INFO\\\",\\\"message\\\":\\\"HTTP request completed\\\",\\\"method\\\":\\\"GET\\\",\\\"path\\\":\\\"${ENDPOINT}\\\",\\\"status\\\":${STATUS},\\\"response_time_ms\\\":${RESPONSE_TIME},\\\"client_ip\\\":\\\"10.0.$((RANDOM % 256)).$((RANDOM % 256))\\\"}"
+
+      if [ -n "$LOG_ENTRIES" ]; then
+        LOG_ENTRIES="${LOG_ENTRIES},[\"${TS}\",\"${LOG_LINE}\"]"
+      else
+        LOG_ENTRIES="[\"${TS}\",\"${LOG_LINE}\"]"
+      fi
+    done
+
+    # Push logs to Loki
+    PAYLOAD="{\"streams\":[{\"stream\":{\"job\":\"nginx\",\"namespace\":\"app-102b\",\"pod\":\"${POD}\",\"app\":\"nginx\"},\"values\":[${LOG_ENTRIES}]}]}"
+
+    curl -s -X POST "${LOKI_URL}" \
+      -H "Content-Type: application/json" \
+      -d "${PAYLOAD}" && echo "✅ Pushed 50 logs for ${POD}"
+  done
+
+
+  # Push 1 error log for the first pod only
+  ERROR_POD="${PODS[0]}"
+  echo "Pushing error log for pod: $ERROR_POD"
+
+  # Calculate timestamp (current time in nanoseconds)
+  ERROR_TS="$(date +%s)000000000"
+
+  curl -s -X POST 'http://localhost:3100/loki/api/v1/push' \
+    -H 'Content-Type: application/json' \
+    -d "{
+      \"streams\": [
+        {
+          \"stream\": {
+            \"job\": \"nginx\",
+            \"namespace\": \"app-102b\",
+            \"pod\": \"${ERROR_POD}\",
+            \"container\": \"nginx\",
+            \"app\": \"nginx\",
+            \"level\": \"ERROR\"
+          },
+          \"values\": [
+            [\"${ERROR_TS}\", \"{\\\"level\\\":\\\"ERROR\\\",\\\"message\\\":\\\"Memory alert\\\",\\\"error\\\":\\\"Memory requests above 90%, consider adding more memory\\\",\\\"status\\\":501,\\\"request_id\\\":\\\"req-a]8f2c1d4\\\"}\"]
+          ]
+        }
+      ]
+    }" && echo "✅ Pushed error log for ${ERROR_POD}"
+
+  echo "Log injection complete!"
+
+
+after_test: |
+  kubectl delete namespace app-102b --ignore-not-found
+  docker compose -p 102a_loki_end_of_logs down

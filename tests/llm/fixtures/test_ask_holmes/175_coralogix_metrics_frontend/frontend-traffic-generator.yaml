@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend-generator
+  template:
+    metadata:
+      labels:
+        app: frontend-generator
+    spec:
+      containers:
+      - name: frontend-generator
+        image: python:3.9-slim
+        command: 
+        - sh
+        - -c
+        - |
+          pip install requests -q
+          python /app/traffic_generator.py
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: TARGET_URL
+          value: "http://frontend-service:8080/payment"
+        - name: SERVICE_LABEL
+          value: "frontend"
+      volumes:
+      - name: app
+        secret:
+          secretName: frontend-generator-app

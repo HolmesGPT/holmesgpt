@@ -6,13 +6,12 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 from datetime import datetime
-from holmes.plugins.runbooks import load_runbook_catalog
+from holmes.plugins.runbooks import load_runbook_catalog, RunbookCatalog
 from rich.console import Console
 from holmes.core.models import ChatRequest
 from holmes.core.tracing import TracingFactory
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
-from holmes.core.llm import DefaultLLM
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from tests.llm.utils.commands import set_test_env_vars
@@ -25,6 +24,7 @@ from tests.llm.utils.test_case_utils import (
     AskHolmesTestCase,
     check_and_skip_test,
     get_models,
+    create_eval_llm,
 )
 
 from holmes.core.prompt import build_initial_ask_messages
@@ -194,7 +194,7 @@ def ask_holmes(
     ai = ToolCallingLLM(
         tool_executor=tool_executor,
         max_steps=40,
-        llm=DefaultLLM(model, tracer=tracer),
+        llm=create_eval_llm(model=model, tracer=tracer),
     )
 
     test_type = (
@@ -205,12 +205,18 @@ def ask_holmes(
             pytest.skip("CLI mode does not support conversation history tests")
         else:
             console = Console()
-            # Use custom runbooks from test case if provided, otherwise use default system runbooks
-            if test_case.runbooks is not None:
-                runbooks = test_case.runbooks
+            if test_case.runbooks is None:
+                runbooks = load_runbook_catalog()
+            elif test_case.runbooks == {}:
+                runbooks = None
             else:
-                runbook_catalog = load_runbook_catalog()
-                runbooks = runbook_catalog.model_dump() if runbook_catalog else {}
+                try:
+                    runbooks = RunbookCatalog(**test_case.runbooks)
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
+                        f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
+                    ) from e
             messages = build_initial_ask_messages(
                 console,
                 test_case.user_prompt,

@@ -197,7 +197,7 @@ RUN_LIVE=true poetry run pytest -m "llm and not easy" --no-cov  # Non-regression
 **Available Test Markers (same as eval tags)**:
 Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask the user before adding a new one.
 
-**Important**: The `easy` marker identifies regression tests - these are the most important tests that should always pass. Run with `RUN_LIVE=true ITERATIONS=10 poetry run pytest -m "llm and easy"` to ensure stability.
+**Important**: The `regression` marker identifies critical tests that must always pass in CI/CD. The `easy` marker is a legacy marker that contains broader regression tests.
 
 **Test Infrastructure Notes**:
 - All test state tracking uses pytest's `user_properties` to ensure compatibility with pytest-xdist parallel execution

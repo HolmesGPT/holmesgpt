@@ -1,0 +1,34 @@
+user_prompt:
+- "The /checkout endpoint in namespace app-164 is experiencing high latency in the last 2 hours. Investigate why."
+
+expected_output:
+  - The answer must explicitly state that queries that include a promo code are slow or all slow requests include promo code.
+  - Including a query that mentions promo code is not sufficient.
+
+description: "This test is a copy of test 124 but it assumed datadog is configured to monitor this namespace"
+
+
+tags:
+  - kubernetes
+  - hard
+  - chain-of-causation
+  - datadog
+
+before_test: |
+  set -e  # Exit immediately if any command fails
+  kubectl create namespace app-164 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl apply -f prometheus-config.yaml -n app-164
+  kubectl apply -f ../../shared/prometheus.yaml -n app-164
+  kubectl apply -f holmes-all-in-one-fast.yaml -n app-164
+  # ./run-holmes-check-curl-jq.sh
+  # Validate that promo code URLs are at least 3x slower than regular URLs
+  python validate_promo_performance.py
+  echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
+  kubectl delete job k6-coupon-split -n app-164 --ignore-not-found=true
+  kubectl delete pods -n app-164 -l job-name=k6-coupon-split --ignore-not-found=true
+
+ 
+
+  echo "✅ Test setup completed successfully"
+after_test: |
+  kubectl delete namespace app-164 || true

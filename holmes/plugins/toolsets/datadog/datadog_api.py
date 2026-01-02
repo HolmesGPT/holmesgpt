@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Dict, Union, Tuple
 from urllib.parse import urlparse, urlunparse
@@ -21,6 +22,9 @@ RATE_LIMIT_REMAINING_SECONDS_HEADER = "X-RateLimit-Reset"
 
 # Cache for OpenAPI spec
 _openapi_spec_cache: Dict[str, Any] = {}
+
+# Global lock for Datadog API requests to prevent concurrent calls
+_datadog_request_lock = threading.Lock()
 
 # Relative time pattern (m = minutes, mo = months)
 RELATIVE_TIME_PATTERN = re.compile(r"^-?(\d+)([hdwsy]|min|m|mo)$|^now$", re.IGNORECASE)
@@ -238,6 +242,35 @@ def execute_datadog_http_request(
     timeout: int,
     method: str = "POST",
 ) -> Any:
+    # from my limited testing doing 1 just request at a time is faster because the RATE_LIMIT_REMAINING_SECONDS_HEADER is shorter
+    # Serialize all Datadog API requests to avoid rate limits
+    with _datadog_request_lock:
+        return execute_datadog_http_request_with_retries(
+            url, headers, payload_or_params, timeout, method
+        )
+
+
+@retry(
+    retry=retry_if_http_429_error(),
+    wait=wait_for_retry_after_header(
+        fallback=wait_incrementing(
+            start=START_RETRY_DELAY, increment=INCREMENT_RETRY_DELAY
+        )
+    ),
+    stop=stop_after_attempt(MAX_RETRY_COUNT_ON_RATE_LIMIT),
+    before_sleep=lambda retry_state: logging.warning(
+        f"DataDog API rate limited. Retrying... "
+        f"(attempt {retry_state.attempt_number}/{MAX_RETRY_COUNT_ON_RATE_LIMIT})"
+    ),
+    reraise=True,
+)
+def execute_datadog_http_request_with_retries(
+    url: str,
+    headers: dict,
+    payload_or_params: dict,
+    timeout: int,
+    method: str,
+) -> Any:
     logging.debug(
         f"Datadog API Request: Method: {method} URL: {url} Headers: {json.dumps(sanitize_headers(headers), indent=2)} {'Params' if method == 'GET' else 'Payload'}: {json.dumps(payload_or_params, indent=2)} Timeout: {timeout}s"
     )
@@ -261,7 +294,7 @@ def execute_datadog_http_request(
         return response_data
 
     else:
-        logging.error(f"  Error Response Body: {response.text}")
+        logging.debug(f"Error Response Body: {response.text}")
         raise DataDogRequestError(
             payload=payload_or_params,
             status_code=response.status_code,

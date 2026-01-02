@@ -1,0 +1,9 @@
+{
+  "id": "b2ffd311-f339-46a2-b379-1e53eb0bc1ed",
+  "symptom": "Pod is crashlooping",
+  "title": "Signup Service Debugging Runbook",
+  "instruction": "Check template via kubectl -n $NAMESPACE get pod $POD.\nCheck pod events via kubectl -n $NAMESPACE describe pod $POD.\nCheck pod logs via kubectl -n $NAMESPACE logs $POD -c $CONTAINER",
+  "alerts": [
+    "ProbeFailure"
+  ]
+}

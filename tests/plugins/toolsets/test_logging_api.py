@@ -209,12 +209,16 @@ class TestTruncateLogs:
         )
 
         token_limit = 1000
+        tool_call_id = "test_call_123"
+        tool_name = "test_tool"
 
         truncate_logs(
             logging_structured_tool_result=structured_result,
             llm=llm,
             token_limit=token_limit,
             structured_params=FetchPodLogsParams(pod_name="dummy", namespace="dummy"),
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
         )
 
         truncated_log_data = str(structured_result.data)
@@ -231,7 +235,10 @@ class TestTruncateLogs:
         )  # Ensures the log line following the truncation prefix is not cut in half
 
         truncated_token_count = count_tool_response_tokens(
-            structured_tool_result=structured_result, llm=llm
+            structured_tool_result=structured_result,
+            llm=llm,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
         )
         assert truncated_token_count < token_limit
 

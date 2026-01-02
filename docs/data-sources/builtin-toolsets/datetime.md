@@ -8,7 +8,7 @@ The following built-in toolsets depend on `datetime`:
 
 * Loki
 * Prometheus
-* Coralogix logs
+* Coralogix
 
 ## Configuration
 

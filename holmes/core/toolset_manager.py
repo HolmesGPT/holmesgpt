@@ -2,7 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, Union
 
 from benedict import benedict
 from pydantic import FilePath
@@ -17,6 +17,26 @@ if TYPE_CHECKING:
     pass
 
 DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status.json")
+
+# Mapping of deprecated toolset names to their new names
+DEPRECATED_TOOLSET_NAMES: dict[str, str] = {
+    "coralogix/logs": "coralogix",
+}
+
+
+def handle_deprecated_toolset_name(
+    toolset_name: str, builtin_toolset_names: list[str]
+) -> str:
+    if toolset_name in DEPRECATED_TOOLSET_NAMES:
+        new_name = DEPRECATED_TOOLSET_NAMES[toolset_name]
+        if new_name in builtin_toolset_names:
+            logging.warning(
+                f"The toolset name '{toolset_name}' is deprecated. "
+                f"Please use '{new_name}' instead. "
+                "The old name will continue to work but may be removed in a future version."
+            )
+            return new_name
+    return toolset_name
 
 
 class ToolsetManager:
@@ -34,9 +54,11 @@ class ToolsetManager:
         custom_toolsets_from_cli: Optional[List[FilePath]] = None,
         toolset_status_location: Optional[FilePath] = None,
         global_fast_model: Optional[str] = None,
+        custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
+        self.custom_runbook_catalogs = custom_runbook_catalogs
         if mcp_servers is not None:
             for _, mcp_server in mcp_servers.items():
                 mcp_server["type"] = ToolsetType.MCP.value
@@ -86,7 +108,15 @@ class ToolsetManager:
         3. custom toolset from config can override both built-in and add new custom toolsets # for backward compatibility
         """
         # Load built-in toolsets
-        builtin_toolsets = load_builtin_toolsets(dal)
+        # Extract search paths from custom catalog files
+        additional_search_paths = None
+        if self.custom_runbook_catalogs:
+            additional_search_paths = [
+                os.path.dirname(os.path.abspath(str(catalog_path)))
+                for catalog_path in self.custom_runbook_catalogs
+            ]
+
+        builtin_toolsets = load_builtin_toolsets(dal, additional_search_paths)
         toolsets_by_name: dict[str, Toolset] = {
             toolset.name: toolset for toolset in builtin_toolsets
         }
@@ -164,6 +194,10 @@ class ToolsetManager:
         builtin_toolsets_dict: dict[str, dict[str, Any]] = {}
         custom_toolsets_dict: dict[str, dict[str, Any]] = {}
         for toolset_name, toolset_config in toolsets.items():
+            toolset_name = handle_deprecated_toolset_name(
+                toolset_name, builtin_toolset_names
+            )
+
             if toolset_name in builtin_toolset_names:
                 # build-in types was assigned when loaded
                 builtin_toolsets_dict[toolset_name] = toolset_config

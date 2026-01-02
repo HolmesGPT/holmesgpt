@@ -17,7 +17,7 @@ tags:
 port_forwards:
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus
-    local_port: 9090
+    local_port: 11161
     remote_port: 9090
 
 include_tool_calls: true

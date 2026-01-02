@@ -5,7 +5,7 @@ Configuration reference for HolmesGPT Helm chart.
 **Quick Links:**
 
 - [Installation Tutorial](../installation/kubernetes-installation.md) - Step-by-step setup guide
-- [values.yaml](https://github.com/robusta-dev/holmesgpt/blob/master/helm/holmes/values.yaml) - Complete configuration reference
+- [values.yaml](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml) - Complete configuration reference
 - [HTTP API Reference](../reference/http-api.md) - Test your deployment
 
 ## Basic Configuration
@@ -113,6 +113,8 @@ serviceAccount:
 # Custom RBAC rules
 customClusterRoleRules: []
 ```
+
+For detailed information about the required Kubernetes permissions, see [Kubernetes Permissions](kubernetes-permissions.md).
 
 ### Resource Configuration
 
@@ -314,4 +316,4 @@ yamllint values.yaml
 
 ## Complete Reference
 
-For the complete and up-to-date configuration reference, see the actual [`values.yaml`](https://github.com/robusta-dev/holmesgpt/blob/master/helm/holmes/values.yaml) file in the repository.
+For the complete and up-to-date configuration reference, see the actual [`values.yaml`](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml) file in the repository.

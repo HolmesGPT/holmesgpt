@@ -370,7 +370,7 @@ class MockFileManager:
                                 f"The mock file format was updated to include structured tool output metadata. "
                                 f"Old format: Line 1 = metadata JSON, Line 2+ = raw output. "
                                 f"New format: Line 1 = metadata JSON, Line 2 = structured output JSON, Line 3+ = raw output. "
-                                f"This change was introduced in PR https://github.com/robusta-dev/holmesgpt/pull/372. "
+                                f"This change was introduced in PR https://github.com/HolmesGPT/holmesgpt/pull/372. "
                                 f"Please regenerate your mock files using --regenerate-all-mocks or manually update them to the new format."
                             )
                             raise MockDataCorruptedError(
@@ -483,7 +483,7 @@ class MockableToolWrapper(Tool):
                     f"No mock data found for tool '{self.name}' with params: {params}. "
                     f"Found {len(existing_files)} mock file(s) for this tool, but none matched the parameters. "
                     f"This could be due to mock files being in the old format (missing structured JSON on line 2). "
-                    f"See PR https://github.com/robusta-dev/holmesgpt/pull/372 for format details."
+                    f"See PR https://github.com/HolmesGPT/holmesgpt/pull/372 for format details."
                 )
             else:
                 error_msg = (
@@ -657,6 +657,27 @@ class MockToolsetManager:
         config_path = os.path.join(self.test_case_folder, "toolsets.yaml")
         custom_definitions = self._load_custom_toolsets(config_path)
 
+        # Always load default toolsets.yaml
+        default_config_path = os.path.join(
+            os.path.dirname(__file__), "default_toolsets.yaml"
+        )
+        default_definitions = self._load_custom_toolsets(default_config_path)
+
+        # If custom toolsets.yaml exists, merge with defaults (custom takes precedence)
+        # Otherwise, use defaults only
+        if custom_definitions:
+            # Merge: custom definitions override defaults for same toolset names
+            # Add default definitions for toolsets not in custom
+            custom_names = {d.name for d in custom_definitions}
+            merged_definitions = list(custom_definitions)
+            for default_def in default_definitions:
+                if default_def.name not in custom_names:
+                    merged_definitions.append(default_def)
+            custom_definitions = merged_definitions
+        else:
+            # No custom toolsets.yaml, use defaults
+            custom_definitions = default_definitions
+
         # Configure builtin toolsets with custom definitions
         self.toolsets = self._configure_toolsets(builtin_toolsets, custom_definitions)
 
@@ -735,17 +756,18 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                             f"Tool '{tool.name}' in kubernetes/core has neither command nor script defined"
                         )
 
-            # Enable default toolsets
-            if toolset.is_default or isinstance(toolset, YAMLToolset):
-                toolset.enabled = True
-
             # Apply custom configuration if available
             definition = next(
                 (d for d in custom_definitions if d.name == toolset.name), None
             )
             if definition:
+                # If there's a custom definition, use it to determine enabled state
                 toolset.config = definition.config
                 toolset.enabled = definition.enabled
+            elif custom_definitions:
+                # toolsets.yaml exists (custom_definitions is non-empty) but this toolset isn't explicitly listed
+                # Disable it to ensure only explicitly enabled toolsets are loaded when toolsets.yaml is present
+                toolset.enabled = False
 
             # Add all toolsets to configured list
             configured.append(toolset)

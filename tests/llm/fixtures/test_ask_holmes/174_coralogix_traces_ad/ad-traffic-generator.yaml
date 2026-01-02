@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ad-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ad-generator
+  template:
+    metadata:
+      labels:
+        app: ad-generator
+    spec:
+      containers:
+      - name: ad-generator
+        image: python:3.9-slim
+        command: 
+        - sh
+        - -c
+        - |
+          pip install requests -q
+          python /app/traffic_generator.py
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: TARGET_URL
+          value: "http://ad-service:8080/payment"
+        - name: SERVICE_LABEL
+          value: "ad"
+      volumes:
+      - name: app
+        secret:
+          secretName: ad-generator-app

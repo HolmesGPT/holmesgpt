@@ -1,8 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_events","match_params":{"resource_type":"pod","resource_name":"giant-narwhal-6958c5bdd8-69gtn","namespace":"app-02"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl events --for pod/giant-narwhal-6958c5bdd8-69gtn -n app-02", "params": {"resource_type": "pod", "resource_name": "giant-narwhal-6958c5bdd8-69gtn", "namespace": "app-02"}}
-LAST SEEN               TYPE      REASON      OBJECT                               MESSAGE
-58m                     Normal    Scheduled   Pod/giant-narwhal-6958c5bdd8-69gtn   Successfully assigned app-02/giant-narwhal-6958c5bdd8-69gtn to robusta-demo-prod-double-node-worker
-56m (x5 over 58m)       Normal    Pulled      Pod/giant-narwhal-6958c5bdd8-69gtn   Container image "busybox:1.35" already present on machine
-56m (x5 over 58m)       Normal    Created     Pod/giant-narwhal-6958c5bdd8-69gtn   Created container main
-56m (x5 over 58m)       Normal    Started     Pod/giant-narwhal-6958c5bdd8-69gtn   Started container main
-3m30s (x256 over 58m)   Warning   BackOff     Pod/giant-narwhal-6958c5bdd8-69gtn   Back-off restarting failed container main in pod giant-narwhal-6958c5bdd8-69gtn_app-02(8209d63f-aa89-450d-9813-d555ddcaa175)

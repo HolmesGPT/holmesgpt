@@ -25,7 +25,6 @@ class RobustaModelsResponse(BaseModel):
     models: Dict[str, RobustaModel]
 
 
-@cache
 def fetch_robusta_models(
     account_id: str, token: str
 ) -> Optional[RobustaModelsResponse]:

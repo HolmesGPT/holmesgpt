@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: test-1
+  name: app-01
 ---
 apiVersion: v1
 kind: Pod
 metadata:
   name: apple-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: apple
@@ -22,7 +22,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: banana-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: banana
@@ -37,7 +37,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: cherry-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: cherry
@@ -52,7 +52,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: dragon-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: dragon
@@ -67,7 +67,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: elephant-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: elephant
@@ -82,7 +82,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: falcon-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: falcon
@@ -97,7 +97,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: giraffe-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: giraffe
@@ -112,7 +112,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: hippo-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: hippo
@@ -127,7 +127,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: iguana-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: iguana
@@ -142,7 +142,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: jaguar-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: jaguar
@@ -157,7 +157,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: koala-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: koala
@@ -172,7 +172,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: lion-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: lion
@@ -187,7 +187,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: monkey-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: monkey
@@ -202,7 +202,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: narwhal-pod
-  namespace: test-1
+  namespace: app-01
   labels:
     app: test-pod
     instance: narwhal

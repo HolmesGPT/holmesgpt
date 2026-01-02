@@ -1,6 +1,8 @@
 import os
 import logging
-from typing import Any, Optional, Dict, List
+import json
+import base64
+from typing import Any, Optional, Dict
 from holmes.core.tools import (
     CallablePrerequisite,
     Tool,
@@ -13,8 +15,60 @@ from pydantic import BaseModel
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
-import yaml
-from holmes.utils.keygen_utils import generate_random_key
+
+
+def _build_newrelic_query_url(
+    account_id: str,
+    nrql_query: str,
+    is_eu_datacenter: bool = False,
+) -> Optional[str]:
+    """Build a New Relic query URL for the NRQL query builder.
+
+    Note: URL links to queries are not officially supported by New Relic, so we are using
+    a workaround to open their overlay to the query builder with the query pre-filled.
+    This uses the dashboard launcher with an overlay parameter to open the query builder nerdlet.
+
+    """
+    try:
+        base_url = (
+            "https://one.eu.newrelic.com"
+            if is_eu_datacenter
+            else "https://one.newrelic.com"
+        )
+
+        account_id_int = int(account_id) if isinstance(account_id, str) else account_id
+
+        overlay = {
+            "nerdletId": "data-exploration.query-builder",
+            "initialActiveInterface": "nrqlEditor",
+            "initialQueries": [
+                {
+                    "accountId": account_id_int,
+                    "nrql": nrql_query,
+                }
+            ],
+        }
+
+        overlay_json = json.dumps(overlay, separators=(",", ":"))
+        overlay_base64 = base64.b64encode(overlay_json.encode("utf-8")).decode("utf-8")
+
+        pane = {
+            "nerdletId": "dashboards.list",
+            "entityDomain": "VIZ",
+            "entityType": "DASHBOARD",
+        }
+        pane_json = json.dumps(pane, separators=(",", ":"))
+        pane_base64 = base64.b64encode(pane_json.encode("utf-8")).decode("utf-8")
+
+        url = (
+            f"{base_url}/launcher/dashboards.launcher"
+            f"?pane={pane_base64}"
+            f"&overlay={overlay_base64}"
+        )
+
+        return url
+    except Exception:
+        return None
 
 
 class ExecuteNRQLQuery(Tool):
@@ -41,7 +95,7 @@ Example: Before querying Transactions, run: `SELECT keyset() FROM Transaction SI
 
 When using **FACET** in NRQL:
 - Any **non-constant value** in the `SELECT` clause **must be aggregated**.
-- The attribute you **FACET** on must **not appear in `SELECT`** unless it’s wrapped in an aggregation.
+- The attribute you **FACET** on must **not appear in `SELECT`** unless it's wrapped in an aggregation.
 
 #### ✅ Correct
 ```nrql
@@ -87,69 +141,26 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
         query = params["query"]
         result = api.execute_nrql_query(query)
-        qtype = params.get("query_type", "").lower()
 
-        if self._toolset.format_results and qtype == "logs":
-            formatted = self._format_logs(result)
-            final_result = yaml.dump(formatted, default_flow_style=False)
-        else:
-            result_with_key = {
-                "random_key": generate_random_key(),
-                "tool_name": self.name,
-                "query": query,
-                "data": result,
-                "is_eu": self._toolset.is_eu_datacenter,
-            }
-            final_result = yaml.dump(result_with_key, default_flow_style=False)
-        return StructuredToolResult(
-            status=StructuredToolResultStatus.SUCCESS,
-            data=final_result,
-            params=params,
+        result_with_key = {
+            "query": query,
+            "data": result,
+            "is_eu": self._toolset.is_eu_datacenter,
+        }
+
+        # Build New Relic query URL
+        explore_url = _build_newrelic_query_url(
+            account_id=self._toolset.nr_account_id,
+            nrql_query=query,
+            is_eu_datacenter=self._toolset.is_eu_datacenter,
         )
 
-    def _format_logs(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Build a single grouped object from a list of log records.
-        """
-        if not records:
-            return []
-
-        try:
-            # Defensive, shallow copy of each record and type validation
-            copied: List[Dict[str, Any]] = []
-            for i, rec in enumerate(records):
-                if not isinstance(rec, dict):
-                    raise TypeError(
-                        f"`records[{i}]` must be a dict, got {type(rec).__name__}"
-                    )
-                copied.append(dict(rec))
-
-            # Determine common fields by walking keys
-            common_fields: Dict[str, Any] = {}
-            first = copied[0]
-            for key in first.keys():
-                value = first.get(key)
-                # The key + value must be the same in every record
-                if all(key in r and r.get(key) == value for r in copied[1:]):
-                    common_fields[key] = value
-
-            # Build per-record entries excluding any common fields
-            data_entries: List[Dict[str, Any]] = []
-            for rec in copied:
-                # Keep only fields that aren’t common (don’t mutate the original record)
-                entry = {k: v for k, v in rec.items() if k not in common_fields}
-                data_entries.append(entry)
-
-            group: Dict[str, Any] = dict(common_fields)
-            if "data" in group:
-                group["_common.data"] = group.pop("data")
-
-            group["data"] = data_entries
-
-            return [group]
-        except Exception:
-            logging.exception(f"Failed to reformat newrelic logs {records}")
-            return records
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=result_with_key,
+            params=params,
+            url=explore_url,
+        )
 
     def get_parameterized_one_liner(self, params) -> str:
         description = params.get("description", "")
@@ -160,14 +171,12 @@ class NewrelicConfig(BaseModel):
     nr_api_key: Optional[str] = None
     nr_account_id: Optional[str] = None
     is_eu_datacenter: Optional[bool] = False
-    format_results: Optional[bool] = False
 
 
 class NewRelicToolset(Toolset):
     nr_api_key: Optional[str] = None
     nr_account_id: Optional[str] = None
     is_eu_datacenter: bool = False
-    format_results: bool = False
 
     def __init__(self):
         super().__init__(
@@ -197,7 +206,6 @@ class NewRelicToolset(Toolset):
             self.nr_account_id = nr_config.nr_account_id
             self.nr_api_key = nr_config.nr_api_key
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
-            self.format_results = nr_config.format_results or False
 
             if not self.nr_account_id or not self.nr_api_key:
                 return False, "New Relic account ID or API key is missing"
@@ -208,4 +216,8 @@ class NewRelicToolset(Toolset):
             return False, str(e)
 
     def get_example_config(self) -> Dict[str, Any]:
-        return {}
+        return {
+            "nr_api_key": "NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX",
+            "nr_account_id": "1234567",
+            "is_eu_datacenter": False,
+        }

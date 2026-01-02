@@ -8,7 +8,7 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: http://localhost:9090
+      prometheus_url: http://localhost:10159
       fetch_metadata_with_series_api: true
       fetch_labels_with_labels_api: false
       tool_calls_return_data: true

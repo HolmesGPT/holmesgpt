@@ -7,6 +7,7 @@ import time
 from contextlib import contextmanager
 from typing import Dict, Optional
 from tests.llm.utils.test_case_utils import HolmesTestCase
+from tests.llm.utils.env_vars import is_run_live_enabled
 
 
 EVAL_SETUP_TIMEOUT = int(
@@ -155,6 +156,7 @@ def _invoke_command(
         result = subprocess.run(
             command,
             shell=True,
+            executable="/bin/bash",  # Force bash instead of default /bin/sh
             capture_output=True,
             text=True,
             check=True,
@@ -198,10 +200,7 @@ def run_commands(
     test_case: HolmesTestCase, commands_str: str, operation: str
 ) -> CommandResult:
     """Generic command runner for setup/cleanup operations."""
-    if not commands_str or os.environ.get("RUN_LIVE", "").strip().lower() not in (
-        "1",
-        "true",
-    ):
+    if not commands_str or not is_run_live_enabled():
         return CommandResult(
             command=f"(no {operation} needed)",
             test_case_id=test_case.id,

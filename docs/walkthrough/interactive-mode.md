@@ -167,7 +167,7 @@ limit_req_zone $limit_key zone=perip:10m rate=100r/s;
 
 ## Tips and Best Practices
 
-1. **Use `/reset` when switching topics** - This gives you a fresh context and prevents confusion
+1. **Use `/clear` when switching topics** - This gives you a fresh context and prevents confusion
 3. **Use `/run` if the AI is missing something important** - Guide the investigation by showing it what it is missing
 4. **Check `/context` periodically** - Especially during long investigations
 5. **View evidence with `/show`** - Full outputs often contain important details

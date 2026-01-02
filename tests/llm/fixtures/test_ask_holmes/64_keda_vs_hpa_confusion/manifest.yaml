@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: invoices-64
+  name: app-64
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: invoice-generator
-  namespace: invoices-64
+  namespace: app-64
   labels:
     app: invoice-generator
     version: v1.2.0
@@ -46,7 +46,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: invoice-generator
-  namespace: invoices-64
+  namespace: app-64
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

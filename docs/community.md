@@ -23,8 +23,8 @@ We held our inaugural community meetup on August 21, 2025. Watch the recording t
 
 **💬 Join the Discussion:**
 
-- [Slack](https://bit.ly/robusta-slack) - #holmesgpt channel
-- [GitHub Issues](https://github.com/robusta-dev/holmesgpt/issues) - Report bugs and request features
+- [Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ) - #holmesgpt channel
+- [GitHub Issues](https://github.com/HolmesGPT/holmesgpt/issues) - Report bugs and request features
 
 **🤝 Contribute:**
 

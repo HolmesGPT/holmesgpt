@@ -39,7 +39,7 @@ class TodoWriteTool(Tool):
     description: str = "Save investigation tasks to break down complex problems into manageable sub-tasks. ALWAYS provide the COMPLETE list of all tasks, not just the ones being updated."
     parameters: Dict[str, ToolParameter] = {
         "todos": ToolParameter(
-            description="COMPLETE list of ALL tasks on the task list. Each task should have: id (string), content (string), status (pending/in_progress/completed)",
+            description="COMPLETE list of ALL tasks on the task list. Each task should have: id (string), content (string), status (pending/in_progress/completed/failed)",
             type="array",
             required=True,
             items=ToolParameter(
@@ -50,7 +50,7 @@ class TodoWriteTool(Tool):
                     "status": ToolParameter(
                         type="string",
                         required=True,
-                        enum=["pending", "in_progress", "completed"],
+                        enum=["pending", "in_progress", "completed", "failed"],
                     ),
                 },
             ),
@@ -67,6 +67,7 @@ class TodoWriteTool(Tool):
             "pending": "[ ]",
             "in_progress": "[~]",
             "completed": "[✓]",
+            "failed": "[✗]",
         }
 
         max_id_width = max(len(str(task.id)) for task in tasks)

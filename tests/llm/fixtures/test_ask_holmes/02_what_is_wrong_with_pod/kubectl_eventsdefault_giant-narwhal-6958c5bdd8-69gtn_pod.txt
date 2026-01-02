@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_events","match_params":{"resource_type":"pod","resource_name":"giant-narwhal-6958c5bdd8-69gtn","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl events --for pod/giant-narwhal-6958c5bdd8-69gtn -n default", "params": {"resource_type": "pod", "resource_name": "giant-narwhal-6958c5bdd8-69gtn", "namespace": "default"}}
-No events found in default namespace.

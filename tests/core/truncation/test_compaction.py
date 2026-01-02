@@ -38,11 +38,18 @@ def test_conversation_history_compaction_system_prompt_untouched():
         )
         assert compacted_history
         assert (
-            len(compacted_history) == 3
-        )  # [0]=system prompt, [1]=compacted content, [2]=message to continue
+            len(compacted_history) == 4
+        )  # [0]=system prompt, [1]=last user prompt, [2]=compacted content, [3]=message to continue
 
         assert compacted_history[0]["role"] == "system"
         assert compacted_history[0]["content"] == system_prompt["content"]
+
+        assert compacted_history[1]["role"] == "user"
+
+        assert compacted_history[2]["role"] == "assistant"
+
+        assert compacted_history[3]["role"] == "system"
+        assert "compacted" in compacted_history[3]["content"].lower()
 
 
 def test_conversation_history_compaction():
@@ -55,8 +62,15 @@ def test_conversation_history_compaction():
         )
         assert compacted_history
         assert (
-            len(compacted_history) == 2
-        )  # [0]=compacted content, [2]=message to continue
+            len(compacted_history) == 3
+        )  # [0]=last user prompt, [1]=compacted content, [2]=message to continue
+
+        assert compacted_history[0]["role"] == "user"
+
+        assert compacted_history[1]["role"] == "assistant"
+
+        assert compacted_history[2]["role"] == "system"
+        assert "compacted" in compacted_history[2]["content"].lower()
 
         original_tokens = llm.count_tokens(conversation_history)
         compacted_tokens = llm.count_tokens(compacted_history)

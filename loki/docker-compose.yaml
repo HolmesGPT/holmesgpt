@@ -33,6 +33,7 @@ services:
         datasources:
         - name: Loki
           type: loki
+          uid: loki-test-uid
           access: proxy
           orgId: 1
           url: http://loki:3100
