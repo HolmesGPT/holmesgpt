@@ -1,5 +1,5 @@
-from abc import ABC, abstractmethod
 import argparse
+from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig

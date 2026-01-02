@@ -1,12 +1,30 @@
 user_prompt: "What is the issue with search-engine-service"
-description: "gpt-5 tried to find a service because this pod name contains the word service, thus the test failed."
+description: "gpt-5 and others tried to find a service and ask for clarifications because this pod name contains the word service, thus the test failed."
 expected_output:
   - The `search-engine-service` pod is not ready due to a failing readiness probe
 before_test: |
   kubectl apply -f manifest.yaml
-  sleep 30
+  
+  # Wait for specific readiness probe failure event
+  PROBE_FAILED=false
+  for i in {1..60}; do
+    if kubectl get events -n app-111 --field-selector involvedObject.name=search-engine-service | grep -q "Readiness probe failed"; then
+      echo "✅ Readiness probe failure detected"
+      PROBE_FAILED=true
+      break
+    fi
+    sleep 1
+  done
+  
+  if [ "$PROBE_FAILED" = false ]; then
+    echo "❌ Readiness probe failure not detected"
+    kubectl describe pod search-engine-service -n app-111  # Diagnostic info
+    kubectl get events -n app-111  # Show all events for debugging
+    exit 1  # CRITICAL: Fail the test early
+  fi
 after_test: |
   kubectl delete -f manifest.yaml
 tags:
   - kubernetes
   - medium
+  - regression

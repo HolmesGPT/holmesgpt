@@ -1,16 +1,17 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
+    ToolInvokeContext,
     ToolParameter,
     ToolsetTag,
-    ToolInvokeContext,
 )
 from holmes.plugins.toolsets.opensearch.opensearch_query_assist import (
-    PplQueryAssistTool,
     OpenSearchQueryAssistToolset,
+    PplQueryAssistTool,
 )
 
 

@@ -359,7 +359,7 @@ toolsets:
           - name: param_name
             description: "Parameter description"
         additionalInstructions: |
-          Instructions for post-processing the command output
+          Additional guidance for interpreting the command output
 ```
 
 ### Tool Configuration

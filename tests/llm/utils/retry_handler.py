@@ -1,10 +1,10 @@
 """Retry handler for dealing with API throttling and overload errors in LLM tests."""
 
+import logging
 import sys
 import time
-import logging
 import warnings
-from typing import Callable, TypeVar, Optional, Any
+from typing import Any, Callable, Optional, TypeVar
 
 T = TypeVar("T")
 

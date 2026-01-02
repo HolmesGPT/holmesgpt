@@ -1,31 +1,28 @@
+import asyncio
 import json
+import logging
+import threading
+from contextlib import asynccontextmanager
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from mcp.client.session import ClientSession
+from mcp.client.sse import sse_client
+from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.streamable_http import streamablehttp_client
+from mcp.types import Tool as MCP_Tool
+from pydantic import AnyUrl, BaseModel, Field, model_validator
 
 from holmes.common.env_vars import SSE_READ_TIMEOUT
 from holmes.core.tools import (
-    ToolInvokeContext,
-    Toolset,
-    Tool,
-    ToolParameter,
+    CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
-    CallablePrerequisite,
+    Tool,
+    ToolInvokeContext,
+    ToolParameter,
+    Toolset,
 )
-
-from typing import Dict, Any, List, Optional, Union
-from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
-from mcp.client.stdio import stdio_client, StdioServerParameters
-
-from mcp.types import Tool as MCP_Tool
-
-import asyncio
-from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, AnyUrl, model_validator
-from typing import Tuple
-import logging
-from enum import Enum
-import threading
 
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}

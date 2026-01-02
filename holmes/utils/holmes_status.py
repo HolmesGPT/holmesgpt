@@ -1,8 +1,9 @@
 import json
-from holmes.core.supabase_dal import SupabaseDal
-from holmes.config import Config
-from holmes import get_version  # type: ignore
 import logging
+
+from holmes import get_version  # type: ignore
+from holmes.config import Config
+from holmes.core.supabase_dal import SupabaseDal
 
 
 def update_holmes_status_in_db(dal: SupabaseDal, config: Config):

@@ -1,4 +1,5 @@
 import pytest
+
 from holmes.plugins.toolsets.bash.common.validators import (
     validate_command_and_operations,
 )

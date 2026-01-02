@@ -1,11 +1,12 @@
 import json
 from unittest.mock import Mock, patch
+
 import pytest
 
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.coralogix.api import (
-    execute_dataprime_query,
     CoralogixTier,
+    execute_dataprime_query,
 )
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
     CoralogixToolset,
@@ -13,8 +14,8 @@ from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
 )
 from holmes.plugins.toolsets.coralogix.utils import (
     CoralogixConfig,
-    normalize_datetime,
     extract_field,
+    normalize_datetime,
 )
 
 

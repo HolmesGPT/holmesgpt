@@ -1,5 +1,7 @@
 from enum import Enum
+
 from pydantic import Field
+
 from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
 from holmes.plugins.toolsets.logging_utils.logging_api import DEFAULT_LOG_LIMIT
 

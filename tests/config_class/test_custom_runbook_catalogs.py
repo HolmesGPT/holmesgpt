@@ -1,4 +1,5 @@
 import json
+
 from holmes.config import Config
 
 

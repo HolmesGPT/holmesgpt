@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import json
-from datetime import datetime
-import time
 import math
+import time
+from datetime import datetime
 
 
 def generate_log_entry(response_time_ms, status="success", message=None):

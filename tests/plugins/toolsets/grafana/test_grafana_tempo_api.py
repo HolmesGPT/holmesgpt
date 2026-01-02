@@ -1,12 +1,13 @@
 """Tests for the Grafana Tempo API wrapper."""
 
 import os
-import pytest
 from unittest.mock import MagicMock, patch
-from requests.exceptions import RequestException, HTTPError  # type: ignore
 
-from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI
+import pytest
+from requests.exceptions import HTTPError, RequestException  # type: ignore
+
 from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
+from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI
 
 # Test constants
 TEST_SERVICE_NAME = "checkout-service"

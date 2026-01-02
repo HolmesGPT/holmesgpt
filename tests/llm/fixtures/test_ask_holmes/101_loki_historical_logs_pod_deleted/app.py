@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import os
 import json
-from datetime import datetime, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import os
 import random
+from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 random.seed(100)
 

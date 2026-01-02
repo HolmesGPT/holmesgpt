@@ -3,21 +3,21 @@ import os
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, cast
+
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
-
 from holmes.plugins.runbooks import (
+    DEFAULT_RUNBOOK_SEARCH_PATH,
     get_runbook_by_path,
     load_runbook_catalog,
-    DEFAULT_RUNBOOK_SEARCH_PATH,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
@@ -263,6 +263,7 @@ class RunbookToolset(Toolset):
             ],
             is_default=True,
             config=config,
+            enabled=True,
         )
 
     def get_example_config(self) -> Dict[str, Any]:

@@ -1,4 +1,5 @@
-from typing import List, Iterable
+from typing import Iterable, List
+
 from holmes.core.issue import Issue
 from holmes.core.tool_calling_llm import LLMResult
 

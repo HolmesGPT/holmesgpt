@@ -1,8 +1,9 @@
-import requests
 import base64
 import json
-import sys
 import os
+import sys
+
+import requests
 
 # --- Configuration ---
 RABBITMQ_USER = "user"

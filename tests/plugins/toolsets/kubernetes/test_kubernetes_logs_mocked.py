@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset

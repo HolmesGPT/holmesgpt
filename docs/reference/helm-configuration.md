@@ -184,10 +184,6 @@ additionalVolumeMounts: []
 # OpenShift compatibility mode
 openshift: false
 
-# Post-processing configuration
-enablePostProcessing: false
-postProcessingPrompt: "builtin://generic_post_processing.jinja2"
-
 # Account creation
 enableAccountsCreate: true
 
