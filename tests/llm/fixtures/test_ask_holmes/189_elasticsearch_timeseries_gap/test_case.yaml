@@ -19,7 +19,7 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 
-user_prompt: "We noticed our metrics dashboard shows missing data. Can you analyze the holmes-metrics-timeseries index to find any gaps in the data collection? When did data stop being collected and when did it resume? Also, what was the last request ID before the gap started?"
+user_prompt: "We noticed our metrics dashboard shows missing data. Can you analyze the app-189-metrics-timeseries index to find any gaps in the data collection? When did data stop being collected and when did it resume? Also, what was the last request ID before the gap started?"
 
 expected_output:
   - "Must identify a gap in the data around 2024-01-15"
@@ -35,11 +35,16 @@ setup_timeout: 90
 before_test: |
   set -e
 
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   if [ -z "$ELASTICSEARCH_URL" ]; then
-    echo "ELASTICSEARCH_URL environment variable is not set"
+    echo "❌ ELASTICSEARCH_URL environment variable is not set"
+    exit 1
+  fi
+
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
     exit 1
   fi
 
@@ -47,11 +52,11 @@ before_test: |
 
   # Clean up any existing test data first
   echo "Cleaning up any existing test data..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-metrics-timeseries" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create the index
-  curl -s -X PUT "${ELASTICSEARCH_URL}/holmes-metrics-timeseries" \
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -68,14 +73,19 @@ before_test: |
           "host": {"type": "keyword"}
         }
       }
-    }' > /dev/null
+    }')
 
-  echo "Index created, generating time-series data with gap..."
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  echo "✅ Index created, generating time-series data with gap..."
 
   # Generate time-series data using bash
   # Base time: 2024-01-14 00:00:00 UTC
   # Gap: hours 38-43 (2024-01-15 14:00 to 19:59) - 6 hours missing
-  BULK_FILE="/tmp/es_timeseries_bulk.ndjson"
+  BULK_FILE="/tmp/es_timeseries_189_$$.ndjson"
   > "$BULK_FILE"
 
   for hour in $(seq 0 47); do
@@ -103,7 +113,7 @@ before_test: |
     # Host rotation
     HOST_NUM=$((hour % 5 + 1))
 
-    echo "{\"index\": {\"_index\": \"holmes-metrics-timeseries\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-189-metrics-timeseries\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"$TIMESTAMP\", \"request_id\": \"$REQUEST_ID\", \"metric_name\": \"cpu_usage\", \"value\": ${CPU_VALUE}.0, \"host\": \"server-${HOST_NUM}\"}" >> "$BULK_FILE"
   done
 
@@ -111,51 +121,53 @@ before_test: |
   echo "Generated $DOC_COUNT data points (with 6-hour gap)"
 
   # Bulk insert
-  RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @"$BULK_FILE")
 
   if echo "$RESPONSE" | grep -q '"errors":false'; then
-    echo "Time-series data inserted successfully"
+    echo "✅ Time-series data inserted successfully"
   else
-    echo "Some errors during bulk insert"
+    echo "⚠️ Some errors during bulk insert"
   fi
 
+  rm -f "$BULK_FILE"
+
   # Refresh
-  curl -s -X POST "${ELASTICSEARCH_URL}/holmes-metrics-timeseries/_refresh" \
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-189-metrics-timeseries/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   sleep 2
 
   # Verify the gap exists by counting documents
   echo "Verifying gap in time-series data..."
-  DOC_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/holmes-metrics-timeseries/_count" \
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-189-metrics-timeseries/_count" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
   echo "Total documents: $DOC_COUNT (expected 42 = 48 hours - 6 gap hours)"
 
   # Verify marker document exists
-  MARKER=$(curl -s -X GET "${ELASTICSEARCH_URL}/holmes-metrics-timeseries/_search" \
+  MARKER=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-189-metrics-timeseries/_search" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"query": {"term": {"request_id": "REQ-GAP-7K3M9"}}, "size": 1}')
 
   if echo "$MARKER" | grep -q '"REQ-GAP-7K3M9"'; then
-    echo "Verified: Gap marker REQ-GAP-7K3M9 exists"
+    echo "✅ Verified: Gap marker REQ-GAP-7K3M9 exists"
   else
-    echo "Warning: Could not find gap marker"
+    echo "⚠️ Warning: Could not find gap marker"
   fi
 
-  echo "Setup complete!"
+  echo "✅ Setup complete!"
 
 after_test: |
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   echo "Cleaning up test index..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-metrics-timeseries" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
-  rm -f /tmp/es_timeseries_bulk.ndjson
+  rm -f /tmp/es_timeseries_189_*.ndjson
 
-  echo "Cleanup complete"
+  echo "✅ Cleanup complete"

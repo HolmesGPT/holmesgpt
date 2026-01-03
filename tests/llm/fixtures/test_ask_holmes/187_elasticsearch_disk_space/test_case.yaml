@@ -4,8 +4,8 @@
 # where disk usage needs to be investigated.
 #
 # Setup:
-# - 20 small indexes (holmes-logs-app-XX) with minimal data (~10 docs each)
-# - 1 large index (holmes-metrics-analytics) with 5000 docs containing larger payloads
+# - 20 small indexes (app-187-logs-XX) with minimal data (~10 docs each)
+# - 1 large index (app-187-metrics-analytics) with 5000 docs containing larger payloads
 #
 # The LLM must use the _cat/indices API (sorted by size) to identify which index
 # is consuming the most disk space. The large index should be significantly bigger.
@@ -16,11 +16,11 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 
-user_prompt: "We're running low on disk space. Can you check our application indexes (holmes-*) and identify which one is consuming the most storage? Please tell me the index name and approximately how much space it's using."
+user_prompt: "We're running low on disk space. Can you check our application indexes (app-187-*) and identify which one is consuming the most storage? Please tell me the index name and approximately how much space it's using."
 
 expected_output:
-  - "Must identify holmes-metrics-analytics as the largest index among the holmes-* indexes"
-  - "Must report the storage size (should be significantly larger than the holmes-logs-app-* indexes)"
+  - "Must identify app-187-metrics-analytics as the largest index among the app-187-* indexes"
+  - "Must report the storage size (should be significantly larger than the app-187-logs-* indexes)"
 
 tags:
   - elasticsearch
@@ -32,11 +32,16 @@ setup_timeout: 120
 before_test: |
   set -e
 
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   if [ -z "$ELASTICSEARCH_URL" ]; then
-    echo "ELASTICSEARCH_URL environment variable is not set"
+    echo "❌ ELASTICSEARCH_URL environment variable is not set"
+    exit 1
+  fi
+
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
     exit 1
   fi
 
@@ -44,17 +49,17 @@ before_test: |
 
   # Clean up any existing test data first
   echo "Cleaning up any existing test data..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-logs-app-*" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-logs-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-metrics-analytics" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-metrics-analytics" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create 20 small indexes via bulk insert
-  BULK_FILE="/tmp/es_disk_small_bulk.ndjson"
+  BULK_FILE="/tmp/es_disk_187_small_$$.ndjson"
   > "$BULK_FILE"
 
   for i in $(seq -w 1 20); do
-    INDEX_NAME="holmes-logs-app-${i}"
+    INDEX_NAME="app-187-logs-${i}"
     for j in $(seq 1 10); do
       printf '{"index": {"_index": "%s"}}\n' "$INDEX_NAME" >> "$BULK_FILE"
       printf '{"@timestamp": "2024-01-15T12:00:00Z", "level": "INFO", "message": "Application started successfully", "service": "app-%s"}\n' "$i" >> "$BULK_FILE"
@@ -62,26 +67,33 @@ before_test: |
   done
 
   echo "Creating 20 small indexes with 10 docs each..."
-  RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @"$BULK_FILE")
 
   if echo "$RESPONSE" | grep -q '"errors":false'; then
-    echo "Small indexes created successfully"
+    echo "✅ Small indexes created successfully"
   else
-    echo "Some errors during bulk insert for small indexes"
+    echo "⚠️ Some errors during bulk insert for small indexes"
   fi
 
+  rm -f "$BULK_FILE"
+
   # Create the large analytics index
-  echo "Creating large analytics index (holmes-metrics-analytics)..."
-  curl -s -X PUT "${ELASTICSEARCH_URL}/holmes-metrics-analytics" \
+  echo "Creating large analytics index (app-187-metrics-analytics)..."
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-187-metrics-analytics" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{"settings": {"number_of_shards": 1, "number_of_replicas": 0}}' > /dev/null
+    -d '{"settings": {"number_of_shards": 1, "number_of_replicas": 0}}')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create analytics index: $CREATE_RESPONSE"
+    exit 1
+  fi
 
   # Generate bulk file with 5000 documents using bash
-  LARGE_BULK="/tmp/es_disk_large_bulk.ndjson"
+  LARGE_BULK="/tmp/es_disk_187_large_$$.ndjson"
   > "$LARGE_BULK"
 
   # Create a 500 char payload
@@ -90,15 +102,15 @@ before_test: |
   for i in $(seq 1 5000); do
     HOST_NUM=$(printf '%04d' $i)
     VAL=$((i % 100))
-    printf '{"index": {"_index": "holmes-metrics-analytics"}}\n' >> "$LARGE_BULK"
+    printf '{"index": {"_index": "app-187-metrics-analytics"}}\n' >> "$LARGE_BULK"
     printf '{"@timestamp": "2024-01-15T12:00:00Z", "metric_type": "cpu_usage", "host": "server-%s", "value": %d, "data": "%s"}\n' "$HOST_NUM" "$VAL" "$PAYLOAD" >> "$LARGE_BULK"
   done
 
   echo "Inserting 5000 documents..."
-  split -l 1000 "$LARGE_BULK" /tmp/es_disk_batch_
+  split -l 1000 "$LARGE_BULK" /tmp/es_disk_187_batch_
 
-  for batch in /tmp/es_disk_batch_*; do
-    RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
+  for batch in /tmp/es_disk_187_batch_*; do
+    RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
       -H "Content-Type: application/x-ndjson" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
       --data-binary @"$batch")
@@ -106,33 +118,36 @@ before_test: |
     if echo "$RESPONSE" | grep -q '"errors":false'; then
       echo "Batch inserted successfully"
     else
-      echo "Some errors in batch"
+      echo "⚠️ Some errors in batch"
     fi
+    rm -f "$batch"
   done
 
+  rm -f "$LARGE_BULK"
+
   # Force refresh to update disk stats
-  curl -s -X POST "${ELASTICSEARCH_URL}/_refresh" \
+  curl -sf -X POST "${ELASTICSEARCH_URL}/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   sleep 3
 
   # Verify disk usage
   echo "Verifying disk usage..."
-  curl -s -X GET "${ELASTICSEARCH_URL}/_cat/indices/holmes-*?h=index,store.size&s=store.size:desc" \
+  curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-187-*?h=index,store.size&s=store.size:desc" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | head -5
 
-  echo "Setup complete!"
+  echo "✅ Setup complete!"
 
 after_test: |
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   echo "Cleaning up test indexes..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-logs-app-*" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-logs-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-metrics-analytics" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-metrics-analytics" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
-  rm -f /tmp/es_disk_*.ndjson /tmp/es_disk_batch_* /tmp/gen_bulk.py
+  rm -f /tmp/es_disk_187_*.ndjson /tmp/es_disk_187_batch_*
 
-  echo "Cleanup complete"
+  echo "✅ Cleanup complete"

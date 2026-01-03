@@ -34,53 +34,60 @@ before_test: |
   set -e
 
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   if [ -z "$ELASTICSEARCH_URL" ]; then
-    echo "ELASTICSEARCH_URL environment variable is not set"
+    echo "❌ ELASTICSEARCH_URL environment variable is not set"
     exit 1
   fi
 
-  echo "Creating 2000 test indexes using bulk API..."
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
+    exit 1
+  fi
+
+  echo "Creating 1800 test indexes using bulk API..."
 
   # Clean up any existing test data first for idempotency
   echo "Cleaning up any existing test data..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-*" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-184-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-eval-template" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-184-template" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
 
   # Create index template with 0 replicas to fit within cluster shard limits
-  # (Elastic Cloud small clusters have ~2000 shard capacity)
   echo "Creating index template with 0 replicas..."
-  curl -s -X PUT "${ELASTICSEARCH_URL}/_index_template/holmes-eval-template" \
+  TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-184-template" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
-      "index_patterns": ["holmes-eval-*"],
+      "index_patterns": ["app-184-*"],
       "template": {
         "settings": {
           "number_of_shards": 1,
           "number_of_replicas": 0
         }
       }
-    }' > /dev/null
+    }')
+
+  if ! echo "$TEMPLATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index template: $TEMPLATE_RESPONSE"
+    exit 1
+  fi
 
   # Define teams, services, and dates for 1800 indexes (5 x 10 x 36 = 1800)
-  # Note: Reduced from 2000 to fit within Elastic Cloud shard limits (~1900 available)
   TEAMS="engineering platform data ml security"
   SERVICES="api web worker cache db auth billing notification search analytics"
 
   # Generate bulk request body with 1800 documents (one per index)
-  BULK_FILE="/tmp/es_bulk_indexes.ndjson"
+  BULK_FILE="/tmp/es_bulk_184_$$.ndjson"
   > "$BULK_FILE"
 
   for team in $TEAMS; do
     for service in $SERVICES; do
       for day in $(seq -w 1 36); do
-        INDEX_NAME="holmes-eval-${team}-${service}-2024.01.${day}"
-        # Each index gets a dummy log entry
+        INDEX_NAME="app-184-${team}-${service}-2024.01.${day}"
         echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
         echo "{\"@timestamp\": \"2024-01-${day}T12:00:00Z\", \"level\": \"INFO\", \"service\": \"${service}\", \"team\": \"${team}\", \"message\": \"Health check passed\"}" >> "$BULK_FILE"
       done
@@ -95,12 +102,12 @@ before_test: |
   echo "Uploading bulk data to Elasticsearch..."
 
   # Split into 10 chunks of 200 indexes each (400 lines per chunk)
-  split -l 400 "$BULK_FILE" /tmp/es_bulk_chunk_
+  split -l 400 "$BULK_FILE" /tmp/es_bulk_184_chunk_
 
   CHUNK_NUM=0
-  for chunk in /tmp/es_bulk_chunk_*; do
+  for chunk in /tmp/es_bulk_184_chunk_*; do
     CHUNK_NUM=$((CHUNK_NUM + 1))
-    RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
       -H "Content-Type: application/x-ndjson" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
       --data-binary @"$chunk")
@@ -108,19 +115,20 @@ before_test: |
     if echo "$RESPONSE" | grep -q '"errors":false'; then
       echo "Chunk $CHUNK_NUM uploaded successfully"
     elif echo "$RESPONSE" | grep -q '"errors":true'; then
-      # Some errors but continue - might be index already exists
       ERROR_COUNT=$(echo "$RESPONSE" | grep -o '"error"' | wc -l)
       echo "Chunk $CHUNK_NUM: $ERROR_COUNT errors (may be expected if re-running)"
     else
       echo "Chunk $CHUNK_NUM failed: $RESPONSE"
     fi
-    rm "$chunk"
+    rm -f "$chunk"
   done
 
-  # Now insert the needle - a unique error in ONE specific index
-  echo "Inserting needle (unique error) into holmes-eval-platform-billing-2024.01.17..."
+  rm -f "$BULK_FILE"
 
-  NEEDLE_RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/holmes-eval-platform-billing-2024.01.17/_doc" \
+  # Now insert the needle - a unique error in ONE specific index
+  echo "Inserting needle (unique error) into app-184-platform-billing-2024.01.17..."
+
+  NEEDLE_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-184-platform-billing-2024.01.17/_doc" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -134,9 +142,9 @@ before_test: |
     }')
 
   if echo "$NEEDLE_RESPONSE" | grep -q '"result":"created"\|"result":"updated"'; then
-    echo "Needle document inserted successfully"
+    echo "✅ Needle document inserted successfully"
   else
-    echo "Failed to insert needle: $NEEDLE_RESPONSE"
+    echo "❌ Failed to insert needle: $NEEDLE_RESPONSE"
     exit 1
   fi
 
@@ -144,40 +152,40 @@ before_test: |
   sleep 2
 
   # Refresh all indexes to make sure data is searchable
-  curl -s -X POST "${ELASTICSEARCH_URL}/holmes-eval-*/_refresh" \
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-184-*/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   # Verify the needle is searchable
-  VERIFY=$(curl -s -X GET "${ELASTICSEARCH_URL}/holmes-eval-*/_search" \
+  VERIFY=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-184-*/_search" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"query": {"match": {"error_code": "ERR-EVAL-7X9K2M"}}}')
 
   if echo "$VERIFY" | grep -q '"ERR-EVAL-7X9K2M"'; then
-    echo "Verified: Needle is searchable"
+    echo "✅ Verified: Needle is searchable"
   else
-    echo "Warning: Could not verify needle is searchable"
+    echo "⚠️ Warning: Could not verify needle is searchable"
     echo "$VERIFY"
   fi
 
   # Count total indexes created
-  INDEX_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/_cat/indices/holmes-eval-*?format=json" \
+  INDEX_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-184-*?format=json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"index"' | wc -l)
-  echo "Total test indexes created: $INDEX_COUNT"
-  echo "Setup complete!"
+  echo "✅ Total test indexes created: $INDEX_COUNT"
+  echo "✅ Setup complete!"
 
 after_test: |
-  set -e
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
-
-  echo "Cleaning up test indexes (holmes-eval-*)..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-*" \
+  echo "Cleaning up test indexes (app-184-*)..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-184-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   echo "Cleaning up index template..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-eval-template" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-184-template" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
-  echo "Cleanup complete"
+  rm -f /tmp/es_bulk_184_*.ndjson /tmp/es_bulk_184_chunk_*
+
+  echo "✅ Cleanup complete"

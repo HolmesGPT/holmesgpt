@@ -31,8 +31,8 @@ before_test: |
   set -e
 
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
@@ -40,11 +40,17 @@ before_test: |
     exit 1
   fi
 
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
+    exit 1
+  fi
+
   # Verify Elasticsearch is reachable
   echo "⏳ Verifying Elasticsearch connectivity..."
 
   # Test connection to cluster health endpoint
-  HEALTH_RESPONSE=$(curl -s -X GET "${ELASTICSEARCH_URL}/_cluster/health" -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
+  HEALTH_RESPONSE=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cluster/health" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
 
   if echo "$HEALTH_RESPONSE" | grep -q '"cluster_name"'; then
     CLUSTER_NAME=$(echo "$HEALTH_RESPONSE" | grep -o '"cluster_name":"[^"]*"' | cut -d'"' -f4)

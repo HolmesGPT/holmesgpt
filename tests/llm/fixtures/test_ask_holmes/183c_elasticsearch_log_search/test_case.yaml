@@ -9,7 +9,7 @@
 # The LLM cannot know these error codes without actually searching the index.
 # Expected output requires finding these specific error codes.
 
-user_prompt: "Search the 'holmes-eval-logs' index for ERROR level log messages. What error codes (format ERR-XXXX) appear in the logs?"
+user_prompt: "Search the 'app-183c-logs' index for ERROR level log messages. What error codes (format ERR-XXXX) appear in the logs?"
 
 expected_output:
   - "Must identify that there are ERROR level logs in the index"
@@ -27,8 +27,8 @@ before_test: |
   set -e
 
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
@@ -36,19 +36,29 @@ before_test: |
     exit 1
   fi
 
-  export HOLMES_ES_TEST_INDEX="holmes-eval-logs"
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
+    exit 1
+  fi
+
+  export HOLMES_ES_TEST_INDEX="app-183c-logs"
 
   # Delete the index if it exists (clean slate)
   echo "⏳ Cleaning up any existing test index..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create the test index with mapping (wait for shard to be active)
   echo "⏳ Creating test index with log mapping..."
-  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"service":{"type":"keyword"},"error_code":{"type":"keyword"},"message":{"type":"text"}}}}'
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"service":{"type":"keyword"},"error_code":{"type":"keyword"},"message":{"type":"text"}}}}')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
 
   sleep 2
 
@@ -57,42 +67,48 @@ before_test: |
   ERROR_CODE_2="ERR-4058"
   ERROR_CODE_3="ERR-9463"
 
-  # Create bulk data file with mixed log levels and specific error codes
-  cat > /tmp/es_bulk_183c.ndjson << 'BULK_EOF'
-  {"index":{}}
-  {"timestamp":"2025-01-01T10:00:00Z","level":"INFO","service":"payment-api","message":"Service started successfully"}
-  {"index":{}}
-  {"timestamp":"2025-01-01T10:05:00Z","level":"ERROR","service":"payment-api","error_code":"ERR-7291","message":"Database connection timeout - ERR-7291: Failed to connect to primary database after 30s"}
-  {"index":{}}
-  {"timestamp":"2025-01-01T10:06:00Z","level":"WARN","service":"payment-api","message":"Retrying database connection"}
-  {"index":{}}
-  {"timestamp":"2025-01-01T10:10:00Z","level":"ERROR","service":"order-service","error_code":"ERR-4058","message":"Payment validation failed - ERR-4058: Invalid card number format"}
-  {"index":{}}
-  {"timestamp":"2025-01-01T10:15:00Z","level":"INFO","service":"order-service","message":"Processing order batch complete"}
-  {"index":{}}
-  {"timestamp":"2025-01-01T10:20:00Z","level":"ERROR","service":"inventory-api","error_code":"ERR-9463","message":"Stock sync failed - ERR-9463: External inventory API returned 503"}
-  {"index":{}}
-  {"timestamp":"2025-01-01T10:25:00Z","level":"INFO","service":"inventory-api","message":"Recovered from temporary outage"}
-  BULK_EOF
+  # Create unique temp file
+  BULK_FILE="/tmp/es_bulk_183c_$$.ndjson"
 
-  # Remove leading spaces from the bulk file
-  sed -i 's/^  //' /tmp/es_bulk_183c.ndjson
+  # Create bulk data file with mixed log levels and specific error codes
+  cat > "$BULK_FILE" << 'BULK_EOF'
+{"index":{}}
+{"timestamp":"2025-01-01T10:00:00Z","level":"INFO","service":"payment-api","message":"Service started successfully"}
+{"index":{}}
+{"timestamp":"2025-01-01T10:05:00Z","level":"ERROR","service":"payment-api","error_code":"ERR-7291","message":"Database connection timeout - ERR-7291: Failed to connect to primary database after 30s"}
+{"index":{}}
+{"timestamp":"2025-01-01T10:06:00Z","level":"WARN","service":"payment-api","message":"Retrying database connection"}
+{"index":{}}
+{"timestamp":"2025-01-01T10:10:00Z","level":"ERROR","service":"order-service","error_code":"ERR-4058","message":"Payment validation failed - ERR-4058: Invalid card number format"}
+{"index":{}}
+{"timestamp":"2025-01-01T10:15:00Z","level":"INFO","service":"order-service","message":"Processing order batch complete"}
+{"index":{}}
+{"timestamp":"2025-01-01T10:20:00Z","level":"ERROR","service":"inventory-api","error_code":"ERR-9463","message":"Stock sync failed - ERR-9463: External inventory API returned 503"}
+{"index":{}}
+{"timestamp":"2025-01-01T10:25:00Z","level":"INFO","service":"inventory-api","message":"Recovered from temporary outage"}
+BULK_EOF
 
   # Index the documents
-  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    --data-binary @/tmp/es_bulk_183c.ndjson
+    --data-binary @"$BULK_FILE")
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
 
   # Refresh the index
-  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   # Clean up temp file
-  rm -f /tmp/es_bulk_183c.ndjson
+  rm -f "$BULK_FILE"
 
   # Verify ERROR logs exist
-  ERROR_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+  ERROR_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"query":{"term":{"level":"ERROR"}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
@@ -106,10 +122,10 @@ before_test: |
 
 after_test: |
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
-  echo "⏳ Cleaning up test index: holmes-eval-logs"
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-logs" \
+  echo "⏳ Cleaning up test index: app-183c-logs"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183c-logs" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
   echo "✅ Cleanup complete"

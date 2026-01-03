@@ -1,7 +1,7 @@
 # Test: Elasticsearch Cross-Region Search - Index Pattern Discovery
 #
 # This test simulates an enterprise with geo-distributed logging across 1620 indexes.
-# Index naming follows: holmes-geo-{region}-{service}-{date}
+# Index naming follows: app-185-geo-{region}-{service}-{date}
 #
 # Regions: us-east, us-west, eu-west, eu-central, ap-south, ap-northeast (6 regions)
 # Services: 27 services per region
@@ -36,11 +36,16 @@ setup_timeout: 120
 before_test: |
   set -e
 
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   if [ -z "$ELASTICSEARCH_URL" ]; then
-    echo "ELASTICSEARCH_URL environment variable is not set"
+    echo "❌ ELASTICSEARCH_URL environment variable is not set"
+    exit 1
+  fi
+
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
     exit 1
   fi
 
@@ -48,25 +53,30 @@ before_test: |
 
   # Clean up any existing test data first for idempotency
   echo "Cleaning up any existing test data..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-geo-*" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-185-geo-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-geo-template" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
 
   # Create index template with 0 replicas to fit within cluster shard limits
   echo "Creating index template with 0 replicas..."
-  curl -s -X PUT "${ELASTICSEARCH_URL}/_index_template/holmes-geo-template" \
+  TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
-      "index_patterns": ["holmes-geo-*"],
+      "index_patterns": ["app-185-geo-*"],
       "template": {
         "settings": {
           "number_of_shards": 1,
           "number_of_replicas": 0
         }
       }
-    }' > /dev/null
+    }')
+
+  if ! echo "$TEMPLATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index template: $TEMPLATE_RESPONSE"
+    exit 1
+  fi
 
   # 6 regions x 27 services x 10 days = 1620 indexes
   REGIONS="us-east us-west eu-west eu-central ap-south ap-northeast"
@@ -74,13 +84,13 @@ before_test: |
     orders payments inventory shipping tracking reviews ratings users profiles \
     catalog pricing promotions recommendations cart checkout wishlist subscriptions"
 
-  BULK_FILE="/tmp/es_geo_bulk.ndjson"
+  BULK_FILE="/tmp/es_geo_185_$$.ndjson"
   > "$BULK_FILE"
 
   for region in $REGIONS; do
     for service in $SERVICES; do
       for day in $(seq -w 1 10); do
-        INDEX_NAME="holmes-geo-${region}-${service}-2024.01.${day}"
+        INDEX_NAME="app-185-geo-${region}-${service}-2024.01.${day}"
         echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
         echo "{\"@timestamp\": \"2024-01-${day}T12:00:00Z\", \"level\": \"INFO\", \"service\": \"${service}\", \"region\": \"${region}\", \"message\": \"Request completed successfully\", \"response_time_ms\": 150}" >> "$BULK_FILE"
       done
@@ -92,12 +102,12 @@ before_test: |
 
   # Upload in chunks
   echo "Uploading bulk data..."
-  split -l 400 "$BULK_FILE" /tmp/es_geo_chunk_
+  split -l 400 "$BULK_FILE" /tmp/es_geo_185_chunk_
 
   CHUNK_NUM=0
-  for chunk in /tmp/es_geo_chunk_*; do
+  for chunk in /tmp/es_geo_185_chunk_*; do
     CHUNK_NUM=$((CHUNK_NUM + 1))
-    RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
       -H "Content-Type: application/x-ndjson" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
       --data-binary @"$chunk")
@@ -108,13 +118,15 @@ before_test: |
       ERROR_COUNT=$(echo "$RESPONSE" | grep -o '"error"' | wc -l || echo "0")
       echo "Chunk $CHUNK_NUM: $ERROR_COUNT potential errors (may be expected)"
     fi
-    rm "$chunk"
+    rm -f "$chunk"
   done
 
-  # Insert the needle - a slow request in EU auth service
-  echo "Inserting needle (slow EU request) into holmes-geo-eu-west-auth-2024.01.05..."
+  rm -f "$BULK_FILE"
 
-  NEEDLE_RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/holmes-geo-eu-west-auth-2024.01.05/_doc" \
+  # Insert the needle - a slow request in EU auth service
+  echo "Inserting needle (slow EU request) into app-185-geo-eu-west-auth-2024.01.05..."
+
+  NEEDLE_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-185-geo-eu-west-auth-2024.01.05/_doc" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -130,44 +142,46 @@ before_test: |
     }')
 
   if echo "$NEEDLE_RESPONSE" | grep -q '"result":"created"\|"result":"updated"'; then
-    echo "Needle document inserted successfully"
+    echo "✅ Needle document inserted successfully"
   else
-    echo "Failed to insert needle: $NEEDLE_RESPONSE"
+    echo "❌ Failed to insert needle: $NEEDLE_RESPONSE"
     exit 1
   fi
 
   sleep 2
-  curl -s -X POST "${ELASTICSEARCH_URL}/holmes-geo-*/_refresh" \
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-185-geo-*/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   # Verify needle is searchable
-  VERIFY=$(curl -s -X GET "${ELASTICSEARCH_URL}/holmes-geo-*/_search" \
+  VERIFY=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-185-geo-*/_search" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"query": {"match": {"request_id": "REQ-EU-8K4M2"}}, "size": 1}')
 
   if echo "$VERIFY" | grep -q '"REQ-EU-8K4M2"'; then
-    echo "Verified: Needle is searchable"
+    echo "✅ Verified: Needle is searchable"
   else
-    echo "Warning: Could not verify needle"
+    echo "⚠️ Warning: Could not verify needle"
     echo "$VERIFY"
   fi
 
-  INDEX_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/_cat/indices/holmes-geo-*?format=json" \
+  INDEX_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-185-geo-*?format=json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"index"' | wc -l)
-  echo "Total test indexes created: $INDEX_COUNT"
-  echo "Setup complete!"
+  echo "✅ Total test indexes created: $INDEX_COUNT"
+  echo "✅ Setup complete!"
 
 after_test: |
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
-  echo "Cleaning up test indexes (holmes-geo-*)..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-geo-*" \
+  echo "Cleaning up test indexes (app-185-geo-*)..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-185-geo-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   echo "Cleaning up index template..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/_index_template/holmes-geo-template" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
-  echo "Cleanup complete"
+  rm -f /tmp/es_geo_185_*.ndjson /tmp/es_geo_185_chunk_*
+
+  echo "✅ Cleanup complete"

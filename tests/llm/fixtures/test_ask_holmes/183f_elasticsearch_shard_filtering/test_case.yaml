@@ -11,7 +11,7 @@
 # Anti-hallucination: The test creates an index with a known number of shards (3).
 # The LLM must query the shards for this specific index and report the correct count.
 
-user_prompt: "Show me the shard information for the 'holmes-eval-shards' index. How many shards does it have and what are their states?"
+user_prompt: "Show me the shard information for the 'app-183f-shards' index. How many shards does it have and what are their states?"
 
 expected_output:
   - "Must report that the index has 3 primary shards"
@@ -29,8 +29,8 @@ before_test: |
   set -e
 
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
@@ -38,16 +38,21 @@ before_test: |
     exit 1
   fi
 
-  export HOLMES_ES_TEST_INDEX="holmes-eval-shards"
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
+    exit 1
+  fi
+
+  export HOLMES_ES_TEST_INDEX="app-183f-shards"
 
   # Delete the index if it exists
   echo "⏳ Cleaning up any existing test index..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create the test index with 3 shards and 0 replicas
   echo "⏳ Creating test index with 3 shards..."
-  RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -60,27 +65,37 @@ before_test: |
   if echo "$RESPONSE" | grep -q '"acknowledged":true'; then
     echo "✅ Test index created with 3 shards"
   else
-    echo "❌ Failed to create test index"
-    echo "Response: $RESPONSE"
+    echo "❌ Failed to create test index: $RESPONSE"
     exit 1
   fi
 
-  # Wait a moment for shards to initialize
-  sleep 2
+  # Wait for shards to be ready with retry loop
+  echo "⏳ Waiting for shards to be ready..."
+  for attempt in $(seq 1 30); do
+    SHARD_INFO=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/shards/${HOLMES_ES_TEST_INDEX}?format=json" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || echo "")
 
-  # Verify shard count
-  SHARD_INFO=$(curl -s -X GET "${ELASTICSEARCH_URL}/_cat/shards/${HOLMES_ES_TEST_INDEX}?format=json" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
-  SHARD_COUNT=$(echo "$SHARD_INFO" | grep -o '"index":"holmes-eval-shards"' | wc -l)
+    if [ -n "$SHARD_INFO" ]; then
+      SHARD_COUNT=$(echo "$SHARD_INFO" | grep -o '"index":"app-183f-shards"' | wc -l)
+      if [ "$SHARD_COUNT" = "3" ]; then
+        echo "✅ Test index has $SHARD_COUNT shards"
+        break
+      fi
+    fi
 
-  echo "✅ Test index has $SHARD_COUNT shards"
+    if [ "$attempt" = "30" ]; then
+      echo "❌ Timeout waiting for shards to be ready"
+      exit 1
+    fi
+    sleep 1
+  done
 
 after_test: |
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
-  echo "⏳ Cleaning up test index: holmes-eval-shards"
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-eval-shards" \
+  echo "⏳ Cleaning up test index: app-183f-shards"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183f-shards" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
   echo "✅ Cleanup complete"

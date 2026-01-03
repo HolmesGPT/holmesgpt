@@ -9,10 +9,10 @@
 # The LLM cannot know this ID without actually querying the indices.
 # The expected_output checks for the exact index name stored in HOLMES_ES_TEST_INDEX.
 
-user_prompt: "List all indices in the Elasticsearch cluster that start with 'holmes-eval-' and tell me the document count for each."
+user_prompt: "List all indices in the Elasticsearch cluster that start with 'app-183b-eval-' and tell me the document count for each."
 
 expected_output:
-  - "Must find and report the test index starting with 'holmes-eval-' that was created by this test"
+  - "Must find and report the test index starting with 'app-183b-eval-' that was created by this test"
   - "Must report the document count as 5 documents for the test index"
   - "The index name must contain an 8-character unique identifier (the exact name can only be discovered by querying)"
 
@@ -27,8 +27,8 @@ before_test: |
   set -e
 
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
@@ -36,9 +36,14 @@ before_test: |
     exit 1
   fi
 
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
+    exit 1
+  fi
+
   # Generate unique test index name with 8-char random ID
   TEST_ID=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 8 | head -n 1)
-  export HOLMES_ES_TEST_INDEX="holmes-eval-${TEST_ID}"
+  export HOLMES_ES_TEST_INDEX="app-183b-eval-${TEST_ID}"
   echo "Using test index: $HOLMES_ES_TEST_INDEX"
 
   # Save for cleanup
@@ -48,10 +53,15 @@ before_test: |
   echo "⏳ Creating test index with 5 documents..."
 
   # Create the index with wait_for_active_shards to ensure it's ready
-  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{"settings": {"number_of_shards": 1, "number_of_replicas": 0}}'
+    -d '{"settings": {"number_of_shards": 1, "number_of_replicas": 0}}')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
 
   # Small delay to ensure index is fully ready
   sleep 2
@@ -62,17 +72,22 @@ before_test: |
     BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"message\":\"Test document $i for Holmes eval\",\"level\":\"INFO\",\"timestamp\":\"2025-01-01T12:00:0${i}Z\"}\n"
   done
 
-  echo -e "$BULK_DATA" | curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+  BULK_RESPONSE=$(echo -e "$BULK_DATA" | curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    --data-binary @-
+    --data-binary @-)
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    exit 1
+  fi
 
   # Refresh the index to make documents searchable
-  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   # Verify documents were indexed
-  DOC_COUNT=$(curl -s -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
 
   if [ "$DOC_COUNT" = "5" ]; then
@@ -84,8 +99,8 @@ before_test: |
 
 after_test: |
   # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   # Clean up the test index
   if [ -f /tmp/holmes_es_test_index_183b ]; then
@@ -93,7 +108,7 @@ after_test: |
     rm /tmp/holmes_es_test_index_183b
 
     echo "⏳ Cleaning up test index: $HOLMES_ES_TEST_INDEX"
-    curl -s -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
     echo "✅ Cleanup complete"
   fi

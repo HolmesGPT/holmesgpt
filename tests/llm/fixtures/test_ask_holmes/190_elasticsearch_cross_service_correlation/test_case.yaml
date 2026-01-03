@@ -20,7 +20,7 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 
-user_prompt: "A customer reported an order failure with trace ID TRACE-X7K9M2-ERR. Can you search across all our holmes-service-* indexes to trace the request flow and find where the error originated? What error code was returned?"
+user_prompt: "A customer reported an order failure with trace ID TRACE-X7K9M2-ERR. Can you search across all our app-190-service-* indexes to trace the request flow and find where the error originated? What error code was returned?"
 
 expected_output:
   - "Must search across multiple indexes using trace ID TRACE-X7K9M2-ERR"
@@ -36,11 +36,16 @@ setup_timeout: 60
 before_test: |
   set -e
 
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   if [ -z "$ELASTICSEARCH_URL" ]; then
-    echo "ELASTICSEARCH_URL environment variable is not set"
+    echo "❌ ELASTICSEARCH_URL environment variable is not set"
+    exit 1
+  fi
+
+  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
+    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
     exit 1
   fi
 
@@ -48,12 +53,12 @@ before_test: |
 
   # Clean up any existing test data first
   echo "Cleaning up any existing test data..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-service-*" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-190-service-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create indexes for each service
   for service in gateway auth orders inventory; do
-    curl -s -X PUT "${ELASTICSEARCH_URL}/holmes-service-${service}" \
+    CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-190-service-${service}" \
       -H "Content-Type: application/json" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
       -d '{
@@ -73,12 +78,16 @@ before_test: |
             "duration_ms": {"type": "integer"}
           }
         }
-      }' > /dev/null
+      }')
+
+    if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+      echo "⚠️ Warning creating app-190-service-${service}: $CREATE_RESPONSE"
+    fi
   done
 
-  echo "Service indexes created, generating log data..."
+  echo "✅ Service indexes created, generating log data..."
 
-  BULK_FILE="/tmp/es_correlation_bulk.ndjson"
+  BULK_FILE="/tmp/es_correlation_190_$$.ndjson"
   > "$BULK_FILE"
 
   # Generate 50 normal traces (success)
@@ -87,19 +96,19 @@ before_test: |
     MIN=$(printf "%02d" $i)
 
     # Gateway log
-    echo "{\"index\": {\"_index\": \"holmes-service-gateway\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-gateway\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"gateway\", \"level\": \"INFO\", \"message\": \"Received request POST /api/orders\", \"duration_ms\": $((1 + RANDOM % 5))}" >> "$BULK_FILE"
 
     # Auth log
-    echo "{\"index\": {\"_index\": \"holmes-service-auth\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-auth\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.010Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-auth-${i}\", \"service\": \"auth\", \"level\": \"INFO\", \"message\": \"User authenticated successfully\", \"duration_ms\": $((5 + RANDOM % 15))}" >> "$BULK_FILE"
 
     # Orders log
-    echo "{\"index\": {\"_index\": \"holmes-service-orders\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-orders\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.030Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-orders-${i}\", \"service\": \"orders\", \"level\": \"INFO\", \"message\": \"Order created, checking inventory\", \"duration_ms\": $((10 + RANDOM % 40))}" >> "$BULK_FILE"
 
     # Inventory log
-    echo "{\"index\": {\"_index\": \"holmes-service-inventory\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-inventory\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.080Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-inv-${i}\", \"service\": \"inventory\", \"level\": \"INFO\", \"message\": \"Stock reserved successfully\", \"duration_ms\": $((20 + RANDOM % 80))}" >> "$BULK_FILE"
   done
 
@@ -107,53 +116,55 @@ before_test: |
   ERROR_TRACE="TRACE-X7K9M2-ERR"
 
   # Gateway - received request
-  echo "{\"index\": {\"_index\": \"holmes-service-gateway\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-gateway\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-gw-err\", \"service\": \"gateway\", \"level\": \"INFO\", \"message\": \"Received request POST /api/orders for user_12847\", \"duration_ms\": 2}" >> "$BULK_FILE"
 
   # Auth - success
-  echo "{\"index\": {\"_index\": \"holmes-service-auth\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-auth\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.010Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-auth-err\", \"service\": \"auth\", \"level\": \"INFO\", \"message\": \"User user_12847 authenticated via JWT token\", \"duration_ms\": 15}" >> "$BULK_FILE"
 
   # Orders - processing
-  echo "{\"index\": {\"_index\": \"holmes-service-orders\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-orders\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.030Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-orders-err\", \"service\": \"orders\", \"level\": \"INFO\", \"message\": \"Processing order for product SKU-78234, quantity: 500\", \"duration_ms\": 25}" >> "$BULK_FILE"
 
   # Inventory - THE ERROR
-  echo "{\"index\": {\"_index\": \"holmes-service-inventory\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-inventory\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.080Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-inv-err\", \"service\": \"inventory\", \"level\": \"ERROR\", \"message\": \"Failed to reserve stock for SKU-78234: insufficient inventory. Requested: 500, Available: 23\", \"error_code\": \"INV-ERR-4082\", \"duration_ms\": 45}" >> "$BULK_FILE"
 
   # Orders - propagated error
-  echo "{\"index\": {\"_index\": \"holmes-service-orders\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-orders\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.130Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-orders-err-2\", \"service\": \"orders\", \"level\": \"ERROR\", \"message\": \"Order failed: inventory service returned error INV-ERR-4082\", \"error_code\": \"ORD-ERR-1001\", \"duration_ms\": 130}" >> "$BULK_FILE"
 
   # Gateway - error response
-  echo "{\"index\": {\"_index\": \"holmes-service-gateway\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-gateway\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.140Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-gw-err-2\", \"service\": \"gateway\", \"level\": \"ERROR\", \"message\": \"Request failed with 400 Bad Request: Order could not be fulfilled\", \"error_code\": \"GW-ERR-400\", \"duration_ms\": 145}" >> "$BULK_FILE"
 
   DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
   echo "Generated $DOC_COUNT log entries across 4 services"
 
   # Bulk insert
-  RESPONSE=$(curl -s -X POST "${ELASTICSEARCH_URL}/_bulk" \
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @"$BULK_FILE")
 
   if echo "$RESPONSE" | grep -q '"errors":false'; then
-    echo "Log data inserted successfully"
+    echo "✅ Log data inserted successfully"
   else
-    echo "Some errors during bulk insert"
+    echo "⚠️ Some errors during bulk insert"
   fi
 
+  rm -f "$BULK_FILE"
+
   # Refresh all indexes
-  curl -s -X POST "${ELASTICSEARCH_URL}/holmes-service-*/_refresh" \
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-190-service-*/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   sleep 2
 
   # Verify the error trace exists
   echo "Verifying error trace exists..."
-  VERIFY=$(curl -s -X POST "${ELASTICSEARCH_URL}/holmes-service-*/_search" \
+  VERIFY=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-190-service-*/_search" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -168,16 +179,16 @@ before_test: |
   ENTRY_COUNT=$(echo "$VERIFY" | python3 -c "import sys,json; print(json.load(sys.stdin)['hits']['total']['value'])")
   echo "Found $ENTRY_COUNT entries for error trace TRACE-X7K9M2-ERR"
 
-  echo "Setup complete!"
+  echo "✅ Setup complete!"
 
 after_test: |
-  ELASTICSEARCH_URL=$(echo $ELASTICSEARCH_URL | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo $ELASTICSEARCH_API_KEY | tr -d '"')
+  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
+  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   echo "Cleaning up test indexes..."
-  curl -s -X DELETE "${ELASTICSEARCH_URL}/holmes-service-*" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-190-service-*" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
-  rm -f /tmp/es_correlation_bulk.ndjson
+  rm -f /tmp/es_correlation_190_*.ndjson
 
-  echo "Cleanup complete"
+  echo "✅ Cleanup complete"
