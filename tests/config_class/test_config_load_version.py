@@ -1,6 +1,7 @@
 from http import HTTPStatus
 from unittest import mock
-from holmes.version import fetch_holmes_info, check_version
+
+from holmes.version import check_version, fetch_holmes_info
 
 
 def test_version_check_matches_latest(responses):

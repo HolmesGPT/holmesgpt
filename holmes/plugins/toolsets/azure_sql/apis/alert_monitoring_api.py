@@ -1,6 +1,7 @@
-from typing import Dict, List, Any
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List
+
 from azure.core.credentials import TokenCredential
 from azure.mgmt.monitor import MonitorManagementClient
 from azure.mgmt.resource import ResourceManagementClient

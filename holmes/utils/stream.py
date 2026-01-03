@@ -1,14 +1,15 @@
 import json
-from enum import Enum
-from typing import Generator, Optional, List, Union
-import litellm
-from pydantic import BaseModel, Field
-from holmes.core.investigation_structured_output import process_response_into_sections
-from functools import partial
 import logging
+from enum import Enum
+from functools import partial
+from typing import Generator, List, Optional, Union
+
+import litellm
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import ModelResponse, TextCompletionResponse
+from pydantic import BaseModel, Field
 
+from holmes.core.investigation_structured_output import process_response_into_sections
 from holmes.core.llm import TokenCountMetadata, get_llm_usage
 from holmes.utils import sentry_helper
 

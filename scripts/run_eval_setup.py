@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import argparse
-import yaml
 import os
 import subprocess
+
+import yaml
 
 parser = argparse.ArgumentParser(
     description="Run before_test or after_test from eval(s)"

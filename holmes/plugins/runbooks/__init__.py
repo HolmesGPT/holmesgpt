@@ -4,7 +4,8 @@ import os
 import os.path
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Pattern, Union, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional, Pattern, Tuple, Union
+
 import yaml
 from pydantic import BaseModel, PrivateAttr
 

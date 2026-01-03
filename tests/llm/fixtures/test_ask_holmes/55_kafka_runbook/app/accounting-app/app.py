@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
 import json
-import time
 import random
+import time
+from datetime import datetime
+
 from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
-from datetime import datetime
 
 # Database tables simulation
 DB_TABLES = [

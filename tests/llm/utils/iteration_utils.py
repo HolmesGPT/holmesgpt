@@ -7,8 +7,8 @@ from typing import List, TypeVar
 import pytest
 
 from tests.llm.utils.test_case_utils import (
-    MockHelper,
     HolmesTestCase,
+    MockHelper,
 )
 
 

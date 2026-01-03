@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import json
-from datetime import datetime
-import time
 import random
+import time
+from datetime import datetime
 
 
 def generate_log_entry(

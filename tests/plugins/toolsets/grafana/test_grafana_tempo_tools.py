@@ -1,4 +1,4 @@
-from unittest.mock import patch, ANY
+from unittest.mock import ANY, patch
 
 import pytest
 
@@ -7,13 +7,13 @@ from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
 from holmes.plugins.toolsets.grafana.grafana_tempo_api import TempoAPIError
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     GrafanaTempoToolset,
-    SearchTracesByQuery,
-    SearchTracesByTags,
+    QueryMetricsInstant,
+    QueryMetricsRange,
     QueryTraceById,
     SearchTagNames,
     SearchTagValues,
-    QueryMetricsInstant,
-    QueryMetricsRange,
+    SearchTracesByQuery,
+    SearchTracesByTags,
 )
 from tests.conftest import create_mock_tool_invoke_context
 

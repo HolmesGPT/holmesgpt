@@ -1,6 +1,7 @@
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field
 import base64
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
 from holmes.plugins.toolsets.utils import unix_nano_to_rfc3339
 
 

@@ -1,11 +1,13 @@
-import os
 import logging
-from tests.llm.conftest import show_llm_summary_report
-from holmes.core.tracing import readable_timestamp, get_active_branch_name
-from tests.llm.utils.braintrust import get_braintrust_url
+import os
 from unittest.mock import MagicMock, patch
+
 import pytest
 import responses as responses_
+
+from holmes.core.tracing import get_active_branch_name, readable_timestamp
+from tests.llm.conftest import show_llm_summary_report
+from tests.llm.utils.braintrust import get_braintrust_url
 
 
 def pytest_addoption(parser):

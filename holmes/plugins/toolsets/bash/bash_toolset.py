@@ -4,10 +4,9 @@ import os
 import random
 import re
 import string
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 import sentry_sdk
-
 
 from holmes.common.env_vars import (
     BASH_TOOL_UNSAFE_ALLOW_ALL,
@@ -15,10 +14,10 @@ from holmes.common.env_vars import (
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )

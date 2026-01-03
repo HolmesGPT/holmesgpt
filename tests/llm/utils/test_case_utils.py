@@ -1,25 +1,25 @@
 import json
-from typing_extensions import Dict
-import yaml
 import logging
 import os
 from pathlib import Path
 from typing import Any, List, Literal, Optional, TypeVar, Union, cast
 
 import pytest
-from pydantic import BaseModel, TypeAdapter, ValidationError, ConfigDict
-from holmes.core.resource_instruction import ResourceInstructions
-from tests.llm.utils.test_env_vars import (
-    MODEL,
-    CLASSIFIER_MODEL,
-    MODEL_LIST_FILE_LOCATION,
-)
-from holmes.core.models import InvestigateRequest, WorkloadHealthRequest
-from holmes.core.prompt import append_file_to_user_prompt
+import yaml
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from typing_extensions import Dict
+
 from holmes.config import Config
 from holmes.core.llm import DefaultLLM
-
+from holmes.core.models import InvestigateRequest, WorkloadHealthRequest
+from holmes.core.prompt import append_file_to_user_prompt
+from holmes.core.resource_instruction import ResourceInstructions
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
+from tests.llm.utils.test_env_vars import (
+    CLASSIFIER_MODEL,
+    MODEL,
+    MODEL_LIST_FILE_LOCATION,
+)
 
 
 class SetupFailureError(Exception):

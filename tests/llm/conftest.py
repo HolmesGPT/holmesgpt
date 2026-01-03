@@ -1,50 +1,50 @@
 import logging
 import os
 from contextlib import contextmanager
+
 import pytest
 from pytest_shared_session_scope import (
-    shared_session_scope_json,
-    SetupToken,
     CleanupToken,
+    SetupToken,
+    shared_session_scope_json,
 )
 
-from tests.llm.utils.test_results import TestResult
-from tests.llm.utils.classifiers import create_llm_client
 from holmes.common.env_vars import DEFAULT_MODEL
+from tests.llm.utils.braintrust import get_braintrust_url
+from tests.llm.utils.classifiers import create_llm_client
+from tests.llm.utils.env_vars import is_run_live_enabled
 from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
-    MockMode,
     MockGenerationConfig,
+    MockMode,
     report_mock_operations,
 )
-from tests.llm.utils.reporting.terminal_reporter import handle_console_output
-from tests.llm.utils.reporting.github_reporter import handle_github_output
-from tests.llm.utils.braintrust import get_braintrust_url
-from tests.llm.utils.setup_cleanup import (
-    run_all_test_setup,
-    log,
-    extract_llm_test_cases,
-)
 from tests.llm.utils.port_forward import (
-    setup_all_port_forwards,
-    extract_port_forwards_from_test_cases,
-    cleanup_port_forwards_by_config,
     check_port_availability_early,
+    cleanup_port_forwards_by_config,
+    extract_port_forwards_from_test_cases,
+    setup_all_port_forwards,
 )
-from tests.llm.utils.env_vars import is_run_live_enabled
-from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
+from tests.llm.utils.reporting.github_reporter import handle_github_output
+from tests.llm.utils.reporting.terminal_reporter import handle_console_output
+from tests.llm.utils.setup_cleanup import (
+    extract_llm_test_cases,
+    log,
+    run_all_test_setup,
+)
+from tests.llm.utils.test_case_utils import _model_list_exists, create_eval_llm
 from tests.llm.utils.test_env_vars import (
-    MODEL,
-    CLASSIFIER_MODEL,
-    OPENAI_API_KEY,
-    OPENROUTER_API_KEY,
     ANTHROPIC_API_KEY,
-    AZURE_API_KEY,
-    AZURE_API_BASE,
-    OPENROUTER_API_BASE,
     ASK_HOLMES_TEST_TYPE,
+    AZURE_API_BASE,
+    AZURE_API_KEY,
     BRAINTRUST_API_KEY,
+    CLASSIFIER_MODEL,
+    MODEL,
+    OPENAI_API_KEY,
+    OPENROUTER_API_BASE,
+    OPENROUTER_API_KEY,
 )
-
+from tests.llm.utils.test_results import TestResult
 
 # Configuration constants
 DEBUG_SEPARATOR = "=" * 80
@@ -125,7 +125,9 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         regenerate_all = request.config.getoption("--regenerate-all-mocks")
 
         if regenerate_all:
-            from tests.llm.utils.mock_toolset import clear_all_mocks  # type: ignore[attr-defined]
+            from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
+                clear_all_mocks,
+            )
 
             cleared_directories = clear_all_mocks(request.session)
 
@@ -295,7 +297,9 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         # Run cleanup if --only-cleanup is set OR if (not skipping cleanup AND not --only-setup)
         if test_case_ids and (only_cleanup or (not skip_cleanup and not only_setup)):
             # Reconstruct test cases from IDs
-            from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+            from tests.llm.utils.test_case_utils import (
+                HolmesTestCase,  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+            )
 
             cleanup_test_cases = []
 
@@ -315,8 +319,8 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
 
             if cleanup_test_cases:
                 from tests.llm.utils.setup_cleanup import (
-                    run_all_test_commands,
                     Operation,
+                    run_all_test_commands,
                 )
 
                 # Only run the after_test commands, not port forward cleanup
@@ -632,7 +636,8 @@ def llm_availability_check(request):
                 # Check if Braintrust is enabled
                 if BRAINTRUST_API_KEY:
                     print(
-                        f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"  # type: ignore[no-untyped-call]
+                        # type: ignore[no-untyped-call]
+                        f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"
                     )
                 else:
                     print(

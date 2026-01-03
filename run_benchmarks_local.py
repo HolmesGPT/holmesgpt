@@ -379,7 +379,8 @@ def main():
         no_braintrust=args.no_braintrust,
     )
 
-    exit_code = runner.run()
+    # Ignore the exit code from tests to match bash script behavior
+    runner.run()
 
     # Exit with 0 even if tests failed (matching bash script behavior)
     sys.exit(0)

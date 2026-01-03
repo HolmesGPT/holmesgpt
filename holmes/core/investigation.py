@@ -2,23 +2,21 @@ import logging
 from typing import Optional
 
 from holmes.config import Config
-from holmes.core.investigation_structured_output import process_response_into_sections
-from holmes.core.issue import Issue
-from holmes.core.models import InvestigateRequest, InvestigationResult
-from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tracing import DummySpan, SpanType
-from holmes.plugins.runbooks import RunbookCatalog
-from holmes.utils.global_instructions import generate_runbooks_args
-from holmes.core.prompt import generate_user_prompt
-
 from holmes.core.investigation_structured_output import (
     DEFAULT_SECTIONS,
     REQUEST_STRUCTURED_OUTPUT_FROM_LLM,
     get_output_format_for_investigation,
+    process_response_into_sections,
 )
-
+from holmes.core.issue import Issue
+from holmes.core.models import InvestigateRequest, InvestigationResult
+from holmes.core.prompt import generate_user_prompt
+from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.tracing import DummySpan, SpanType
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils import sentry_helper
+from holmes.utils.global_instructions import generate_runbooks_args
 
 
 def investigate_issues(

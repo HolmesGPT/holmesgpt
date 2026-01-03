@@ -1,6 +1,7 @@
 from typing import Optional
 
 import sentry_sdk
+
 from holmes.core.models import ToolCallResult, TruncationMetadata
 
 

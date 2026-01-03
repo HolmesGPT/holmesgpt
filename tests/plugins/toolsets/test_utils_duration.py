@@ -1,8 +1,9 @@
 import pytest
+
 from holmes.plugins.toolsets.utils import (
-    seconds_to_duration_string,
-    duration_string_to_seconds,
     adjust_step_for_max_points,
+    duration_string_to_seconds,
+    seconds_to_duration_string,
 )
 
 

@@ -4,7 +4,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import jq
 
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus, ToolParameter
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolParameter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +65,9 @@ class JsonFilterMixin:
     }
 
     @classmethod
-    def extend_parameters(cls, existing: Dict[str, ToolParameter]) -> Dict[str, ToolParameter]:
+    def extend_parameters(
+        cls, existing: Dict[str, ToolParameter]
+    ) -> Dict[str, ToolParameter]:
         merged = dict(cls.filter_parameters)
         merged.update(existing)
         return merged
@@ -94,7 +100,9 @@ class JsonFilterMixin:
         except Exception:
             return None
 
-    def filter_result(self, result: StructuredToolResult, params: Dict) -> StructuredToolResult:
+    def filter_result(
+        self, result: StructuredToolResult, params: Dict
+    ) -> StructuredToolResult:
         base_result = result if isinstance(result, StructuredToolResult) else None
         if base_result is None:
             base_result = StructuredToolResult(

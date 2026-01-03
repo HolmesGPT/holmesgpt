@@ -1,6 +1,7 @@
 """Tests to verify AI safety prompt is included in all system prompts."""
 
 import pytest
+
 from holmes.plugins.prompts import load_and_render_prompt
 
 

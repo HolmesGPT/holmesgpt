@@ -1,24 +1,25 @@
 import os
-from typing import Any, ClassVar, Dict, Optional, Type, cast, Tuple
-from urllib.parse import urlencode, urljoin
 from abc import ABC
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, cast
+from urllib.parse import urlencode, urljoin
+
+import requests  # type: ignore
+
 from holmes.core.tools import (
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
 )
 from holmes.plugins.toolsets.grafana.base_grafana_toolset import BaseGrafanaToolset
-import requests  # type: ignore
-
 from holmes.plugins.toolsets.grafana.common import (
-    get_base_url,
     GrafanaConfig,
     build_headers,
+    get_base_url,
 )
-from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
+from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class GrafanaDashboardConfig(GrafanaConfig):

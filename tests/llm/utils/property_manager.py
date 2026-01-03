@@ -1,5 +1,9 @@
-from typing import List, Any, Union, Optional, Dict
-from tests.llm.utils.test_case_utils import Evaluation, HolmesTestCase  # type: ignore[attr-defined]
+from typing import Any, Dict, List, Optional, Union
+
+from tests.llm.utils.test_case_utils import (  # type: ignore[attr-defined]
+    Evaluation,
+    HolmesTestCase,
+)
 
 
 def set_initial_properties(request, test_case: HolmesTestCase, model: str) -> None:
