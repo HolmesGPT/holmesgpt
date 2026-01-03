@@ -63,6 +63,8 @@ before_test: |
     exit 1
   fi
 
+  # Small delay to ensure index is fully ready for queries and bulk operations
+  # (wait_for_active_shards only ensures shard allocation)
   sleep 2
 
   # Create unique temp file
