@@ -48,10 +48,12 @@ before_test: |
 
   # Create the test index
   echo "⏳ Creating test index..."
-  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"service":{"type":"keyword"},"event_type":{"type":"keyword"},"duration_ms":{"type":"integer"}}}}'
+
+  sleep 2
 
   # Create bulk data file with specific distribution:
   # payment-api: 5 events, order-service: 3 events, inventory-api: 2 events

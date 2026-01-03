@@ -47,7 +47,7 @@ before_test: |
 
   # Create the test index with specific mappings including nested objects
   echo "⏳ Creating test index with specific schema..."
-  RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+  RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -82,6 +82,8 @@ before_test: |
     echo "Response: $RESPONSE"
     exit 1
   fi
+
+  sleep 2
 
   # Index a sample document to confirm mappings
   curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_doc" \

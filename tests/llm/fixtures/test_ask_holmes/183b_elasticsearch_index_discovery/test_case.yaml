@@ -47,11 +47,14 @@ before_test: |
   # Create the test index with 5 documents
   echo "⏳ Creating test index with 5 documents..."
 
-  # Create the index
-  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+  # Create the index with wait_for_active_shards to ensure it's ready
+  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings": {"number_of_shards": 1, "number_of_replicas": 0}}'
+
+  # Small delay to ensure index is fully ready
+  sleep 2
 
   # Index 5 documents using bulk API
   BULK_DATA=""

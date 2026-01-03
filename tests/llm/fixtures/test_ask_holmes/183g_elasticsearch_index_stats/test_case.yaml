@@ -44,7 +44,7 @@ before_test: |
 
   # Create the test index
   echo "⏳ Creating test index..."
-  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+  curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -53,6 +53,8 @@ before_test: |
         "number_of_replicas": 0
       }
     }'
+
+  sleep 2
 
   # Create exactly 50 documents using bulk API
   echo "⏳ Indexing 50 documents..."
