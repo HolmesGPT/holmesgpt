@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from holmes.core.tracing import (
     BRAINTRUST_API_KEY,
@@ -197,7 +197,11 @@ def fetch_experiment_spans(
             "limit": limit,
             "filters": [
                 # Only fetch top-level eval spans (not nested LLM calls)
-                {"type": "span_type", "path": ["span_attributes", "type"], "value": "eval"}
+                {
+                    "type": "span_type",
+                    "path": ["span_attributes", "type"],
+                    "value": "eval",
+                }
             ],
         },
     )
@@ -348,7 +352,9 @@ def get_historical_metrics(
                 )
             )
 
-        logging.info(f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})")
+        logging.info(
+            f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})"
+        )
         metrics = build_historical_metrics(experiments)
 
         if not metrics:

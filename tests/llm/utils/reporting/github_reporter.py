@@ -4,7 +4,6 @@ import logging
 import os
 from typing import Dict, List, Optional, Tuple
 
-from tests.llm.utils.test_results import TestStatus
 from tests.llm.utils.braintrust import get_braintrust_url
 from tests.llm.utils.braintrust_history import (
     BRAINTRUST_ORG,
@@ -15,6 +14,7 @@ from tests.llm.utils.braintrust_history import (
     compare_with_historical,
     get_historical_metrics,
 )
+from tests.llm.utils.test_results import TestStatus
 
 
 def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
@@ -38,7 +38,9 @@ def _format_time_with_comparison(
         return "—"
     base = f"{exec_time:.1f}s"
     if comparison and comparison.duration_diff_pct is not None:
-        return base + _format_diff_indicator(comparison.duration_diff_pct, comparison.sample_count)
+        return base + _format_diff_indicator(
+            comparison.duration_diff_pct, comparison.sample_count
+        )
     return base
 
 
@@ -51,7 +53,9 @@ def _format_cost_with_comparison(
         return "—"
     base = f"${cost:.4f}"
     if comparison and comparison.cost_diff_pct is not None:
-        return base + _format_diff_indicator(comparison.cost_diff_pct, comparison.sample_count)
+        return base + _format_diff_indicator(
+            comparison.cost_diff_pct, comparison.sample_count
+        )
     return base
 
 
@@ -74,7 +78,9 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
     if details.status:
         lines.append(f"**Status:** {details.status}\n")
     else:
-        lines.append(f"**Status:** Success - {details.metrics_count} test/model combinations loaded\n")
+        lines.append(
+            f"**Status:** Success - {details.metrics_count} test/model combinations loaded\n"
+        )
 
     # Experiments used
     if details.experiments:
@@ -150,7 +156,9 @@ def generate_markdown_report(
             historical, historical_details = get_historical_metrics(limit=30)
             if historical:
                 comparison_map = compare_with_historical(sorted_results, historical)
-                logging.info(f"Loaded historical data for {len(historical)} test/model combinations")
+                logging.info(
+                    f"Loaded historical data for {len(historical)} test/model combinations"
+                )
         except Exception as e:
             historical_details = HistoricalComparisonDetails(status=f"API error: {e}")
             logging.warning(f"Failed to fetch historical metrics: {e}")
@@ -320,7 +328,9 @@ def generate_markdown_report(
     if historical and comparison_map:
         markdown += "\n_Time/Cost columns show % change vs historical average (↑slower/costlier, ↓faster/cheaper). Changes under 10% shown as ±0%._\n"
     elif historical_details and historical_details.status:
-        markdown += f"\n_Historical comparison unavailable: {historical_details.status}_\n"
+        markdown += (
+            f"\n_Historical comparison unavailable: {historical_details.status}_\n"
+        )
 
     # Add collapsible details section for historical comparison transparency
     if historical_details:

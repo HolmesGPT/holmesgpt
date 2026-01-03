@@ -1,6 +1,8 @@
-from rich.console import Console
-from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+from rich.console import Console
+
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils.global_instructions import generate_runbooks_args

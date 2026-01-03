@@ -1,6 +1,7 @@
-import os
 import logging
-from flask import Flask, request, jsonify
+import os
+
+from flask import Flask, jsonify, request
 
 PORT = int(os.environ.get("PORT", "8000"))
 

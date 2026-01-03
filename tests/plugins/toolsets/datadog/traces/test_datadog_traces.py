@@ -1,10 +1,11 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+from holmes.core.tools import StructuredToolResultStatus
+from holmes.plugins.toolsets.datadog.datadog_api import DataDogRequestError
 from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     DatadogTracesToolset,
     GetSpans,
 )
-from holmes.plugins.toolsets.datadog.datadog_api import DataDogRequestError
-from holmes.core.tools import StructuredToolResultStatus
 from tests.conftest import create_mock_tool_invoke_context
 
 

@@ -1,8 +1,9 @@
-import os
-import time
-import random
 import logging
-from flask import Flask, request, jsonify
+import os
+import random
+import time
+
+from flask import Flask, jsonify, request
 
 # OpenTelemetry imports
 from opentelemetry._logs import set_logger_provider

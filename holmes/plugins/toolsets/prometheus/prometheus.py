@@ -2,28 +2,34 @@ import json
 import logging
 import os
 import time
-import dateutil.parser
 from typing import Any, Dict, Optional, Tuple, Type, Union
 from urllib.parse import urljoin
 
+import dateutil.parser
 import requests  # type: ignore
-from pydantic import BaseModel, field_validator, Field, model_validator
-from requests import RequestException
 from prometrix.connect.aws_connect import AWSPrometheusConnect
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
+from pydantic import BaseModel, Field, field_validator, model_validator
+from requests import RequestException
+
+from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
+from holmes.common.openshift import load_openshift_token
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.core.tools_utils.tool_context_window_limiter import get_pct_token_count
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
+from holmes.plugins.toolsets.logging_utils.logging_api import (
+    DEFAULT_GRAPH_TIME_SPAN_SECONDS,
+)
 from holmes.plugins.toolsets.prometheus.utils import parse_duration_to_seconds
 from holmes.plugins.toolsets.service_discovery import PrometheusDiscovery
 from holmes.plugins.toolsets.utils import (
@@ -33,11 +39,6 @@ from holmes.plugins.toolsets.utils import (
     toolset_name_for_one_liner,
 )
 from holmes.utils.cache import TTLCache
-from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
-from holmes.common.openshift import load_openshift_token
-from holmes.plugins.toolsets.logging_utils.logging_api import (
-    DEFAULT_GRAPH_TIME_SPAN_SECONDS,
-)
 
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
 PROMETHEUS_METADATA_API_LIMIT = 100  # Default limit for Prometheus metadata APIs (series, labels, metadata) to prevent overwhelming responses

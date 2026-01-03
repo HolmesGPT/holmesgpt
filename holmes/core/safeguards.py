@@ -4,9 +4,11 @@ from typing import Optional
 from pydantic import ValidationError
 
 from holmes.common.env_vars import TOOL_CALL_SAFEGUARDS_ENABLED
-from holmes.plugins.toolsets.logging_utils.logging_api import POD_LOGGING_TOOL_NAME
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
+from holmes.plugins.toolsets.logging_utils.logging_api import (
+    POD_LOGGING_TOOL_NAME,
+    FetchPodLogsParams,
+)
 
 
 def _is_redundant_fetch_pod_logs(

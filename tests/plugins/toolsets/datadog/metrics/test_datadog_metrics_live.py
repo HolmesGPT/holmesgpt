@@ -1,8 +1,10 @@
-import os
 import json
+import os
 import time
+from datetime import datetime, timedelta, timezone
+
 import pytest
-from datetime import datetime, timezone, timedelta
+
 from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
     DatadogMetricsToolset,
 )

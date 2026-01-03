@@ -1,24 +1,25 @@
-import requests  # type: ignore
+import gzip
+import io
 import logging
-from typing import Any, Dict, Tuple, List
+import os
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Tuple
+
+import requests  # type: ignore
+from pydantic import BaseModel, PrivateAttr
+from requests.auth import HTTPDigestAuth  # type: ignore
+
 from holmes.core.tools import (
     CallablePrerequisite,
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
     Toolset,
     ToolsetTag,
 )
-
-from pydantic import BaseModel, PrivateAttr
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-from requests.auth import HTTPDigestAuth  # type: ignore
-import gzip
-import io
-from datetime import datetime, timedelta, timezone
-import os
-from collections import Counter
-
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 

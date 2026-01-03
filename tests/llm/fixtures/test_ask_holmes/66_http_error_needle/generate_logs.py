@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import json
 import random
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta
 
 
 def generate_log_entry(status=200, message="OK", path="/api/health", level="INFO"):

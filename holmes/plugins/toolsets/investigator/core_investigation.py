@@ -1,7 +1,6 @@
 import logging
 import os
 from typing import Any, Dict
-
 from uuid import uuid4
 
 from holmes.core.todo_tasks_formatter import format_tasks

@@ -46,7 +46,9 @@ def get_active_branch_name():
         if github_head_ref:
             return github_head_ref
 
-        github_ref = os.environ.get("GITHUB_REF", "")  # Set for pushes: refs/heads/branch-name
+        github_ref = os.environ.get(
+            "GITHUB_REF", ""
+        )  # Set for pushes: refs/heads/branch-name
         if github_ref.startswith("refs/heads/"):
             return github_ref.replace("refs/heads/", "")
 

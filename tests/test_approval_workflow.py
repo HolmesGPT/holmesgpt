@@ -1,14 +1,16 @@
-from typing import Optional
-import pytest
 import json
-from unittest.mock import patch, MagicMock
+from typing import Optional
+from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
-from server import app
-from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
-from holmes.utils.stream import StreamEvents
-from holmes.core.tool_calling_llm import ToolCallingLLM
+
 from holmes.core.llm import LLM, TokenCountMetadata
+from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
+from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.utils.stream import StreamEvents
+from server import app
 
 
 @pytest.fixture

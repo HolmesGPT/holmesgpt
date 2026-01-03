@@ -1,9 +1,10 @@
 import json
-from holmes.core.investigation_structured_output import InputSectionsDataType
-from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, model_validator, Field
 from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
+from pydantic import BaseModel, Field, model_validator
+
+from holmes.core.investigation_structured_output import InputSectionsDataType
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 

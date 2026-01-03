@@ -2,15 +2,8 @@ import concurrent.futures
 import json
 import logging
 import textwrap
-from typing import Dict, List, Optional, Type, Union, Callable, Any
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
-from holmes.core.models import (
-    ToolApprovalDecision,
-    ToolCallResult,
-    PendingToolApproval,
-)
-from holmes.utils.global_instructions import generate_runbooks_args
-from holmes.core.prompt import generate_user_prompt
 import sentry_sdk
 from openai import BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
@@ -20,11 +13,10 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 
 from holmes.common.env_vars import (
+    LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
-    LOG_LLM_USAGE_RESPONSE,
 )
-
 from holmes.core.investigation_structured_output import (
     DEFAULT_SECTIONS,
     REQUEST_STRUCTURED_OUTPUT_FROM_LLM,
@@ -34,6 +26,12 @@ from holmes.core.investigation_structured_output import (
 )
 from holmes.core.issue import Issue
 from holmes.core.llm import LLM
+from holmes.core.models import (
+    PendingToolApproval,
+    ToolApprovalDecision,
+    ToolCallResult,
+)
+from holmes.core.prompt import generate_user_prompt
 from holmes.core.runbooks import RunbookManager
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
@@ -44,25 +42,26 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.tool_context_window_limiter import (
     prevent_overly_big_tool_response,
 )
+from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.tracing import DummySpan
 from holmes.core.truncation.input_context_window_limiter import (
     limit_input_context_window,
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils import sentry_helper
+from holmes.utils.colors import AI_COLOR
 from holmes.utils.global_instructions import (
     Instructions,
+    generate_runbooks_args,
 )
-from holmes.utils.tags import parse_messages_tags
-from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.core.tracing import DummySpan
-from holmes.utils.colors import AI_COLOR
 from holmes.utils.stream import (
     StreamEvents,
     StreamMessage,
     add_token_count_to_metadata,
     build_stream_event_token_count,
 )
+from holmes.utils.tags import parse_messages_tags
 
 # Create a named logger for cost tracking
 cost_logger = logging.getLogger("holmes.costs")
@@ -291,7 +290,9 @@ class ToolCallingLLM:
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         trace_span=DummySpan(),
     ) -> LLMResult:
-        return self.call(messages, response_format=response_format, trace_span=trace_span)
+        return self.call(
+            messages, response_format=response_format, trace_span=trace_span
+        )
 
     @sentry_sdk.trace
     def call(  # type: ignore

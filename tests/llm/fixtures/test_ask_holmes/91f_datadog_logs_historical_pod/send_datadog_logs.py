@@ -4,12 +4,12 @@ Simulates realistic production logs with memory issues and database connection p
 Usage: python send_datadog_logs.py [namespace]
 """
 
-import sys
-import os
-import time
 import json
-import urllib.request
+import os
+import sys
+import time
 import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
 

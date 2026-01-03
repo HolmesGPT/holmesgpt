@@ -1,15 +1,15 @@
 import argparse
 from typing import Any, Optional
 
+from holmes.plugins.toolsets.bash.azure.constants import (
+    ALLOWED_AZURE_COMMANDS,
+    DENIED_AZURE_COMMANDS,
+)
 from holmes.plugins.toolsets.bash.common.bash_command import BashCommand
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.common.stringify import escape_shell_args
 from holmes.plugins.toolsets.bash.common.validators import (
     validate_command_and_operations,
-)
-from holmes.plugins.toolsets.bash.azure.constants import (
-    ALLOWED_AZURE_COMMANDS,
-    DENIED_AZURE_COMMANDS,
 )
 
 

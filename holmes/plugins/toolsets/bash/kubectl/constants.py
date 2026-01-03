@@ -1,6 +1,5 @@
 import re
 
-
 SAFE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-_.]*$")
 SAFE_NAMESPACE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 SAFE_SELECTOR_PATTERN = re.compile(r"^[a-zA-Z0-9\-_.=,!()]+$")
