@@ -31,7 +31,7 @@ tags:
   - elasticsearch
   - medium
 
-setup_timeout: 60
+setup_timeout: 120
 
 before_test: |
   set -e
