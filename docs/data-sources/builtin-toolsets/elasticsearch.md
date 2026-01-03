@@ -88,6 +88,13 @@ The toolset supports multiple authentication methods:
 | Basic Auth | `username`, `password` | Username and password |
 | None | - | For clusters without authentication |
 
+### Other Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `verify_ssl` | `true` | Verify SSL certificates |
+| `timeout` | `10` | Request timeout in seconds |
+
 ## Capabilities
 
 --8<-- "snippets/toolset_capabilities_intro.md"
