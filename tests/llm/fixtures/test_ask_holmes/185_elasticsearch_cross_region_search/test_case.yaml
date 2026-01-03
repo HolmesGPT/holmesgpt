@@ -161,8 +161,9 @@ before_test: |
   if echo "$VERIFY" | grep -q '"REQ-EU-8K4M2"'; then
     echo "✅ Verified: Needle is searchable"
   else
-    echo "⚠️ Warning: Could not verify needle"
+    echo "❌ Failed to verify needle document with request ID REQ-EU-8K4M2"
     echo "$VERIFY"
+    exit 1
   fi
 
   INDEX_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-185-geo-*?format=json" \
