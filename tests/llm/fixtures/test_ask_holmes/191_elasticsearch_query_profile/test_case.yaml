@@ -65,19 +65,22 @@ before_test: |
 
   # Create bulk data file with logs including timeout messages
   cat > "$BULK_FILE" << 'BULK_EOF'
-{"index":{}}
-{"timestamp":"2025-01-01T10:00:00Z","message":"Connection established successfully","status":"success"}
-{"index":{}}
-{"timestamp":"2025-01-01T10:01:00Z","message":"Request timeout after 30 seconds","status":"error"}
-{"index":{}}
-{"timestamp":"2025-01-01T10:02:00Z","message":"Processing completed","status":"success"}
-{"index":{}}
-{"timestamp":"2025-01-01T10:03:00Z","message":"Database query timeout exceeded limit","status":"error"}
-{"index":{}}
-{"timestamp":"2025-01-01T10:04:00Z","message":"API response received","status":"success"}
-{"index":{}}
-{"timestamp":"2025-01-01T10:05:00Z","message":"Socket timeout during file upload","status":"error"}
-BULK_EOF
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:00:00Z","message":"Connection established successfully","status":"success"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:01:00Z","message":"Request timeout after 30 seconds","status":"error"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:02:00Z","message":"Processing completed","status":"success"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:03:00Z","message":"Database query timeout exceeded limit","status":"error"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:04:00Z","message":"API response received","status":"success"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:05:00Z","message":"Socket timeout during file upload","status":"error"}
+  BULK_EOF
+
+  # Remove leading spaces from the bulk file
+  sed -i 's/^  //' "$BULK_FILE"
 
   # Index the documents
   BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \

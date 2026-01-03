@@ -71,27 +71,30 @@ before_test: |
   # Create bulk data file with specific distribution:
   # payment-api: 5 events, order-service: 3 events, inventory-api: 2 events
   cat > "$BULK_FILE" << 'BULK_EOF'
-{"index":{}}
-{"timestamp":"2025-01-01T10:01:00Z","service":"payment-api","event_type":"request","duration_ms":110}
-{"index":{}}
-{"timestamp":"2025-01-01T10:02:00Z","service":"payment-api","event_type":"request","duration_ms":120}
-{"index":{}}
-{"timestamp":"2025-01-01T10:03:00Z","service":"payment-api","event_type":"request","duration_ms":130}
-{"index":{}}
-{"timestamp":"2025-01-01T10:04:00Z","service":"payment-api","event_type":"request","duration_ms":140}
-{"index":{}}
-{"timestamp":"2025-01-01T10:05:00Z","service":"payment-api","event_type":"request","duration_ms":150}
-{"index":{}}
-{"timestamp":"2025-01-01T11:01:00Z","service":"order-service","event_type":"request","duration_ms":210}
-{"index":{}}
-{"timestamp":"2025-01-01T11:02:00Z","service":"order-service","event_type":"request","duration_ms":220}
-{"index":{}}
-{"timestamp":"2025-01-01T11:03:00Z","service":"order-service","event_type":"request","duration_ms":230}
-{"index":{}}
-{"timestamp":"2025-01-01T12:01:00Z","service":"inventory-api","event_type":"request","duration_ms":310}
-{"index":{}}
-{"timestamp":"2025-01-01T12:02:00Z","service":"inventory-api","event_type":"request","duration_ms":320}
-BULK_EOF
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:01:00Z","service":"payment-api","event_type":"request","duration_ms":110}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:02:00Z","service":"payment-api","event_type":"request","duration_ms":120}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:03:00Z","service":"payment-api","event_type":"request","duration_ms":130}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:04:00Z","service":"payment-api","event_type":"request","duration_ms":140}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:05:00Z","service":"payment-api","event_type":"request","duration_ms":150}
+  {"index":{}}
+  {"timestamp":"2025-01-01T11:01:00Z","service":"order-service","event_type":"request","duration_ms":210}
+  {"index":{}}
+  {"timestamp":"2025-01-01T11:02:00Z","service":"order-service","event_type":"request","duration_ms":220}
+  {"index":{}}
+  {"timestamp":"2025-01-01T11:03:00Z","service":"order-service","event_type":"request","duration_ms":230}
+  {"index":{}}
+  {"timestamp":"2025-01-01T12:01:00Z","service":"inventory-api","event_type":"request","duration_ms":310}
+  {"index":{}}
+  {"timestamp":"2025-01-01T12:02:00Z","service":"inventory-api","event_type":"request","duration_ms":320}
+  BULK_EOF
+
+  # Remove leading spaces from the bulk file
+  sed -i 's/^  //' "$BULK_FILE"
 
   # Index the documents
   BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
