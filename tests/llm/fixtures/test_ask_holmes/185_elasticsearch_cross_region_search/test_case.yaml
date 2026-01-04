@@ -29,7 +29,6 @@ expected_output:
 tags:
   - elasticsearch
   - hard
-  - scale
 
 setup_timeout: 120
 
