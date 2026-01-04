@@ -50,6 +50,9 @@ from tests.llm.utils.test_env_vars import (
 # Configuration constants
 DEBUG_SEPARATOR = "=" * 80
 LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate", "test_workload_health"]
+DEFAULT_SYSTEM_PROMPT_URL = (
+    "https://platform.robusta.dev/api/additional-system-prompt.json"
+)
 
 
 def _fetch_additional_system_prompt(url: str) -> Optional[str]:
@@ -78,6 +81,15 @@ def _fetch_additional_system_prompt(url: str) -> Optional[str]:
         pass
 
     return response.text
+
+
+def _has_frontend_tests(session: pytest.Session) -> bool:
+    """Check collected items to see if any test is tagged as frontend."""
+
+    for item in getattr(session, "items", []):
+        if item.get_closest_marker("frontend"):
+            return True
+    return False
 
 
 def is_llm_test(nodeid: str) -> bool:
@@ -128,7 +140,13 @@ def additional_system_prompt(request) -> Optional[str]:
     """Optionally load an additional system prompt for evals from a URL."""
 
     url = request.config.getoption("--additional-system-prompt-url")
-    if not url:
+    should_fetch = bool(url)
+
+    if not url and _has_frontend_tests(request.session):
+        url = DEFAULT_SYSTEM_PROMPT_URL
+        should_fetch = True
+
+    if not should_fetch:
         return None
 
     try:

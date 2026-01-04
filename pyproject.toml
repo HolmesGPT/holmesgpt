@@ -128,7 +128,8 @@ markers = [
     "embeds: Tests ensuring embeds are as expected",
     "one-test: Runs only one simple eval",
     "loki: Loki toolset",
-    "coralogix: Runs coralogix evals"
+    "coralogix: Runs coralogix evals",
+    "frontend: Run frontend tests"
 ]
 
 addopts = [
