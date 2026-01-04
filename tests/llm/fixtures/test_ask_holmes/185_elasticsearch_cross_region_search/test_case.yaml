@@ -30,7 +30,7 @@ tags:
   - elasticsearch
   - hard
 
-setup_timeout: 120
+setup_timeout: 300
 
 before_test: |
   source ../../shared/es_test_utils.sh
