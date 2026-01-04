@@ -1,10 +1,10 @@
-import logging
-from typing import Any, Dict, Optional, Tuple
 import json
+import logging
 import re
 from contextlib import suppress
-from holmes.common.env_vars import load_bool
+from typing import Any, Dict, Optional, Tuple
 
+from holmes.common.env_vars import load_bool
 
 REQUEST_STRUCTURED_OUTPUT_FROM_LLM = load_bool(
     "REQUEST_STRUCTURED_OUTPUT_FROM_LLM", True

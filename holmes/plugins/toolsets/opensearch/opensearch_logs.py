@@ -1,9 +1,9 @@
 import logging
-from typing import Any, Dict, Optional, Tuple, Set
+from typing import Any, Dict, Optional, Set, Tuple
+from urllib.parse import urljoin
 
 import requests  # type: ignore
 from requests import RequestException  # type: ignore
-from urllib.parse import urljoin
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -12,12 +12,12 @@ from holmes.core.tools import (
     ToolsetTag,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
+    DEFAULT_TIME_SPAN_SECONDS,
     BasePodLoggingToolset,
     FetchPodLogsParams,
     LoggingCapability,
     PodLoggingTool,
     process_time_parameters,
-    DEFAULT_TIME_SPAN_SECONDS,
 )
 from holmes.plugins.toolsets.opensearch.opensearch_utils import (
     OpenSearchLoggingConfig,

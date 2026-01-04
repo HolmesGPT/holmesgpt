@@ -2,8 +2,8 @@
 Tests for configuration utility functions.
 """
 
-from holmes.utils.config_utils import merge_transformers
 from holmes.core.transformers import Transformer
+from holmes.utils.config_utils import merge_transformers
 
 
 def test_merge_transformers_both_none():

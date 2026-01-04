@@ -1,5 +1,5 @@
-from typing import Literal, get_args
 from pathlib import Path
+from typing import Literal, get_args
 
 try:
     import tomllib

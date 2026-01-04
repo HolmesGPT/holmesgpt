@@ -1,46 +1,45 @@
 # type: ignore
 import os
 import time
-from typing import Optional
-import pytest
-from pathlib import Path
-from unittest.mock import patch
 from datetime import datetime
-from holmes.plugins.runbooks import load_runbook_catalog, RunbookCatalog
+from os import path
+from pathlib import Path
+from typing import Optional
+from unittest.mock import patch
+
+import pytest
 from rich.console import Console
-from holmes.core.models import ChatRequest
-from holmes.core.tracing import TracingFactory
+
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
+from holmes.core.models import ChatRequest
+from holmes.core.prompt import build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.tracing import SpanType, TracingFactory
+from holmes.plugins.runbooks import RunbookCatalog, load_runbook_catalog
+from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.commands import set_test_env_vars
+from tests.llm.utils.iteration_utils import get_test_cases
+from tests.llm.utils.mock_dal import load_mock_dal
 from tests.llm.utils.mock_toolset import (
-    MockToolsetManager,
     MockGenerationConfig,
+    MockToolsetManager,
     check_for_mock_errors,
 )
-from tests.llm.utils.test_case_utils import (
-    AskHolmesTestCase,
-    check_and_skip_test,
-    get_models,
-    create_eval_llm,
-)
-
-from holmes.core.prompt import build_initial_ask_messages
-from tests.llm.utils.retry_handler import retry_on_throttle
-from tests.llm.utils.mock_dal import load_mock_dal
-
 from tests.llm.utils.property_manager import (
+    handle_test_error,
     set_initial_properties,
     set_trace_properties,
     update_test_results,
-    handle_test_error,
 )
-from os import path
-from holmes.core.tracing import SpanType
-from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.braintrust import log_to_braintrust
+from tests.llm.utils.retry_handler import retry_on_throttle
+from tests.llm.utils.test_case_utils import (
+    AskHolmesTestCase,
+    check_and_skip_test,
+    create_eval_llm,
+    get_models,
+)
 
 TEST_CASES_FOLDER = Path(
     path.abspath(path.join(path.dirname(__file__), "fixtures", "test_ask_holmes"))
@@ -256,9 +255,13 @@ def ask_holmes(
         if request:
             request.node.user_properties.append(("holmes_duration", holmes_duration))
             if result.num_llm_calls is not None:
-                request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
+                request.node.user_properties.append(
+                    ("num_llm_calls", result.num_llm_calls)
+                )
             if result.tool_calls is not None:
-                request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
+                request.node.user_properties.append(
+                    ("tool_call_count", len(result.tool_calls))
+                )
 
     # Check for any mock errors that occurred during tool execution
     # This will raise an exception if any mock data errors happened

@@ -1,7 +1,8 @@
 from pydantic import BaseModel
+
 from holmes.core.llm import LLM
-from holmes.core.tools import StructuredToolResultStatus
 from holmes.core.models import ToolCallResult
+from holmes.core.tools import StructuredToolResultStatus
 from holmes.utils import sentry_helper
 
 

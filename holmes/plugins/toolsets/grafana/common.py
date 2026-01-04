@@ -1,7 +1,8 @@
+import datetime
 import json
 from typing import Dict, Optional
+
 from pydantic import BaseModel
-import datetime
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 

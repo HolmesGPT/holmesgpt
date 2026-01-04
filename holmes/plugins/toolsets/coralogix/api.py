@@ -1,6 +1,6 @@
-from enum import Enum
 import json
 import logging
+from enum import Enum
 from typing import Any, Optional, Tuple
 from urllib.parse import urljoin
 

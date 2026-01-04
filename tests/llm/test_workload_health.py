@@ -1,38 +1,37 @@
 # type: ignore
+import json
 import time
+from os import path
 from pathlib import Path
 from typing import Optional
-import json
+from unittest.mock import patch
+
 import pytest
-from server import workload_health_check
 
-from holmes.core.tracing import SpanType, TracingFactory
-from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.config import Config
-
 from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.tracing import SpanType, TracingFactory
+from server import workload_health_check
 from tests.llm.utils.classifiers import (
     evaluate_correctness,
 )
+from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.mock_dal import MockSupabaseDal
 from tests.llm.utils.mock_toolset import MockToolsetManager
+from tests.llm.utils.property_manager import (
+    handle_test_error,
+    set_initial_properties,
+    set_trace_properties,
+    update_test_results,
+)
+from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.test_case_utils import (
     Evaluation,
     HealthCheckTestCase,
     check_and_skip_test,
     get_models,
 )
-from tests.llm.utils.retry_handler import retry_on_throttle
-from tests.llm.utils.property_manager import (
-    set_initial_properties,
-    set_trace_properties,
-    update_test_results,
-    handle_test_error,
-)
-from os import path
-from unittest.mock import patch
-
-from tests.llm.utils.iteration_utils import get_test_cases
 
 TEST_CASES_FOLDER = Path(
     path.abspath(path.join(path.dirname(__file__), "fixtures", "test_workload_health"))
@@ -127,11 +126,17 @@ def test_health_check(
                     holmes_duration = time.time() - start_time
                     eval_span.log(metadata={"holmes_duration": holmes_duration})
                     # Store metrics in user_properties for GitHub report
-                    request.node.user_properties.append(("holmes_duration", holmes_duration))
+                    request.node.user_properties.append(
+                        ("holmes_duration", holmes_duration)
+                    )
                     if result and result.num_llm_calls is not None:
-                        request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
+                        request.node.user_properties.append(
+                            ("num_llm_calls", result.num_llm_calls)
+                        )
                     if result and result.tool_calls is not None:
-                        request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
+                        request.node.user_properties.append(
+                            ("tool_call_count", len(result.tool_calls))
+                        )
 
             # Check for any mock errors that occurred during tool execution
             # This will raise an exception if any mock data errors happened

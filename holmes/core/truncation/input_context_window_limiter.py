@@ -1,7 +1,9 @@
 import logging
 from typing import Any, Optional
-from pydantic import BaseModel
+
 import sentry_sdk
+from pydantic import BaseModel
+
 from holmes.common.env_vars import (
     ENABLE_CONVERSATION_HISTORY_COMPACTION,
     MAX_OUTPUT_TOKEN_RESERVATION,
@@ -15,7 +17,6 @@ from holmes.core.models import TruncationMetadata, TruncationResult
 from holmes.core.truncation.compaction import compact_conversation_history
 from holmes.utils import sentry_helper
 from holmes.utils.stream import StreamEvents, StreamMessage
-
 
 TRUNCATION_NOTICE = "\n\n[TRUNCATED]"
 

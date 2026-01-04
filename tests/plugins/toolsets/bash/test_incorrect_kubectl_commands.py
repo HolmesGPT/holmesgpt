@@ -5,9 +5,11 @@ These tests verify that the make_command_safe() function properly rejects
 potentially dangerous or unauthorized kubectl commands by raising ArgumentError.
 """
 
-import re
-import pytest
 import argparse
+import re
+
+import pytest
+
 from holmes.plugins.toolsets.bash.common.config import (
     BashExecutorConfig,
     KubectlConfig,

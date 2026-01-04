@@ -7,9 +7,9 @@ from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
 
 import litellm
+import sentry_sdk
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import ModelResponse, TextCompletionResponse
-import sentry_sdk
 from pydantic import BaseModel, ConfigDict, SecretStr
 from typing_extensions import Self
 
@@ -18,8 +18,8 @@ from holmes.clients.robusta_client import (
     RobustaModelsResponse,
     fetch_robusta_models,
 )
-
 from holmes.common.env_vars import (
+    EXTRA_HEADERS,
     FALLBACK_CONTEXT_WINDOW_SIZE,
     LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
@@ -27,7 +27,6 @@ from holmes.common.env_vars import (
     ROBUSTA_AI,
     ROBUSTA_API_ENDPOINT,
     THINKING,
-    EXTRA_HEADERS,
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT,
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS,
 )

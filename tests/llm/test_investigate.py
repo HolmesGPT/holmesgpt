@@ -1,42 +1,41 @@
 # type: ignore
 import os
 import time
+from os import path
 from pathlib import Path
 from typing import Optional
+from unittest.mock import patch
 
 import pytest
 
-from holmes.core.investigation_structured_output import DEFAULT_SECTIONS
-from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.core.tool_calling_llm import IssueInvestigator
-from holmes.core.tracing import TracingFactory, SpanType
 from holmes.config import Config
 from holmes.core.investigation import investigate_issues
+from holmes.core.investigation_structured_output import DEFAULT_SECTIONS
 from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.tool_calling_llm import IssueInvestigator
+from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.tracing import SpanType, TracingFactory
+from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import (
     evaluate_correctness,
     evaluate_sections,
 )
 from tests.llm.utils.commands import set_test_env_vars
+from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.mock_dal import MockSupabaseDal
 from tests.llm.utils.mock_toolset import MockToolsetManager, check_for_mock_errors
+from tests.llm.utils.property_manager import (
+    handle_test_error,
+    set_initial_properties,
+    set_trace_properties,
+    update_test_results,
+)
+from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.test_case_utils import (
     InvestigateTestCase,
     check_and_skip_test,
     get_models,
 )
-from tests.llm.utils.retry_handler import retry_on_throttle
-from tests.llm.utils.property_manager import (
-    set_initial_properties,
-    set_trace_properties,
-    update_test_results,
-    handle_test_error,
-)
-from os import path
-from unittest.mock import patch
-
-from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.braintrust import log_to_braintrust
 
 TEST_CASES_FOLDER = Path(
     path.abspath(path.join(path.dirname(__file__), "fixtures", "test_investigate"))
@@ -156,11 +155,17 @@ def test_investigate(
                     # Log duration directly to eval_span
                     eval_span.log(metadata={"holmes_duration": holmes_duration})
                     # Store metrics in user_properties for GitHub report
-                    request.node.user_properties.append(("holmes_duration", holmes_duration))
+                    request.node.user_properties.append(
+                        ("holmes_duration", holmes_duration)
+                    )
                     if result and result.num_llm_calls is not None:
-                        request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
+                        request.node.user_properties.append(
+                            ("num_llm_calls", result.num_llm_calls)
+                        )
                     if result and result.tool_calls is not None:
-                        request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
+                        request.node.user_properties.append(
+                            ("tool_call_count", len(result.tool_calls))
+                        )
 
                 # Check for any mock errors that occurred during tool execution
                 # This will raise an exception if any mock data errors happened

@@ -1,27 +1,30 @@
 import json
 import logging
 import os
+from datetime import datetime
+from typing import Any, Dict, Optional, Tuple
+
 from pydantic import AnyUrl
-from typing import Any, Optional, Dict, Tuple
+
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.consts import (
-    TOOLSET_CONFIG_MISSING_ERROR,
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
+    TOOLSET_CONFIG_MISSING_ERROR,
 )
 from holmes.plugins.toolsets.datadog.datadog_api import (
+    MAX_RETRY_COUNT_ON_RATE_LIMIT,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
-    MAX_RETRY_COUNT_ON_RATE_LIMIT,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import DatadogMetricsConfig
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
@@ -30,17 +33,15 @@ from holmes.plugins.toolsets.datadog.datadog_url_utils import (
     generate_datadog_metrics_explorer_url,
     generate_datadog_metrics_list_url,
 )
+from holmes.plugins.toolsets.logging_utils.logging_api import (
+    DEFAULT_TIME_SPAN_SECONDS,
+)
 from holmes.plugins.toolsets.utils import (
     get_param_or_raise,
     process_timestamps_to_int,
     standard_start_datetime_tool_param_description,
     toolset_name_for_one_liner,
 )
-from holmes.plugins.toolsets.logging_utils.logging_api import (
-    DEFAULT_TIME_SPAN_SECONDS,
-)
-
-from datetime import datetime
 
 
 class BaseDatadogMetricsTool(Tool):

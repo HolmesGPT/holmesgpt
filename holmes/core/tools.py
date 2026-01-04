@@ -27,8 +27,8 @@ from pydantic import (
     ConfigDict,
     Field,
     FilePath,
-    model_validator,
     PrivateAttr,
+    model_validator,
 )
 from rich.console import Console
 from rich.table import Table
@@ -36,13 +36,13 @@ from rich.table import Table
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.core.transformers import (
-    registry,
-    TransformerError,
     Transformer,
+    TransformerError,
+    registry,
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
-from holmes.utils.memory_limit import get_ulimit_prefix, check_oom_and_append_hint
+from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
 
 if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer

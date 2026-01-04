@@ -1,8 +1,9 @@
 from unittest.mock import Mock, patch
+
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
-    DatadogMetricsToolset,
     DatadogMetricsConfig,
+    DatadogMetricsToolset,
 )
 from tests.conftest import create_mock_tool_invoke_context
 

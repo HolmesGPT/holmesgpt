@@ -1,20 +1,21 @@
 from typing import Dict, List, Optional
 
 import sentry_sdk
+
 from holmes.config import Config
 from holmes.core.models import (
-    ToolCallConversationResult,
     IssueChatRequest,
+    ToolCallConversationResult,
     WorkloadHealthChatRequest,
 )
-from holmes.plugins.prompts import load_and_render_prompt
+from holmes.core.prompt import generate_user_prompt
 from holmes.core.tool_calling_llm import ToolCallingLLM
+from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils.global_instructions import (
     Instructions,
     generate_runbooks_args,
 )
-from holmes.core.prompt import generate_user_prompt
 
 DEFAULT_TOOL_SIZE = 10000
 

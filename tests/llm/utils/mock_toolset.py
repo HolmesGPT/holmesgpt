@@ -4,14 +4,14 @@ import json
 import logging
 import os
 import re
-from enum import Enum
-from typing import Any, Dict, List, Optional, Type
-import urllib
 import threading
-from pydantic import BaseModel
-import pytest
-from tests.llm.utils.mock_dal import load_mock_dal
+import urllib
+from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Type
+
+import pytest
+from pydantic import BaseModel
 
 from holmes.core.tools import (
     StructuredToolResult,
@@ -24,6 +24,7 @@ from holmes.core.tools import (
     YAMLToolset,
 )
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_file
+from tests.llm.utils.mock_dal import load_mock_dal
 
 
 # Custom exceptions for better error handling
@@ -121,7 +122,9 @@ def clear_all_mocks(session) -> List[str]:
     Returns:
         List of directories that had files cleared
     """
-    from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore[attr-defined]
+    from tests.llm.utils.test_case_utils import (
+        HolmesTestCase,  # type: ignore[attr-defined]
+    )
 
     print("\n🧹 Clearing mock files for --regenerate-all-mocks")
 
