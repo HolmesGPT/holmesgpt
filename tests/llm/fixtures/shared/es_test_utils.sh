@@ -3,6 +3,10 @@
 # Source this file at the start of before_test scripts:
 #   source ../../shared/es_test_utils.sh
 
+# Cluster shard limit - set high enough for all tests to run in parallel
+# Total shards across all tests is ~3600, so 10000 gives plenty of headroom
+ES_MAX_SHARDS_PER_NODE=10000
+
 # Validate and prepare ES environment variables
 es_validate_env() {
   # Strip quotes from env vars if present
@@ -22,6 +26,20 @@ es_validate_env() {
   # Export cleaned variables
   export ELASTICSEARCH_URL
   export ELASTICSEARCH_API_KEY
+}
+
+# Set cluster shard limit (idempotent - safe to call from multiple tests)
+es_set_shard_limit() {
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d "{\"persistent\": {\"cluster.max_shards_per_node\": ${ES_MAX_SHARDS_PER_NODE}}}" > /dev/null 2>&1 || true
+}
+
+# Combined setup: validate env + set shard limit
+es_setup() {
+  es_validate_env
+  es_set_shard_limit
 }
 
 # Create a unique temp file for this test run

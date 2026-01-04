@@ -1,59 +1,69 @@
 # Elasticsearch / OpenSearch
 
-By enabling this toolset, HolmesGPT can query Elasticsearch and OpenSearch clusters to investigate issues, search logs, analyze cluster health, and more.
+By enabling these toolsets, HolmesGPT can query Elasticsearch and OpenSearch clusters to investigate issues, search logs, analyze cluster health, and more.
 
-This toolset works with both **Elasticsearch** (including Elastic Cloud) and **OpenSearch** since they share the same REST API.
+These toolsets work with both **Elasticsearch** (including Elastic Cloud) and **OpenSearch** since they share the same REST API.
 
-## Use Cases
+## Two Toolsets
 
-This toolset supports two main use cases:
+HolmesGPT provides two separate Elasticsearch toolsets with different permission requirements:
 
-**1. Querying data stored in Elasticsearch** - Search logs, metrics, or other documents stored in your indices:
+| Toolset | Description | Permissions Required |
+|---------|-------------|---------------------|
+| `elasticsearch/data` | Search logs, metrics, and documents | Index-level read access |
+| `elasticsearch/cluster` | Troubleshoot cluster health issues | Cluster-level monitor access |
 
-- Search for errors in application logs
-- Query time-series data
-- Explore index mappings and structure
-
-**2. Troubleshooting Elasticsearch/OpenSearch cluster health** - Diagnose issues with the cluster itself:
-
-- Check cluster health status (green/yellow/red)
-- Investigate unassigned shards
-- Analyze node statistics and resource usage
-- Understand shard allocation decisions
-
-Both use cases are served by the same `elasticsearch/core` toolset.
+Enable only the toolset(s) you need. Most users who just want to search logs only need `elasticsearch/data`.
 
 ## Configuration
 
-=== "Holmes CLI"
+=== "Data Querying Only"
 
-    Add the following to **~/.holmes/config.yaml**, creating the file if it doesn't exist:
+    For searching logs and documents (lower permissions):
 
     ```yaml
     toolsets:
-      elasticsearch/core:
+      elasticsearch/data:
         enabled: true
         config:
           url: "https://your-cluster.es.cloud.io:443"
-          api_key: "your-api-key"  # Or use username/password below
-          # username: "elastic"
-          # password: "your-password"
+          api_key: "your-api-key"
           verify_ssl: true
     ```
 
-    You can also use environment variables:
+=== "Cluster Troubleshooting Only"
+
+    For diagnosing cluster issues (requires cluster-level access):
 
     ```yaml
     toolsets:
-      elasticsearch/core:
+      elasticsearch/cluster:
+        enabled: true
+        config:
+          url: "https://your-cluster.es.cloud.io:443"
+          api_key: "your-api-key"
+          verify_ssl: true
+    ```
+
+=== "Both Toolsets"
+
+    Enable both for full functionality:
+
+    ```yaml
+    toolsets:
+      elasticsearch/data:
         enabled: true
         config:
           url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
-          verify_ssl: true
+      elasticsearch/cluster:
+        enabled: true
+        config:
+          url: "{{ env.ELASTICSEARCH_URL }}"
+          api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
     ```
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+--8<-- "snippets/toolset_refresh_warning.md"
 
 === "Robusta Helm Chart"
 
@@ -68,19 +78,23 @@ Both use cases are served by the same `elasticsearch/core` toolset.
               name: elasticsearch-credentials
               key: api-key
       toolsets:
-        elasticsearch/core:
+        elasticsearch/data:
           enabled: true
           config:
             url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
-            verify_ssl: true
+        elasticsearch/cluster:
+          enabled: true
+          config:
+            url: "{{ env.ELASTICSEARCH_URL }}"
+            api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
     ```
 
     --8<-- "snippets/helm_upgrade_command.md"
 
 ## Authentication
 
-The toolset supports multiple authentication methods:
+The toolsets support multiple authentication methods:
 
 | Method | Config Fields | Description |
 |--------|--------------|-------------|
@@ -95,22 +109,23 @@ The toolset supports multiple authentication methods:
 | `verify_ssl` | `true` | Verify SSL certificates |
 | `timeout` | `10` | Request timeout in seconds |
 
-## Capabilities
+## Tools
 
 --8<-- "snippets/toolset_capabilities_intro.md"
 
-### Data Querying Tools
+### elasticsearch/data
 
 | Tool Name | Description |
 |-----------|-------------|
 | elasticsearch_search | Search documents using Elasticsearch Query DSL |
 | elasticsearch_mappings | Get field mappings for an index |
-| elasticsearch_cat | Query _cat APIs (indices, shards, etc.) with optional index filtering |
+| elasticsearch_list_indices | List indices matching a pattern |
 
-### Cluster Health Tools
+### elasticsearch/cluster
 
 | Tool Name | Description |
 |-----------|-------------|
+| elasticsearch_cat | Query _cat APIs (indices, shards, nodes, etc.) |
 | elasticsearch_cluster_health | Get cluster health status |
 | elasticsearch_allocation_explain | Explain shard allocation decisions |
 | elasticsearch_nodes_stats | Get node-level statistics |
@@ -118,25 +133,21 @@ The toolset supports multiple authentication methods:
 
 ## Example Queries
 
-### Querying Data
-
 - "Search for ERROR logs in the application-logs index from the last hour"
 - "What are the field mappings for the metrics index?"
-- "Show me the shards for the logs-* indices"
-
-### Troubleshooting Cluster Health
-
+- "List all indices starting with 'logs-'"
 - "What is the cluster health status?"
 - "Why are shards unassigned?"
 - "Which nodes have high disk usage?"
+- "Show me the shards for the logs-* indices"
 
 ## OpenSearch Compatibility
 
-This toolset is fully compatible with OpenSearch clusters. Simply point the `url` to your OpenSearch endpoint:
+These toolsets are fully compatible with OpenSearch clusters. Simply point the `url` to your OpenSearch endpoint:
 
 ```yaml
 toolsets:
-  elasticsearch/core:
+  elasticsearch/data:
     enabled: true
     config:
       url: "https://your-opensearch-cluster:9200"

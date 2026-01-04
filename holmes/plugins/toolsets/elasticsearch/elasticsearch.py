@@ -43,28 +43,23 @@ class ElasticsearchConfig(BaseModel):
     timeout: int = 10  # Default timeout in seconds
 
 
-class ElasticsearchToolset(Toolset):
+class ElasticsearchBaseToolset(Toolset):
+    """Base class for Elasticsearch toolsets with shared configuration and HTTP logic."""
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
     config_class: ClassVar[Type[ElasticsearchConfig]] = ElasticsearchConfig
 
-    def __init__(self):
+    def __init__(self, name: str, description: str, tools: list, **kwargs):
         super().__init__(
-            name="elasticsearch/core",
+            name=name,
             enabled=False,
-            description="Tools for querying Elasticsearch/OpenSearch clusters - search, cat APIs, mappings, and cluster health",
+            description=description,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/",
             icon_url="https://www.elastic.co/favicon.ico",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            tools=[
-                ElasticsearchCat(self),
-                ElasticsearchSearch(self),
-                ElasticsearchClusterHealth(self),
-                ElasticsearchMappings(self),
-                ElasticsearchIndexStats(self),
-                ElasticsearchAllocationExplain(self),
-                ElasticsearchNodesStats(self),
-            ],
+            tools=tools,
             tags=[ToolsetTag.CORE],
+            **kwargs,
         )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
@@ -172,12 +167,12 @@ class BaseElasticsearchTool(Tool, ABC):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def __init__(self, toolset: ElasticsearchToolset, *args, **kwargs):
+    def __init__(self, toolset: ElasticsearchBaseToolset, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._toolset = toolset
 
     @property
-    def toolset(self) -> ElasticsearchToolset:
+    def toolset(self) -> ElasticsearchBaseToolset:
         return self._toolset
 
     def _make_request(
@@ -240,7 +235,7 @@ class BaseElasticsearchTool(Tool, ABC):
 class ElasticsearchCat(BaseElasticsearchTool):
     """Thin wrapper around Elasticsearch _cat APIs with server-side filtering."""
 
-    def __init__(self, toolset: ElasticsearchToolset):
+    def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
             toolset=toolset,
             name="elasticsearch_cat",
@@ -323,7 +318,7 @@ class ElasticsearchCat(BaseElasticsearchTool):
 class ElasticsearchSearch(BaseElasticsearchTool):
     """Execute Elasticsearch Query DSL searches."""
 
-    def __init__(self, toolset: ElasticsearchToolset):
+    def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
             toolset=toolset,
             name="elasticsearch_search",
@@ -471,7 +466,7 @@ class ElasticsearchSearch(BaseElasticsearchTool):
 class ElasticsearchClusterHealth(BaseElasticsearchTool):
     """Get Elasticsearch cluster health status."""
 
-    def __init__(self, toolset: ElasticsearchToolset):
+    def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
             toolset=toolset,
             name="elasticsearch_cluster_health",
@@ -515,7 +510,7 @@ class ElasticsearchClusterHealth(BaseElasticsearchTool):
 class ElasticsearchMappings(BaseElasticsearchTool):
     """Get index mappings (field definitions and types)."""
 
-    def __init__(self, toolset: ElasticsearchToolset):
+    def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
             toolset=toolset,
             name="elasticsearch_mappings",
@@ -546,7 +541,7 @@ class ElasticsearchMappings(BaseElasticsearchTool):
 class ElasticsearchIndexStats(BaseElasticsearchTool):
     """Get index statistics including document counts, storage, and indexing rates."""
 
-    def __init__(self, toolset: ElasticsearchToolset):
+    def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
             toolset=toolset,
             name="elasticsearch_index_stats",
@@ -591,7 +586,7 @@ class ElasticsearchIndexStats(BaseElasticsearchTool):
 class ElasticsearchAllocationExplain(BaseElasticsearchTool):
     """Explain shard allocation decisions and issues."""
 
-    def __init__(self, toolset: ElasticsearchToolset):
+    def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
             toolset=toolset,
             name="elasticsearch_allocation_explain",
@@ -642,7 +637,7 @@ class ElasticsearchAllocationExplain(BaseElasticsearchTool):
 class ElasticsearchNodesStats(BaseElasticsearchTool):
     """Get node-level statistics."""
 
-    def __init__(self, toolset: ElasticsearchToolset):
+    def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
             toolset=toolset,
             name="elasticsearch_nodes_stats",
@@ -681,3 +676,105 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
     def get_parameterized_one_liner(self, params: Dict) -> str:
         node_id = params.get("node_id", "_all")
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Node stats ({node_id})"
+
+
+class ElasticsearchListIndices(BaseElasticsearchTool):
+    """List indices matching a pattern - simplified tool for data querying."""
+
+    def __init__(self, toolset: ElasticsearchBaseToolset):
+        super().__init__(
+            toolset=toolset,
+            name="elasticsearch_list_indices",
+            description=(
+                "List Elasticsearch indices matching a pattern. "
+                "Returns index names, document counts, and storage size. "
+                "Use this to discover available indices before searching."
+            ),
+            parameters={
+                "pattern": ToolParameter(
+                    description=(
+                        "Index name pattern to match. Supports wildcards (e.g., 'logs-*', 'app-*'). "
+                        "Use '*' to list all indices."
+                    ),
+                    type="string",
+                    required=False,
+                ),
+                "health": ToolParameter(
+                    description="Filter by index health (green, yellow, red)",
+                    type="string",
+                    required=False,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        pattern = params.get("pattern", "*")
+        path = f"_cat/indices/{pattern}"
+
+        query_params: Dict[str, Any] = {
+            "format": "json",
+            "h": "index,health,status,docs.count,store.size",
+            "s": "index",
+        }
+
+        if params.get("health"):
+            query_params["health"] = params["health"]
+
+        return self._make_request("GET", path, params, query_params=query_params)
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        pattern = params.get("pattern", "*")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: List indices ({pattern})"
+
+
+# =============================================================================
+# Toolset Definitions (must be after all tool classes)
+# =============================================================================
+
+
+class ElasticsearchDataToolset(ElasticsearchBaseToolset):
+    """Toolset for querying data stored in Elasticsearch/OpenSearch.
+
+    This toolset provides tools for searching logs, metrics, and documents.
+    Requires only index-level read permissions (no cluster-level access needed).
+    """
+
+    def __init__(self):
+        super().__init__(
+            name="elasticsearch/data",
+            description="Search and query data in Elasticsearch/OpenSearch indices - logs, metrics, documents",
+            tools=[],
+        )
+        # Initialize tools after super().__init__() - update the pydantic field
+        self.tools = [
+            ElasticsearchSearch(self),
+            ElasticsearchMappings(self),
+            ElasticsearchListIndices(self),
+        ]
+
+
+class ElasticsearchClusterToolset(ElasticsearchBaseToolset):
+    """Toolset for troubleshooting Elasticsearch/OpenSearch cluster health.
+
+    This toolset provides tools for diagnosing cluster issues like unassigned
+    shards, node problems, and resource usage. Requires cluster-level permissions.
+    """
+
+    def __init__(self):
+        super().__init__(
+            name="elasticsearch/cluster",
+            description="Troubleshoot Elasticsearch/OpenSearch cluster health - shards, nodes, allocation",
+            tools=[],
+        )
+        # Initialize tools after super().__init__() - update the pydantic field
+        self.tools = [
+            ElasticsearchCat(self),
+            ElasticsearchClusterHealth(self),
+            ElasticsearchIndexStats(self),
+            ElasticsearchAllocationExplain(self),
+            ElasticsearchNodesStats(self),
+        ]
+
+
+# Backwards compatibility alias
+ElasticsearchToolset = ElasticsearchClusterToolset

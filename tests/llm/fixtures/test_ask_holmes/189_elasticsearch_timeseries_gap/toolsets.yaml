@@ -1,5 +1,11 @@
 toolsets:
-  elasticsearch/core:
+  elasticsearch/data:
+    enabled: true
+    config:
+      url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true
+  elasticsearch/cluster:
     enabled: true
     config:
       url: "{{ env.ELASTICSEARCH_URL }}"
