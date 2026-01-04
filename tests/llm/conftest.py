@@ -160,7 +160,7 @@ def additional_system_prompt(request) -> Optional[str]:
     except Exception as e:  # pragma: no cover - defensive error propagation
         raise pytest.UsageError(
             f"Failed to fetch additional system prompt from {url}: {e}"
-        )
+        ) from e
 
 
 # Handles before_test and after_test
