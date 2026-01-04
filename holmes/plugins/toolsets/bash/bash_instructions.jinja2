@@ -1,13 +1,60 @@
-# Bash commands
+# Bash Tool
 
-The tool `run_bash_command` allows you to run the following commands:
-- `kubectl get|describe|logs|top|events [options]`
-- `aws <service> <operation> [options]` (read-only)
-- `az|docker|helm|argocd [options]`
-- `grep|cut|sort|uniq|head|tail|wc|tr|base64|jq|sed [options]`
+Use the `bash` tool to execute shell commands. You must provide:
+1. `command`: The bash command to execute
+2. `suggested_prefixes`: Array of prefixes, one per command segment
 
-Commands can be piped with `|`. No `&&` support.
+## Prefix Guidelines
 
+For each command segment (separated by `|`, `&&`, `||`, `;`, `&`), provide a prefix that includes:
+- Command name (e.g., `kubectl`, `grep`, `cat`)
+- Subcommand if applicable (e.g., `kubectl get`, `kubectl describe`)
+- Resource type if needed for specificity (e.g., `kubectl get pod`)
 
-The tool `kubectl_run_image` will run an image:
-- `kubectl run <name> --image=<image> --rm --attach --restart=Never --i --tty -- <command>`
+Do NOT include in prefixes:
+- Resource names (e.g., `my-pod-name`)
+- Namespace values (e.g., `-n default`)
+- Flag values or file paths
+
+## Examples
+
+**Simple command:**
+```
+command: "kubectl get pods -n default"
+suggested_prefixes: ["kubectl get"]
+```
+
+**Piped command:**
+```
+command: "kubectl get pods | grep error | head -10"
+suggested_prefixes: ["kubectl get", "grep", "head"]
+```
+
+**Command with resource type:**
+```
+command: "kubectl get pod my-app -o yaml"
+suggested_prefixes: ["kubectl get pod"]
+```
+
+## Allowed Commands
+
+Commands matching these prefixes will execute immediately without prompting:
+{% if config and config.allow %}
+{% for prefix in config.allow %}
+- `{{ prefix }}`
+{% endfor %}
+{% else %}
+- (No commands pre-approved - all commands require user approval)
+{% endif %}
+
+## Blocked Commands
+
+These commands are blocked and cannot be executed:
+{% if config and config.deny %}
+{% for prefix in config.deny %}
+- `{{ prefix }}`
+{% endfor %}
+{% endif %}
+- `sudo` (always blocked)
+- `su` (always blocked)
+- Subshells `$(...)` and backticks (always blocked)

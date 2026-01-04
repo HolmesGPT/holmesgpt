@@ -618,19 +618,140 @@ def prompt_for_llm_sharing(
     return None
 
 
+def _load_approved_prefixes() -> list[str]:
+    """Load approved prefixes from ~/.holmes/bash_approved_prefixes.yaml."""
+    import yaml
+
+    prefixes_file = os.path.join(config_path_dir, "bash_approved_prefixes.yaml")
+    if os.path.exists(prefixes_file):
+        try:
+            with open(prefixes_file, "r") as f:
+                data = yaml.safe_load(f)
+                if isinstance(data, dict) and "approved_prefixes" in data:
+                    return data["approved_prefixes"]
+        except Exception as e:
+            logging.warning(f"Failed to load approved prefixes: {e}")
+    return []
+
+
+def _save_approved_prefixes(prefixes: list[str]) -> None:
+    """Save approved prefixes to ~/.holmes/bash_approved_prefixes.yaml."""
+    import yaml
+
+    prefixes_file = os.path.join(config_path_dir, "bash_approved_prefixes.yaml")
+    os.makedirs(config_path_dir, exist_ok=True)
+
+    # Load existing prefixes and merge
+    existing = set(_load_approved_prefixes())
+    updated = sorted(set(prefixes) | existing)
+
+    try:
+        with open(prefixes_file, "w") as f:
+            yaml.safe_dump({"approved_prefixes": updated}, f, default_flow_style=False)
+    except Exception as e:
+        logging.error(f"Failed to save approved prefixes: {e}")
+
+
+def get_cli_approved_prefixes() -> list[str]:
+    """Get the list of CLI-approved prefixes. Used by bash toolset to merge with config."""
+    return _load_approved_prefixes()
+
+
+def _run_inline_menu(options: list[str], console: Console) -> Optional[int]:
+    """
+    Run an inline menu with arrow key navigation.
+
+    Args:
+        options: List of option strings to display
+        console: Rich console for output
+
+    Returns:
+        Index of selected option (0-based), or None if cancelled
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+
+    selected = [0]  # Use list to allow mutation in nested function
+    result = [None]  # None means cancelled
+
+    def get_menu_text():
+        lines = []
+        for i, option in enumerate(options):
+            if i == selected[0]:
+                lines.append(("bold", f"> {i + 1}. {option}\n"))
+            else:
+                lines.append(("", f"  {i + 1}. {option}\n"))
+        lines.append(("class:hint", "\nEsc to cancel"))
+        return lines
+
+    bindings = KeyBindings()
+
+    @bindings.add("up")
+    @bindings.add("k")
+    def _up(event):
+        selected[0] = (selected[0] - 1) % len(options)
+
+    @bindings.add("down")
+    @bindings.add("j")
+    def _down(event):
+        selected[0] = (selected[0] + 1) % len(options)
+
+    @bindings.add("enter")
+    def _enter(event):
+        result[0] = selected[0]
+        event.app.exit()
+
+    @bindings.add("escape")
+    @bindings.add("c-c")
+    def _cancel(event):
+        result[0] = None
+        event.app.exit()
+
+    # Also allow number keys 1-9 for direct selection
+    for i in range(min(9, len(options))):
+
+        @bindings.add(str(i + 1))
+        def _select_num(event, idx=i):
+            result[0] = idx
+            event.app.exit()
+
+    menu_style = Style.from_dict(
+        {
+            "hint": "#666666",
+        }
+    )
+
+    layout = Layout(Window(FormattedTextControl(get_menu_text, show_cursor=False)))
+
+    app: Application = Application(
+        layout=layout,
+        key_bindings=bindings,
+        style=menu_style,
+        full_screen=False,
+    )
+
+    app.run()
+    return result[0]
+
+
 def handle_tool_approval(
-    command: Optional[str],
-    error_message: Optional[str],
+    tool_result: StructuredToolResult,
     style: Style,
     console: Console,
 ) -> tuple[bool, Optional[str]]:
     """
     Handle user approval for potentially sensitive commands.
 
+    Shows an interactive menu per the bash toolset spec:
+    1. Yes - one-time approval
+    2. Yes, and don't ask again for <prefix> commands - saves to allow list
+    3. Type feedback to tell Holmes what to do differently
+
     Args:
-        command: The command that needs approval
-        error_message: The error message explaining why approval is needed
-        session: PromptSession for user input
+        tool_result: The StructuredToolResult containing command and prefixes
         style: Style for prompts
         console: Rich console for output
 
@@ -639,28 +760,44 @@ def handle_tool_approval(
         - approved: True if user approves, False if denied
         - feedback: User's optional feedback message when denying
     """
-    console.print("\n[bold yellow]⚠️  Command Approval Required[/bold yellow]")
-    console.print(f"[yellow]Command:[/yellow] {command or 'unknown'}")
-    console.print(f"[yellow]Reason:[/yellow] {error_message or 'unknown'}")
-    console.print()
-
-    # Create a temporary session without history for approval prompts
-    temp_session = PromptSession(history=InMemoryHistory())  # type: ignore
-
-    approval_prompt = temp_session.prompt(
-        [("class:prompt", "Do you want to approve and execute this command? (y/N): ")],
-        style=style,
+    command = tool_result.invocation
+    prefixes = (
+        tool_result.params.get("suggested_prefixes", []) if tool_result.params else []
     )
 
-    if approval_prompt.lower().startswith("y"):
-        return True, None
+    # Format prefixes for display
+    if prefixes:
+        prefixes_display = ", ".join(f"{p}" for p in prefixes)
     else:
-        # Ask for optional feedback when denying
+        prefixes_display = "<command>"
+
+    # Print header
+    console.print("\n[bold yellow]Bash command[/bold yellow]")
+    console.print(f"\n  {command or 'unknown'}")
+    console.print("\n[bold]Do you want to proceed?[/bold]")
+
+    # Show inline menu
+    options = [
+        "Yes",
+        f"Yes, and don't ask again for {prefixes_display} commands",
+        "No, and tell Holmes what to do differently",
+    ]
+
+    result = _run_inline_menu(options, console)
+
+    if result == 0:  # Yes
+        return True, None
+    elif result == 1:  # Yes, save
+        if prefixes:
+            _save_approved_prefixes(prefixes)
+            console.print(f"[green]✓ Saved `{prefixes_display}` to allow list[/green]")
+        return True, None
+    else:  # No (option 3) or Cancelled (Esc) - prompt for optional feedback
+        temp_session = PromptSession(history=InMemoryHistory())  # type: ignore
         feedback_prompt = temp_session.prompt(
             [("class:prompt", "Optional feedback for the AI (press Enter to skip): ")],
             style=style,
         )
-
         feedback = feedback_prompt.strip() if feedback_prompt.strip() else None
         return False, feedback
 
@@ -1016,8 +1153,7 @@ def run_interactive_loop(
         tool_call_result: StructuredToolResult,
     ) -> tuple[bool, Optional[str]]:
         return handle_tool_approval(
-            command=tool_call_result.invocation,
-            error_message=tool_call_result.error,
+            tool_result=tool_call_result,
             style=style,
             console=console,
         )

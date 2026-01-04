@@ -1,4 +1,10 @@
-import argparse
+"""
+Bash toolset with prefix-based command validation.
+
+This toolset enables bash command execution with dynamic whitelisting.
+Commands are validated against allow/deny lists using prefix matching.
+"""
+
 import logging
 import os
 import random
@@ -8,9 +14,6 @@ from typing import Any, Dict, Optional
 
 import sentry_sdk
 
-from holmes.common.env_vars import (
-    BASH_TOOL_UNSAFE_ALLOW_ALL,
-)
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
@@ -25,7 +28,11 @@ from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.kubectl.constants import SAFE_NAMESPACE_PATTERN
 from holmes.plugins.toolsets.bash.kubectl.kubectl_run import validate_image_and_commands
-from holmes.plugins.toolsets.bash.parse_command import make_command_safe
+from holmes.plugins.toolsets.bash.validation import (
+    DenyReason,
+    ValidationStatus,
+    validate_command,
+)
 from holmes.plugins.toolsets.utils import get_param_or_raise
 
 
@@ -42,6 +49,8 @@ class BaseBashTool(Tool):
 
 
 class KubectlRunImageCommand(BaseBashTool):
+    """Tool for running a container image via kubectl run."""
+
     def __init__(self, toolset: BaseBashExecutorToolset):
         super().__init__(
             name="kubectl_run_image",
@@ -135,14 +144,23 @@ class KubectlRunImageCommand(BaseBashTool):
 
 
 class RunBashCommand(BaseBashTool):
+    """
+    Tool for executing bash commands with prefix-based validation.
+
+    Commands are validated against allow/deny lists using the suggested_prefixes
+    parameter. Each command segment (separated by |, &&, etc.) requires its own prefix.
+    """
+
     def __init__(self, toolset: BaseBashExecutorToolset):
         super().__init__(
-            name="run_bash_command",
+            name="bash",
             description=(
-                "Executes a given bash command and returns its standard output, "
-                "standard error, and exit code."
-                "The command is executed via 'bash -c \"<command>\"'."
-                "Only some commands are allowed."
+                "Executes a bash command and returns its output. "
+                "Commands are validated against an allow list using prefix matching. "
+                "You must provide suggested_prefixes - one prefix per command segment "
+                "(segments are separated by |, &&, ||, ;, &). "
+                "Example: for 'kubectl get pods | grep error', provide "
+                "suggested_prefixes=['kubectl get', 'grep']."
             ),
             parameters={
                 "command": ToolParameter(
@@ -150,10 +168,19 @@ class RunBashCommand(BaseBashTool):
                     type="string",
                     required=True,
                 ),
+                "suggested_prefixes": ToolParameter(
+                    description=(
+                        "Array of command prefixes, one per command segment. "
+                        "Include command name and subcommand (e.g., 'kubectl get', 'grep'). "
+                        "Do NOT include resource names, namespaces, or flag values."
+                    ),
+                    type="array",
+                    required=True,
+                ),
                 "timeout": ToolParameter(
                     description=(
                         "Optional timeout in seconds for the command execution. "
-                        "Defaults to 60s."
+                        "Defaults to 30s."
                     ),
                     type="integer",
                     required=False,
@@ -164,8 +191,10 @@ class RunBashCommand(BaseBashTool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         command_str = params.get("command")
-        timeout = params.get("timeout", 60)
+        suggested_prefixes = params.get("suggested_prefixes", [])
+        timeout = params.get("timeout", 30)
 
+        # Validate required parameters
         if not command_str:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -180,33 +209,102 @@ class RunBashCommand(BaseBashTool):
                 params=params,
             )
 
-        command_to_execute = command_str
+        if not suggested_prefixes:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'suggested_prefixes' parameter is required. Provide one prefix per command segment.",
+                params=params,
+            )
 
-        # Only run the safety check if user has NOT approved the command
-        if not context.user_approved:
-            try:
-                command_to_execute = make_command_safe(command_str, self.toolset.config)
+        if not isinstance(suggested_prefixes, list):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"The 'suggested_prefixes' parameter must be an array, got {type(suggested_prefixes).__name__}.",
+                params=params,
+            )
 
-            except (argparse.ArgumentError, ValueError) as e:
-                with sentry_sdk.configure_scope() as scope:
-                    scope.set_extra("command", command_str)
-                    scope.set_extra("error", str(e))
-                    scope.set_extra("unsafe_allow_all", BASH_TOOL_UNSAFE_ALLOW_ALL)
-                    sentry_sdk.capture_exception(e)
+        # Refresh CLI-approved prefixes (in case user approved new ones this session)
+        if hasattr(self.toolset, "_merge_cli_approved_prefixes"):
+            self.toolset._merge_cli_approved_prefixes()
 
-                if not BASH_TOOL_UNSAFE_ALLOW_ALL:
-                    logging.info(f"Refusing LLM tool call {command_str}")
+        # Get config (default if not set)
+        config = self.toolset.config or BashExecutorConfig()
 
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.APPROVAL_REQUIRED,
-                        error=f"Refusing to execute bash command. {str(e)}",
-                        params=params,
-                        invocation=command_str,
-                    )
+        # Skip validation if user has already approved
+        if context.user_approved:
+            logging.info(f"Executing pre-approved bash command: {command_str}")
+            return execute_bash_command(cmd=command_str, timeout=timeout, params=params)
 
-        return execute_bash_command(
-            cmd=command_to_execute, timeout=timeout, params=params
-        )
+        # Validate the command using prefix-based matching
+        validation_result = validate_command(command_str, suggested_prefixes, config)
+
+        if validation_result.status == ValidationStatus.ALLOWED:
+            logging.info(f"Executing allowed bash command: {command_str}")
+            return execute_bash_command(cmd=command_str, timeout=timeout, params=params)
+
+        elif validation_result.status == ValidationStatus.DENIED:
+            # Log security event
+            sentry_sdk.capture_event(
+                {
+                    "message": f"Bash command denied: {validation_result.deny_reason}",
+                    "level": "warning",
+                    "extra": {
+                        "command": command_str,
+                        "suggested_prefixes": suggested_prefixes,
+                        "deny_reason": validation_result.deny_reason.value
+                        if validation_result.deny_reason
+                        else None,
+                        "message": validation_result.message,
+                    },
+                }
+            )
+
+            # Build appropriate error message based on deny reason
+            error_message = self._build_deny_error_message(validation_result)
+
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=error_message,
+                params=params,
+                invocation=command_str,
+            )
+
+        else:  # APPROVAL_REQUIRED
+            logging.info(f"Bash command requires approval: {command_str}")
+
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                error="Command not in allow list.",
+                params={
+                    "command": command_str,
+                    "suggested_prefixes": validation_result.prefixes_needing_approval
+                    or suggested_prefixes,
+                },
+                invocation=command_str,
+            )
+
+    def _build_deny_error_message(self, validation_result) -> str:
+        """Build an appropriate error message based on the deny reason."""
+        if validation_result.deny_reason == DenyReason.HARDCODED_BLOCK:
+            return f"Command blocked: {validation_result.message}"
+
+        elif validation_result.deny_reason == DenyReason.DENY_LIST:
+            return f"Command blocked by configuration: {validation_result.message}"
+
+        elif validation_result.deny_reason == DenyReason.SUBSHELL_DETECTED:
+            return f"Security error: {validation_result.message}"
+
+        elif validation_result.deny_reason == DenyReason.PARSE_ERROR:
+            return f"Parse error: {validation_result.message}"
+
+        elif validation_result.deny_reason == DenyReason.PREFIX_MISMATCH:
+            return f"Invalid prefixes: {validation_result.message}"
+
+        elif validation_result.deny_reason == DenyReason.PREFIX_COUNT_MISMATCH:
+            return f"Invalid prefixes: {validation_result.message}"
+
+        else:
+            return validation_result.message or "Command denied."
 
     def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
         command = params.get("command", "N/A")
@@ -215,18 +313,26 @@ class RunBashCommand(BaseBashTool):
 
 
 class BashExecutorToolset(BaseBashExecutorToolset):
+    """
+    Toolset for executing bash commands with prefix-based validation.
+
+    Commands are validated against allow/deny lists. Users can approve
+    commands on-the-fly and build their trusted command set over time.
+    """
+
     def __init__(self):
         super().__init__(
             name="bash",
             enabled=False,
             description=(
-                "Toolset for executing arbitrary bash commands on the system where Holmes is running. "
-                "WARNING: This toolset provides powerful capabilities and should be "
-                "enabled and used with extreme caution due to significant security risks. "
-                "Ensure that only trusted users have access to this tool."
+                "Toolset for executing bash commands with prefix-based validation. "
+                "Commands are validated against allow/deny lists using prefix matching. "
+                "Safe commands in the allow list execute immediately. "
+                "Commands in the deny list are blocked. "
+                "Other commands require user approval."
             ),
-            docs_url="",  # TODO: Add relevant documentation URL
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Bash_Logo_Colored.svg/120px-Bash_Logo_Colored.svg.png",  # Example Bash icon
+            docs_url="",  # TODO: Add documentation URL
+            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Bash_Logo_Colored.svg/120px-Bash_Logo_Colored.svg.png",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[RunBashCommand(self), KubectlRunImageCommand(self)],
             tags=[ToolsetTag.CORE],
@@ -246,4 +352,30 @@ class BashExecutorToolset(BaseBashExecutorToolset):
             self.config = BashExecutorConfig(**config)
         else:
             self.config = BashExecutorConfig()
+
+        # Load CLI-approved prefixes and merge with allow list
+        self._merge_cli_approved_prefixes()
+
+        # Reload instructions to include allow list
+        self._reload_llm_instructions()
+
         return True, ""
+
+    def _merge_cli_approved_prefixes(self) -> None:
+        """Merge CLI-approved prefixes from ~/.holmes/bash_approved_prefixes.yaml."""
+        try:
+            from holmes.interactive import get_cli_approved_prefixes
+
+            cli_prefixes = get_cli_approved_prefixes()
+            if cli_prefixes and self.config:
+                # Merge without duplicates
+                existing = set(self.config.allow)
+                for prefix in cli_prefixes:
+                    if prefix not in existing:
+                        self.config.allow.append(prefix)
+                logging.debug(f"Merged {len(cli_prefixes)} CLI-approved prefixes")
+        except ImportError:
+            # interactive module may not be available in all contexts
+            pass
+        except Exception as e:
+            logging.warning(f"Failed to load CLI-approved prefixes: {e}")
