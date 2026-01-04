@@ -85,7 +85,11 @@ def _fetch_additional_system_prompt(url: str) -> Optional[str]:
 
 
 def _has_frontend_tests(session: pytest.Session) -> bool:
-    """Check collected items to see if any test is tagged as frontend."""
+    """Check collected items to see if any test is tagged as frontend.
+
+    Note: This checks session.items which contains tests that will actually run
+    after pytest's collection and filtering (e.g., -k, -m) is applied.
+    """
 
     for item in getattr(session, "items", []):
         if item.get_closest_marker("frontend"):
@@ -140,15 +144,16 @@ def mock_generation_config(request):
 def additional_system_prompt(request) -> Optional[str]:
     """Optionally load an additional system prompt for evals from a URL."""
 
-    url = request.config.getoption("--additional-system-prompt-url")
-    should_fetch = bool(url)
-
-    if not url and _has_frontend_tests(request.session):
-        url = DEFAULT_SYSTEM_PROMPT_URL
-        should_fetch = True
+    custom_url = request.config.getoption("--additional-system-prompt-url")
+    url = custom_url or DEFAULT_SYSTEM_PROMPT_URL
+    should_fetch = _has_frontend_tests(request.session)
 
     if not should_fetch:
         return None
+
+    with force_pytest_output(request):
+        url_type = "custom" if custom_url else "default"
+        print(f"\n📥 Fetching additional system prompt from {url_type} URL: {url}")
 
     try:
         return _fetch_additional_system_prompt(url)
