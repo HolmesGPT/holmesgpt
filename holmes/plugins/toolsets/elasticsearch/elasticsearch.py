@@ -15,6 +15,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
@@ -641,8 +642,8 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Node stats ({node_id})"
 
 
-class ElasticsearchListIndices(BaseElasticsearchTool):
-    """List indices matching a pattern - simplified tool for data querying."""
+class ElasticsearchListIndices(BaseElasticsearchTool, JsonFilterMixin):
+    """List indices matching a pattern with full server-side filtering support."""
 
     def __init__(self, toolset: ElasticsearchBaseToolset):
         super().__init__(
@@ -651,9 +652,9 @@ class ElasticsearchListIndices(BaseElasticsearchTool):
             description=(
                 "List Elasticsearch indices matching a pattern. "
                 "Returns index names, document counts, and storage size. "
-                "Use this to discover available indices before searching."
+                "Supports server-side sorting and filtering for efficient queries on large clusters."
             ),
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "pattern": ToolParameter(
                     description=(
                         "Index name pattern to match. Supports wildcards (e.g., 'logs-*', 'app-*'). "
@@ -662,28 +663,79 @@ class ElasticsearchListIndices(BaseElasticsearchTool):
                     type="string",
                     required=False,
                 ),
-                "health": ToolParameter(
-                    description="Filter by index health (green, yellow, red)",
+                "sort": ToolParameter(
+                    description=(
+                        "Sort by column. Format: 'column' or 'column:desc'. "
+                        "Examples: 'store.size:desc' (largest first), 'docs.count:desc', 'index'. "
+                        "Default: 'index' (alphabetical)."
+                    ),
                     type="string",
                     required=False,
                 ),
-            },
+                "columns": ToolParameter(
+                    description=(
+                        "Comma-separated columns to return. Available: index, health, status, pri, rep, "
+                        "docs.count, docs.deleted, store.size, pri.store.size, creation.date, creation.date.string. "
+                        "Default: 'index,health,status,docs.count,store.size'"
+                    ),
+                    type="string",
+                    required=False,
+                ),
+                "health": ToolParameter(
+                    description="Filter by index health: green, yellow, or red",
+                    type="string",
+                    required=False,
+                ),
+                "bytes": ToolParameter(
+                    description="Unit for byte sizes: b, kb, mb, gb, tb, pb. Default: human-readable.",
+                    type="string",
+                    required=False,
+                ),
+                "pri": ToolParameter(
+                    description="If true, return only primary shard statistics",
+                    type="boolean",
+                    required=False,
+                ),
+                "expand_wildcards": ToolParameter(
+                    description="Which indices to expand wildcards to: open, closed, hidden, none, all. Default: open",
+                    type="string",
+                    required=False,
+                ),
+            }),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         pattern = params.get("pattern", "*")
         path = f"_cat/indices/{pattern}"
 
-        query_params: Dict[str, Any] = {
-            "format": "json",
-            "h": "index,health,status,docs.count,store.size",
-            "s": "index",
-        }
+        query_params: Dict[str, Any] = {"format": "json"}
 
+        # Columns (h parameter)
+        columns = params.get("columns", "index,health,status,docs.count,store.size")
+        query_params["h"] = columns
+
+        # Sort (s parameter)
+        sort = params.get("sort", "index")
+        query_params["s"] = sort
+
+        # Health filter
         if params.get("health"):
             query_params["health"] = params["health"]
 
-        return self._make_request("GET", path, params, query_params=query_params)
+        # Byte units
+        if params.get("bytes"):
+            query_params["bytes"] = params["bytes"]
+
+        # Primary only
+        if params.get("pri"):
+            query_params["pri"] = "true"
+
+        # Expand wildcards
+        if params.get("expand_wildcards"):
+            query_params["expand_wildcards"] = params["expand_wildcards"]
+
+        result = self._make_request("GET", path, params, query_params=query_params)
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         pattern = params.get("pattern", "*")
