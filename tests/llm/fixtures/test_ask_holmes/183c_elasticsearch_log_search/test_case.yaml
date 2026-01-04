@@ -59,19 +59,19 @@ before_test: |
   BULK_FILE="/tmp/es_bulk_183c_$$.ndjson"
 
   # Create bulk data file with mixed log levels and specific error codes
-  cat > "$BULK_FILE" << 'BULK_EOF'
+  cat > "$BULK_FILE" << BULK_EOF
   {"index":{}}
   {"timestamp":"2025-01-01T10:00:00Z","level":"INFO","service":"payment-api","message":"Service started successfully"}
   {"index":{}}
-  {"timestamp":"2025-01-01T10:05:00Z","level":"ERROR","service":"payment-api","error_code":"ERR-7291","message":"Database connection timeout - ERR-7291: Failed to connect to primary database after 30s"}
+  {"timestamp":"2025-01-01T10:05:00Z","level":"ERROR","service":"payment-api","error_code":"${ERROR_CODE_1}","message":"Database connection timeout - ${ERROR_CODE_1}: Failed to connect to primary database after 30s"}
   {"index":{}}
   {"timestamp":"2025-01-01T10:06:00Z","level":"WARN","service":"payment-api","message":"Retrying database connection"}
   {"index":{}}
-  {"timestamp":"2025-01-01T10:10:00Z","level":"ERROR","service":"order-service","error_code":"ERR-4058","message":"Payment validation failed - ERR-4058: Invalid card number format"}
+  {"timestamp":"2025-01-01T10:10:00Z","level":"ERROR","service":"order-service","error_code":"${ERROR_CODE_2}","message":"Payment validation failed - ${ERROR_CODE_2}: Invalid card number format"}
   {"index":{}}
   {"timestamp":"2025-01-01T10:15:00Z","level":"INFO","service":"order-service","message":"Processing order batch complete"}
   {"index":{}}
-  {"timestamp":"2025-01-01T10:20:00Z","level":"ERROR","service":"inventory-api","error_code":"ERR-9463","message":"Stock sync failed - ERR-9463: External inventory API returned 503"}
+  {"timestamp":"2025-01-01T10:20:00Z","level":"ERROR","service":"inventory-api","error_code":"${ERROR_CODE_3}","message":"Stock sync failed - ${ERROR_CODE_3}: External inventory API returned 503"}
   {"index":{}}
   {"timestamp":"2025-01-01T10:25:00Z","level":"INFO","service":"inventory-api","message":"Recovered from temporary outage"}
   BULK_EOF

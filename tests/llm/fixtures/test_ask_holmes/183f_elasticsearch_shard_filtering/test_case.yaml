@@ -64,7 +64,7 @@ before_test: |
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || echo "")
 
     if [ -n "$SHARD_INFO" ]; then
-      SHARD_COUNT=$(echo "$SHARD_INFO" | grep -o '"index":"app-183f-shards"' | wc -l)
+      SHARD_COUNT=$(echo "$SHARD_INFO" | jq "[.[] | select(.index == \"${HOLMES_ES_TEST_INDEX}\")] | length")
       if [ "$SHARD_COUNT" = "3" ]; then
         echo "✅ Test index has $SHARD_COUNT shards"
         break
