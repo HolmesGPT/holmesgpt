@@ -177,6 +177,7 @@ mcpAddons:
     config:
       tenantId: ""                      # Azure tenant ID (required for workload identity)
       subscriptionId: ""                # Default Azure subscription ID
+      clientId: ""                      # Azure client ID (required for workload-identity and managed-identity)
       readOnlyMode: false               # read-only mode blocks any post requests. Limit the Azure roles to read-only
       authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
       enableSecurityPolicy: false       # Enable additional security policies

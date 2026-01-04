@@ -25,13 +25,13 @@ IMPORTANT: When investigating Kubernetes issues, ALWAYS check if Azure infrastru
 The Activity Log shows WHO did WHAT and WHEN. Always check it for recent changes:
 ```bash
 # Find all changes in last 24 hours
-az monitor activity-log list --start-time (date -u -d '24 hours ago' --iso-8601) --query "[?level!='Informational'].{Time:eventTimestamp, Operation:operationName.localizedValue, Status:status.value, Caller:caller}" --output table
+az monitor activity-log list --start-time $(date -u -d '24 hours ago' --iso-8601) --query "[?level!='Informational'].{Time:eventTimestamp, Operation:operationName.localizedValue, Status:status.value, Caller:caller}" --output table
 
 # Find changes to specific resource
-az monitor activity-log list --resource-id /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name} --start-time (date -u -d '7 days ago' --iso-8601)
+az monitor activity-log list --resource-id /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name} --start-time $(date -u -d '7 days ago' --iso-8601)
 
 # Find who made changes
-az monitor activity-log list --caller user@company.com --start-time (date -u -d '7 days ago' --iso-8601)
+az monitor activity-log list --caller user@company.com --start-time $(date -u -d '7 days ago' --iso-8601)
 ```
 
 ## Historical Kubernetes Logs in Azure
@@ -57,7 +57,7 @@ az network nsg rule list -g RG_NAME --nsg-name NSG_NAME --output table
 az network nic show-effective-nsg -g RG_NAME -n NIC_NAME
 
 # Find recent NSG changes
-az monitor activity-log list --namespace Microsoft.Network --resource-type networkSecurityGroups --start-time (date -u -d '24 hours ago' --iso-8601)
+az monitor activity-log list --namespace Microsoft.Network --resource-type networkSecurityGroups --start-time $(date -u -d '24 hours ago' --iso-8601)
 ```
 
 ### Load Balancer & Application Gateway
@@ -82,7 +82,7 @@ az role assignment list --scope /subscriptions/{sub}/resourceGroups/{rg}/provide
 az role assignment list --assignee SP_APP_ID --output table
 
 # Find recent RBAC changes
-az monitor activity-log list --namespace Microsoft.Authorization --start-time (date -u -d '24 hours ago' --iso-8601)
+az monitor activity-log list --namespace Microsoft.Authorization --start-time $(date -u -d '24 hours ago' --iso-8601)
 
 # Check if Managed Identity is configured
 az aks show -g RG_NAME -n CLUSTER_NAME --query identity
@@ -104,7 +104,7 @@ az keyvault certificate show --vault-name VAULT_NAME -n CERT_NAME --query "attri
 az keyvault certificate show --vault-name VAULT_NAME -n CERT_NAME --query policy.issuerParameters
 
 # Find recent Key Vault operations
-az monitor activity-log list --namespace Microsoft.KeyVault --start-time (date -u -d '24 hours ago' --iso-8601)
+az monitor activity-log list --namespace Microsoft.KeyVault --start-time $(date -u -d '24 hours ago' --iso-8601)
 ```
 
 ### Application Gateway SSL
@@ -116,7 +116,7 @@ az network application-gateway ssl-cert list -g RG_NAME --gateway-name APPGW_NAM
 az network application-gateway http-listener list -g RG_NAME --gateway-name APPGW_NAME --query "[].{Name:name, Protocol:protocol, SslCert:sslCertificate.id}"
 
 # Check if WAF is blocking due to SSL/TLS issues
-az monitor activity-log list --resource-id /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/applicationGateways/{gw} --start-time (date -u -d '24 hours ago' --iso-8601)
+az monitor activity-log list --resource-id /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/applicationGateways/{gw} --start-time $(date -u -d '24 hours ago' --iso-8601)
 ```
 
 ### AKS Ingress Certificates
@@ -138,7 +138,7 @@ az webapp config hostname list -g RG_NAME --webapp-name APP_NAME --output table
 az webapp config ssl list -g RG_NAME --query "[].{Name:name, ExpirationDate:expirationDate, Thumbprint:thumbprint}"
 
 # Check if managed certificate renewal failed
-az monitor activity-log list --namespace Microsoft.Web --resource-type certificates --start-time (date -u -d '7 days ago' --iso-8601)
+az monitor activity-log list --namespace Microsoft.Web --resource-type certificates --start-time $(date -u -d '7 days ago' --iso-8601)
 ```
 
 ## Storage & Database Issues
@@ -152,7 +152,7 @@ az storage account show -g RG_NAME -n STORAGE_NAME --query networkRuleSet
 az network private-endpoint list -g RG_NAME
 
 # Recent storage configuration changes
-az monitor activity-log list --namespace Microsoft.Storage --start-time (date -u -d '24 hours ago' --iso-8601)
+az monitor activity-log list --namespace Microsoft.Storage --start-time $(date -u -d '24 hours ago' --iso-8601)
 ```
 
 ### Database (SQL/PostgreSQL/MySQL)
