@@ -31,24 +31,10 @@ tags:
 setup_timeout: 120
 
 before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
   set -e
 
-
-  if [ -z "$ELASTICSEARCH_URL" ]; then
-    echo "❌ ELASTICSEARCH_URL environment variable is not set"
-    exit 1
-  fi
-
-  if [ -z "$ELASTICSEARCH_API_KEY" ]; then
-    echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
-    exit 1
-  fi
-
-  # Set cluster shard limit (same value across all tests for consistency)
-  curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{"persistent": {"cluster.max_shards_per_node": 10000}}' > /dev/null 2>&1 || true
 
   echo "Creating 1800 test indexes using bulk API..."
 
