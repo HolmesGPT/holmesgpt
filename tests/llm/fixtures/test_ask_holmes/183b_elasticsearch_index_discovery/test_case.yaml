@@ -41,6 +41,12 @@ before_test: |
     exit 1
   fi
 
+  # Set cluster shard limit (same value across all tests for consistency)
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"persistent": {"cluster.max_shards_per_node": 10000}}' > /dev/null 2>&1 || true
+
   # Generate unique test index name with 8-char random ID
   TEST_ID=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 8 | head -n 1)
   export HOLMES_ES_TEST_INDEX="app-183b-eval-${TEST_ID}"

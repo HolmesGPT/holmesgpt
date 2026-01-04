@@ -41,6 +41,12 @@ before_test: |
     exit 1
   fi
 
+  # Set cluster shard limit (same value across all tests for consistency)
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"persistent": {"cluster.max_shards_per_node": 10000}}' > /dev/null 2>&1 || true
+
   export HOLMES_ES_TEST_INDEX="app-191-profile"
 
   # Delete the index if it exists (clean slate)
