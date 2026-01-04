@@ -9,6 +9,7 @@ This module tests the cut CLI integration in the bash toolset, ensuring:
 """
 
 import pytest
+
 from holmes.plugins.toolsets.bash.parse_command import make_command_safe
 
 

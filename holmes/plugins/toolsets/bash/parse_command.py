@@ -3,28 +3,27 @@ import logging
 import shlex
 from typing import Any, Optional
 
-from holmes.plugins.toolsets.bash.common.bash_command import BashCommand
-from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
-from holmes.plugins.toolsets.bash.kubectl import KubectlCommand
+from holmes.plugins.toolsets.bash.argocd import ArgocdCommand
 from holmes.plugins.toolsets.bash.aws import AWSCommand
 from holmes.plugins.toolsets.bash.azure import AzureCommand
-from holmes.plugins.toolsets.bash.argocd import ArgocdCommand
+from holmes.plugins.toolsets.bash.common.bash_command import BashCommand
+from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.docker import DockerCommand
 from holmes.plugins.toolsets.bash.helm import HelmCommand
+from holmes.plugins.toolsets.bash.kubectl import KubectlCommand
+from holmes.plugins.toolsets.bash.utilities.base64_util import Base64Command
+from holmes.plugins.toolsets.bash.utilities.cut import CutCommand
+from holmes.plugins.toolsets.bash.utilities.grep import GrepCommand
+from holmes.plugins.toolsets.bash.utilities.head import HeadCommand
+from holmes.plugins.toolsets.bash.utilities.jq import JqCommand
+from holmes.plugins.toolsets.bash.utilities.sed import SedCommand
+from holmes.plugins.toolsets.bash.utilities.sort import SortCommand
+from holmes.plugins.toolsets.bash.utilities.tail import TailCommand
+from holmes.plugins.toolsets.bash.utilities.tr import TrCommand
+from holmes.plugins.toolsets.bash.utilities.uniq import UniqCommand
 
 # Utilities imports - all now use Command classes
 from holmes.plugins.toolsets.bash.utilities.wc import WCCommand
-from holmes.plugins.toolsets.bash.utilities.cut import CutCommand
-from holmes.plugins.toolsets.bash.utilities.sort import SortCommand
-from holmes.plugins.toolsets.bash.utilities.uniq import UniqCommand
-from holmes.plugins.toolsets.bash.utilities.head import HeadCommand
-from holmes.plugins.toolsets.bash.utilities.tail import TailCommand
-from holmes.plugins.toolsets.bash.utilities.tr import TrCommand
-from holmes.plugins.toolsets.bash.utilities.base64_util import Base64Command
-from holmes.plugins.toolsets.bash.utilities.jq import JqCommand
-from holmes.plugins.toolsets.bash.utilities.sed import SedCommand
-from holmes.plugins.toolsets.bash.utilities.grep import GrepCommand
-
 
 # All commands now use BashCommand classes
 AVAILABLE_COMMANDS: list[BashCommand] = [

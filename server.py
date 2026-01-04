@@ -18,6 +18,7 @@ import sentry_sdk
 from holmes import get_version, is_official_release
 
 from holmes.core import investigation
+from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
 import uvicorn
@@ -29,9 +30,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
 from holmes.common.env_vars import (
+    ENABLE_CONNECTION_KEEPALIVE,
     HOLMES_HOST,
     HOLMES_PORT,
-    HOLMES_POST_PROCESSING_PROMPT,
     LOG_PERFORMANCE,
     SENTRY_DSN,
     ENABLE_TELEMETRY,
@@ -86,6 +87,9 @@ def init_logging():
 
 
 init_logging()
+
+if ENABLE_CONNECTION_KEEPALIVE:
+    patch_socket_create_connection()
 config = Config.load_from_env()
 dal = config.dal
 
@@ -133,7 +137,6 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
-
 
 if LOG_PERFORMANCE:
 
@@ -250,7 +253,6 @@ def workload_health_check(request: WorkloadHealthRequest):
         ai_call = ai.prompt_call(
             system_prompt,
             request.ask,
-            HOLMES_POST_PROCESSING_PROMPT,
             workload_health_structured_output,
         )
 
@@ -259,6 +261,7 @@ def workload_health_check(request: WorkloadHealthRequest):
         return InvestigationResult(
             analysis=ai_call.result,
             tool_calls=ai_call.tool_calls,
+            num_llm_calls=ai_call.num_llm_calls,
             instructions=issue_instructions,
             metadata=ai_call.metadata,
         )

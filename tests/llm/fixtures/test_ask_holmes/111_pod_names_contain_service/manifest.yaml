@@ -19,6 +19,6 @@ spec:
         - sh
         - -c
         - "exit 1"
-      initialDelaySeconds: 5
+      initialDelaySeconds: 1
       periodSeconds: 5
       failureThreshold: 3

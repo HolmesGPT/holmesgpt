@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json
-from datetime import datetime
 import time
+from datetime import datetime
 
 
 def generate_log_entry(memory_mb, gc_pause_ms=None, error=None):

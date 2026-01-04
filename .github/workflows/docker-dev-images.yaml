@@ -1,104 +1,302 @@
-name: Docker Build on Commit
+name: Docker Build on PR
 
 on:
-  push:
-    branches:
-      - '**'  # Trigger on push to any branch
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Cancel in-progress runs for the same PR
+concurrency:
+  group: docker-build-${{ github.head_ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: 'write'
+      contents: 'read'
       id-token: 'write'
       pull-requests: 'write'
 
     steps:
     - uses: actions/checkout@v4
 
-    - uses: google-github-actions/auth@v2
-      with:
-        project_id: 'robusta-development'
-        workload_identity_provider: 'projects/479654156100/locations/global/workloadIdentityPools/github/providers/robusta-repos'
+    - name: Check if PR is from fork
+      id: fork_check
+      run: |
+        HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+        BASE_REPO="${{ github.repository }}"
 
-    - name: Set up gcloud CLI
-      uses: google-github-actions/setup-gcloud@v2
-      with:
-        project_id: robusta-development
-
-    - name: Configure Docker Registry
-      run: gcloud auth configure-docker us-central1-docker.pkg.dev
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+        if [ -z "$HEAD_REPO" ]; then
+          # Head repo data is unavailable (repo may have been deleted)
+          # Treat as fork to avoid attempting authenticated pushes
+          echo "⚠️ Head repo data is unavailable - skipping authenticated push"
+          echo "is_fork=true" >> $GITHUB_OUTPUT
+        elif [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          echo "📌 PR is from a fork ($HEAD_REPO != $BASE_REPO) - will build but not push"
+          echo "is_fork=true" >> $GITHUB_OUTPUT
+        else
+          echo "✅ PR is from the same repo ($HEAD_REPO)"
+          echo "is_fork=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Get short SHA
       id: short_sha
       run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        platforms: linux/arm64,linux/amd64
-        push: true
-        tags: |
-          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}
-          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
+    - name: Record start time
+      id: start_time
+      run: echo "start=$(date +%s)" >> $GITHUB_OUTPUT
 
-    - name: Print image location
-      run: |
-        echo "Docker image pushed to:"
-        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}"
-        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}"
-
-    - name: Comment with image details
+    - name: Comment build started
+      if: steps.fork_check.outputs.is_fork != 'true'
       uses: actions/github-script@v7
       with:
         script: |
           const owner = context.repo.owner;
           const repo = context.repo.repo;
-          const branch = context.ref.replace('refs/heads/', '');
-          const sha = context.sha;
           const shortSha = `${{ steps.short_sha.outputs.sha_short }}`;
-
-          const fullTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${sha}`;
-          const shortTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
+          const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${{ github.run_id }}`;
+          const marker = '<!-- docker-build-comment -->';
           const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
 
-          const message = [
-            'Dev Docker images are ready for this commit:',
-            '',
-            `- [${fullTag}](${registryLink})`,
-            `- [${shortTag}](${registryLink})`,
-            '',
-            'Use either tag to pull the image for testing.'
-          ].join('\n');
+          const issue_number = context.payload.pull_request.number;
 
-          const prs = await github.paginate(github.rest.pulls.list, {
+          const existingComments = await github.paginate(github.rest.issues.listComments, {
             owner,
             repo,
-            state: 'open',
-            head: `${owner}:${branch}`,
+            issue_number,
           });
+          const existing = existingComments.find(c => c.body?.includes(marker));
 
-          if (prs.length > 0) {
+          // Clean up old-style comments from previous workflow version
+          const oldMarker = 'Dev Docker images are ready for this commit:';
+          const oldComments = existingComments.filter(c => c.body?.includes(oldMarker));
+          for (const old of oldComments) {
+            await github.rest.issues.deleteComment({ owner, repo, comment_id: old.id });
+            core.info(`Deleted old-style comment #${old.id}`);
+          }
+
+          // Extract previous image tag from existing comment if present
+          let previousImageSection = '';
+          if (existing) {
+            const tagMatch = existing.body.match(/holmes:([a-f0-9]{7})/);
+            if (tagMatch && tagMatch[1] !== shortSha) {
+              const prevSha = tagMatch[1];
+              const prevTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${prevSha}`;
+              previousImageSection = [
+                '',
+                '---',
+                `📦 **Previous image (\`${prevSha}\`):**`,
+                `- [${prevTag}](${registryLink})`,
+                '',
+                '<details>',
+                '<summary>📋 Copy commands</summary>',
+                '',
+                '⚠️ Temporary images are deleted after 30 days. Copy to a permanent registry before using them:',
+                '```bash',
+                'gcloud auth configure-docker us-central1-docker.pkg.dev',
+                `docker pull ${prevTag}`,
+                `docker tag ${prevTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${prevSha}`,
+                `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${prevSha}`,
+                '```',
+                '',
+                'Patch Helm values in one line (choose the chart you use):',
+                '',
+                '**HolmesGPT chart:**',
+                '```bash',
+                'helm upgrade --install holmesgpt ./helm/holmes \\\\',
+                '  --set registry=me-west1-docker.pkg.dev/robusta-development/development \\\\',
+                `  --set image=holmes-dev:${prevSha}`,
+                '```',
+                '',
+                '**Robusta wrapper chart:**',
+                '```bash',
+                'helm upgrade --install robusta robusta/robusta \\\\',
+                '  --reuse-values \\\\',
+                '  --set holmes.registry=me-west1-docker.pkg.dev/robusta-development/development \\\\',
+                `  --set holmes.image=holmes-dev:${prevSha}`,
+                '```',
+                '</details>',
+              ].join('\n');
+            }
+          }
+
+          const message = [
+            marker,
+            `🔨 **Building Docker image for \`${shortSha}\`...** (x64 only)`,
+            '',
+            `[View build logs](${runUrl})`,
+            previousImageSection,
+          ].join('\n');
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner,
+              repo,
+              comment_id: existing.id,
+              body: message,
+            });
+            core.info(`Updated existing PR comment #${existing.id}`);
+          } else {
             await github.rest.issues.createComment({
               owner,
               repo,
-              issue_number: prs[0].number,
+              issue_number,
               body: message,
             });
-            core.info(`Commented on PR #${prs[0].number}`);
+            core.info(`Commented on PR #${issue_number}`);
+          }
+
+    # Registry auth - only for non-fork PRs (fork PRs don't have access to push anyway)
+    - uses: google-github-actions/auth@v2
+      if: steps.fork_check.outputs.is_fork != 'true'
+      with:
+        project_id: 'robusta-development'
+        workload_identity_provider: 'projects/479654156100/locations/global/workloadIdentityPools/github/providers/robusta-repos'
+
+    - name: Set up gcloud CLI
+      if: steps.fork_check.outputs.is_fork != 'true'
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: robusta-development
+
+    - name: Configure Docker Registry
+      if: steps.fork_check.outputs.is_fork != 'true'
+      run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # For fork PRs: build only (no push, no registry tags)
+    # For non-fork PRs: build and push to registry
+    # Note: PR builds are x64-only for speed. Multi-arch builds happen on release.
+    - name: Build Docker image (fork PR - no push)
+      if: steps.fork_check.outputs.is_fork == 'true'
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push Docker image
+      if: steps.fork_check.outputs.is_fork != 'true'
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64
+        push: true
+        tags: |
+          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}
+          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Print image location
+      if: steps.fork_check.outputs.is_fork != 'true'
+      run: |
+        echo "Docker image pushed (x64 only):"
+        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}"
+        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}"
+
+    - name: Comment with image details
+      if: always() && steps.fork_check.outputs.is_fork != 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const owner = context.repo.owner;
+          const repo = context.repo.repo;
+          const shortSha = `${{ steps.short_sha.outputs.sha_short }}`;
+          const jobStatus = `${{ job.status }}`;
+          const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${{ github.run_id }}`;
+          const marker = '<!-- docker-build-comment -->';
+
+          // Calculate build duration
+          const startTime = parseInt(`${{ steps.start_time.outputs.start }}`);
+          const endTime = Math.floor(Date.now() / 1000);
+          const durationSecs = endTime - startTime;
+          const minutes = Math.floor(durationSecs / 60);
+          const seconds = durationSecs % 60;
+          const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+          let message;
+          if (jobStatus === 'success') {
+            const shortTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
+            const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
+
+            message = [
+              marker,
+              `✅ **Docker image ready for \`${shortSha}\`** (built in ${duration})`,
+              '',
+              `- [${shortTag}](${registryLink})`,
+              '',
+              '> ⚠️ **Warning: does not support ARM** (ARM images are built on release only - not on every PR)',
+              '',
+              'Use this tag to pull the image for testing.',
+              '',
+              '<details>',
+              '<summary>📋 Copy commands</summary>',
+              '',
+              '⚠️ Temporary images are deleted after 30 days. Copy to a permanent registry before using them:',
+              '```bash',
+              'gcloud auth configure-docker us-central1-docker.pkg.dev',
+              `docker pull ${shortTag}`,
+              `docker tag ${shortTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
+              `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
+              '```',
+              '',
+              'Patch Helm values in one line (choose the chart you use):',
+              '',
+              '**HolmesGPT chart:**',
+              '```bash',
+              'helm upgrade --install holmesgpt ./helm/holmes \\',
+              '  --set registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+              `  --set image=holmes-dev:${shortSha}`,
+              '```',
+              '',
+              '**Robusta wrapper chart:**',
+              '```bash',
+              'helm upgrade --install robusta robusta/robusta \\',
+              '  --reuse-values \\',
+              '  --set holmes.registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+              `  --set holmes.image=holmes-dev:${shortSha}`,
+              '```',
+              '</details>',
+            ].join('\n');
           } else {
-            await github.rest.repos.createCommitComment({
+            message = [
+              marker,
+              `❌ **Docker build failed for \`${shortSha}\`** (after ${duration})`,
+              '',
+              `[View build logs](${runUrl})`,
+            ].join('\n');
+          }
+
+          const issue_number = context.payload.pull_request.number;
+
+          const existingComments = await github.paginate(github.rest.issues.listComments, {
+            owner,
+            repo,
+            issue_number,
+          });
+          const existing = existingComments.find(c => c.body?.includes(marker));
+
+          if (existing) {
+            await github.rest.issues.updateComment({
               owner,
               repo,
-              commit_sha: sha,
+              comment_id: existing.id,
               body: message,
             });
-            core.info('Commented on commit');
+            core.info(`Updated existing PR comment #${existing.id}`);
+          } else {
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: message,
+            });
+            core.info(`Commented on PR #${issue_number}`);
           }

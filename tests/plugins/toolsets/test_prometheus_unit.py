@@ -1,4 +1,5 @@
 import pytest
+
 from holmes.plugins.toolsets.prometheus.prometheus import (
     adjust_step_for_max_points,
 )

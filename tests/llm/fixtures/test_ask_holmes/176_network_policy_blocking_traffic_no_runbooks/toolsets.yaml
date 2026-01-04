@@ -1,0 +1,5 @@
+toolsets:
+  runbook:
+    enabled: false
+  internet: # Holmes tries to fetch networking/dns_troubleshooting_instructions.md via this because runbook is disabled
+    enabled: false

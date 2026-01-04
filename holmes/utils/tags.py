@@ -1,9 +1,10 @@
-import logging
-from typing import Optional
-from typing_extensions import Dict, List
-import re
 import json
+import logging
+import re
 from copy import deepcopy
+from typing import Optional
+
+from typing_extensions import Dict, List
 
 
 def stringify_tag(tag: Dict[str, str]) -> Optional[str]:

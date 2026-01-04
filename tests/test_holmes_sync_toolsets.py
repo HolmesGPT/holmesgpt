@@ -4,6 +4,7 @@ from typing import Any, Dict
 from unittest.mock import Mock, patch
 
 import pytest
+from mcp.types import Tool as MCP_Tool
 
 from holmes.config import Config
 from holmes.core.tools import (
@@ -19,7 +20,6 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets import load_builtin_toolsets
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from mcp.types import Tool as MCP_Tool
 from tests.utils.bad_toolset_example import BadTool, BadToolset
 from tests.utils.toolsets import callable_success, failing_callable_for_test
 

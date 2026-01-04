@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "job", "keyword": "java-api-checker"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "job", "keyword": "java-api-checker"}}
-stdout:
-default     java-api-checker   Running    0/1           45s        45s   java-beans       busybox                  batch.kubernetes.io/controller-uid=b527d2de-04c0-4b36-962b-90b9e45724cd   batch.kubernetes.io/controller-uid=b527d2de-04c0-4b36-962b-90b9e45724cd,batch.kubernetes.io/job-name=java-api-checker,controller-uid=b527d2de-04c0-4b36-962b-90b9e45724cd,job-name=java-api-checker
-
-stderr:

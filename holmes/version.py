@@ -8,10 +8,12 @@ import os
 import subprocess
 import sys
 import threading
-from typing import Optional, NamedTuple
 from functools import cache
+from typing import NamedTuple, Optional
+
 import requests  # type: ignore
 from pydantic import BaseModel, ConfigDict
+
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 
 # For relative imports to work in Python 3.6 - see https://stackoverflow.com/a/49375740

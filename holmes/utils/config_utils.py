@@ -2,7 +2,7 @@
 Configuration utility functions for HolmesGPT.
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     from holmes.core.transformers import Transformer

@@ -20,7 +20,6 @@ image: holmes:0.0.0
 registry: robustadev
 
 sentryDSN: https://51f9cd9bd2fdee16144db08fc423cd3b@o1120648.ingest.us.sentry.io/4508799804702720
-enableTelemetry: true
 
 enableAccountsCreate: true
 revisionHistoryLimit: 10
@@ -30,8 +29,18 @@ customServiceAccountName: ""
 
 customClusterRoleRules: []
 
-enablePostProcessing: false
-postProcessingPrompt: "builtin://generic_post_processing.jinja2"
+# CRD permissions for common Kubernetes operators and tools
+crdPermissions:
+  argo: true
+  flux: true
+  kafka: true
+  keda: true
+  crossplane: true
+  istio: true
+  gatewayApi: true
+  velero: true
+  externalSecrets: true
+
 openshift: false
 
 affinity: {}
@@ -52,6 +61,8 @@ toolsets:
   internet:
     enabled: true
   prometheus/metrics:
+    enabled: true
+  runbook:
     enabled: true
 mcp_servers: {}
 

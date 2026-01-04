@@ -1,5 +1,7 @@
 import os
+
 import pytest
+
 from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     DatadogTracesToolset,
 )

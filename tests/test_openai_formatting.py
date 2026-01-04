@@ -1,4 +1,5 @@
 import pytest
+
 from holmes.core.openai_formatting import type_to_open_ai_schema
 from holmes.core.tools import ToolParameter
 

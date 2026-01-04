@@ -36,11 +36,11 @@ data:
                 level: level
                 message: message
                 service: service
-                pod_name: pod
+                pod: pod
           - timestamp:
               source: timestamp
               format: RFC3339
           - labels:
               level:
               service:
-              pod_name:
+              pod:

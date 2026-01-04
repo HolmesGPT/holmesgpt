@@ -1,8 +1,9 @@
+import logging
 from pathlib import Path
 from typing import Any, Optional
+
 import pytest
 import yaml
-import logging
 
 from holmes.config import Config
 from holmes.core.llm import LLM, TokenCountMetadata

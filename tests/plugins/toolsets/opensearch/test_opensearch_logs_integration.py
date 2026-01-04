@@ -3,8 +3,9 @@ This is a set of integration tests intended to be run manually
 Change the TEST_** variables defined below based on the content in opensearch to validate that the implementation is working as expected
 """
 
-import pytest
 import os
+
+import pytest
 
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams

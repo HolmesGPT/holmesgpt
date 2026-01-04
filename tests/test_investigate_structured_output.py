@@ -1,11 +1,13 @@
-from typing import Any, Optional
-import pytest
 import json
+from typing import Any, Optional
+
+import pytest
+
 from holmes.core.investigation_structured_output import (
     DEFAULT_SECTIONS,
     get_output_format_for_investigation,
-    parse_json_sections,
     is_response_an_incorrect_tool_call,
+    parse_json_sections,
     process_response_into_sections,
 )
 from holmes.plugins.prompts import load_and_render_prompt

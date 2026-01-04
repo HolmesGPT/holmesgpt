@@ -1,7 +1,8 @@
 import os
+
+from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets import load_toolsets_from_file
-from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.opensearch.opensearch_logs import OpenSearchLogsToolset
 

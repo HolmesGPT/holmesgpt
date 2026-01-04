@@ -1,12 +1,28 @@
-user_prompt: "Why can't the silver-puffin pods be scheduled in namespace-82?"
+user_prompt: "Why can't the silver-puffin pods be scheduled in app-82?"
 tags:
   - kubernetes
   - medium
 expected_output:
   - Silver-puffin pods cannot be scheduled because pod anti-affinity rules require them on different nodes but insufficient nodes available
-  - It's ok if other reasons are mentioned too as long as the anti-affinity conflict is clearly stated
 before_test: |
   kubectl apply -f ./manifest.yaml
-  sleep 20
+  
+  # Wait for anti-affinity scheduling conflict (60 seconds total)
+  CONFLICT_DETECTED=false
+  for i in {1..12}; do
+    if kubectl get events -n app-82 --no-headers 2>/dev/null | grep "silver-puffin" | grep -q "didn't match pod anti-affinity rules"; then
+      echo "✅ Anti-affinity conflict detected!"
+      CONFLICT_DETECTED=true
+      break
+    else
+      echo "⏳ Attempt $i/12: Waiting for anti-affinity conflict event..."
+      sleep 5
+    fi
+  done
+  
+  if [ "$CONFLICT_DETECTED" = false ]; then
+    echo "❌ Anti-affinity conflict not detected after 60 seconds"
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./manifest.yaml
