@@ -109,9 +109,54 @@ toolsets:
 
 **Local CLI:** Empty allow and deny lists. User builds trusted commands over time via approval prompts, persisted to `~/.holmes/`.
 
-**Server/In-Cluster:** See Helm Chart section for recommended defaults.
+**Server/In-Cluster:** `include_default_allow_deny_list: true` by default. User-provided `allow` and `deny` lists are merged with these defaults.
 
-**Hardcoded Blocks (Not Overrideable):**
+**Default allow list (when `include_default_allow_deny_list: true`):**
+```yaml
+# Kubernetes read-only commands
+- "kubectl get"
+- "kubectl describe"
+- "kubectl logs"
+- "kubectl top"
+- "kubectl explain"
+- "kubectl api-resources"
+
+# Text processing
+- "cat"
+- "grep"
+- "head"
+- "tail"
+- "sort"
+- "uniq"
+- "wc"
+- "cut"
+- "tr"
+
+# File system inspection
+- "ls"
+- "find"
+- "stat"
+- "file"
+- "du"
+- "df"
+
+# System monitoring
+- "ps"
+- "top -b"
+- "free"
+- "uptime"
+```
+
+**Default deny list (when `include_default_allow_deny_list: true`):**
+```yaml
+- "kubectl get secret"
+- "kubectl describe secret"
+```
+
+### Hardcoded Blocks
+
+These patterns are always blocked and cannot be overridden by configuration:
+
 ```yaml
 - "sudo"
 - "su"
@@ -121,47 +166,6 @@ toolsets:
 ### System Prompt
 
 The allow list is injected into the system prompt via `llm_instructions` pattern. AI sees allowed commands at session start.
-
-### Helm Chart
-
-Recommended configuration for server deployments:
-
-```yaml
-# values.yaml
-toolsets:
-  bash:
-    enabled: true
-    config:
-      allow:
-        - "kubectl get"
-        - "kubectl describe"
-        - "kubectl logs"
-        - "kubectl top"
-        - "kubectl explain"
-        - "kubectl api-resources"
-        - "cat"
-        - "grep"
-        - "head"
-        - "tail"
-        - "sort"
-        - "uniq"
-        - "wc"
-        - "cut"
-        - "tr"
-        - "ls"
-        - "find"
-        - "stat"
-        - "file"
-        - "du"
-        - "df"
-        - "ps"
-        - "top -b"
-        - "free"
-        - "uptime"
-      deny:
-        - "kubectl get secret"
-        - "kubectl describe secret"
-```
 
 ## Validation
 
