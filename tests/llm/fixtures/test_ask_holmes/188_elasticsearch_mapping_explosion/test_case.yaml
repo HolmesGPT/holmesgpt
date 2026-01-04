@@ -27,7 +27,7 @@ tags:
   - elasticsearch
   - medium
 
-setup_timeout: 90
+setup_timeout: 300
 
 before_test: |
   source ../../shared/es_test_utils.sh

@@ -25,7 +25,7 @@ tags:
   - medium
 
 # Setup timeout in seconds (fast - just verifies connection)
-setup_timeout: 30
+setup_timeout: 300
 
 before_test: |
   source ../../shared/es_test_utils.sh
