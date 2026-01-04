@@ -28,9 +28,6 @@ setup_timeout: 30
 before_test: |
   set -e
 
-  # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   # Check required environment variables
   if [ -z "$ELASTICSEARCH_URL" ]; then
@@ -120,9 +117,6 @@ before_test: |
   echo "✅ Test index ready with mappings: transaction_id (keyword), amount (double), metadata.region (keyword), metadata.priority (integer), processed_at (date)"
 
 after_test: |
-  # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
 
   echo "⏳ Cleaning up test index: app-183e-schema"
   curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183e-schema" \

@@ -7,12 +7,8 @@
 # Total shards across all tests is ~3600, so 10000 gives plenty of headroom
 ES_MAX_SHARDS_PER_NODE=10000
 
-# Validate and prepare ES environment variables
+# Validate ES environment variables
 es_validate_env() {
-  # Strip quotes from env vars if present
-  ELASTICSEARCH_URL=$(echo "$ELASTICSEARCH_URL" | tr -d '"')
-  ELASTICSEARCH_API_KEY=$(echo "$ELASTICSEARCH_API_KEY" | tr -d '"')
-
   if [ -z "$ELASTICSEARCH_URL" ]; then
     echo "❌ ELASTICSEARCH_URL environment variable is not set"
     exit 1
@@ -22,10 +18,6 @@ es_validate_env() {
     echo "❌ ELASTICSEARCH_API_KEY environment variable is not set"
     exit 1
   fi
-
-  # Export cleaned variables
-  export ELASTICSEARCH_URL
-  export ELASTICSEARCH_API_KEY
 }
 
 # Set cluster shard limit (idempotent - safe to call from multiple tests)
