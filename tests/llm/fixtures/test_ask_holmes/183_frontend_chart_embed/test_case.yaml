@@ -1,8 +1,8 @@
 user_prompt:
-  - Show me a chart embed comparing namespaces that start with app-181, such as app-181-kube and app-181-sphere
+  - Show me a chart embed comparing namespaces that start with app-183, such as app-183-kube and app-183-sphere
 
 expected_output:
-  - 'Includes a block embed such as <<{ "type": "chart", "data": JSON, "title": "namespace app-181 substring comparison" }>>'
+  - 'Includes a block embed such as <<{ "type": "chart", "data": JSON, "title": "namespace app-183 substring comparison" }>>'
   - The embed type is exactly equal to "chart"
   - The embed includes the count or percentage for each group
   - The embed doesn't contain any line-break characters
@@ -12,9 +12,9 @@ tags:
   - frontend
 
 before_test: |
-  kubectl create namespace app-181-kube || true
-  kubectl create namespace app-181-sphere || true
+  kubectl create namespace app-183-kube || true
+  kubectl create namespace app-183-sphere || true
 
 after_test: |
-  kubectl delete namespace app-181-kube --ignore-not-found
-  kubectl delete namespace app-181-sphere --ignore-not-found
+  kubectl delete namespace app-183-kube --ignore-not-found
+  kubectl delete namespace app-183-sphere --ignore-not-found
