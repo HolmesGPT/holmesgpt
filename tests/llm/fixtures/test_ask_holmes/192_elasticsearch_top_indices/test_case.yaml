@@ -1,0 +1,128 @@
+# Test: Elasticsearch Top Indices by Size
+#
+# Tests that Holmes can find the largest indices using server-side sorting.
+# This validates the sort parameter and optional jq filtering for limit.
+#
+# Setup creates 10 indices with varying document counts:
+# - 5 "large" indices: app-192-metrics-* with 1000 docs each
+# - 5 "small" indices: app-192-logs-* with 10 docs each
+#
+# The LLM should use sort="store.size:desc" or "docs.count:desc" to find largest.
+#
+# Anti-hallucination: The specific index names and relative sizes can only be
+# discovered by querying. The test verifies the largest indices are identified.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "List the top 5 largest Elasticsearch indices by size. Show me their names and sizes."
+
+expected_output:
+  - "Must list 5 indices in the response"
+  - "The largest indices should be the app-192-metrics-* indices (they have more documents)"
+  - "Should show size information for each index"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating 10 test indices with varying sizes..."
+
+  # Clean up any existing test data
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-192-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create index template with 1 shard, 0 replicas
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-192-template" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "index_patterns": ["app-192-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        }
+      }
+    }' > /dev/null
+
+  # Create 5 "large" indices with 1000 docs each
+  for i in alpha bravo charlie delta echo; do
+    INDEX_NAME="app-192-metrics-${i}"
+    echo "Creating large index: ${INDEX_NAME} (1000 docs)..."
+
+    BULK_FILE="/tmp/es_192_${i}_$$.ndjson"
+    > "$BULK_FILE"
+
+    for j in $(seq 1 1000); do
+      echo '{"index":{}}' >> "$BULK_FILE"
+      echo "{\"@timestamp\":\"2025-01-01T12:00:00Z\",\"value\":${j},\"type\":\"metric\"}" >> "$BULK_FILE"
+    done
+
+    curl -sf -X POST "${ELASTICSEARCH_URL}/${INDEX_NAME}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$BULK_FILE" > /dev/null
+
+    rm -f "$BULK_FILE"
+  done
+
+  # Create 5 "small" indices with 10 docs each
+  for i in foxtrot golf hotel india juliet; do
+    INDEX_NAME="app-192-logs-${i}"
+    echo "Creating small index: ${INDEX_NAME} (10 docs)..."
+
+    BULK_FILE="/tmp/es_192_${i}_$$.ndjson"
+    > "$BULK_FILE"
+
+    for j in $(seq 1 10); do
+      echo '{"index":{}}' >> "$BULK_FILE"
+      echo "{\"@timestamp\":\"2025-01-01T12:00:00Z\",\"message\":\"log entry ${j}\"}" >> "$BULK_FILE"
+    done
+
+    curl -sf -X POST "${ELASTICSEARCH_URL}/${INDEX_NAME}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$BULK_FILE" > /dev/null
+
+    rm -f "$BULK_FILE"
+  done
+
+  # Refresh all indices
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-192-*/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify indices exist
+  INDEX_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-192-*?format=json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | jq 'length')
+
+  if [ "$INDEX_COUNT" = "10" ]; then
+    echo "✅ Created 10 test indices (5 large, 5 small)"
+  else
+    echo "❌ Expected 10 indices but found: $INDEX_COUNT"
+    exit 1
+  fi
+
+  echo "✅ Setup complete!"
+
+after_test: |
+  echo "Cleaning up test indices (app-192-*)..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-192-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-192-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_192_*_*.ndjson
+
+  echo "✅ Cleanup complete"
