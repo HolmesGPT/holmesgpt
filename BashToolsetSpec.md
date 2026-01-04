@@ -302,7 +302,7 @@ The `suggested_prefixes` from params provides everything needed for the approval
 
 **LLM evals:**
 
-All evals run with auto-deny (no user approval). Each eval configures its own allow list.
+All evals run with auto-deny (no user approval). Each eval configures its own allow list. All kubectl toolsets are disabled so the AI uses the bash toolset.
 
 | Eval | User Prompt | Description |
 |------|-------------|-------------|
