@@ -419,44 +419,7 @@ class ElasticsearchSearch(BaseElasticsearchTool):
         if params.get("profile"):
             body["profile"] = True
 
-        result = self._make_request("POST", path, params, body=body)
-
-        # If profiling enabled and successful, add summarized profile data
-        if params.get("profile") and result.status == StructuredToolResultStatus.SUCCESS and result.data:
-            profile_data = result.data.get("profile", {})
-            shards = profile_data.get("shards", [])
-
-            shard_timings: list[Dict[str, Any]] = []
-            for shard in shards:
-                shard_searches: list[Dict[str, Any]] = []
-                for search in shard.get("searches", []):
-                    queries_list: list[Dict[str, Any]] = []
-                    total_time_ns = 0
-                    for query in search.get("query", []):
-                        query_info = {
-                            "type": query.get("type", "unknown"),
-                            "description": query.get("description", "")[:100],
-                            "time_in_nanos": query.get("time_in_nanos", 0),
-                            "time_ms": query.get("time_in_nanos", 0) / 1_000_000,
-                        }
-                        queries_list.append(query_info)
-                        total_time_ns += query.get("time_in_nanos", 0)
-                    shard_searches.append({
-                        "total_time_ns": total_time_ns,
-                        "total_time_ms": total_time_ns / 1_000_000,
-                        "queries": queries_list,
-                    })
-                shard_timings.append({
-                    "id": shard.get("id", "unknown"),
-                    "searches": shard_searches,
-                })
-
-            result.data["_profile_summary"] = {
-                "total_shards_profiled": len(shards),
-                "shard_timings": shard_timings,
-            }
-
-        return result
+        return self._make_request("POST", path, params, body=body)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")
