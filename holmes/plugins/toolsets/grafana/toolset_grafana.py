@@ -113,7 +113,11 @@ class BaseGrafanaTool(Tool, ABC):
         )
 
         response = requests.get(
-            url, headers=headers, params=query_params, timeout=timeout
+            url,
+            headers=headers,
+            params=query_params,
+            timeout=timeout,
+            verify=self._toolset.grafana_config.verify_ssl,
         )
         response.raise_for_status()
         data = response.json()
