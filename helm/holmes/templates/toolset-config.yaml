@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.azure.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,11 +11,26 @@ data:
     {{- if .Values.mcpAddons.aws.enabled }}
     {{- $awsMcpServers := dict "aws_api" (dict
         "description" "AWS API MCP Server - comprehensive AWS service access. Allow executing any AWS CLI commands."
-        "url" (printf "http://%s-aws-mcp-server.%s.svc.cluster.local:8000" .Release.Name (.Values.mcpAddons.aws.config.namespace | default .Release.Namespace))
+        "config" (dict
+          "url" (printf "http://%s-aws-mcp-server.%s.svc.cluster.local:8000" .Release.Name (.Values.mcpAddons.aws.config.namespace | default .Release.Namespace))
+          "mode" "streamable-http"
+        )
         "llm_instructions" (include "holmes.awsMcp.llmInstructions" . | trim)
       )
     }}
     {{- $mcpServers = merge $mcpServers $awsMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.azure.enabled }}
+    {{- $azureMcpServers := dict "azure_api" (dict
+        "description" "Azure API MCP Server - comprehensive Azure service access. Execute any Azure CLI commands."
+        "config" (dict
+          "url" (printf "http://%s-azure-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name (.Values.mcpAddons.azure.config.namespace | default .Release.Namespace))
+          "mode" "streamable-http"
+        )
+        "llm_instructions" (include "holmes.azureMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $azureMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.mariadb.enabled }}
     {{- $mariadbMcpServers := dict "mariadb" (dict

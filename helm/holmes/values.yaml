@@ -158,3 +158,53 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+  # Azure MCP Server Configuration
+  azure:
+    enabled: false
+    # Service account configuration for Azure Workload Identity
+    serviceAccount:
+      create: true
+      name: "azure-api-mcp-sa"
+      annotations: {}  # Add workload identity annotations here
+        # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
+        # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
+
+    image: "azure-cli-mcp:1.0.1"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: "IfNotPresent"
+
+    config:
+      tenantId: ""                      # Azure tenant ID (required for workload identity)
+      subscriptionId: ""                # Default Azure subscription ID
+      readOnlyMode: false               # read-only mode blocks any post requests. Limit the Azure roles to read-only
+      authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
+      enableSecurityPolicy: false       # Enable additional security policies
+      timeout: "120"                    # Command execution timeout in seconds
+      namespace: ""                     # MCP installation namespace (defaults to release namespace if empty)
+
+    # Secret name for service principal authentication (if using service-principal auth)
+    secretName: "azure-mcp-creds"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    service:
+      port: 8000
+
+    networkPolicy:
+      enabled: false
+      additionalIngressRules: []
+      additionalEgressRules: []
+
+    additionalEnvVars: []
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""

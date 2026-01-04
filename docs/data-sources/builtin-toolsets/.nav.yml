@@ -3,6 +3,7 @@ nav:
     - AKS Node Health: aks-node-health.md
     - ArgoCD: argocd.md
     - AWS (MCP): aws.md
+    - Azure (MCP): azure-mcp.md
     - Azure Kubernetes Service: aks.md
     - Azure SQL Database: azure-sql.md
     - Bash: bash.md
