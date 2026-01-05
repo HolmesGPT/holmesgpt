@@ -4,6 +4,9 @@ The GCP MCP servers provide comprehensive access to Google Cloud Platform servic
 
 ## Overview
 
+!!! info "Prerequisites"
+    You need to configure GCP service account credentials before installing the MCP servers. See the [Service Account Configuration](#service-account-configuration) section for setup instructions.
+
 The GCP MCP addon consists of three specialized servers:
 
 - **gcloud MCP**: General GCP management via gcloud CLI commands, supporting multi-project queries
