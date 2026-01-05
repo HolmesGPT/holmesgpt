@@ -17,7 +17,7 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 
-user_prompt: "List the top 5 largest Elasticsearch indices by document count. Show their names and doc counts."
+user_prompt: "List the top 5 largest Elasticsearch indices matching the pattern 'app-184-*' by document count. Show their names and doc counts."
 
 expected_output:
   - "Must list exactly 5 indices in the response"

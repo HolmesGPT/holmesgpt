@@ -6,7 +6,7 @@
 # Setup:
 # - Metrics index with hourly data points for 48 hours
 # - Intentional 6-hour gap from 14:00 to 20:00 on 2024-01-15
-# - Unique request ID (REQ-GAP-7K3M9) injected just before the gap
+# - Unique request ID (REQ-37-8A4F2) injected just before the gap
 #
 # The LLM must use date histogram aggregation or search to:
 # 1. Identify there's a gap in the data
@@ -24,7 +24,7 @@ user_prompt: "We noticed our metrics dashboard shows missing data. Can you analy
 expected_output:
   - "Must identify a gap in the data around 2024-01-15"
   - "Must report the gap started around 14:00 UTC and resumed around 20:00 UTC (approximately 6 hours)"
-  - "Must mention request ID REQ-GAP-7K3M9 as the last entry before the gap"
+  - "Must mention request ID REQ-37-8A4F2 as the last entry before the gap"
 
 tags:
   - elasticsearch
@@ -92,7 +92,7 @@ before_test: |
     # Generate request ID
     if [ $hour -eq 37 ]; then
       # Special marker just before the gap
-      REQUEST_ID="REQ-GAP-7K3M9"
+      REQUEST_ID="REQ-37-8A4F2"
     else
       REQUEST_ID=$(printf "REQ-%02d%02d-%04d" $HOUR_OF_DAY $((RANDOM % 60)) $((RANDOM % 10000)))
     fi
@@ -140,10 +140,10 @@ before_test: |
   MARKER=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-189-metrics-timeseries/_search" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{"query": {"term": {"request_id": "REQ-GAP-7K3M9"}}, "size": 1}')
+    -d '{"query": {"term": {"request_id": "REQ-37-8A4F2"}}, "size": 1}')
 
-  if echo "$MARKER" | grep -q '"REQ-GAP-7K3M9"'; then
-    echo "✅ Verified: Gap marker REQ-GAP-7K3M9 exists"
+  if echo "$MARKER" | grep -q '"REQ-37-8A4F2"'; then
+    echo "✅ Verified: Marker REQ-37-8A4F2 exists"
   else
     echo "⚠️ Warning: Could not find gap marker"
   fi
