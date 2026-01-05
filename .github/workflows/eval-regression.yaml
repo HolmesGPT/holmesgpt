@@ -27,6 +27,11 @@ on:
         description: 'Number of iterations (1-10)'
         required: false
         default: '1'
+      is_pr_trusted:
+        description: 'Allow running on fork PRs (use with caution - fork PRs have no secrets access)'
+        required: false
+        default: 'false'
+        type: boolean
   issue_comment:
     types: [created]
 
@@ -41,13 +46,33 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/list')
     steps:
-      - name: Check permissions
+      - name: Check permissions and fork status
         uses: actions/github-script@v7
         with:
           script: |
+            // Check commenter has write access
             const association = context.payload.comment.author_association;
             if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
               core.setFailed(`Permission denied: ${association} cannot use /list (requires OWNER, MEMBER, or COLLABORATOR)`);
+              return;
+            }
+
+            // SECURITY: Block /list on fork PRs to prevent exposing directory structure
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            const isFork = pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+            if (isFork) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '❌ `/list` command is not available on fork PRs for security reasons.'
+              });
+              core.setFailed('Fork PRs cannot use /list command');
+              return;
             }
 
       - name: Checkout code
@@ -119,6 +144,28 @@ jobs:
               return;
             }
 
+            // Get PR info for fork detection
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            // SECURITY: Block /eval and /rerun on fork PRs
+            const isFork = pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+            if (isFork) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '❌ `/eval` and `/rerun` commands are not available on fork PRs for security reasons.\n\n' +
+                      'Fork PRs run automatic regression tests without secrets. For manual eval runs, ' +
+                      'a maintainer can use `workflow_dispatch` with `is_pr_trusted: true` after reviewing the code.'
+              });
+              core.setFailed('Fork PRs cannot use /eval or /rerun commands');
+              return;
+            }
+
             let body = context.payload.comment.body;
             let lastEvalCommentId = null;
             const isRerunCommand = body.trim().toLowerCase().startsWith('/rerun');
@@ -174,12 +221,6 @@ jobs:
             }
             core.setOutput('branch', targetBranch);
 
-            // Get PR SHA and branch for checkout (only used if no branch override)
-            const pr = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
             core.setOutput('pr_sha', pr.data.head.sha);
             core.setOutput('pr_branch', pr.data.head.ref);
 
@@ -278,6 +319,7 @@ jobs:
               filter = validate(${{ toJSON(github.event.inputs.filter) }} || '', 'filter');
               iterations = validate(${{ toJSON(github.event.inputs.iterations) }} || '', 'iterations');
               const prNum = validate(${{ toJSON(github.event.inputs.pr_number) }} || '', 'pr_number');
+              const isPrTrusted = ${{ toJSON(github.event.inputs.is_pr_trusted) }} === 'true';
               branch = ''; // workflow_dispatch doesn't support branch override yet
               if ([model, markers, filter, iterations, prNum].includes(null)) return;
               isManual = true;
@@ -305,6 +347,26 @@ jobs:
                 } else {
                   core.info(`No open PR found for branch ${currentBranch}`);
                   prNumber = null;
+                }
+              }
+
+              // SECURITY: Check if this is a fork PR and block unless explicitly trusted
+              if (prNumber) {
+                const pr = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+                const isFork = pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+                if (isFork && !isPrTrusted) {
+                  core.setFailed(
+                    `Fork PR #${prNumber} detected. Manual workflow_dispatch on fork PRs requires ` +
+                    `is_pr_trusted=true after code review. Fork PRs have no secrets access.`
+                  );
+                  return;
+                }
+                if (isFork && isPrTrusted) {
+                  core.warning(`Running on trusted fork PR #${prNumber} - ensure code has been reviewed`);
                 }
               }
             } else {
@@ -384,7 +446,171 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { AUTO_EVAL_COMMENT_IDENTIFIER, buildParams, buildBody, buildRerunFooter, parseRunHistory, extractCurrentRun, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Helper functions are inlined to prevent loading from PR checkout
+            // DO NOT replace with require() - that would allow malicious PRs to inject code
+            const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
+            const HISTORY_RUN_END_MARKER = '<!-- END_HISTORY_RUN -->';
+            const MAX_COMMENT_SIZE = 60000;
+
+            function parseRunHistory(body) {
+              const runs = [];
+              const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g;
+              let match;
+              while ((match = historyRegex.exec(body)) !== null) {
+                runs.push({ summary: match[1].trim(), content: match[2].trim() });
+              }
+              return runs;
+            }
+
+            function extractCurrentRun(body) {
+              let cleanBody = body.replace(AUTO_EVAL_COMMENT_IDENTIFIER, '').trim();
+              const previousRunsHeader = '## 📂 Previous Runs';
+              if (cleanBody.startsWith(previousRunsHeader)) {
+                const separatorIndex = cleanBody.indexOf('\n---\n');
+                if (separatorIndex !== -1) cleanBody = cleanBody.substring(separatorIndex + 5).trim();
+              }
+              const headerMatch = cleanBody.match(/^(## [^\n]+)/);
+              if (!headerMatch) return null;
+              const header = headerMatch[1];
+              if (!header.includes('Results')) return null;
+              const footerMarkers = ['<details>\n<summary>📖 <b>Legend</b>', '<details>\n<summary>🔄 <b>Re-run evals manually</b>', '<details>\n<summary>🏷️ <b>Valid markers</b>', '\n---\n**Commands:**'];
+              let endPos = cleanBody.length;
+              for (const marker of footerMarkers) {
+                const pos = cleanBody.indexOf(marker);
+                if (pos !== -1 && pos < endPos) endPos = pos;
+              }
+              const currentSection = cleanBody.substring(0, endPos);
+              const triggerMatch = currentSection.match(/Automatically triggered by ([^\n]+)/);
+              const trigger = triggerMatch ? triggerMatch[1] : '';
+              const runUrlMatch = currentSection.match(/\[View workflow logs\]\(([^)]+)\)/);
+              const runUrl = runUrlMatch ? runUrlMatch[1] : '';
+              let summary = 'Previous Run';
+              if (trigger) {
+                const commitMatch = trigger.match(/commit ([a-f0-9]+)/);
+                const commit = commitMatch ? commitMatch[1] : '';
+                summary = commit ? `Run @ ${commit}` : `Run: ${trigger.substring(0, 50)}`;
+              }
+              if (runUrl) {
+                const runIdMatch = runUrl.match(/runs\/(\d+)/);
+                if (runIdMatch) summary += ` (#${runIdMatch[1]})`;
+              }
+              return { summary, content: cleanBody.substring(0, endPos).trim() };
+            }
+
+            function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) {
+              let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n';
+              const runsToShow = previousRuns.slice(0, maxHistory);
+              let historySection = '';
+              let addedCount = 0;
+              if (runsToShow.length > 0) {
+                historySection = '## 📂 Previous Runs\n\n';
+                for (const run of runsToShow) {
+                  const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
+                  const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length;
+                  if (projectedSize > MAX_COMMENT_SIZE) {
+                    const remaining = runsToShow.length - addedCount;
+                    historySection += `<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted to stay under GitHub's 64KB comment size limit._\n</details>\n\n`;
+                    break;
+                  }
+                  historySection += historyEntry;
+                  addedCount++;
+                }
+                historySection += '---\n\n';
+              }
+              body += historySection + currentContent + footer;
+              return body;
+            }
+
+            function buildParams(raw) {
+              return {
+                isManual: raw.is_manual === 'true',
+                trigger: raw.trigger_source,
+                model: raw.model || 'default',
+                markers: raw.markers,
+                filter: raw.filter,
+                iterations: raw.iterations,
+                branch: raw.branch || '',
+                displayBranch: raw.display_branch || '',
+                runUrl: raw.run_url,
+                prNumber: raw.pr_number ? parseInt(raw.pr_number, 10) : null,
+                commentId: raw.comment_id ? parseInt(raw.comment_id, 10) : null,
+                testCount: raw.test_count || '0',
+                testPreview: raw.test_preview || '',
+                duration: raw.duration || 'N/A',
+                validMarkers: raw.valid_markers || '',
+                triggered_by: raw.triggered_by || ''
+              };
+            }
+
+            function renderProgress(steps) {
+              return steps.map(([done, text]) => done ? `- [x] ${text}` : `- [ ] ${text}`).join('\n');
+            }
+
+            function renderParamsTable(p, ctx = null) {
+              let workflowLinks = `[View logs](${p.runUrl})`;
+              if (ctx) {
+                const baseWorkflowUrl = `https://github.com/${ctx.repo.owner}/${ctx.repo.repo}/actions/workflows/eval-regression.yaml`;
+                const rerunUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
+                workflowLinks += ` \\| [Rerun](${rerunUrl})`;
+              }
+              return `| Parameter | Value |\n|-----------|-------|\n` +
+                `| **Triggered via** | ${p.trigger} |\n` +
+                (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') +
+                `| **Model** | \`${p.model}\` |\n` +
+                `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
+                (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+                `| **Iterations** | ${p.iterations} |\n` +
+                (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
+                `| **Workflow** | ${workflowLinks} |\n`;
+            }
+
+            function buildBody(p, progressSteps, extras = {}) {
+              let body = p.isManual
+                ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` + renderParamsTable(p, extras.context)
+                : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` + `Automatically triggered by ${p.trigger}\n\n` + `[View workflow logs](${p.runUrl})\n`;
+              if (progressSteps) body += `\n**Progress:**\n${renderProgress(progressSteps)}\n`;
+              if (extras.testPreview) body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
+              return body;
+            }
+
+            function formatAsCodes(items) {
+              if (!items) return '_(loading...)_';
+              return items.split(',').map(item => { const t = item.trim(); return t ? `\`${t}\`` : ''; }).filter(Boolean).join(', ');
+            }
+
+            function buildRerunFooter(p, ctx, options = {}) {
+              const { includeLegend = false } = options;
+              const repoFullName = `${ctx.repo.owner}/${ctx.repo.repo}`;
+              const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`;
+              const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
+              const markersFormatted = formatAsCodes(p.validMarkers);
+              const ghCommand = p.displayBranch
+                ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=`
+                : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`;
+              let footer = '';
+              if (includeLegend) {
+                footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n' +
+                  '| Icon | Meaning |\n|------|--------|\n' +
+                  '| ✅ | The test was successful |\n| ➖ | The test was skipped |\n| ⚠️ | The test failed but is known to be flaky or known to fail |\n| 🚧 | The test had a setup failure (not a code regression) |\n| 🔧 | The test failed due to mock data issues (not a code regression) |\n| 🚫 | The test was throttled by API rate limits/overload |\n| ❌ | The test failed and should be fixed before merging the PR |\n</details>\n';
+              }
+              footer += '\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n' +
+                '> ⚠️ **Warning:** `/eval` comments always run using the **workflow from master**, not from this PR branch. ' +
+                'If you modified the GitHub Action (e.g., added secrets or env vars), those changes won\'t take effect.\n>\n' +
+                '> **To test workflow changes**, use the GitHub CLI or [Actions UI](' + workflowUrl + ') instead:\n>\n' +
+                '> ```\n> ' + ghCommand + '\n> ```\n\n---\n\n' +
+                '**Option 1: Comment on this PR** with `/eval`:\n\n```\n/eval\nmarkers: regression\n```\n\n' +
+                'Or with more options (one per line):\n\n```\n/eval\nmodel: gpt-4o\nmarkers: regression\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
+                'Run evals on a different branch (e.g., master) for comparison:\n\n```\n/eval\nbranch: master\nmarkers: regression\n```\n\n' +
+                '| Option | Description |\n|--------|-------------|\n' +
+                '| `model` | Model(s) to test (default: same as automatic runs) |\n| `markers` | Pytest markers (**no default - runs all tests!**) |\n| `filter` | Pytest -k filter (use `/list` to see valid eval names) |\n| `iterations` | Number of runs, max 10 |\n| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
+                '**Quick re-run:** Use `/rerun` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
+                `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
+                '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' + markersFormatted + '\n</details>\n' +
+                '\n---\n**Commands:** `/eval` · `/rerun` · `/list`\n\n**CLI:** `' + ghCommand + '`\n';
+              return footer;
+            }
+            // END INLINED HELPERS
+
             const p = buildParams(JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}));
             const progressSteps = [
               [false, 'Setup HolmesGPT environment'],
@@ -471,7 +697,77 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Helper functions are inlined to prevent loading from PR checkout
+            const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
+            const HISTORY_RUN_END_MARKER = '<!-- END_HISTORY_RUN -->';
+            const MAX_COMMENT_SIZE = 60000;
+            function parseRunHistory(body) {
+              const runs = [];
+              const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g;
+              let match;
+              while ((match = historyRegex.exec(body)) !== null) {
+                runs.push({ summary: match[1].trim(), content: match[2].trim() });
+              }
+              return runs;
+            }
+            function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) {
+              let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n';
+              const runsToShow = previousRuns.slice(0, maxHistory);
+              let historySection = '';
+              let addedCount = 0;
+              if (runsToShow.length > 0) {
+                historySection = '## 📂 Previous Runs\n\n';
+                for (const run of runsToShow) {
+                  const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
+                  const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length;
+                  if (projectedSize > MAX_COMMENT_SIZE) {
+                    const remaining = runsToShow.length - addedCount;
+                    historySection += `<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted._\n</details>\n\n`;
+                    break;
+                  }
+                  historySection += historyEntry;
+                  addedCount++;
+                }
+                historySection += '---\n\n';
+              }
+              body += historySection + currentContent + footer;
+              return body;
+            }
+            function buildParams(raw) {
+              return {
+                isManual: raw.is_manual === 'true', trigger: raw.trigger_source, model: raw.model || 'default',
+                markers: raw.markers, filter: raw.filter, iterations: raw.iterations, branch: raw.branch || '',
+                displayBranch: raw.display_branch || '', runUrl: raw.run_url,
+                prNumber: raw.pr_number ? parseInt(raw.pr_number, 10) : null,
+                commentId: raw.comment_id ? parseInt(raw.comment_id, 10) : null,
+                testCount: raw.test_count || '0', testPreview: raw.test_preview || '',
+                duration: raw.duration || 'N/A', validMarkers: raw.valid_markers || '', triggered_by: raw.triggered_by || ''
+              };
+            }
+            function renderProgress(steps) { return steps.map(([done, text]) => done ? `- [x] ${text}` : `- [ ] ${text}`).join('\n'); }
+            function renderParamsTable(p, ctx = null) {
+              let workflowLinks = `[View logs](${p.runUrl})`;
+              if (ctx) { const baseUrl = `https://github.com/${ctx.repo.owner}/${ctx.repo.repo}/actions/workflows/eval-regression.yaml`; workflowLinks += ` \\| [Rerun](${p.displayBranch ? `${baseUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseUrl})`; }
+              return `| Parameter | Value |\n|-----------|-------|\n| **Triggered via** | ${p.trigger} |\n` + (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') + `| **Model** | \`${p.model}\` |\n| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` + (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') + `| **Iterations** | ${p.iterations} |\n` + (p.duration ? `| **Duration** | ${p.duration} |\n` : '') + `| **Workflow** | ${workflowLinks} |\n`;
+            }
+            function buildBody(p, progressSteps, extras = {}) {
+              let body = p.isManual ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` + renderParamsTable(p, extras.context) : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\nAutomatically triggered by ${p.trigger}\n\n[View workflow logs](${p.runUrl})\n`;
+              if (progressSteps) body += `\n**Progress:**\n${renderProgress(progressSteps)}\n`;
+              if (extras.testPreview) body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`;
+              return body;
+            }
+            function formatAsCodes(items) { if (!items) return '_(loading...)_'; return items.split(',').map(item => { const t = item.trim(); return t ? `\`${t}\`` : ''; }).filter(Boolean).join(', '); }
+            function buildRerunFooter(p, ctx, options = {}) {
+              const repoFullName = `${ctx.repo.owner}/${ctx.repo.repo}`;
+              const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`;
+              const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
+              const ghCommand = p.displayBranch ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=` : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`;
+              let footer = '';
+              if (options.includeLegend) { footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n| Icon | Meaning |\n|------|--------|\n| ✅ | The test was successful |\n| ➖ | The test was skipped |\n| ⚠️ | The test failed but is known to be flaky or known to fail |\n| 🚧 | The test had a setup failure (not a code regression) |\n| 🔧 | The test failed due to mock data issues (not a code regression) |\n| 🚫 | The test was throttled by API rate limits/overload |\n| ❌ | The test failed and should be fixed before merging the PR |\n</details>\n'; }
+              footer += `\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n> ⚠️ **Warning:** \`/eval\` comments always run using the **workflow from master**, not from this PR branch.\n>\n> **To test workflow changes**, use the GitHub CLI or [Actions UI](${workflowUrl}) instead:\n>\n> \`\`\`\n> ${ghCommand}\n> \`\`\`\n\n---\n\n**Option 1: Comment on this PR** with \`/eval\`:\n\n\`\`\`\n/eval\nmarkers: regression\n\`\`\`\n\n**Quick re-run:** Use \`/rerun\` to re-run the most recent \`/eval\` on this PR with the same parameters.\n\n**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n${formatAsCodes(p.validMarkers)}\n</details>\n\n---\n**Commands:** \`/eval\` · \`/rerun\` · \`/list\`\n\n**CLI:** \`${ghCommand}\`\n`;
+              return footer;
+            }
+            // END INLINED HELPERS
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }}
@@ -556,7 +852,19 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Helper functions are inlined to prevent loading from PR checkout
+            const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
+            const HISTORY_RUN_END_MARKER = '<!-- END_HISTORY_RUN -->';
+            const MAX_COMMENT_SIZE = 60000;
+            function parseRunHistory(body) { const runs = []; const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g; let match; while ((match = historyRegex.exec(body)) !== null) { runs.push({ summary: match[1].trim(), content: match[2].trim() }); } return runs; }
+            function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) { let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n'; const runsToShow = previousRuns.slice(0, maxHistory); let historySection = '', addedCount = 0; if (runsToShow.length > 0) { historySection = '## 📂 Previous Runs\n\n'; for (const run of runsToShow) { const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`; const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length; if (projectedSize > MAX_COMMENT_SIZE) { const remaining = runsToShow.length - addedCount; historySection += `<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted._\n</details>\n\n`; break; } historySection += historyEntry; addedCount++; } historySection += '---\n\n'; } body += historySection + currentContent + footer; return body; }
+            function buildParams(raw) { return { isManual: raw.is_manual === 'true', trigger: raw.trigger_source, model: raw.model || 'default', markers: raw.markers, filter: raw.filter, iterations: raw.iterations, branch: raw.branch || '', displayBranch: raw.display_branch || '', runUrl: raw.run_url, prNumber: raw.pr_number ? parseInt(raw.pr_number, 10) : null, commentId: raw.comment_id ? parseInt(raw.comment_id, 10) : null, testCount: raw.test_count || '0', testPreview: raw.test_preview || '', duration: raw.duration || 'N/A', validMarkers: raw.valid_markers || '', triggered_by: raw.triggered_by || '' }; }
+            function renderProgress(steps) { return steps.map(([done, text]) => done ? `- [x] ${text}` : `- [ ] ${text}`).join('\n'); }
+            function renderParamsTable(p, ctx = null) { let workflowLinks = `[View logs](${p.runUrl})`; if (ctx) { const baseUrl = `https://github.com/${ctx.repo.owner}/${ctx.repo.repo}/actions/workflows/eval-regression.yaml`; workflowLinks += ` \\| [Rerun](${p.displayBranch ? `${baseUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseUrl})`; } return `| Parameter | Value |\n|-----------|-------|\n| **Triggered via** | ${p.trigger} |\n` + (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') + `| **Model** | \`${p.model}\` |\n| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` + (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') + `| **Iterations** | ${p.iterations} |\n` + (p.duration ? `| **Duration** | ${p.duration} |\n` : '') + `| **Workflow** | ${workflowLinks} |\n`; }
+            function buildBody(p, progressSteps, extras = {}) { let body = p.isManual ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` + renderParamsTable(p, extras.context) : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\nAutomatically triggered by ${p.trigger}\n\n[View workflow logs](${p.runUrl})\n`; if (progressSteps) body += `\n**Progress:**\n${renderProgress(progressSteps)}\n`; if (extras.testPreview) body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`; return body; }
+            function formatAsCodes(items) { if (!items) return '_(loading...)_'; return items.split(',').map(item => { const t = item.trim(); return t ? `\`${t}\`` : ''; }).filter(Boolean).join(', '); }
+            function buildRerunFooter(p, ctx, options = {}) { const repoFullName = `${ctx.repo.owner}/${ctx.repo.repo}`; const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`; const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl; const ghCommand = p.displayBranch ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=` : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`; let footer = ''; if (options.includeLegend) { footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n| Icon | Meaning |\n|------|--------|\n| ✅ | The test was successful |\n| ➖ | The test was skipped |\n| ⚠️ | The test failed but is known to be flaky or known to fail |\n| 🚧 | The test had a setup failure (not a code regression) |\n| 🔧 | The test failed due to mock data issues (not a code regression) |\n| 🚫 | The test was throttled by API rate limits/overload |\n| ❌ | The test failed and should be fixed before merging the PR |\n</details>\n'; } footer += `\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n> ⚠️ **Warning:** \`/eval\` comments always run using the **workflow from master**, not from this PR branch.\n>\n> **To test workflow changes**, use the GitHub CLI or [Actions UI](${workflowUrl}) instead:\n>\n> \`\`\`\n> ${ghCommand}\n> \`\`\`\n\n---\n\n**Option 1: Comment on this PR** with \`/eval\`:\n\n\`\`\`\n/eval\nmarkers: regression\n\`\`\`\n\n**Quick re-run:** Use \`/rerun\` to re-run the most recent \`/eval\` on this PR with the same parameters.\n\n**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n${formatAsCodes(p.validMarkers)}\n</details>\n\n---\n**Commands:** \`/eval\` · \`/rerun\` · \`/list\`\n\n**CLI:** \`${ghCommand}\`\n`; return footer; }
+            // END INLINED HELPERS
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -607,7 +915,19 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Helper functions are inlined to prevent loading from PR checkout
+            const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
+            const HISTORY_RUN_END_MARKER = '<!-- END_HISTORY_RUN -->';
+            const MAX_COMMENT_SIZE = 60000;
+            function parseRunHistory(body) { const runs = []; const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g; let match; while ((match = historyRegex.exec(body)) !== null) { runs.push({ summary: match[1].trim(), content: match[2].trim() }); } return runs; }
+            function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) { let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n'; const runsToShow = previousRuns.slice(0, maxHistory); let historySection = '', addedCount = 0; if (runsToShow.length > 0) { historySection = '## 📂 Previous Runs\n\n'; for (const run of runsToShow) { const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`; const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length; if (projectedSize > MAX_COMMENT_SIZE) { const remaining = runsToShow.length - addedCount; historySection += `<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted._\n</details>\n\n`; break; } historySection += historyEntry; addedCount++; } historySection += '---\n\n'; } body += historySection + currentContent + footer; return body; }
+            function buildParams(raw) { return { isManual: raw.is_manual === 'true', trigger: raw.trigger_source, model: raw.model || 'default', markers: raw.markers, filter: raw.filter, iterations: raw.iterations, branch: raw.branch || '', displayBranch: raw.display_branch || '', runUrl: raw.run_url, prNumber: raw.pr_number ? parseInt(raw.pr_number, 10) : null, commentId: raw.comment_id ? parseInt(raw.comment_id, 10) : null, testCount: raw.test_count || '0', testPreview: raw.test_preview || '', duration: raw.duration || 'N/A', validMarkers: raw.valid_markers || '', triggered_by: raw.triggered_by || '' }; }
+            function renderProgress(steps) { return steps.map(([done, text]) => done ? `- [x] ${text}` : `- [ ] ${text}`).join('\n'); }
+            function renderParamsTable(p, ctx = null) { let workflowLinks = `[View logs](${p.runUrl})`; if (ctx) { const baseUrl = `https://github.com/${ctx.repo.owner}/${ctx.repo.repo}/actions/workflows/eval-regression.yaml`; workflowLinks += ` \\| [Rerun](${p.displayBranch ? `${baseUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseUrl})`; } return `| Parameter | Value |\n|-----------|-------|\n| **Triggered via** | ${p.trigger} |\n` + (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') + `| **Model** | \`${p.model}\` |\n| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` + (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') + `| **Iterations** | ${p.iterations} |\n` + (p.duration ? `| **Duration** | ${p.duration} |\n` : '') + `| **Workflow** | ${workflowLinks} |\n`; }
+            function buildBody(p, progressSteps, extras = {}) { let body = p.isManual ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` + renderParamsTable(p, extras.context) : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\nAutomatically triggered by ${p.trigger}\n\n[View workflow logs](${p.runUrl})\n`; if (progressSteps) body += `\n**Progress:**\n${renderProgress(progressSteps)}\n`; if (extras.testPreview) body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`; return body; }
+            function formatAsCodes(items) { if (!items) return '_(loading...)_'; return items.split(',').map(item => { const t = item.trim(); return t ? `\`${t}\`` : ''; }).filter(Boolean).join(', '); }
+            function buildRerunFooter(p, ctx, options = {}) { const repoFullName = `${ctx.repo.owner}/${ctx.repo.repo}`; const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`; const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl; const ghCommand = p.displayBranch ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=` : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`; let footer = ''; if (options.includeLegend) { footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n| Icon | Meaning |\n|------|--------|\n| ✅ | The test was successful |\n| ➖ | The test was skipped |\n| ⚠️ | The test failed but is known to be flaky or known to fail |\n| 🚧 | The test had a setup failure (not a code regression) |\n| 🔧 | The test failed due to mock data issues (not a code regression) |\n| 🚫 | The test was throttled by API rate limits/overload |\n| ❌ | The test failed and should be fixed before merging the PR |\n</details>\n'; } footer += `\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n> ⚠️ **Warning:** \`/eval\` comments always run using the **workflow from master**, not from this PR branch.\n>\n> **To test workflow changes**, use the GitHub CLI or [Actions UI](${workflowUrl}) instead:\n>\n> \`\`\`\n> ${ghCommand}\n> \`\`\`\n\n---\n\n**Option 1: Comment on this PR** with \`/eval\`:\n\n\`\`\`\n/eval\nmarkers: regression\n\`\`\`\n\n**Quick re-run:** Use \`/rerun\` to re-run the most recent \`/eval\` on this PR with the same parameters.\n\n**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n${formatAsCodes(p.validMarkers)}\n</details>\n\n---\n**Commands:** \`/eval\` · \`/rerun\` · \`/list\`\n\n**CLI:** \`${ghCommand}\`\n`; return footer; }
+            // END INLINED HELPERS
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -695,7 +1015,19 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const { buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Helper functions are inlined to prevent loading from PR checkout
+            const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
+            const HISTORY_RUN_END_MARKER = '<!-- END_HISTORY_RUN -->';
+            const MAX_COMMENT_SIZE = 60000;
+            function parseRunHistory(body) { const runs = []; const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g; let match; while ((match = historyRegex.exec(body)) !== null) { runs.push({ summary: match[1].trim(), content: match[2].trim() }); } return runs; }
+            function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) { let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n'; const runsToShow = previousRuns.slice(0, maxHistory); let historySection = '', addedCount = 0; if (runsToShow.length > 0) { historySection = '## 📂 Previous Runs\n\n'; for (const run of runsToShow) { const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`; const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length; if (projectedSize > MAX_COMMENT_SIZE) { const remaining = runsToShow.length - addedCount; historySection += `<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted._\n</details>\n\n`; break; } historySection += historyEntry; addedCount++; } historySection += '---\n\n'; } body += historySection + currentContent + footer; return body; }
+            function buildParams(raw) { return { isManual: raw.is_manual === 'true', trigger: raw.trigger_source, model: raw.model || 'default', markers: raw.markers, filter: raw.filter, iterations: raw.iterations, branch: raw.branch || '', displayBranch: raw.display_branch || '', runUrl: raw.run_url, prNumber: raw.pr_number ? parseInt(raw.pr_number, 10) : null, commentId: raw.comment_id ? parseInt(raw.comment_id, 10) : null, testCount: raw.test_count || '0', testPreview: raw.test_preview || '', duration: raw.duration || 'N/A', validMarkers: raw.valid_markers || '', triggered_by: raw.triggered_by || '' }; }
+            function renderProgress(steps) { return steps.map(([done, text]) => done ? `- [x] ${text}` : `- [ ] ${text}`).join('\n'); }
+            function renderParamsTable(p, ctx = null) { let workflowLinks = `[View logs](${p.runUrl})`; if (ctx) { const baseUrl = `https://github.com/${ctx.repo.owner}/${ctx.repo.repo}/actions/workflows/eval-regression.yaml`; workflowLinks += ` \\| [Rerun](${p.displayBranch ? `${baseUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseUrl})`; } return `| Parameter | Value |\n|-----------|-------|\n| **Triggered via** | ${p.trigger} |\n` + (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') + `| **Model** | \`${p.model}\` |\n| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` + (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') + `| **Iterations** | ${p.iterations} |\n` + (p.duration ? `| **Duration** | ${p.duration} |\n` : '') + `| **Workflow** | ${workflowLinks} |\n`; }
+            function buildBody(p, progressSteps, extras = {}) { let body = p.isManual ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` + renderParamsTable(p, extras.context) : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\nAutomatically triggered by ${p.trigger}\n\n[View workflow logs](${p.runUrl})\n`; if (progressSteps) body += `\n**Progress:**\n${renderProgress(progressSteps)}\n`; if (extras.testPreview) body += `\n<details>\n<summary>📋 Evals to run</summary>\n\n\`\`\`\n${extras.testPreview}\n\`\`\`\n</details>\n`; return body; }
+            function formatAsCodes(items) { if (!items) return '_(loading...)_'; return items.split(',').map(item => { const t = item.trim(); return t ? `\`${t}\`` : ''; }).filter(Boolean).join(', '); }
+            function buildRerunFooter(p, ctx, options = {}) { const repoFullName = `${ctx.repo.owner}/${ctx.repo.repo}`; const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`; const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl; const ghCommand = p.displayBranch ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=` : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`; let footer = ''; if (options.includeLegend) { footer += '\n<details>\n<summary>📖 <b>Legend</b></summary>\n\n| Icon | Meaning |\n|------|--------|\n| ✅ | The test was successful |\n| ➖ | The test was skipped |\n| ⚠️ | The test failed but is known to be flaky or known to fail |\n| 🚧 | The test had a setup failure (not a code regression) |\n| 🔧 | The test failed due to mock data issues (not a code regression) |\n| 🚫 | The test was throttled by API rate limits/overload |\n| ❌ | The test failed and should be fixed before merging the PR |\n</details>\n'; } footer += `\n<details>\n<summary>🔄 <b>Re-run evals manually</b></summary>\n\n> ⚠️ **Warning:** \`/eval\` comments always run using the **workflow from master**, not from this PR branch.\n>\n> **To test workflow changes**, use the GitHub CLI or [Actions UI](${workflowUrl}) instead:\n>\n> \`\`\`\n> ${ghCommand}\n> \`\`\`\n\n---\n\n**Option 1: Comment on this PR** with \`/eval\`:\n\n\`\`\`\n/eval\nmarkers: regression\n\`\`\`\n\n**Quick re-run:** Use \`/rerun\` to re-run the most recent \`/eval\` on this PR with the same parameters.\n\n**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n${formatAsCodes(p.validMarkers)}\n</details>\n\n---\n**Commands:** \`/eval\` · \`/rerun\` · \`/list\`\n\n**CLI:** \`${ghCommand}\`\n`; return footer; }
+            // END INLINED HELPERS
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},

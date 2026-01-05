@@ -1,6 +1,14 @@
 /**
- * Shared helper functions for eval workflow PR comments.
- * Used by multiple steps in .github/workflows/eval-regression.yaml
+ * DEPRECATED: This file is no longer used by the workflow.
+ *
+ * SECURITY WARNING: The workflow previously loaded these helpers via require(),
+ * which was vulnerable to code injection from malicious PRs. The workflow now
+ * inlines all helper functions to prevent this attack vector.
+ *
+ * DO NOT re-add require() calls to this file from workflow steps!
+ *
+ * This file is kept for reference and potential local testing only.
+ * The canonical implementation is now inlined in eval-regression.yaml.
  */
 
 // Identifier for the persistent automated eval comment (hidden HTML comment)
