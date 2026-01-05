@@ -1,3 +1,4 @@
+tags: [prometheus, kubernetes]
 expected_output:
   - The frontend-service pod in the default namespace is experiencing 100% CPU throttling for the stress container
   - Suggest increasing the CPU limit

@@ -27,6 +27,11 @@ on:
         description: 'Number of iterations (1-10)'
         required: false
         default: '1'
+      is_pr_trusted:
+        description: 'Allow running on fork PRs (use with caution - grants fork code access to secrets)'
+        required: false
+        default: 'false'
+        type: boolean
   issue_comment:
     types: [created]
 
@@ -41,13 +46,34 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/list')
     steps:
-      - name: Check permissions
+      - name: Check permissions and fork status
         uses: actions/github-script@v7
         with:
           script: |
+            // Check commenter has write access
             const association = context.payload.comment.author_association;
             if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
               core.setFailed(`Permission denied: ${association} cannot use /list (requires OWNER, MEMBER, or COLLABORATOR)`);
+              return;
+            }
+
+            // SECURITY: Block /list on fork PRs (although tbh it should be safe)
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            // Treat orphaned PRs (deleted head repo) as forks
+            const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+            if (isFork) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '❌ `/list` command is not available on fork PRs for security reasons.'
+              });
+              core.setFailed('Fork PRs cannot use /list command');
+              return;
             }
 
       - name: Checkout code
@@ -97,7 +123,13 @@ jobs:
       github.event_name == 'pull_request' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/last')))
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/rerun')))
+
+    # Serialize automated regression runs per PR to avoid race conditions on persistent comment
+    # Manual runs (/eval, workflow_dispatch) get unique groups so they can run in parallel
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('eval-auto-pr-{0}', github.event.pull_request.number) || format('eval-{0}', github.run_id) }}
+      cancel-in-progress: false
 
     steps:
       - name: Handle /eval comment
@@ -113,12 +145,43 @@ jobs:
               return;
             }
 
-            let body = context.payload.comment.body;
-            let lastEvalCommentId = null;
-            const isLastCommand = body.trim().toLowerCase().startsWith('/last');
+            // Get PR info for fork detection
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
 
-            // Handle /last command: find the last /eval comment on this PR
-            if (isLastCommand) {
+            let body = context.payload.comment.body;
+
+            // SECURITY: Check for trusted flag on fork PRs
+            // Treat orphaned PRs (deleted head repo) as forks
+            const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+            if (isFork) {
+              // Check if trusted: true is in the comment (parsed early, before checkout)
+              const trustedMatch = body.match(/^trusted\s*:\s*true\s*$/im);
+              const isTrusted = trustedMatch !== null;
+
+              if (!isTrusted) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: '⚠️ `/eval` and `/rerun` on fork PRs require explicit trust confirmation.\n\n' +
+                        'Running evals grants the fork code access to secrets. If you\'ve reviewed the code, add `trusted: true`:\n\n' +
+                        '```\n/eval\ntrusted: true\nmarkers: regression\n```\n\n' +
+                        'Or use `workflow_dispatch` with `is_pr_trusted: true` from the Actions UI.'
+                });
+                core.setFailed('Fork PRs require trusted: true to run /eval or /rerun');
+                return;
+              }
+              core.warning(`Running /eval on trusted fork PR #${context.issue.number} - fork code will have access to secrets`);
+            }
+            let lastEvalCommentId = null;
+            const isRerunCommand = body.trim().toLowerCase().startsWith('/rerun');
+
+            // Handle /rerun command: find the last /eval comment on this PR
+            if (isRerunCommand) {
               // Fetch all comments (paginate to handle PRs with 100+ comments)
               let allComments = [];
               let page = 1;
@@ -135,7 +198,7 @@ jobs:
                 page++;
               }
 
-              // Find the last /eval comment before this /last comment
+              // Find the last /eval comment before this /rerun comment
               const evalComments = allComments
                 .filter(c => c.id !== context.payload.comment.id && c.body.trim().toLowerCase().startsWith('/eval'))
                 .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -150,7 +213,7 @@ jobs:
               core.info(`Found last /eval comment: ${lastEvalCommentId}`);
             }
 
-            core.setOutput('is_last_command', isLastCommand.toString());
+            core.setOutput('is_rerun_command', isRerunCommand.toString());
             core.setOutput('last_eval_comment_id', lastEvalCommentId ? lastEvalCommentId.toString() : '');
             core.setOutput('resolved_body', body);
 
@@ -168,12 +231,6 @@ jobs:
             }
             core.setOutput('branch', targetBranch);
 
-            // Get PR SHA and branch for checkout (only used if no branch override)
-            const pr = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
             core.setOutput('pr_sha', pr.data.head.sha);
             core.setOutput('pr_branch', pr.data.head.ref);
 
@@ -185,11 +242,23 @@ jobs:
               content: 'eyes'
             });
 
-      - uses: actions/checkout@v4
+      # SECURITY: Checkout to sibling directories so neither can overwrite the other.
+      # PR code goes to ./code/, trusted helpers go to ./.trusted/
+      - name: Checkout PR code
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
+        uses: actions/checkout@v4
         with:
           # For /eval with branch: checkout the specified branch; otherwise checkout PR SHA or current ref
           ref: ${{ steps.eval-comment.outputs.branch || steps.eval-comment.outputs.pr_sha || github.ref }}
+          path: code
+
+      - name: Checkout trusted helpers from base branch
+        if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref || 'master' }}
+          sparse-checkout: .github/scripts
+          path: .trusted
 
       - name: Determine eval parameters
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
@@ -223,10 +292,14 @@ jobs:
             function parseComment(body) {
               const params = { model: '', markers: '', filter: '', iterations: '1', branch: '' };
               const validKeys = new Set(Object.keys(params));
+              // Aliases: marker -> markers, filters -> filter
+              const keyAliases = { marker: 'markers', filters: 'filter' };
               for (const line of body.split('\n').slice(1)) {
                 const colonIdx = line.indexOf(':');
                 if (colonIdx === -1) continue;
-                const key = line.slice(0, colonIdx).trim().toLowerCase();
+                let key = line.slice(0, colonIdx).trim().toLowerCase();
+                // Normalize aliases
+                if (keyAliases[key]) key = keyAliases[key];
                 // Strip leading/trailing quotes (users sometimes add them unnecessarily)
                 const value = line.slice(colonIdx + 1).trim().replace(/^['"]|['"]$/g, '');
                 if (validKeys.has(key) && value) params[key] = value;
@@ -238,9 +311,9 @@ jobs:
             const event = context.eventName;
 
             if (event === 'issue_comment') {
-              // Use resolved body (handles /last command by using the last /eval comment's body)
+              // Use resolved body (handles /rerun command by using the last /eval comment's body)
               const resolvedBody = ${{ toJSON(steps.eval-comment.outputs.resolved_body) }} || context.payload.comment.body;
-              const isLastCommand = ${{ toJSON(steps.eval-comment.outputs.is_last_command) }} === 'true';
+              const isRerunCommand = ${{ toJSON(steps.eval-comment.outputs.is_rerun_command) }} === 'true';
               const lastEvalCommentId = ${{ toJSON(steps.eval-comment.outputs.last_eval_comment_id) }} || '';
 
               const parsed = parseComment(resolvedBody);
@@ -257,9 +330,9 @@ jobs:
 
               // Build trigger source with links to both commands
               const currentCommentUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}#issuecomment-${context.payload.comment.id}`;
-              if (isLastCommand && lastEvalCommentId) {
+              if (isRerunCommand && lastEvalCommentId) {
                 const evalCommentUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}#issuecomment-${lastEvalCommentId}`;
-                triggerSource = `[/last](${currentCommentUrl}) → [/eval](${evalCommentUrl})`;
+                triggerSource = `[/rerun](${currentCommentUrl}) → [/eval](${evalCommentUrl})`;
               } else {
                 triggerSource = branch ? `[/eval on branch \`${branch}\`](${currentCommentUrl})` : `[/eval comment](${currentCommentUrl})`;
               }
@@ -272,6 +345,7 @@ jobs:
               filter = validate(${{ toJSON(github.event.inputs.filter) }} || '', 'filter');
               iterations = validate(${{ toJSON(github.event.inputs.iterations) }} || '', 'iterations');
               const prNum = validate(${{ toJSON(github.event.inputs.pr_number) }} || '', 'pr_number');
+              const isPrTrusted = ${{ toJSON(github.event.inputs.is_pr_trusted) }} === 'true';
               branch = ''; // workflow_dispatch doesn't support branch override yet
               if ([model, markers, filter, iterations, prNum].includes(null)) return;
               isManual = true;
@@ -299,6 +373,27 @@ jobs:
                 } else {
                   core.info(`No open PR found for branch ${currentBranch}`);
                   prNumber = null;
+                }
+              }
+
+              // SECURITY: Check if this is a fork PR and block unless explicitly trusted
+              if (prNumber) {
+                const pr = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+                // Treat orphaned PRs (deleted head repo) as forks
+                const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+                if (isFork && !isPrTrusted) {
+                  core.setFailed(
+                    `Fork PR #${prNumber} detected. Manual workflow_dispatch on fork PRs requires ` +
+                    `is_pr_trusted=true (grants fork code access to secrets).`
+                  );
+                  return;
+                }
+                if (isFork && isPrTrusted) {
+                  core.warning(`Running on trusted fork PR #${prNumber} - fork code will have access to secrets`);
                 }
               }
             } else {
@@ -378,7 +473,17 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Load helpers from trusted checkout (base branch) to prevent code injection from PRs
+            const {
+              AUTO_EVAL_COMMENT_IDENTIFIER,
+              buildParams,
+              buildBody,
+              buildRerunFooter,
+              parseRunHistory,
+              extractCurrentRun,
+              buildAutoCommentWithHistory
+            } = require('./.trusted/.github/scripts/eval-comment-helpers.js');
+
             const p = buildParams(JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}));
             const progressSteps = [
               [false, 'Setup HolmesGPT environment'],
@@ -386,48 +491,130 @@ jobs:
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
-            const comment = await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: p.prNumber,
-              body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
-            });
-            core.setOutput('comment_id', comment.data.id.toString());
+
+            // For automated runs (not /eval or workflow_dispatch), use persistent comment
+            if (!p.isManual) {
+              // Find existing persistent comment
+              let existingComment = null;
+              let page = 1;
+              while (true) {
+                const response = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: p.prNumber,
+                  per_page: 100,
+                  page: page
+                });
+                const found = response.data.find(c => c.body.includes(AUTO_EVAL_COMMENT_IDENTIFIER));
+                if (found) {
+                  existingComment = found;
+                  break;
+                }
+                if (response.data.length < 100) break;
+                page++;
+              }
+
+              const currentContent = buildBody(p, progressSteps, { context });
+              const footer = buildRerunFooter(p, context);
+
+              if (existingComment) {
+                // Parse history from existing comment, including moving current run to history
+                const previousRuns = parseRunHistory(existingComment.body);
+                const currentRun = extractCurrentRun(existingComment.body);
+                if (currentRun && currentRun.content) {
+                  previousRuns.unshift(currentRun);
+                }
+                const body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: body
+                });
+                core.setOutput('comment_id', existingComment.id.toString());
+                core.setOutput('is_persistent', 'true');
+              } else {
+                // Create new persistent comment
+                const body = buildAutoCommentWithHistory(currentContent, [], footer);
+                const comment = await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: p.prNumber,
+                  body: body
+                });
+                core.setOutput('comment_id', comment.data.id.toString());
+                core.setOutput('is_persistent', 'true');
+              }
+            } else {
+              // Manual runs: create a fresh comment (original behavior)
+              const comment = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: p.prNumber,
+                body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
+              });
+              core.setOutput('comment_id', comment.data.id.toString());
+              core.setOutput('is_persistent', 'false');
+            }
 
       # Reordered: Setup HolmesGPT first (needed for pytest), then collect evals, then KIND
       - name: Setup HolmesGPT environment
         if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./.github/actions/setup-holmes-env
+        uses: ./code/.github/actions/setup-holmes-env
         with:
           python-version: '3.12'
           install-kubectl: 'true'
+          working-directory: code
 
       - name: Update progress - HolmesGPT setup done
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Load helpers from trusted checkout (base branch) to prevent code injection from PRs
+            const {
+              buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory
+            } = require('./.trusted/.github/scripts/eval-comment-helpers.js');
+
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }}
             });
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [false, 'Collect evals to run'],
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
+
+            let body;
+            if (isPersistent) {
+              // Preserve history for automated runs
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId
+              });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const currentContent = buildBody(p, progressSteps, { context });
+              const footer = buildRerunFooter(p, context);
+              body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+            } else {
+              body = buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context);
+            }
+
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { context }) + buildRerunFooter(p, context)
+              body: body
             });
 
       - name: Collect evals to run
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         id: test-preview
+        working-directory: code
         shell: bash
         env:
           MODEL: ${{ steps.eval-params.outputs.model }}
@@ -474,7 +661,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Load helpers from trusted checkout (base branch) to prevent code injection from PRs
+            const {
+              buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory
+            } = require('./.trusted/.github/scripts/eval-comment-helpers.js');
+
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -482,22 +673,40 @@ jobs:
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
             });
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
               [false, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
+
+            let body;
+            if (isPersistent) {
+              // Preserve history for automated runs
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId
+              });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const currentContent = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context });
+              const footer = buildRerunFooter(p, context);
+              body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+            } else {
+              body = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context);
+            }
+
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context)
+              body: body
             });
 
       - name: Setup KIND cluster
         if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./.github/actions/setup-kind-cluster
+        uses: ./code/.github/actions/setup-kind-cluster
         with:
           cluster-name: 'kind'
           wait-for-ready: 'true'
@@ -507,7 +716,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Load helpers from trusted checkout (base branch) to prevent code injection from PRs
+            const {
+              buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory
+            } = require('./.trusted/.github/scripts/eval-comment-helpers.js');
+
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -515,23 +728,42 @@ jobs:
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
             });
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
               [true, 'Setup HolmesGPT environment'],
               [true, `Collect evals to run (${p.testCount} tests)`],
               [true, 'Setup KIND cluster'],
               [false, 'Run evals']
             ];
+
+            let body;
+            if (isPersistent) {
+              // Preserve history for automated runs
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId
+              });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const currentContent = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context });
+              const footer = buildRerunFooter(p, context);
+              body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+            } else {
+              body = buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context);
+            }
+
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: p.commentId,
-              body: buildBody(p, progressSteps, { testPreview: p.testCount !== '0' ? p.testPreview : null, context }) + buildRerunFooter(p, context)
+              body: body
             });
 
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
         id: evals
         continue-on-error: true
+        working-directory: code
         shell: bash
         env:
           RUN_LIVE: "true"
@@ -545,6 +777,8 @@ jobs:
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4o' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
+          ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
@@ -577,7 +811,11 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const { buildParams, buildBody, buildRerunFooter } = require('./.github/scripts/eval-comment-helpers.js');
+            // SECURITY: Load helpers from trusted checkout (base branch) to prevent code injection from PRs
+            const {
+              buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory
+            } = require('./.trusted/.github/scripts/eval-comment-helpers.js');
+
             const p = buildParams({
               ...JSON.parse(${{ toJSON(steps.eval-params.outputs.base_params) }}),
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
@@ -585,38 +823,72 @@ jobs:
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
               triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
-            const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
-            const failures = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
+            const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
+            const report = fs.existsSync('code/evals_report.md') ? fs.readFileSync('code/evals_report.md', 'utf8') : '';
+            const failures = fs.existsSync('code/regressions.txt') ? fs.readFileSync('code/regressions.txt', 'utf8').trim() : '';
             const hasFailures = failures && failures !== '0';
 
-            // Build notification header for the user who triggered the eval
+            // Build notification header for the user who triggered the eval (only for manual runs)
             const triggeredBy = p.triggered_by || '';
             const statusText = hasFailures
               ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
               : '✅ Completed successfully';
             const notifyHeader = triggeredBy ? `@${triggeredBy} Your eval run has finished. ${statusText}\n\n---\n\n` : '';
 
-            let body = notifyHeader + buildBody(p, null, {
+            // Build current run content
+            let currentContent = buildBody(p, null, {
               icon: p.isManual ? '🧪' : '✅',
               title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals',
               context
             });
-            body += '\n' + (report || '⚠️ No eval report was generated.\n\n');
-            if (hasFailures) body += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
-            body += buildRerunFooter(p, context, { includeLegend: true });
 
-            // Delete progress comment and create fresh results comment
-            // This ensures the user gets a GitHub notification when evals complete
-            if (p.commentId) {
-              await github.rest.issues.deleteComment({
-                owner: context.repo.owner, repo: context.repo.repo,
+            // Insert failures warning before "Historical Comparison Details" if present
+            let reportContent = report || '⚠️ No eval report was generated.\n\n';
+            if (hasFailures) {
+              const failuresWarning = `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
+              const historyMarker = '### Historical Comparison Details';
+              const historyIdx = reportContent.indexOf(historyMarker);
+              if (historyIdx !== -1) {
+                // Insert before Historical Comparison Details
+                reportContent = reportContent.slice(0, historyIdx) + failuresWarning + reportContent.slice(historyIdx);
+              } else {
+                // Append at the end if no Historical Comparison Details section
+                reportContent += failuresWarning;
+              }
+            }
+            currentContent += '\n' + reportContent;
+            const footer = buildRerunFooter(p, context, { includeLegend: true });
+
+            if (isPersistent && p.commentId) {
+              // For automated runs: update the persistent comment, preserving history
+              const existingComment = await github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
                 comment_id: p.commentId
               });
+              const previousRuns = parseRunHistory(existingComment.data.body);
+              const body = buildAutoCommentWithHistory(currentContent, previousRuns, footer);
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: p.commentId,
+                body: body
+              });
+            } else {
+              // For manual runs: delete progress comment and create fresh results comment
+              // This ensures the user gets a GitHub notification when evals complete
+              const body = notifyHeader + currentContent + footer;
+              if (p.commentId) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  comment_id: p.commentId
+                });
+              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: p.prNumber, body
+              });
             }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: p.prNumber, body
-            });
 
       - name: Add completion reaction
         if: always() && github.event_name == 'issue_comment' && steps.eval-comment.outcome == 'success'
@@ -643,6 +915,7 @@ jobs:
 
       - name: Check test results
         if: always()
+        working-directory: code
         run: |
           if [[ -f "regressions.txt" ]]; then
             echo "⚠️ There are failures in the evals. Please check the file for details."

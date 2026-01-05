@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -228,6 +229,11 @@ def responses():
         rsps.add_passthru("https://app.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.eu")
         rsps.add_passthru("https://ng-api-http.eu2.coralogix.com")
+
+        # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
+        rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
+        rsps.add_passthru(re.compile(r"https://.*\.elastic-cloud\.com"))  # Azure-hosted
+        rsps.add_passthru(re.compile(r"https://.*\.es\.amazonaws\.com"))  # AWS OpenSearch
 
         # Allow
         rsps.add_passthru("https://google.com")

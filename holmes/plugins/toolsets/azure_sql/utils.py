@@ -20,38 +20,6 @@ def format_timing(microseconds: float) -> str:
         return f"{microseconds:.0f} μs"
 
 
-def format_size_bytes(bytes_value: float) -> str:
-    """Format byte values with appropriate units.
-
-    Args:
-        bytes_value: Size value in bytes
-
-    Returns:
-        Formatted string with appropriate units (GB, MB, KB, or B)
-    """
-    if bytes_value >= 1_073_741_824:  # >= 1 GB
-        return f"{bytes_value / 1_073_741_824:.2f} GB"
-    elif bytes_value >= 1_048_576:  # >= 1 MB
-        return f"{bytes_value / 1_048_576:.2f} MB"
-    elif bytes_value >= 1_024:  # >= 1 KB
-        return f"{bytes_value / 1_024:.2f} KB"
-    else:  # < 1 KB
-        return f"{bytes_value:.0f} B"
-
-
-def format_percentage(value: float, decimal_places: int = 2) -> str:
-    """Format percentage values.
-
-    Args:
-        value: Percentage value (0-100)
-        decimal_places: Number of decimal places to show
-
-    Returns:
-        Formatted percentage string
-    """
-    return f"{value:.{decimal_places}f}%"
-
-
 def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
     """Safely divide two numbers, handling division by zero.
 

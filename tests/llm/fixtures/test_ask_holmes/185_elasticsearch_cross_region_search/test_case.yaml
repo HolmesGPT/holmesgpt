@@ -1,0 +1,175 @@
+# Test: Elasticsearch Cross-Region Search - Index Pattern Discovery
+#
+# This test simulates an enterprise with geo-distributed logging across 1620 indexes.
+# Index naming follows: app-185-geo-{region}-{service}-{date}
+#
+# Regions: us-east, us-west, eu-west, eu-central, ap-south, ap-northeast (6 regions)
+# Services: 27 services per region
+# Dates: 10 days
+# Total: 1620 indexes (still exceeds 25K token limit at ~61K tokens)
+#
+# Challenge: User asks about an issue in a specific region but doesn't know the
+# exact index. LLM must discover the naming pattern and search appropriately.
+#
+# Anti-hallucination: Uses unique request ID (REQ-EU-8K4M2) and specific error
+# message that can only be found by actually searching.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "We got a customer complaint about slow response times in Europe. The customer mentioned seeing request ID REQ-EU-8K4M2 in their error page. Find what happened with this request and which service had the issue."
+
+expected_output:
+  - "Must identify the authentication service (or auth service or auth-service) as the source of the problem"
+  - "Must mention that the request took over 15 seconds or timed out"
+  - "Must include the request ID REQ-EU-8K4M2 in the response"
+  - "Should indicate this was in the EU region (eu-west or eu-central)"
+
+tags:
+  - elasticsearch
+  - hard
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  echo "Creating 1620 geo-distributed indexes..."
+
+  # Clean up any existing test data first for idempotency
+  echo "Cleaning up any existing test data..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-185-geo-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
+
+  # Create index template with 0 replicas to fit within cluster shard limits
+  echo "Creating index template with 0 replicas..."
+  TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "index_patterns": ["app-185-geo-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        }
+      }
+    }')
+
+  if ! echo "$TEMPLATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index template: $TEMPLATE_RESPONSE"
+    exit 1
+  fi
+
+  # 6 regions x 27 services x 10 days = 1620 indexes
+  REGIONS="us-east us-west eu-west eu-central ap-south ap-northeast"
+  SERVICES="api web worker cache db auth billing notification search analytics \
+    orders payments inventory shipping tracking reviews ratings users profiles \
+    catalog pricing promotions recommendations cart checkout wishlist subscriptions"
+
+  BULK_FILE="/tmp/es_geo_185_$$.ndjson"
+  > "$BULK_FILE"
+
+  for region in $REGIONS; do
+    for service in $SERVICES; do
+      for day in $(seq -w 1 10); do
+        INDEX_NAME="app-185-geo-${region}-${service}-2024.01.${day}"
+        echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
+        echo "{\"@timestamp\": \"2024-01-${day}T12:00:00Z\", \"level\": \"INFO\", \"service\": \"${service}\", \"region\": \"${region}\", \"message\": \"Request completed successfully\", \"response_time_ms\": 150}" >> "$BULK_FILE"
+      done
+    done
+  done
+
+  LINE_COUNT=$(wc -l < "$BULK_FILE")
+  echo "Generated bulk file with $LINE_COUNT lines"
+
+  # Upload in chunks
+  echo "Uploading bulk data..."
+  split -l 400 "$BULK_FILE" /tmp/es_geo_185_chunk_
+
+  CHUNK_NUM=0
+  for chunk in /tmp/es_geo_185_chunk_*; do
+    CHUNK_NUM=$((CHUNK_NUM + 1))
+    RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$chunk")
+
+    if echo "$RESPONSE" | grep -q '"errors":false'; then
+      echo "Chunk $CHUNK_NUM uploaded"
+    else
+      ERROR_COUNT=$(echo "$RESPONSE" | grep -o '"error"' | wc -l || echo "0")
+      echo "Chunk $CHUNK_NUM: $ERROR_COUNT potential errors (may be expected)"
+    fi
+    rm -f "$chunk"
+  done
+
+  rm -f "$BULK_FILE"
+
+  # Insert the needle - a slow request in EU auth service
+  echo "Inserting needle (slow EU request) into app-185-geo-eu-west-auth-2024.01.05..."
+
+  NEEDLE_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-185-geo-eu-west-auth-2024.01.05/_doc" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "@timestamp": "2024-01-05T09:23:47Z",
+      "level": "ERROR",
+      "service": "auth",
+      "region": "eu-west",
+      "request_id": "REQ-EU-8K4M2",
+      "message": "Authentication request timeout - request ID REQ-EU-8K4M2 took 15847ms to respond. LDAP backend connection pool exhausted. Customer authentication failed after retry attempts.",
+      "response_time_ms": 15847,
+      "user_id": "customer-39284",
+      "endpoint": "/api/v2/auth/validate"
+    }')
+
+  if echo "$NEEDLE_RESPONSE" | grep -q '"result":"created"\|"result":"updated"'; then
+    echo "✅ Needle document inserted successfully"
+  else
+    echo "❌ Failed to insert needle: $NEEDLE_RESPONSE"
+    exit 1
+  fi
+
+  sleep 2
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-185-geo-*/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify needle is searchable
+  VERIFY=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-185-geo-*/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query": {"match": {"request_id": "REQ-EU-8K4M2"}}, "size": 1}')
+
+  if echo "$VERIFY" | grep -q '"REQ-EU-8K4M2"'; then
+    echo "✅ Verified: Needle is searchable"
+  else
+    echo "❌ Failed to verify needle document with request ID REQ-EU-8K4M2"
+    echo "$VERIFY"
+    exit 1
+  fi
+
+  INDEX_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-185-geo-*?format=json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"index"' | wc -l)
+  echo "✅ Total test indexes created: $INDEX_COUNT"
+  echo "✅ Setup complete!"
+
+after_test: |
+
+  echo "Cleaning up test indexes (app-185-geo-*)..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-185-geo-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "Cleaning up index template..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_geo_185_*.ndjson /tmp/es_geo_185_chunk_*
+
+  echo "✅ Cleanup complete"
