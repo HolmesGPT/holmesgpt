@@ -4,8 +4,8 @@
 # a common issue where dynamic mapping creates too many fields.
 #
 # Setup:
-# - Normal indexes with standard field counts (~10 fields)
-# - One index (app-188-events-expanded) with 500+ dynamically created fields
+# - Normal indexes (app-188-index-a/b/c) with standard field counts (~10 fields)
+# - One index (app-188-index-x) with 500+ dynamically created fields
 #
 # The LLM must use the mapping API to identify which index has excessive fields.
 # This is a common performance issue - mappings with hundreds of fields slow down
