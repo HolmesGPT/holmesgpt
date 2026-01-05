@@ -132,6 +132,7 @@ markers = [
     "loki: Loki toolset",
     "coralogix: Runs coralogix evals",
     "grafana-dashboard: Tests involving Grafana dashboard interactions",
+    "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
     # REGRESSION TEST SELECTION CRITERIA:
     # - Must pass 30+ iterations reliably with Sonnet-4.5 model
     # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)  

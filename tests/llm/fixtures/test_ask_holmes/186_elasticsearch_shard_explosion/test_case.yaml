@@ -1,0 +1,175 @@
+# Test: Elasticsearch Shard Explosion - Filter Required for Large Clusters
+#
+# This test creates ~500+ shards across multiple indexes to demonstrate that
+# querying shards requires filtering when dealing with many indexes.
+# The large shard count ensures output exceeds context window without filtering.
+#
+# The LLM must use the index filter parameter to query shards for specific indexes.
+#
+# Setup:
+# - 100 indexes with 5 shards each = 500 shards
+# - 1 special index (app-186-shard-analytics) with 7 primary shards (0 replicas) = 7 shards
+# - Total: 507 shards
+#
+# Anti-hallucination: The specific shard count (7 primary) can only be found by querying.
+# Common defaults are 1 or 5 shards, so 7 is unusual and proves actual discovery.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "Our analytics dashboard seems slow. Can you check the shard configuration for the app-186-shard-analytics index? How many primary shards does it have and what is their status?"
+
+expected_output:
+  - "Must report that app-186-shard-analytics has 7 primary shards"
+  - "Must mention the shard status (STARTED, INITIALIZING, or similar)"
+
+tags:
+  - elasticsearch
+  - hard
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  echo "Creating indexes with ~507 total shards..."
+
+  # Clean up any existing test data first
+  echo "Cleaning up any existing test data..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-186-shard-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-186-shard-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
+
+  # Create an index template for the data indexes with 5 shards
+  echo "Creating index template with 5 shards..."
+  TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-186-shard-template" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "index_patterns": ["app-186-shard-data-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 5,
+          "number_of_replicas": 0
+        }
+      }
+    }')
+
+  if echo "$TEMPLATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "✅ Index template created successfully"
+  else
+    echo "❌ Failed to create template: $TEMPLATE_RESPONSE"
+    exit 1
+  fi
+
+  # Create unique temp file for this test run
+  BULK_FILE="/tmp/es_shard_bulk_186_$$.ndjson"
+  > "$BULK_FILE"
+
+  for i in $(seq -w 1 100); do
+    INDEX_NAME="app-186-shard-data-${i}"
+    echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T12:00:00Z\", \"value\": ${i}}" >> "$BULK_FILE"
+  done
+
+  echo "Creating 100 indexes via bulk API (with 5 shards each from template)..."
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  rm -f "$BULK_FILE"
+
+  if echo "$RESPONSE" | grep -q '"errors":false'; then
+    echo "✅ Bulk insert successful - created 100 indexes with 5 shards each (500 shards)"
+  else
+    echo "⚠️ Some errors during bulk insert (may be expected if re-running)"
+  fi
+
+  # Create the special analytics index with 7 shards and 0 replicas
+  echo "Creating special analytics index with 7 shards..."
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-186-shard-analytics" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null 2>&1 || true
+
+  ANALYTICS_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-186-shard-analytics?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 7,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": {"type": "date"},
+          "metric": {"type": "keyword"},
+          "value": {"type": "float"}
+        }
+      }
+    }')
+
+  if echo "$ANALYTICS_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "✅ Analytics index created with 7 shards"
+  else
+    echo "❌ Failed to create analytics index: $ANALYTICS_RESPONSE"
+    exit 1
+  fi
+
+  # Insert some data
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-186-shard-analytics/_doc" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"@timestamp": "2024-01-15T12:00:00Z", "metric": "page_views", "value": 12345}' > /dev/null
+
+  # Wait for shards to be ready with retry loop
+  echo "⏳ Waiting for shards to be ready..."
+  for attempt in $(seq 1 30); do
+    SHARD_INFO=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/shards/app-186-shard-analytics?format=json" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || echo "")
+
+    if [ -n "$SHARD_INFO" ]; then
+      SHARD_COUNT=$(echo "$SHARD_INFO" | grep -o '"prirep":"p"' | wc -l)
+      if [ "$SHARD_COUNT" = "7" ]; then
+        echo "✅ Analytics index has $SHARD_COUNT primary shards"
+        break
+      fi
+    fi
+
+    if [ "$attempt" = "30" ]; then
+      echo "❌ Timeout waiting for shards to be ready"
+      exit 1
+    fi
+    sleep 1
+  done
+
+  # Validate shard count
+  if [ "$SHARD_COUNT" != "7" ]; then
+    echo "❌ Expected 7 primary shards but found: $SHARD_COUNT"
+    exit 1
+  fi
+
+  # Count total shards in test namespace
+  TOTAL_SHARDS=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/shards/app-186-shard-*?format=json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"index"' | wc -l)
+  echo "✅ Total test shards created: $TOTAL_SHARDS"
+  echo "✅ Setup complete!"
+
+after_test: |
+
+  echo "Cleaning up test indexes (app-186-shard-*)..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-186-shard-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "Cleaning up index template..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-186-shard-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_shard_bulk_186_*.ndjson
+
+  echo "✅ Cleanup complete"
