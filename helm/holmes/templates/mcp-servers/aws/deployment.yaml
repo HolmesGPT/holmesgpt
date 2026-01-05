@@ -22,6 +22,9 @@ data:
       {{ $profile }}:
         account_id: {{ $config.account_id | quote }}
         role_arn: {{ $config.role_arn | quote }}
+        {{- if $config.region }}
+        region: {{ $config.region | quote }}
+        {{- end }}
       {{- end }}
   {{- end }}
 ---
