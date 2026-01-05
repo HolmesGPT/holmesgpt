@@ -68,20 +68,24 @@ def _fetch_additional_system_prompt(url: str) -> Optional[str]:
     response = requests.get(url, timeout=10)
     response.raise_for_status()
 
+    # Parse JSON
     try:
         data = response.json()
-        if isinstance(data, dict) and "additional_system_prompt" in data:
-            prompt = data["additional_system_prompt"]
-            if not isinstance(prompt, str):
-                raise ValueError("'additional_system_prompt' must be a string")
-            return prompt
-        if isinstance(data, str):
-            return data
-    except ValueError:
-        # Not JSON or malformed; fall back to raw text
-        pass
+    except ValueError as e:
+        raise ValueError(f"Failed to parse JSON from {url}: {e}") from e
 
-    return response.text
+    # Validate structure
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid format from {url}. Expected JSON dict, got: {type(data).__name__}")
+
+    if "additional_system_prompt" not in data:
+        raise ValueError(f"Missing 'additional_system_prompt' field in JSON from {url}")
+
+    prompt = data["additional_system_prompt"]
+    if not isinstance(prompt, str):
+        raise ValueError(f"'additional_system_prompt' field must be a string in JSON from {url}, got: {type(prompt).__name__}")
+
+    return prompt
 
 
 def _has_frontend_tests(session: pytest.Session) -> bool:
