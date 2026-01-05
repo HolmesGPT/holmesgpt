@@ -5,6 +5,7 @@ user_prompt:
 
 expected_output:
   - 'Includes a block embed such as <<{ "type": "chart", "data": JSON, "title": "namespace app-194 substring comparison" }>>'
+  - The embed must start with <<{ and end with }>>
   - The embed type is exactly equal to "chart"
   - The embed includes the count or percentage for each group
   - The embed doesn't contain any line-break characters
