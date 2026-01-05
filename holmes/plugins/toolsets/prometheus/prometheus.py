@@ -52,26 +52,33 @@ DEFAULT_METADATA_TIME_WINDOW_HRS = 1
 
 
 class PrometheusConfig(BaseModel):
-    # URL is optional because it can be set with an env var
-    prometheus_url: Optional[str]
-
-    # New config for default time window for metadata APIs
-    default_metadata_time_window_hrs: int = DEFAULT_METADATA_TIME_WINDOW_HRS  # Default: only show metrics active in the last hour
-
-    # Query timeout configuration
-    default_query_timeout_seconds: int = (
-        DEFAULT_QUERY_TIMEOUT_SECONDS  # Default timeout for PromQL queries
-    )
-    max_query_timeout_seconds: int = (
-        MAX_QUERY_TIMEOUT_SECONDS  # Maximum allowed timeout for PromQL queries
+    prometheus_url: Optional[str] = Field(
+        default=None,
+        description="Prometheus server URL. Can also be set via PROMETHEUS_URL env var",
+        examples=["http://prometheus.monitoring.svc:9090"],
     )
 
-    # Metadata API timeout configuration
-    default_metadata_timeout_seconds: int = (
-        DEFAULT_METADATA_TIMEOUT_SECONDS  # Default timeout for metadata/discovery APIs
+    default_metadata_time_window_hrs: int = Field(
+        default=DEFAULT_METADATA_TIME_WINDOW_HRS,
+        description="Time window for metadata APIs (in hours). Only shows metrics active in this window",
     )
-    max_metadata_timeout_seconds: int = (
-        MAX_METADATA_TIMEOUT_SECONDS  # Maximum allowed timeout for metadata APIs
+
+    default_query_timeout_seconds: int = Field(
+        default=DEFAULT_QUERY_TIMEOUT_SECONDS,
+        description="Default timeout for PromQL queries",
+    )
+    max_query_timeout_seconds: int = Field(
+        default=MAX_QUERY_TIMEOUT_SECONDS,
+        description="Maximum allowed timeout for PromQL queries",
+    )
+
+    default_metadata_timeout_seconds: int = Field(
+        default=DEFAULT_METADATA_TIMEOUT_SECONDS,
+        description="Default timeout for metadata/discovery APIs",
+    )
+    max_metadata_timeout_seconds: int = Field(
+        default=MAX_METADATA_TIMEOUT_SECONDS,
+        description="Maximum allowed timeout for metadata APIs",
     )
 
     # DEPRECATED: These config values are deprecated and will be removed in a future version

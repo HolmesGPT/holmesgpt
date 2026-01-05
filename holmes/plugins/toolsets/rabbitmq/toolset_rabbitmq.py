@@ -2,7 +2,7 @@ import os
 import logging
 from typing import Any, ClassVar, List, Optional, Tuple, Type
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
@@ -26,7 +26,9 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class RabbitMQConfig(BaseModel):
-    clusters: List[RabbitMQClusterConfig]
+    clusters: List[RabbitMQClusterConfig] = Field(
+        description="List of RabbitMQ clusters to connect to",
+    )
 
 
 class BaseRabbitMQTool(Tool):

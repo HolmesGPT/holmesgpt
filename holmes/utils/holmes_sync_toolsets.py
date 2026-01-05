@@ -32,14 +32,13 @@ def _json_serializer(obj: Any) -> Any:
 def wrap_installation_instructions_with_schema(
     instructions: str,
     config_schema: Optional[Dict[str, Any]],
-    example_config: Optional[Dict[str, Any]],
 ) -> str:
     """Wraps installation instructions with config schema as JSON.
 
     The frontend can parse this to extract:
     - instructions: The markdown installation instructions
     - config_schema: JSON Schema for the toolset's configuration
-    - example_config: Example configuration values
+      (includes examples via Field annotations in Pydantic models)
 
     For backwards compatibility, frontend should check if the string
     is valid JSON with an "instructions" key, otherwise treat as plain string.
@@ -48,7 +47,6 @@ def wrap_installation_instructions_with_schema(
         {
             "instructions": instructions,
             "config_schema": config_schema,
-            "example_config": example_config,
         },
         default=_json_serializer,
     )
@@ -84,11 +82,9 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
 
         # Wrap installation_instructions with config schema for frontend
         config_schema = toolset.get_config_schema()
-        example_config = toolset.get_example_config()
         wrapped_instructions = wrap_installation_instructions_with_schema(
             instructions=toolset.installation_instructions,
             config_schema=config_schema,
-            example_config=example_config if example_config else None,
         )
 
         db_toolsets.append(

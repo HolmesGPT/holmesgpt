@@ -108,7 +108,6 @@ def test_sync_toolsets_with_installation_instructions(
     wrapped = json.loads(toolset_data["installation_instructions"])
     assert wrapped["instructions"] == "Test installation instructions"
     assert wrapped["config_schema"] is None  # sample toolset has no config_class
-    assert wrapped["example_config"] is None
     mock_render.assert_called_once_with(sample_toolset)
 
 

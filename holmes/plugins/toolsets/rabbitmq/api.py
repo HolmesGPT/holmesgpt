@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 import backoff
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import requests  # type: ignore
 from requests.auth import HTTPBasicAuth  # type: ignore
 
@@ -17,12 +17,33 @@ class ClusterConnectionStatus(str, Enum):
 
 
 class RabbitMQClusterConfig(BaseModel):
-    id: str = "rabbitmq"  # must be unique
-    management_url: str  # e.g., http://rabbitmq-service:15672
-    username: Optional[str] = None
-    password: Optional[str] = None
-    request_timeout_seconds: int = 30
-    verify_certs: bool = True
+    id: str = Field(
+        default="rabbitmq",
+        description="Unique identifier for this cluster",
+        examples=["rabbitmq", "rabbitmq-prod"],
+    )
+    management_url: str = Field(
+        description="RabbitMQ Management API URL",
+        examples=["http://rabbitmq.default.svc:15672"],
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="Username for authentication",
+        examples=["holmes_user"],
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="Password for authentication",
+        examples=["your-password"],
+    )
+    request_timeout_seconds: int = Field(
+        default=30,
+        description="Request timeout in seconds",
+    )
+    verify_certs: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates",
+    )
 
     # For internal use
     connection_status: Optional[ClusterConnectionStatus] = None
