@@ -63,7 +63,8 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
-            const isFork = pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+            // Treat orphaned PRs (deleted head repo) as forks
+            const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
             if (isFork) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -154,7 +155,8 @@ jobs:
             let body = context.payload.comment.body;
 
             // SECURITY: Check for trusted flag on fork PRs
-            const isFork = pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+            // Treat orphaned PRs (deleted head repo) as forks
+            const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
             if (isFork) {
               // Check if trusted: true is in the comment (parsed early, before checkout)
               const trustedMatch = body.match(/^trusted\s*:\s*true\s*$/im);
@@ -381,7 +383,8 @@ jobs:
                   repo: context.repo.repo,
                   pull_number: prNumber
                 });
-                const isFork = pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
+                // Treat orphaned PRs (deleted head repo) as forks
+                const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
                 if (isFork && !isPrTrusted) {
                   core.setFailed(
                     `Fork PR #${prNumber} detected. Manual workflow_dispatch on fork PRs requires ` +
