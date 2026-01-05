@@ -21,24 +21,73 @@ es_validate_env() {
 }
 
 # Set cluster shard limit (idempotent - safe to call from multiple tests)
+# By default, only verifies the limit is sufficient. Set ES_UPDATE_SHARD_LIMIT=true to update.
 es_set_shard_limit() {
   local response
   local exit_code
-  response=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d "{\"persistent\": {\"cluster.max_shards_per_node\": ${ES_MAX_SHARDS_PER_NODE}}}" 2>&1)
+  local current_limit
+
+  # Get current shard limit
+  response=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cluster/settings?include_defaults=true&flat_settings=true" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>&1)
   exit_code=$?
 
   if [ $exit_code -ne 0 ]; then
-    echo "❌ Failed to set cluster shard limit (curl exit code: $exit_code)"
+    echo "❌ Failed to get cluster settings (curl exit code: $exit_code)"
     echo "Response: $response"
     exit 1
   fi
 
-  if ! echo "$response" | grep -q '"acknowledged":true'; then
-    echo "❌ Cluster settings update not acknowledged"
+  # Extract current limit (check persistent, then transient, then defaults)
+  current_limit=$(echo "$response" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+limit = d.get('persistent', {}).get('cluster.max_shards_per_node')
+if not limit:
+    limit = d.get('transient', {}).get('cluster.max_shards_per_node')
+if not limit:
+    limit = d.get('defaults', {}).get('cluster.max_shards_per_node', '1000')
+print(limit)
+" 2>/dev/null)
+
+  if [ -z "$current_limit" ]; then
+    echo "❌ Could not determine current shard limit"
     echo "Response: $response"
+    exit 1
+  fi
+
+  # Check if current limit is sufficient
+  if [ "$current_limit" -ge "$ES_MAX_SHARDS_PER_NODE" ] 2>/dev/null; then
+    echo "✅ Cluster shard limit ($current_limit) is sufficient (need $ES_MAX_SHARDS_PER_NODE)"
+    return 0
+  fi
+
+  # Limit is too low - check if we're allowed to update
+  if [ "$ES_UPDATE_SHARD_LIMIT" = "true" ]; then
+    echo "⏳ Updating cluster shard limit from $current_limit to $ES_MAX_SHARDS_PER_NODE..."
+    response=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      -d "{\"persistent\": {\"cluster.max_shards_per_node\": ${ES_MAX_SHARDS_PER_NODE}}}" 2>&1)
+    exit_code=$?
+
+    if [ $exit_code -ne 0 ]; then
+      echo "❌ Failed to set cluster shard limit (curl exit code: $exit_code)"
+      echo "Response: $response"
+      exit 1
+    fi
+
+    if ! echo "$response" | grep -q '"acknowledged":true'; then
+      echo "❌ Cluster settings update not acknowledged"
+      echo "Response: $response"
+      exit 1
+    fi
+    echo "✅ Cluster shard limit updated to $ES_MAX_SHARDS_PER_NODE"
+  else
+    echo "❌ Cluster shard limit ($current_limit) is too low (need $ES_MAX_SHARDS_PER_NODE)"
+    echo ""
+    echo "To update the shard limit, rerun with:"
+    echo "  ES_UPDATE_SHARD_LIMIT=true <command>"
     exit 1
   fi
 }
