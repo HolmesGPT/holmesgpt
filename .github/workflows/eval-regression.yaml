@@ -28,7 +28,7 @@ on:
         required: false
         default: '1'
       is_pr_trusted:
-        description: 'Allow running on fork PRs (use with caution - fork PRs have no secrets access)'
+        description: 'Allow running on fork PRs (use with caution - grants fork code access to secrets)'
         required: false
         default: 'false'
         type: boolean
@@ -57,7 +57,7 @@ jobs:
               return;
             }
 
-            // SECURITY: Block /list on fork PRs to prevent exposing directory structure
+            // SECURITY: Block /list on fork PRs (although tbh it should be safe)
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -151,22 +151,30 @@ jobs:
               pull_number: context.issue.number
             });
 
-            // SECURITY: Block /eval and /rerun on fork PRs
+            let body = context.payload.comment.body;
+
+            // SECURITY: Check for trusted flag on fork PRs
             const isFork = pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
             if (isFork) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: '❌ `/eval` and `/rerun` commands are not available on fork PRs for security reasons.\n\n' +
-                      'Fork PRs run automatic regression tests without secrets. For manual eval runs, ' +
-                      'a maintainer can use `workflow_dispatch` with `is_pr_trusted: true` after reviewing the code.'
-              });
-              core.setFailed('Fork PRs cannot use /eval or /rerun commands');
-              return;
-            }
+              // Check if trusted: true is in the comment (parsed early, before checkout)
+              const trustedMatch = body.match(/^trusted\s*:\s*true\s*$/im);
+              const isTrusted = trustedMatch !== null;
 
-            let body = context.payload.comment.body;
+              if (!isTrusted) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: '⚠️ `/eval` and `/rerun` on fork PRs require explicit trust confirmation.\n\n' +
+                        'Running evals grants the fork code access to secrets. If you\'ve reviewed the code, add `trusted: true`:\n\n' +
+                        '```\n/eval\ntrusted: true\nmarkers: regression\n```\n\n' +
+                        'Or use `workflow_dispatch` with `is_pr_trusted: true` from the Actions UI.'
+                });
+                core.setFailed('Fork PRs require trusted: true to run /eval or /rerun');
+                return;
+              }
+              core.warning(`Running /eval on trusted fork PR #${context.issue.number} - fork code will have access to secrets`);
+            }
             let lastEvalCommentId = null;
             const isRerunCommand = body.trim().toLowerCase().startsWith('/rerun');
 
@@ -376,12 +384,12 @@ jobs:
                 if (isFork && !isPrTrusted) {
                   core.setFailed(
                     `Fork PR #${prNumber} detected. Manual workflow_dispatch on fork PRs requires ` +
-                    `is_pr_trusted=true after code review. Fork PRs have no secrets access.`
+                    `is_pr_trusted=true (grants fork code access to secrets).`
                   );
                   return;
                 }
                 if (isFork && isPrTrusted) {
-                  core.warning(`Running on trusted fork PR #${prNumber} - ensure code has been reviewed`);
+                  core.warning(`Running on trusted fork PR #${prNumber} - fork code will have access to secrets`);
                 }
               }
             } else {
