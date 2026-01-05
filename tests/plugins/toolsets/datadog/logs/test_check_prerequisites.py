@@ -1,10 +1,11 @@
 from unittest.mock import Mock, patch
+
 from holmes.core.tools import StructuredToolResultStatus, ToolsetStatusEnum
-from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
-    DatadogLogsToolset,
-)
 from holmes.plugins.toolsets.datadog.datadog_models import (
     DEFAULT_STORAGE_TIERS,
+)
+from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
+    DatadogLogsToolset,
 )
 
 

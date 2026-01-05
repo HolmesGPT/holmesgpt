@@ -6,9 +6,9 @@ import os
 import pytest
 
 from holmes.core.tools import ToolsetStatusEnum
-from tests.conftest import create_mock_tool_invoke_context
-from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
+from tests.conftest import create_mock_tool_invoke_context
 
 # Use pytest.mark.skip (not skipif) to show a single grouped skip line for the entire module
 # Will show: "SKIPPED [6] module.py: reason" instead of 6 separate skip lines

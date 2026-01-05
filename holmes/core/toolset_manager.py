@@ -2,7 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
-from typing import Any, List, Optional, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from benedict import benedict
 from pydantic import FilePath
@@ -498,6 +498,7 @@ class ToolsetManager:
         IMPORTANT: This also forces recreation of transformer instances since they may already be created.
         """
         import logging
+
         from holmes.core.transformers import registry
 
         logger = logging.getLogger(__name__)

@@ -3,6 +3,7 @@ Tests for uniq CLI command parsing, validation, and stringification.
 """
 
 import pytest
+
 from holmes.plugins.toolsets.bash.parse_command import make_command_safe
 
 

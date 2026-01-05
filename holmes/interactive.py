@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -39,7 +40,6 @@ from holmes.core.feedback import (
 from holmes.core.prompt import build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
 from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
-from holmes.utils.file_utils import write_json_file
 from holmes.core.tracing import DummyTracer
 from holmes.utils.colors import (
     AI_COLOR,
@@ -50,8 +50,8 @@ from holmes.utils.colors import (
     USER_COLOR,
 )
 from holmes.utils.console.consts import agent_name
+from holmes.utils.file_utils import write_json_file
 from holmes.version import check_version_async
-import re
 
 
 class SlashCommands(Enum):
@@ -991,7 +991,6 @@ def run_interactive_loop(
     console: Console,
     initial_user_input: Optional[str],
     include_files: Optional[List[Path]],
-    post_processing_prompt: Optional[str],
     show_tool_output: bool,
     tracer=None,
     runbooks=None,
@@ -1268,7 +1267,6 @@ def run_interactive_loop(
                 )
                 response = ai.call(
                     messages,
-                    post_processing_prompt,
                     trace_span=trace_span,
                     tool_number_offset=len(all_tool_calls_history),
                 )

@@ -1,7 +1,7 @@
 import subprocess
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-from holmes.utils.memory_limit import get_ulimit_prefix, check_oom_and_append_hint
+from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
 
 
 def execute_bash_command(cmd: str, timeout: int, params: dict) -> StructuredToolResult:

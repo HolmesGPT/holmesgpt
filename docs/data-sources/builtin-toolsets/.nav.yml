@@ -8,6 +8,7 @@ nav:
     - Bash: bash.md
     - Cilium: cilium.md
     - Confluence: confluence.md
+    - Connectivity Check: connectivity-check.md
     - Coralogix: coralogix-logs.md
     - DataDog: datadog.md
     - Datetime: datetime.md

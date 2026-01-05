@@ -1,15 +1,15 @@
 """Terminal reporting functionality for test results."""
 
 import textwrap
-from enum import Enum
-from typing import List, Dict, Optional, Any, Tuple
 from collections import defaultdict
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.table import Table
 
-from tests.llm.utils.test_results import TestStatus, TestResult
 from holmes.common.env_vars import RECOMMENDED_OPENAI_MODEL
+from tests.llm.utils.test_results import TestResult, TestStatus
 
 
 class ResultType(Enum):
@@ -239,7 +239,9 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
 
         # Format tool calls
         tool_call_count = result.get("tool_call_count")
-        tools_str = str(tool_call_count) if tool_call_count and tool_call_count > 0 else "—"
+        tools_str = (
+            str(tool_call_count) if tool_call_count and tool_call_count > 0 else "—"
+        )
 
         # Format cost - show individual cost for this specific test run
         cost = result.get("cost", 0)
@@ -588,9 +590,7 @@ class TestStatistics:
         valid_runs = count_results(results, ResultType.VALID_RUNS)
 
         times = [
-            r.get("holmes_duration", 0)
-            for r in results
-            if r.get("holmes_duration")
+            r.get("holmes_duration", 0) for r in results if r.get("holmes_duration")
         ]
 
         # Calculate cost metrics
@@ -1148,9 +1148,7 @@ def _print_summary_statistics(sorted_results: List[dict], console: Console) -> N
 
         # Calculate average and P90 execution time
         times = [
-            r.get("holmes_duration", 0)
-            for r in results
-            if r.get("holmes_duration")
+            r.get("holmes_duration", 0) for r in results if r.get("holmes_duration")
         ]
         avg_time = sum(times) / len(times) if times else 0
         p90_time = _calculate_p90(times)

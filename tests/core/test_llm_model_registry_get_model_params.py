@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import SecretStr
 
-
 from holmes.config import Config
 from holmes.core.llm import LLMModelRegistry, ModelEntry
 

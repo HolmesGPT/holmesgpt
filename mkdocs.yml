@@ -51,6 +51,7 @@ nav:
                 - "Bash": data-sources/builtin-toolsets/bash.md
                 - "Cilium": data-sources/builtin-toolsets/cilium.md
                 - "Confluence": data-sources/builtin-toolsets/confluence.md
+                - "Connectivity Check": data-sources/builtin-toolsets/connectivity-check.md
                 - "Coralogix": data-sources/builtin-toolsets/coralogix-logs.md
                 - "DataDog": data-sources/builtin-toolsets/datadog.md
                 - "Datetime": data-sources/builtin-toolsets/datetime.md

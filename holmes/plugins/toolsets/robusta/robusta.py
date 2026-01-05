@@ -1,19 +1,19 @@
-import os
-
 import logging
+import os
+from typing import Any, Dict, List, Optional
 
-from typing import Optional, Dict, Any, List
 from holmes.common.env_vars import load_bool
-from holmes.core.supabase_dal import SupabaseDal, FindingType
+from holmes.core.supabase_dal import FindingType, SupabaseDal
 from holmes.core.tools import (
     StaticPrerequisite,
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
     Toolset,
     ToolsetTag,
 )
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 PULL_EXTERNAL_FINDINGS = load_bool("PULL_EXTERNAL_FINDINGS", False)
 

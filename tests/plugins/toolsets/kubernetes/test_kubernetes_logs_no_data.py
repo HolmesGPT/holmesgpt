@@ -1,7 +1,8 @@
+from unittest.mock import Mock, patch
+
+from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
-from holmes.core.tools import StructuredToolResultStatus
-from unittest.mock import Mock, patch
 
 
 class TestKubernetesLogsNoData:

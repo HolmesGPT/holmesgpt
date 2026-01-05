@@ -1,0 +1,9 @@
+user_prompt: "Try and check these addresses accessible via http: google.com and burgergooglenetworkspam.co.uk"
+tags:
+  - question-answer
+  - network
+  - easy
+expected_output:
+  - "google.com is accessible"
+  - "burgergooglenetworkspam.co.uk is not accessible"
+  - "The AI must directly verify the accessibility of each address, not just guess"

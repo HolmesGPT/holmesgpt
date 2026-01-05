@@ -1,13 +1,13 @@
 import pytest
+
 from holmes.plugins.toolsets.kubernetes_logs import (
+    KubernetesLogsToolset,
     StructuredLog,
     filter_logs,
     parse_logs,
-    KubernetesLogsToolset,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
 from holmes.plugins.toolsets.utils import to_unix_ms
-
 
 params_dict = {
     "namespace": "default",

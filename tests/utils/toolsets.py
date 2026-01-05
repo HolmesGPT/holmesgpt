@@ -1,4 +1,4 @@
-from typing import Dict, Any, Tuple
+from typing import Any, Dict, Tuple
 
 
 def callable_success(config: Dict[str, Any]) -> Tuple[bool, str]:

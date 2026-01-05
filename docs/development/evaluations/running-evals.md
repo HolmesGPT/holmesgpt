@@ -53,23 +53,26 @@ RUN_LIVE=true MODEL=gpt-4o,gpt-4.1,anthropic/claude-sonnet-4-20250514 \
 
 ### Running Full Benchmark Suite
 
-Once you're comfortable running individual evals, you can run the full benchmark suite to test all important evals at once. The easiest way to do this locally is using the `run_benchmarks_local.sh` script, which mirrors the exact behavior of our CI/CD workflow:
+Once you're comfortable running individual evals, you can run the full benchmark suite to test all important evals at once. The easiest way to do this locally is using the `run_benchmarks_local.py` script, which mirrors the exact behavior of our CI/CD workflow:
 
 ```bash
-# Run with defaults (easy tests, default models, 1 iteration)
-./run_benchmarks_local.sh
+# Run with defaults (regression or benchmark tests, default models, 1 iteration)
+./run_benchmarks_local.py
 
 # Test specific models
-./run_benchmarks_local.sh 'gpt-4o,anthropic/claude-sonnet-4-20250514'
+./run_benchmarks_local.py --models gpt-4o,anthropic/claude-sonnet-4-20250514
 
 # Run with custom markers and iterations
-./run_benchmarks_local.sh 'gpt-4o' 'easy and kubernetes' 3
+./run_benchmarks_local.py --models gpt-4o --markers "easy and kubernetes" --iterations 3
 
 # Filter specific tests by name
-./run_benchmarks_local.sh 'gpt-4o' 'easy' 1 '01_how_many_pods'
+./run_benchmarks_local.py --models gpt-4o --markers easy --filter 01_how_many_pods
 
 # Run with parallel workers for faster execution
-./run_benchmarks_local.sh 'gpt-4o' 'easy' 1 '' 6
+./run_benchmarks_local.py --models gpt-4o --markers easy --parallel 6
+
+# See all available options
+./run_benchmarks_local.py --help
 ```
 
 ## Environment Variables
@@ -93,6 +96,9 @@ For more control over which evals to run, you can use pytest directly with marke
 # Run all easy evals (regression tests - should always pass)
 RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
 
+# Run regression and benchmark tests (critical tests for CI/CD)
+RUN_LIVE=true poetry run pytest -m 'llm and (regression or benchmark)' --no-cov
+
 # Run challenging tests
 RUN_LIVE=true poetry run pytest -m 'llm and medium' --no-cov
 
@@ -108,6 +114,8 @@ RUN_LIVE=true poetry run pytest tests/llm/test_ask_holmes.py -k "01_how_many_pod
 - `medium` - More challenging scenarios
 - `logs` - Tests involving log analysis
 - `kubernetes` - Kubernetes-specific tests
+- `regression` - Critical regression tests
+- `benchmark` - Challenging tests for benchmarking model capabilities
 
 ### Testing Different Models
 

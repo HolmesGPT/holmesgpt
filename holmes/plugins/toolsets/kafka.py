@@ -1,7 +1,10 @@
 import logging
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml  # type: ignore
+from confluent_kafka import Consumer
+from confluent_kafka._model import Node
 from confluent_kafka.admin import (
     AdminClient,
     BrokerMetadata,
@@ -17,19 +20,16 @@ from confluent_kafka.admin import (
     PartitionMetadata,
     TopicMetadata,
 )
-from confluent_kafka import Consumer
-from confluent_kafka._model import Node
-from enum import Enum
 from confluent_kafka.admin import _TopicPartition as TopicPartition
 from pydantic import BaseModel, ConfigDict
 
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )

@@ -3,11 +3,12 @@ LLM Summarize Transformer for fast model summarization of large tool outputs.
 """
 
 import logging
-from typing import Optional, ClassVar
+from typing import ClassVar, Optional
+
 from pydantic import Field, PrivateAttr, StrictStr
 
+from ..llm import LLM, DefaultLLM
 from .base import BaseTransformer, TransformerError
-from ..llm import DefaultLLM, LLM
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,7 @@
 import pytest
 from dateutil import parser  # type: ignore
+from freezegun import freeze_time
+
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -16,7 +18,6 @@ from holmes.plugins.toolsets.utils import (
     to_unix_ms,
     toolset_name_for_one_liner,
 )
-from freezegun import freeze_time
 
 
 @freeze_time("2020-09-14T13:50:40Z")

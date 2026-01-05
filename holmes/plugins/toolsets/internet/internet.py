@@ -1,24 +1,24 @@
-import re
-import os
 import logging
-from typing import Any, Optional, Tuple, Dict, List
+import os
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
+import requests  # type: ignore
+from bs4 import BeautifulSoup
+from markdownify import markdownify
 from requests import RequestException, Timeout  # type: ignore
+
 from holmes.core.tools import (
+    CallablePrerequisite,
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
     Toolset,
     ToolsetTag,
-    CallablePrerequisite,
 )
-from markdownify import markdownify
-from bs4 import BeautifulSoup
-
-import requests  # type: ignore
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
-
 
 # TODO: change and make it holmes
 INTERNET_TOOLSET_USER_AGENT = os.environ.get(

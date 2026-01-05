@@ -76,11 +76,11 @@ Run the benchmark script with your new model (along with other models you have c
 ```bash
 unset MODEL # to be safe
 export CLASSIFIER_MODEL=gpt-4.1  # Use gpt-4.1 for consistent evaluation
-# the default tests run are tags 'easy or medium or hard'
-./run_benchmarks_local.sh 'your-new-model,gpt-4.1,gpt-4o,...'
+# the default tests run are tags 'regression or benchmark'
+./run_benchmarks_local.py --models your-new-model,gpt-4.1,gpt-4o
 ```
 
-See `./run_benchmarks_local.sh --help` for full usage details.
+See `./run_benchmarks_local.py --help` for full usage details.
 
 ## Step 5: Review Results
 
