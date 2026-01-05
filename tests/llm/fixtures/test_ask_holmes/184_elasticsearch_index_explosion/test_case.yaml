@@ -150,21 +150,9 @@ before_test: |
 
     # Check for errors in bulk response
     if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
-      ERROR_COUNT=$(echo "$BULK_RESPONSE" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-errors = [item for item in d.get('items', []) if 'error' in item.get('index', {})]
-print(len(errors))
-" 2>/dev/null || echo "unknown")
+      ERROR_COUNT=$(echo "$BULK_RESPONSE" | grep -o '"error"' | wc -l)
       echo "❌ Bulk insert had $ERROR_COUNT errors for $LARGE_INDEX"
-      echo "First error: $(echo "$BULK_RESPONSE" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for item in d.get('items', []):
-    if 'error' in item.get('index', {}):
-        print(item['index']['error'])
-        break
-" 2>/dev/null || echo "unknown")"
+      echo "Response snippet: $(echo "$BULK_RESPONSE" | head -c 500)"
       exit 1
     fi
   done
