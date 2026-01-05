@@ -1,14 +1,15 @@
 /**
- * DEPRECATED: This file is no longer used by the workflow.
+ * Eval comment helpers for GitHub workflow PR comments.
  *
- * SECURITY WARNING: The workflow previously loaded these helpers via require(),
- * which was vulnerable to code injection from malicious PRs. The workflow now
- * inlines all helper functions to prevent this attack vector.
+ * SECURITY NOTE: This file is loaded from a TRUSTED checkout of the base branch
+ * (master), NOT from the PR branch. The workflow uses a two-stage checkout:
+ *   1. First checkout: base branch helpers into .trusted/
+ *   2. Second checkout: PR code into working directory
  *
- * DO NOT re-add require() calls to this file from workflow steps!
+ * This prevents malicious PRs from injecting code via modified helpers.
+ * The workflow loads: require('./.trusted/.github/scripts/eval-comment-helpers.js')
  *
- * This file is kept for reference and potential local testing only.
- * The canonical implementation is now inlined in eval-regression.yaml.
+ * DO NOT change the workflow to load from the PR checkout path!
  */
 
 // Identifier for the persistent automated eval comment (hidden HTML comment)
