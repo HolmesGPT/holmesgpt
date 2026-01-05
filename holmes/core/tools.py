@@ -173,6 +173,9 @@ class ToolInvokeContext(BaseModel):
     max_token_count: int
     tool_call_id: str
     tool_name: str
+    session_approved_prefixes: List[
+        str
+    ] = []  # Bash prefixes approved during this session
 
 
 class Tool(ABC, BaseModel):

@@ -230,6 +230,16 @@ class RunBashCommand(BaseBashTool):
         # Get config (default if not set)
         config = self.toolset.config or BashExecutorConfig()
 
+        # Merge session-approved prefixes from conversation history (server flow)
+        if context.session_approved_prefixes:
+            existing = set(config.allow)
+            for prefix in context.session_approved_prefixes:
+                if prefix not in existing:
+                    config.allow.append(prefix)
+            logging.debug(
+                f"Merged {len(context.session_approved_prefixes)} session-approved prefixes"
+            )
+
         # Skip validation if user has already approved
         if context.user_approved:
             logging.info(f"Executing pre-approved bash command: {command_str}")

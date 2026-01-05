@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import logging
+import re
 import textwrap
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
@@ -65,6 +66,77 @@ from holmes.utils.tags import parse_messages_tags
 
 # Create a named logger for cost tracking
 cost_logger = logging.getLogger("holmes.costs")
+
+
+def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
+    """Extract bash session approved prefixes from conversation history.
+
+    Scans tool result messages for bash_session_approved_prefixes stored in
+    tool_call_metadata. These prefixes were approved by the user via the
+    "Yes, and don't ask again" option.
+
+    Args:
+        messages: Conversation history messages
+
+    Returns:
+        List of approved prefixes accumulated from all tool results
+    """
+    prefixes: set[str] = set()
+
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            continue
+
+        # Extract tool_call_metadata from the content string
+        # Format: tool_call_metadata={"tool_name": "...", ...}
+        match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
+        if not match:
+            continue
+
+        try:
+            metadata = json.loads(match.group(1))
+            if "bash_session_approved_prefixes" in metadata:
+                prefixes.update(metadata["bash_session_approved_prefixes"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return list(prefixes)
+
+
+def inject_bash_session_prefixes(
+    tool_message: Dict[str, Any], prefixes: List[str]
+) -> None:
+    """Inject bash session approved prefixes into a tool message.
+
+    Modifies the tool_call_metadata in the message content to include
+    the approved prefixes. This is used to persist prefixes in conversation
+    history when a user approves with "don't ask again".
+
+    Args:
+        tool_message: The tool message dict (modified in place)
+        prefixes: List of prefixes to inject
+    """
+    content = tool_message.get("content", "")
+    if not isinstance(content, str):
+        return
+
+    # Find and parse the existing metadata
+    match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
+    if not match:
+        return
+
+    try:
+        metadata = json.loads(match.group(1))
+        metadata["bash_session_approved_prefixes"] = prefixes
+        new_metadata_str = f"tool_call_metadata={json.dumps(metadata)}"
+        # Replace the old metadata with the new one
+        tool_message["content"] = content.replace(match.group(0), new_metadata_str)
+    except (json.JSONDecodeError, KeyError):
+        pass
 
 
 class LLMCosts(BaseModel):
@@ -221,6 +293,9 @@ class ToolCallingLLM:
             error_message = f"Received {len(tool_decisions)} tool decisions but no pending approvals found"
             logging.error(error_message)
             raise Exception(error_message)
+        # Extract existing session prefixes from conversation history
+        session_prefixes = extract_bash_session_prefixes(messages)
+
         for tool_call_with_decision in pending_tool_calls:
             tool_call_message: dict
             tool_call = tool_call_with_decision.tool_call
@@ -233,6 +308,7 @@ class ToolCallingLLM:
                     trace_span=DummySpan(),  # TODO: replace with proper span
                     tool_number=None,
                     user_approved=True,
+                    session_approved_prefixes=session_prefixes,
                 )
             else:
                 # Tool was rejected or no decision found, add rejection message
@@ -254,6 +330,10 @@ class ToolCallingLLM:
             )
 
             tool_call_message = tool_result.as_tool_call_message()
+
+            # If user chose "Yes, and don't ask again", inject prefixes into message
+            if decision and decision.approved and decision.save_prefixes:
+                inject_bash_session_prefixes(tool_call_message, decision.save_prefixes)
 
             # It is expected that the tool call result directly follows the tool call request from the LLM
             # The API call may contain a user ask which is appended to the messages so we can't just append
@@ -486,6 +566,7 @@ class ToolCallingLLM:
         user_approved: bool,
         tool_call_id: str,
         tool_number: Optional[int] = None,
+        session_approved_prefixes: Optional[List[str]] = None,
     ) -> StructuredToolResult:
         tool = self.tool_executor.get_tool_by_name(tool_name)
         if not tool:
@@ -506,6 +587,7 @@ class ToolCallingLLM:
                 max_token_count=self.llm.get_max_token_count_for_single_tool(),
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
+                session_approved_prefixes=session_approved_prefixes or [],
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
         except Exception as e:
@@ -527,6 +609,7 @@ class ToolCallingLLM:
         user_approved: bool,
         previous_tool_calls: list[dict],
         tool_number: Optional[int] = None,
+        session_approved_prefixes: Optional[List[str]] = None,
     ) -> ToolCallResult:
         tool_params = {}
         try:
@@ -551,6 +634,7 @@ class ToolCallingLLM:
                 user_approved=user_approved,
                 tool_number=tool_number,
                 tool_call_id=tool_call_id,
+                session_approved_prefixes=session_approved_prefixes,
             )
 
         if not isinstance(tool_response, StructuredToolResult):
@@ -619,6 +703,7 @@ class ToolCallingLLM:
         trace_span=None,
         tool_number=None,
         user_approved: bool = False,
+        session_approved_prefixes: Optional[List[str]] = None,
     ) -> ToolCallResult:
         if trace_span is None:
             trace_span = DummySpan()
@@ -652,6 +737,7 @@ class ToolCallingLLM:
                     previous_tool_calls=previous_tool_calls,
                     tool_number=tool_number,
                     user_approved=user_approved,
+                    session_approved_prefixes=session_approved_prefixes,
                 )
 
             original_token_count = prevent_overly_big_tool_response(
@@ -864,6 +950,9 @@ class ToolCallingLLM:
             pending_approvals = []
             approval_required_tools = []
 
+            # Extract session approved prefixes from conversation history
+            session_prefixes = extract_bash_session_prefixes(messages)
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
                 futures = []
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
@@ -875,6 +964,7 @@ class ToolCallingLLM:
                         previous_tool_calls=tool_calls,
                         trace_span=DummySpan(),  # Streaming mode doesn't support tracing yet
                         tool_number=tool_number,
+                        session_approved_prefixes=session_prefixes,
                     )
                     futures.append(future)
                     yield StreamMessage(

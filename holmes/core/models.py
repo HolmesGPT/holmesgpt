@@ -66,9 +66,14 @@ class ToolCallResult(BaseModel):
 
 
 def format_tool_result_data(
-    tool_result: StructuredToolResult, tool_call_id: str, tool_name: str
+    tool_result: StructuredToolResult,
+    tool_call_id: str,
+    tool_name: str,
 ) -> str:
-    tool_call_metadata = {"tool_name": tool_name, "tool_call_id": tool_call_id}
+    tool_call_metadata: Dict[str, Any] = {
+        "tool_name": tool_name,
+        "tool_call_id": tool_call_id,
+    }
     tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
 
     if tool_result.status == StructuredToolResultStatus.ERROR:
@@ -181,6 +186,7 @@ class ToolApprovalDecision(BaseModel):
 
     tool_call_id: str
     approved: bool
+    save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
 
 
 class ChatRequestBaseModel(BaseModel):
