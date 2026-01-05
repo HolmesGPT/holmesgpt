@@ -29,7 +29,6 @@ from rich.console import Console
 from rich.markdown import Markdown, Panel
 from rich.markup import escape
 
-from holmes.common.env_vars import ENABLE_CLI_TOOL_APPROVAL
 from holmes.core.config import config_path_dir
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
@@ -1135,6 +1134,8 @@ def run_interactive_loop(
     check_version: bool = True,
     feedback_callback: Optional[FeedbackCallback] = None,
     json_output_file: Optional[str] = None,
+    bash_always_deny: bool = False,
+    bash_always_allow: bool = False,
 ) -> None:
     # Initialize tracer - use DummyTracer if no tracer provided
     if tracer is None:
@@ -1148,17 +1149,23 @@ def run_interactive_loop(
         }
     )
 
-    # Set up approval callback for potentially sensitive commands
-    def approval_handler(
-        tool_call_result: StructuredToolResult,
-    ) -> tuple[bool, Optional[str]]:
-        return handle_tool_approval(
-            tool_result=tool_call_result,
-            style=style,
-            console=console,
-        )
+    # Set up approval callback based on CLI flags
+    # --bash-always-deny: don't set callback, let default behavior deny
+    # --bash-always-allow: set callback that always approves
+    # default: set interactive approval handler
+    if bash_always_allow:
+        ai.approval_callback = lambda _: (True, None)
+    elif not bash_always_deny:
+        # Default: interactive approval
+        def approval_handler(
+            tool_call_result: StructuredToolResult,
+        ) -> tuple[bool, Optional[str]]:
+            return handle_tool_approval(
+                tool_result=tool_call_result,
+                style=style,
+                console=console,
+            )
 
-    if ENABLE_CLI_TOOL_APPROVAL:
         ai.approval_callback = approval_handler
 
     # Create merged completer with slash commands, conditional executables, show command, and smart paths
