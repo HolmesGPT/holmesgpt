@@ -150,16 +150,31 @@ before_test: |
 
   # Verify large indexes have 500 docs
   echo "Verifying large index doc counts..."
+  VERIFICATION_FAILED=false
   for LARGE_INDEX in $LARGE_INDEXES; do
     DOC_COUNT=$(curl -sf "${ELASTICSEARCH_URL}/_cat/indices/${LARGE_INDEX}?format=json&h=docs.count" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | jq -r '.[0]["docs.count"]')
     echo "  $LARGE_INDEX: $DOC_COUNT docs"
+    if [ "$DOC_COUNT" != "500" ]; then
+      echo "❌ Expected 500 docs but got $DOC_COUNT for $LARGE_INDEX"
+      VERIFICATION_FAILED=true
+    fi
   done
 
   # Count total indexes created
   INDEX_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-184-*?format=json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | jq 'length')
-  echo "✅ Total test indexes created: $INDEX_COUNT"
+  echo "Total test indexes created: $INDEX_COUNT"
+  if [ "$INDEX_COUNT" != "1800" ]; then
+    echo "❌ Expected 1800 indexes but got $INDEX_COUNT"
+    VERIFICATION_FAILED=true
+  fi
+
+  if [ "$VERIFICATION_FAILED" = true ]; then
+    echo "❌ Verification failed!"
+    exit 1
+  fi
+
   echo "✅ Setup complete!"
 
 after_test: |

@@ -22,10 +22,25 @@ es_validate_env() {
 
 # Set cluster shard limit (idempotent - safe to call from multiple tests)
 es_set_shard_limit() {
-  curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
+  local response
+  local exit_code
+  response=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_cluster/settings" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d "{\"persistent\": {\"cluster.max_shards_per_node\": ${ES_MAX_SHARDS_PER_NODE}}}" > /dev/null 2>&1 || true
+    -d "{\"persistent\": {\"cluster.max_shards_per_node\": ${ES_MAX_SHARDS_PER_NODE}}}" 2>&1)
+  exit_code=$?
+
+  if [ $exit_code -ne 0 ]; then
+    echo "❌ Failed to set cluster shard limit (curl exit code: $exit_code)"
+    echo "Response: $response"
+    exit 1
+  fi
+
+  if ! echo "$response" | grep -q '"acknowledged":true'; then
+    echo "❌ Cluster settings update not acknowledged"
+    echo "Response: $response"
+    exit 1
+  fi
 }
 
 # Combined setup: validate env + set shard limit

@@ -9,7 +9,7 @@
 # The LLM cannot know this schema without querying the mappings API.
 # Fields include nested objects and specific types that must be correctly reported.
 
-user_prompt: "What are the field mappings for the 'app-183e-schema' index? List all fields with their data types."
+user_prompt: "What are the field mappings for the 'app-183e-transactions' index? List all fields with their data types."
 
 expected_output:
   - "Must identify the 'transaction_id' field as type keyword"
@@ -31,7 +31,7 @@ before_test: |
   set -e
 
 
-  export HOLMES_ES_TEST_INDEX="app-183e-schema"
+  export HOLMES_ES_TEST_INDEX="app-183e-transactions"
 
   # Delete the index if it exists
   echo "⏳ Cleaning up any existing test index..."
@@ -103,7 +103,7 @@ before_test: |
 
 after_test: |
 
-  echo "⏳ Cleaning up test index: app-183e-schema"
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183e-schema" \
+  echo "⏳ Cleaning up test index: app-183e-transactions"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183e-transactions" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
   echo "✅ Cleanup complete"
