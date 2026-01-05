@@ -564,6 +564,7 @@ jobs:
         with:
           python-version: '3.12'
           install-kubectl: 'true'
+          working-directory: code
 
       - name: Update progress - HolmesGPT setup done
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
