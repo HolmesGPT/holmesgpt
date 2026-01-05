@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 from typing import Optional
 
 # Recommended models for different providers
@@ -51,7 +52,15 @@ EXTRA_HEADERS = os.environ.get("EXTRA_HEADERS", "")
 THINKING = os.environ.get("THINKING", "")
 REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "").strip().lower()
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.00000001"))
-TOOL_MEMORY_LIMIT_MB = int(os.environ.get("TOOL_MEMORY_LIMIT_MB", 800))
+
+# Set default memory limit based on CPU architecture
+# ARM architectures typically need more memory
+_default_memory_limit = (
+    1500 if platform.machine().lower() in ("arm64", "aarch64", "arm") else 800
+)
+TOOL_MEMORY_LIMIT_MB = int(
+    os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
+)
 
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)
