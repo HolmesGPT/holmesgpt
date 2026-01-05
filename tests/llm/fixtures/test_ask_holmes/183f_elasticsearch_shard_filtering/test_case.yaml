@@ -1,0 +1,86 @@
+# Test: Elasticsearch Shard Filtering
+# Tests that Holmes can query shards with proper filtering to avoid token overflow
+#
+# This test directly addresses the original issue where querying thousands of shards
+# caused token overflow. The new toolset must support server-side filtering.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+#
+# Anti-hallucination: The test creates an index with a known number of shards (3).
+# The LLM must query the shards for this specific index and report the correct count.
+
+user_prompt: "Show me the shard information for the 'app-183f-shards' index. How many shards does it have and what are their states?"
+
+expected_output:
+  - "Must report that the index has 3 primary shards"
+  - "Must report the state of the shards (STARTED or similar)"
+  - "Should only show shards for the specified index, not all shards in the cluster"
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  export HOLMES_ES_TEST_INDEX="app-183f-shards"
+
+  # Delete the index if it exists
+  echo "⏳ Cleaning up any existing test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create the test index with 3 shards and 0 replicas
+  echo "⏳ Creating test index with 3 shards..."
+  RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 3,
+        "number_of_replicas": 0
+      }
+    }')
+
+  if echo "$RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "✅ Test index created with 3 shards"
+  else
+    echo "❌ Failed to create test index: $RESPONSE"
+    exit 1
+  fi
+
+  # Wait for shards to be ready with retry loop
+  echo "⏳ Waiting for shards to be ready..."
+  for attempt in $(seq 1 30); do
+    SHARD_INFO=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/shards/${HOLMES_ES_TEST_INDEX}?format=json" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || echo "")
+
+    if [ -n "$SHARD_INFO" ]; then
+      SHARD_COUNT=$(echo "$SHARD_INFO" | jq "[.[] | select(.index == \"${HOLMES_ES_TEST_INDEX}\")] | length")
+      if [ "$SHARD_COUNT" = "3" ]; then
+        echo "✅ Test index has $SHARD_COUNT shards"
+        break
+      fi
+    fi
+
+    if [ "$attempt" = "30" ]; then
+      echo "❌ Timeout waiting for shards to be ready"
+      exit 1
+    fi
+    sleep 1
+  done
+
+after_test: |
+
+  echo "⏳ Cleaning up test index: app-183f-shards"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183f-shards" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "✅ Cleanup complete"
