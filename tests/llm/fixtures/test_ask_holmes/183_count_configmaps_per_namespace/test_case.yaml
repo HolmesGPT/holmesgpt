@@ -1,0 +1,52 @@
+user_prompt:
+- "How many ConfigMaps are in namespace app-183-alpha and how many are in app-183-beta? Give me the exact counts."
+
+expected_output:
+  - The answer must state that app-183-alpha has exactly 49 ConfigMaps
+  - The answer must state that app-183-beta has exactly 62 ConfigMaps
+
+tags:
+  - kubernetes
+  - counting
+  - toolset-limitation
+
+before_test: |
+  echo "Creating namespaces for ConfigMap counting test"
+  kubectl create namespace app-183-alpha || true
+  kubectl create namespace app-183-beta || true
+
+  echo "Creating 49 ConfigMaps in app-183-alpha..."
+  for i in $(seq 1 49); do
+    kubectl create configmap "config-$i" --from-literal=key="value-$i" -n app-183-alpha &
+  done
+  wait
+  echo "Created 49 ConfigMaps in app-183-alpha"
+
+  echo "Creating 62 ConfigMaps in app-183-beta..."
+  for i in $(seq 1 62); do
+    kubectl create configmap "config-$i" --from-literal=key="value-$i" -n app-183-beta &
+  done
+  wait
+  echo "Created 62 ConfigMaps in app-183-beta"
+
+  echo "Verifying counts..."
+  ALPHA_COUNT=$(kubectl get configmaps -n app-183-alpha --no-headers | wc -l)
+  BETA_COUNT=$(kubectl get configmaps -n app-183-beta --no-headers | wc -l)
+  echo "app-183-alpha: $ALPHA_COUNT ConfigMaps"
+  echo "app-183-beta: $BETA_COUNT ConfigMaps"
+
+  if [ "$ALPHA_COUNT" -ne 49 ]; then
+    echo "ERROR: Expected 49 ConfigMaps in app-183-alpha, got $ALPHA_COUNT"
+    exit 1
+  fi
+
+  if [ "$BETA_COUNT" -ne 62 ]; then
+    echo "ERROR: Expected 62 ConfigMaps in app-183-beta, got $BETA_COUNT"
+    exit 1
+  fi
+
+  echo "Test setup complete!"
+
+after_test: |
+  kubectl delete namespace app-183-alpha || true
+  kubectl delete namespace app-183-beta || true
