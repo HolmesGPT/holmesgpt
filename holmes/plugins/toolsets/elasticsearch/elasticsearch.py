@@ -471,7 +471,7 @@ class ElasticsearchClusterHealth(BaseElasticsearchTool):
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Cluster health{suffix}"
 
 
-class ElasticsearchMappings(BaseElasticsearchTool):
+class ElasticsearchMappings(BaseElasticsearchTool, JsonFilterMixin):
     """Get index mappings (field definitions and types)."""
 
     def __init__(self, toolset: ElasticsearchBaseToolset):
@@ -481,21 +481,24 @@ class ElasticsearchMappings(BaseElasticsearchTool):
             description=(
                 "Get the field mappings (schema) for an index. "
                 "Shows field names, data types, and analyzers. "
-                "Useful for understanding index structure before writing queries."
+                "Useful for understanding index structure before writing queries. "
+                "For large mappings, use the jq parameter to filter results "
+                "(e.g., jq='.*.mappings.properties | keys' to list field names)."
             ),
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "index": ToolParameter(
                     description="Index name or pattern to get mappings for",
                     type="string",
                     required=True,
                 ),
-            },
+            }),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         index = params["index"]
         path = f"{index}/_mapping"
-        return self._make_request("GET", path, params)
+        result = self._make_request("GET", path, params)
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")

@@ -1,14 +1,15 @@
 # Test: Elasticsearch Shard Explosion - Filter Required for Large Clusters
 #
-# This test creates ~132 shards across multiple indexes to demonstrate that
+# This test creates ~500+ shards across multiple indexes to demonstrate that
 # querying shards requires filtering when dealing with many indexes.
+# The large shard count ensures output exceeds context window without filtering.
 #
 # The LLM must use the index filter parameter to query shards for specific indexes.
 #
 # Setup:
-# - 25 indexes with 5 shards each = 125 shards
+# - 100 indexes with 5 shards each = 500 shards
 # - 1 special index (app-186-shard-analytics) with 7 primary shards (0 replicas) = 7 shards
-# - Total: 132 shards
+# - Total: 507 shards
 #
 # Anti-hallucination: The specific shard count (7 primary) can only be found by querying.
 # Common defaults are 1 or 5 shards, so 7 is unusual and proves actual discovery.
@@ -35,7 +36,7 @@ before_test: |
   set -e
 
 
-  echo "Creating indexes with ~132 total shards..."
+  echo "Creating indexes with ~507 total shards..."
 
   # Clean up any existing test data first
   echo "Cleaning up any existing test data..."
@@ -70,13 +71,13 @@ before_test: |
   BULK_FILE="/tmp/es_shard_bulk_186_$$.ndjson"
   > "$BULK_FILE"
 
-  for i in $(seq -w 1 25); do
+  for i in $(seq -w 1 100); do
     INDEX_NAME="app-186-shard-data-${i}"
     echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T12:00:00Z\", \"value\": ${i}}" >> "$BULK_FILE"
   done
 
-  echo "Creating 25 indexes via bulk API (with 5 shards each from template)..."
+  echo "Creating 100 indexes via bulk API (with 5 shards each from template)..."
   RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
@@ -85,7 +86,7 @@ before_test: |
   rm -f "$BULK_FILE"
 
   if echo "$RESPONSE" | grep -q '"errors":false'; then
-    echo "✅ Bulk insert successful - created 25 indexes with 5 shards each"
+    echo "✅ Bulk insert successful - created 100 indexes with 5 shards each (500 shards)"
   else
     echo "⚠️ Some errors during bulk insert (may be expected if re-running)"
   fi
