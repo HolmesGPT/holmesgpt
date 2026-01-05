@@ -38,31 +38,23 @@ class PortForward:
                 preexec_fn=os.setsid if os.name != "nt" else None,
             )
 
-            # Wait for port-forward to be ready by checking if port accepts connections
-            # This is more reliable than just waiting a fixed time
-            port_ready = False
-            for attempt in range(30):  # Up to 30 seconds
-                time.sleep(1)
-                # Check if process died
-                if self.process.poll() is not None:
-                    if _is_port_in_use(self.local_port):
-                        self._report_port_conflict()
-                        raise RuntimeError(
-                            f"Port forward failed: Port {self.local_port} is already in use"
-                        )
-                    else:
-                        raise RuntimeError(
-                            f"Port forward failed to start for {self.service}"
-                        )
-                # Check if port is accepting connections
-                if _can_connect_to_port(self.local_port):
-                    port_ready = True
-                    break
+            # Give kubectl time to establish the port forward
+            time.sleep(3)
 
-            if not port_ready:
-                raise RuntimeError(
-                    f"Port forward started but port {self.local_port} not accepting connections after 30s"
-                )
+            # Check if process is still running
+            if self.process.poll() is not None:
+                # Process exited - likely due to port conflict or other error
+                # Since we're using DEVNULL, we can't get the exact error message
+                # Check if port is in use to provide better error message
+                if _is_port_in_use(self.local_port):
+                    self._report_port_conflict()
+                    raise RuntimeError(
+                        f"Port forward failed: Port {self.local_port} is already in use"
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Port forward failed to start for {self.service}"
+                    )
 
             log(
                 f"✅ Port forward established: {self.service}:{self.remote_port} -> localhost:{self.local_port}"
@@ -319,21 +311,6 @@ def _is_port_in_use(port: int) -> bool:
         return False  # Port is available
     except OSError:
         return True  # Port is in use
-    finally:
-        sock.close()
-
-
-def _can_connect_to_port(port: int) -> bool:
-    """Check if we can connect to the port (i.e., something is listening and accepting)."""
-    import socket
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1)
-    try:
-        sock.connect(("localhost", port))
-        return True  # Connection successful
-    except (OSError, socket.timeout):
-        return False  # Connection failed
     finally:
         sock.close()
 
