@@ -6,7 +6,8 @@ import sys
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict
+from typing import Dict, List
+
 from strenum import StrEnum
 
 from tests.llm.utils.commands import run_commands  # type: ignore[attr-defined]

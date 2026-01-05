@@ -1,10 +1,10 @@
 import json
 import logging
-from typing import Optional, Any, cast
+from typing import Any, Optional, cast
 from urllib.parse import urljoin
 
-from pydantic import BaseModel
 import requests  # type: ignore
+from pydantic import BaseModel
 
 from holmes.core.tools import Toolset
 

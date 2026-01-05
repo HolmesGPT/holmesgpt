@@ -2,7 +2,8 @@
 Transformer registry for managing available transformers.
 """
 
-from typing import Dict, Type, Optional, Any, List
+from typing import Any, Dict, List, Optional, Type
+
 from .base import BaseTransformer, TransformerError
 
 

@@ -1,7 +1,8 @@
+import datetime
 import json
 from typing import Dict, Optional
+
 from pydantic import BaseModel
-import datetime
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
@@ -35,36 +36,11 @@ def build_headers(api_key: Optional[str], additional_headers: Optional[Dict[str,
     return headers
 
 
-def format_log(log: Dict) -> str:
-    log_str = log.get("log", "")
-    timestamp_nanoseconds = log.get("timestamp")
-    if timestamp_nanoseconds:
-        timestamp_seconds = int(timestamp_nanoseconds) // 1_000_000_000
-        dt = datetime.datetime.fromtimestamp(timestamp_seconds)
-        log_str = dt.strftime("%Y-%m-%dT%H:%M:%SZ") + " " + log_str
-    else:
-        log_str = json.dumps(log)
-
-    return log_str
-
-
 def get_base_url(config: GrafanaConfig) -> str:
     if config.grafana_datasource_uid:
         return f"{config.url}/api/datasources/proxy/uid/{config.grafana_datasource_uid}"
     else:
         return config.url
-
-
-def ensure_grafana_uid_or_return_error_result(
-    config: GrafanaConfig,
-) -> Optional[StructuredToolResult]:
-    if not config.grafana_datasource_uid:
-        return StructuredToolResult(
-            status=StructuredToolResultStatus.ERROR,
-            error="This tool only works when the toolset is configued ",
-        )
-    else:
-        return None
 
 
 class GrafanaTempoLabelsConfig(BaseModel):

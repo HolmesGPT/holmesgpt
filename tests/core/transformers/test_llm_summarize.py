@@ -2,13 +2,14 @@
 Unit tests for LLMSummarizeTransformer.
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 from pydantic import ValidationError
 
 from holmes.core.tools import ToolInvokeContext
-from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
 from holmes.core.transformers.base import TransformerError
+from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -522,9 +523,9 @@ service/database-service            ClusterIP   10.0.1.101   <none>        5432/
     def test_integration_with_tools_non_expanding_logic(self, mock_default_llm):
         """Test integration with the tools.py non-expanding logic."""
         from holmes.core.tools import (
-            Tool,
             StructuredToolResult,
             StructuredToolResultStatus,
+            Tool,
         )
         from holmes.core.transformers import Transformer
 
@@ -569,9 +570,9 @@ service/database-service            ClusterIP   10.0.1.101   <none>        5432/
     def test_non_expanding_logic_with_debug_logging(self, mock_default_llm):
         """Test that explicitly verifies the non-expanding logic is triggered."""
         from holmes.core.tools import (
-            Tool,
             StructuredToolResult,
             StructuredToolResultStatus,
+            Tool,
         )
         from holmes.core.transformers import Transformer
 
@@ -638,9 +639,9 @@ service/database-service            ClusterIP   10.0.1.101   <none>        5432/
     ):
         """Test comparing expanding vs reducing scenarios to ensure logic works correctly."""
         from holmes.core.tools import (
-            Tool,
             StructuredToolResult,
             StructuredToolResultStatus,
+            Tool,
         )
         from holmes.core.transformers import Transformer
 

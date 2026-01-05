@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-import os
-import time
 import json
-import urllib.request
-import urllib.error
-from datetime import datetime, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
+import os
 import random
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # Set random seed for reproducible logs
 random.seed(100)

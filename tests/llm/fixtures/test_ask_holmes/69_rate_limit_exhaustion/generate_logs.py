@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import json
-from datetime import datetime
-import time
 import random
+import time
+from datetime import datetime
 
 
 def generate_log_entry(status=200, req_per_sec=10, client_ip=None, message="OK"):

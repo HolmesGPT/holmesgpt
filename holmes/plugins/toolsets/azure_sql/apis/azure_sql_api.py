@@ -1,6 +1,7 @@
-from typing import Dict, List
 import logging
 import struct
+from typing import Dict, List
+
 from azure.core.credentials import TokenCredential
 from azure.mgmt.sql import SqlManagementClient
 

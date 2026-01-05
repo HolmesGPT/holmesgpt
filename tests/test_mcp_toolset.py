@@ -1,22 +1,24 @@
 import asyncio
-import pytest
 import logging
 import shutil
 import subprocess
 from unittest.mock import AsyncMock, patch
+
+import pytest
+from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+
 from holmes.core.tools import (
-    ToolParameter,
     StructuredToolResultStatus,
+    ToolParameter,
 )
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
-    RemoteMCPToolset,
-    RemoteMCPTool,
-    MCPMode,
-    get_initialized_mcp_session,
-    StdioMCPConfig,
     MCPConfig,
+    MCPMode,
+    RemoteMCPTool,
+    RemoteMCPToolset,
+    StdioMCPConfig,
+    get_initialized_mcp_session,
 )
-from mcp.types import ListToolsResult, Tool, CallToolResult, TextContent
 
 
 @pytest.fixture
@@ -723,8 +725,9 @@ class TestContextManagerCleanup:
                         "mode": "streamable-http",
                     },
                 )
-                from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig
                 from pydantic import AnyUrl
+
+                from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig
 
                 mock_toolset._mcp_config = MCPConfig(
                     url=AnyUrl("http://localhost:1234/mcp/messages"),
@@ -767,8 +770,9 @@ class TestContextManagerCleanup:
                     description="Test toolset",
                     config={"url": "http://localhost:1234/sse", "mode": "sse"},
                 )
-                from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig
                 from pydantic import AnyUrl
+
+                from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig
 
                 mock_toolset._mcp_config = MCPConfig(
                     url=AnyUrl("http://localhost:1234/sse"), mode=MCPMode.SSE

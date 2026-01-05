@@ -27,8 +27,8 @@ from pydantic import (
     ConfigDict,
     Field,
     FilePath,
-    model_validator,
     PrivateAttr,
+    model_validator,
 )
 from rich.console import Console
 from rich.table import Table
@@ -36,13 +36,13 @@ from rich.table import Table
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.core.transformers import (
-    registry,
-    TransformerError,
     Transformer,
+    TransformerError,
+    registry,
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
-from holmes.utils.memory_limit import get_ulimit_prefix, check_oom_and_append_hint
+from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
 
 if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
@@ -118,23 +118,6 @@ def sanitize(param):
 
 def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
-
-
-def format_tool_output(tool_result: Union[str, StructuredToolResult]) -> str:
-    if isinstance(tool_result, StructuredToolResult):
-        if tool_result.data and isinstance(tool_result.data, str):
-            # Display logs and other string outputs in a way that is readable to humans.
-            # To do this, we extract them from the result and print them as-is below.
-            # The metadata is printed on a single line to
-            data = tool_result.data
-            tool_result.data = "The raw tool data is printed below this JSON"
-            result_str = tool_result.model_dump_json(indent=2, exclude_none=True)
-            result_str += f"\n{data}"
-            return result_str
-        else:
-            return tool_result.model_dump_json(indent=2)
-    else:
-        return tool_result
 
 
 class ToolsetStatusEnum(str, Enum):

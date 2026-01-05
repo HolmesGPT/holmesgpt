@@ -1,25 +1,25 @@
-import os
+import json
 import logging
-
+import os
 
 import requests  # type: ignore
 from cachetools import TTLCache  # type: ignore
+from requests import RequestException
+
 from holmes.core.tools import (
     CallablePrerequisite,
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
     ToolsetTag,
 )
-import json
-from requests import RequestException
-
 from holmes.plugins.toolsets.opensearch.opensearch_utils import (
     BaseOpenSearchToolset,
     add_auth_header,
     get_search_url,
 )
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.utils import get_param_or_raise, toolset_name_for_one_liner
 
 TRACES_FIELDS_CACHE_KEY = "cached_traces_fields"

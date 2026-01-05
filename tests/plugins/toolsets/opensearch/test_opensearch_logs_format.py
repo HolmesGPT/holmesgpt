@@ -4,7 +4,6 @@ from holmes.plugins.toolsets.opensearch.opensearch_utils import (
     format_logs,
 )
 
-
 config = OpenSearchLoggingConfig(
     opensearch_url="",
     opensearch_auth_header="",

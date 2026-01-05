@@ -1,4 +1,5 @@
 import pytest
+
 from holmes.plugins.toolsets.prometheus.utils import parse_duration_to_seconds
 
 

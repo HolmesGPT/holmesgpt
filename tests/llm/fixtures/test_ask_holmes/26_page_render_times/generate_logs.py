@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import time
 import random
+import time
 from datetime import datetime
 
 # Generate checkout page logs with render times

@@ -1,20 +1,23 @@
-import os
-import logging
-import json
 import base64
-from typing import Any, Optional, Dict
+import json
+import logging
+import os
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel
+
 from holmes.core.tools import (
     CallablePrerequisite,
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
     Toolset,
     ToolsetTag,
 )
-from pydantic import BaseModel
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
+from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 def _build_newrelic_query_url(
