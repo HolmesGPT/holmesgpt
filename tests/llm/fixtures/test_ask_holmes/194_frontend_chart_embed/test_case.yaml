@@ -1,7 +1,7 @@
 description: POC test for additional system prompt feature. Validates that the additional system prompt is correctly wired in evals, using chart embed generation as the validator.
 
 user_prompt:
-  - Show me a chart embed comparing the resource count across namespaces that start with app-194, such as app-194-kube and app-194-sphere
+  - Show me a chart embed comparing namespaces that start with app-194, showing how many start with app-194-kube versus those that don't
 
 expected_output:
   - 'Includes a block embed such as <<{ "type": "chart", "data": JSON, "title": "namespace app-194 substring comparison" }>>'
