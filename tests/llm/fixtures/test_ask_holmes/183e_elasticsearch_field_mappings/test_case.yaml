@@ -1,0 +1,109 @@
+# Test: Elasticsearch Field Mappings Discovery
+# Tests that Holmes can retrieve and interpret index mappings/schema
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+#
+# Anti-hallucination: The test creates an index with specific field names and types.
+# The LLM cannot know this schema without querying the mappings API.
+# Fields include nested objects and specific types that must be correctly reported.
+
+user_prompt: "What are the field mappings for the 'app-183e-transactions' index? List all fields with their data types."
+
+expected_output:
+  - "Must identify the 'transaction_id' field as type keyword"
+  - "Must identify the 'amount' field as type double"
+  - "Must identify the 'metadata.region' nested field as type keyword"
+  - "Must identify the 'metadata.priority' nested field as type integer"
+  - "Must identify the 'processed_at' field as type date"
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  export HOLMES_ES_TEST_INDEX="app-183e-transactions"
+
+  # Delete the index if it exists
+  echo "⏳ Cleaning up any existing test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create the test index with specific mappings including nested objects
+  echo "⏳ Creating test index with specific schema..."
+  RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "transaction_id": {"type": "keyword"},
+          "amount": {"type": "double"},
+          "currency": {"type": "keyword"},
+          "status": {"type": "keyword"},
+          "metadata": {
+            "properties": {
+              "region": {"type": "keyword"},
+              "priority": {"type": "integer"},
+              "tags": {"type": "keyword"}
+            }
+          },
+          "processed_at": {"type": "date"},
+          "description": {"type": "text"}
+        }
+      }
+    }')
+
+  # Verify index was created
+  if echo "$RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "✅ Test index created with custom schema"
+  else
+    echo "❌ Failed to create test index: $RESPONSE"
+    exit 1
+  fi
+
+  sleep 2
+
+  # Index a sample document to confirm mappings
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_doc" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "transaction_id": "TXN-12345",
+      "amount": 99.99,
+      "currency": "USD",
+      "status": "completed",
+      "metadata": {
+        "region": "us-east-1",
+        "priority": 1,
+        "tags": ["retail", "online"]
+      },
+      "processed_at": "2025-01-01T10:00:00Z",
+      "description": "Test transaction for schema validation"
+    }' > /dev/null
+
+  # Refresh
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  echo "✅ Test index ready with mappings: transaction_id (keyword), amount (double), metadata.region (keyword), metadata.priority (integer), processed_at (date)"
+
+after_test: |
+
+  echo "⏳ Cleaning up test index: app-183e-transactions"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183e-transactions" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "✅ Cleanup complete"

@@ -41,17 +41,18 @@ from holmes.plugins.toolsets.kafka import KafkaToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
-from holmes.plugins.toolsets.opensearch.opensearch import OpenSearchToolset
-from holmes.plugins.toolsets.opensearch.opensearch_logs import OpenSearchLogsToolset
-from holmes.plugins.toolsets.opensearch.opensearch_query_assist import (
+from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
     OpenSearchQueryAssistToolset,
 )
-from holmes.plugins.toolsets.opensearch.opensearch_traces import OpenSearchTracesToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
 from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
+)
+from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
+    ElasticsearchClusterToolset,
+    ElasticsearchDataToolset,
 )
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -84,7 +85,6 @@ def load_python_toolsets(
         InternetToolset(),
         ConnectivityCheckToolset(),
         RobustaToolset(dal),
-        OpenSearchToolset(),
         GrafanaLokiToolset(),
         GrafanaTempoToolset(),
         NewRelicToolset(),
@@ -95,8 +95,6 @@ def load_python_toolsets(
         DatadogGeneralToolset(),
         DatadogMetricsToolset(),
         DatadogTracesToolset(),
-        OpenSearchLogsToolset(),
-        OpenSearchTracesToolset(),
         OpenSearchQueryAssistToolset(),
         CoralogixToolset(),
         RabbitMQToolset(),
@@ -106,6 +104,8 @@ def load_python_toolsets(
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        ElasticsearchDataToolset(),
+        ElasticsearchClusterToolset(),
     ]
 
     if not DISABLE_PROMETHEUS_TOOLSET:

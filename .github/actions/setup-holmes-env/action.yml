@@ -10,6 +10,10 @@ inputs:
     description: 'Whether to install kubectl'
     required: false
     default: 'true'
+  working-directory:
+    description: 'Working directory for poetry commands (where pyproject.toml is located)'
+    required: false
+    default: '.'
 
 runs:
   using: 'composite'
@@ -35,6 +39,7 @@ runs:
 
     - name: Install project dependencies
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         poetry install --no-root --with dev
 
