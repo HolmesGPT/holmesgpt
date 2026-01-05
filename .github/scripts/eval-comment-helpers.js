@@ -1,6 +1,15 @@
 /**
- * Shared helper functions for eval workflow PR comments.
- * Used by multiple steps in .github/workflows/eval-regression.yaml
+ * Eval comment helpers for GitHub workflow PR comments.
+ *
+ * SECURITY NOTE: This file is loaded from a TRUSTED checkout of the base branch
+ * (master), NOT from the PR branch. The workflow checks out to sibling directories:
+ *   - PR code: ./code/
+ *   - Trusted helpers: ./.trusted/
+ *
+ * Since they're siblings, neither can overwrite the other.
+ * The workflow loads: require('./.trusted/.github/scripts/eval-comment-helpers.js')
+ *
+ * DO NOT change the workflow to load from ./code/ path!
  */
 
 // Identifier for the persistent automated eval comment (hidden HTML comment)

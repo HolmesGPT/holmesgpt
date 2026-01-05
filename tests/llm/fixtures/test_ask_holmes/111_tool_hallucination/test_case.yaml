@@ -1,3 +1,4 @@
+tags: [prometheus]
 # The content of the mocks for this test don't matter but they should be generated
 # The point is to make holmes believe it has a tool but it's not really available
 user_prompt: |
