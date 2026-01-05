@@ -114,13 +114,9 @@ before_test: |
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   # Verify mapping was created with expected field count
-  MAPPING_FIELD_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-193-telemetry/_mapping" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-props = d['app-193-telemetry']['mappings'].get('properties', {})
-print(len(props))
-")
+  MAPPING_RESPONSE=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-193-telemetry/_mapping" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
+  MAPPING_FIELD_COUNT=$(echo "$MAPPING_RESPONSE" | jq '."app-193-telemetry".mappings.properties | keys | length')
 
   echo "Index has $MAPPING_FIELD_COUNT fields in mapping"
 
@@ -130,15 +126,9 @@ print(len(props))
   fi
 
   # Verify needle field exists
-  NEEDLE_EXISTS=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-193-telemetry/_mapping" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-props = d['app-193-telemetry']['mappings'].get('properties', {})
-print('yes' if 'du_transaction_id_7k3m' in props else 'no')
-")
+  NEEDLE_EXISTS=$(echo "$MAPPING_RESPONSE" | jq -r '."app-193-telemetry".mappings.properties | has("du_transaction_id_7k3m")')
 
-  if [ "$NEEDLE_EXISTS" != "yes" ]; then
+  if [ "$NEEDLE_EXISTS" != "true" ]; then
     echo "Needle field du_transaction_id_7k3m not found in mapping!"
     exit 1
   fi
