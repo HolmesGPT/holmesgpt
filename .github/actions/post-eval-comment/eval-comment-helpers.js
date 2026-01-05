@@ -324,7 +324,10 @@ function buildRerunFooter(p, context, options = {}) {
     '| `markers` | Pytest markers (**no default - runs all tests!**) |\n' +
     '| `filter` | Pytest -k filter (use `/list` to see valid eval names) |\n' +
     '| `iterations` | Number of runs, max 10 |\n' +
-    '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
+    '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n' +
+    '| `is_pr_trusted` | `true` to run on fork PRs (**⚠️ OWNER only, see security warning**) |\n\n' +
+    '⚠️ **Security:** `/eval` on fork PRs is blocked by default. Fork PRs can contain malicious code that executes with access to repository secrets. ' +
+    'Only repository OWNERs should use `is_pr_trusted: true` after manually reviewing ALL code changes.\n\n' +
     '**Quick re-run:** Use `/rerun` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
