@@ -113,23 +113,16 @@ The toolsets support multiple authentication methods:
 
 --8<-- "snippets/toolset_capabilities_intro.md"
 
-### elasticsearch/data
-
-| Tool Name | Description |
-|-----------|-------------|
-| elasticsearch_search | Search documents using Elasticsearch Query DSL |
-| elasticsearch_mappings | Get field mappings for an index |
-| elasticsearch_list_indices | List indices matching a pattern |
-
-### elasticsearch/cluster
-
-| Tool Name | Description |
-|-----------|-------------|
-| elasticsearch_cat | Query _cat APIs (indices, shards, nodes, etc.) |
-| elasticsearch_cluster_health | Get cluster health status |
-| elasticsearch_allocation_explain | Explain shard allocation decisions |
-| elasticsearch_nodes_stats | Get node-level statistics |
-| elasticsearch_index_stats | Get statistics for an index |
+| Toolset | Tool Name | Description |
+|---------|-----------|-------------|
+| `elasticsearch/data` | elasticsearch_search | Search documents using Elasticsearch Query DSL |
+| `elasticsearch/data` | elasticsearch_mappings | Get field mappings for an index |
+| `elasticsearch/data` | elasticsearch_list_indices | List indices matching a pattern |
+| `elasticsearch/cluster` | elasticsearch_cat | Query _cat APIs (indices, shards, nodes, etc.) |
+| `elasticsearch/cluster` | elasticsearch_cluster_health | Get cluster health status |
+| `elasticsearch/cluster` | elasticsearch_allocation_explain | Explain shard allocation decisions |
+| `elasticsearch/cluster` | elasticsearch_nodes_stats | Get node-level statistics |
+| `elasticsearch/cluster` | elasticsearch_index_stats | Get statistics for an index |
 
 ## Example Queries
 
