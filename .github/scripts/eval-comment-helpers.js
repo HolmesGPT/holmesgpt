@@ -2,14 +2,14 @@
  * Eval comment helpers for GitHub workflow PR comments.
  *
  * SECURITY NOTE: This file is loaded from a TRUSTED checkout of the base branch
- * (master), NOT from the PR branch. The workflow uses a two-stage checkout:
- *   1. First checkout: base branch helpers into .trusted/
- *   2. Second checkout: PR code into working directory
+ * (master), NOT from the PR branch. The workflow checks out to sibling directories:
+ *   - PR code: ./code/
+ *   - Trusted helpers: ./.trusted/
  *
- * This prevents malicious PRs from injecting code via modified helpers.
+ * Since they're siblings, neither can overwrite the other.
  * The workflow loads: require('./.trusted/.github/scripts/eval-comment-helpers.js')
  *
- * DO NOT change the workflow to load from the PR checkout path!
+ * DO NOT change the workflow to load from ./code/ path!
  */
 
 // Identifier for the persistent automated eval comment (hidden HTML comment)

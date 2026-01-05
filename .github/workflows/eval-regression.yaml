@@ -240,9 +240,16 @@ jobs:
               content: 'eyes'
             });
 
-      # SECURITY: First checkout trusted helpers from base branch to prevent code injection
-      # The workflow YAML comes from base branch, but PR checkout gets untrusted code.
-      # By loading helpers from .trusted/ we prevent malicious PRs from injecting code.
+      # SECURITY: Checkout to sibling directories so neither can overwrite the other.
+      # PR code goes to ./code/, trusted helpers go to ./.trusted/
+      - name: Checkout PR code
+        if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
+        uses: actions/checkout@v4
+        with:
+          # For /eval with branch: checkout the specified branch; otherwise checkout PR SHA or current ref
+          ref: ${{ steps.eval-comment.outputs.branch || steps.eval-comment.outputs.pr_sha || github.ref }}
+          path: code
+
       - name: Checkout trusted helpers from base branch
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
         uses: actions/checkout@v4
@@ -250,12 +257,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.ref || 'master' }}
           sparse-checkout: .github/scripts
           path: .trusted
-
-      - uses: actions/checkout@v4
-        if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
-        with:
-          # For /eval with branch: checkout the specified branch; otherwise checkout PR SHA or current ref
-          ref: ${{ steps.eval-comment.outputs.branch || steps.eval-comment.outputs.pr_sha || github.ref }}
 
       - name: Determine eval parameters
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
@@ -556,7 +557,7 @@ jobs:
       # Reordered: Setup HolmesGPT first (needed for pytest), then collect evals, then KIND
       - name: Setup HolmesGPT environment
         if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./.github/actions/setup-holmes-env
+        uses: ./code/.github/actions/setup-holmes-env
         with:
           python-version: '3.12'
           install-kubectl: 'true'
@@ -609,6 +610,7 @@ jobs:
       - name: Collect evals to run
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         id: test-preview
+        working-directory: code
         shell: bash
         env:
           MODEL: ${{ steps.eval-params.outputs.model }}
@@ -700,7 +702,7 @@ jobs:
 
       - name: Setup KIND cluster
         if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./.github/actions/setup-kind-cluster
+        uses: ./code/.github/actions/setup-kind-cluster
         with:
           cluster-name: 'kind'
           wait-for-ready: 'true'
@@ -757,6 +759,7 @@ jobs:
         if: steps.check-tests.outputs.should-run == 'true'
         id: evals
         continue-on-error: true
+        working-directory: code
         shell: bash
         env:
           RUN_LIVE: "true"
@@ -815,8 +818,8 @@ jobs:
               triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
-            const report = fs.existsSync('evals_report.md') ? fs.readFileSync('evals_report.md', 'utf8') : '';
-            const failures = fs.existsSync('regressions.txt') ? fs.readFileSync('regressions.txt', 'utf8').trim() : '';
+            const report = fs.existsSync('code/evals_report.md') ? fs.readFileSync('code/evals_report.md', 'utf8') : '';
+            const failures = fs.existsSync('code/regressions.txt') ? fs.readFileSync('code/regressions.txt', 'utf8').trim() : '';
             const hasFailures = failures && failures !== '0';
 
             // Build notification header for the user who triggered the eval (only for manual runs)
@@ -906,6 +909,7 @@ jobs:
 
       - name: Check test results
         if: always()
+        working-directory: code
         run: |
           if [[ -f "regressions.txt" ]]; then
             echo "⚠️ There are failures in the evals. Please check the file for details."
