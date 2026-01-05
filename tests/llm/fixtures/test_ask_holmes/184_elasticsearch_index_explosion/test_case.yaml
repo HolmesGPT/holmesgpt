@@ -133,12 +133,40 @@ before_test: |
       echo "{\"@timestamp\":\"2024-01-15T12:00:00Z\",\"level\":\"INFO\",\"message\":\"Log entry $i\"}" >> "$LARGE_BULK"
     done
 
-    curl -sf -X POST "${ELASTICSEARCH_URL}/${LARGE_INDEX}/_bulk" \
+    # Capture response and check for errors
+    BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LARGE_INDEX}/_bulk" \
       -H "Content-Type: application/x-ndjson" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-      --data-binary @"$LARGE_BULK" > /dev/null
+      --data-binary @"$LARGE_BULK" 2>&1)
+    CURL_EXIT=$?
 
     rm -f "$LARGE_BULK"
+
+    if [ $CURL_EXIT -ne 0 ]; then
+      echo "❌ Bulk insert failed for $LARGE_INDEX (curl exit code: $CURL_EXIT)"
+      echo "Response: $BULK_RESPONSE"
+      exit 1
+    fi
+
+    # Check for errors in bulk response
+    if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+      ERROR_COUNT=$(echo "$BULK_RESPONSE" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+errors = [item for item in d.get('items', []) if 'error' in item.get('index', {})]
+print(len(errors))
+" 2>/dev/null || echo "unknown")
+      echo "❌ Bulk insert had $ERROR_COUNT errors for $LARGE_INDEX"
+      echo "First error: $(echo "$BULK_RESPONSE" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for item in d.get('items', []):
+    if 'error' in item.get('index', {}):
+        print(item['index']['error'])
+        break
+" 2>/dev/null || echo "unknown")"
+      exit 1
+    fi
   done
 
   # Wait for indexing
