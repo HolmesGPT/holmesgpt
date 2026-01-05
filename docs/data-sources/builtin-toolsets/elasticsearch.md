@@ -17,37 +17,16 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 
 ## Configuration
 
-=== "Data Querying Only"
+=== "Holmes CLI"
 
-    For searching logs and documents (lower permissions):
+    Set environment variables:
 
-    ```yaml
-    toolsets:
-      elasticsearch/data:
-        enabled: true
-        config:
-          url: "https://your-cluster.es.cloud.io:443"
-          api_key: "your-api-key"
-          verify_ssl: true
+    ```bash
+    export ELASTICSEARCH_URL="https://your-cluster.es.cloud.io:443"
+    export ELASTICSEARCH_API_KEY="your-api-key"
     ```
 
-=== "Cluster Troubleshooting Only"
-
-    For diagnosing cluster issues (requires cluster-level access):
-
-    ```yaml
-    toolsets:
-      elasticsearch/cluster:
-        enabled: true
-        config:
-          url: "https://your-cluster.es.cloud.io:443"
-          api_key: "your-api-key"
-          verify_ssl: true
-    ```
-
-=== "Both Toolsets"
-
-    Enable both for full functionality:
+    Add to your config file (`~/.holmes/config.yaml`):
 
     ```yaml
     toolsets:
@@ -63,9 +42,52 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
     ```
 
---8<-- "snippets/toolset_refresh_warning.md"
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    First, create a Kubernetes secret with your API key:
+
+    ```bash
+    kubectl create secret generic elasticsearch-credentials \
+      --from-literal=api-key=your-api-key
+    ```
+
+    Then add to your Holmes Helm values:
+
+    ```yaml
+    additionalEnvVars:
+      - name: ELASTICSEARCH_URL
+        value: "https://your-cluster.es.cloud.io:443"
+      - name: ELASTICSEARCH_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: elasticsearch-credentials
+            key: api-key
+
+    toolsets:
+      elasticsearch/data:
+        enabled: true
+        config:
+          url: "{{ env.ELASTICSEARCH_URL }}"
+          api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      elasticsearch/cluster:
+        enabled: true
+        config:
+          url: "{{ env.ELASTICSEARCH_URL }}"
+          api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+    ```
 
 === "Robusta Helm Chart"
+
+    First, create a Kubernetes secret with your API key:
+
+    ```bash
+    kubectl create secret generic elasticsearch-credentials \
+      --from-literal=api-key=your-api-key
+    ```
+
+    Then add to your Robusta Helm values:
 
     ```yaml
     holmes:
@@ -91,6 +113,9 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
     ```
 
     --8<-- "snippets/helm_upgrade_command.md"
+
+!!! tip "Enable only what you need"
+    You can enable just `elasticsearch/data` or `elasticsearch/cluster` depending on your needs. Most users who just want to search logs only need `elasticsearch/data`.
 
 ## Authentication
 
