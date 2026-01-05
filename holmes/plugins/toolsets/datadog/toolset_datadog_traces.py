@@ -11,34 +11,33 @@ from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
     Toolset,
-    StructuredToolResult,
-    StructuredToolResultStatus,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.datadog.datadog_api import (
+    MAX_RETRY_COUNT_ON_RATE_LIMIT,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
-    MAX_RETRY_COUNT_ON_RATE_LIMIT,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import DatadogTracesConfig
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
     generate_datadog_spans_analytics_url,
     generate_datadog_spans_url,
 )
-from holmes.plugins.toolsets.utils import (
-    process_timestamps_to_int,
-    toolset_name_for_one_liner,
-    standard_start_datetime_tool_param_description,
-)
-
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
+)
+from holmes.plugins.toolsets.utils import (
+    process_timestamps_to_int,
+    standard_start_datetime_tool_param_description,
+    toolset_name_for_one_liner,
 )
 
 # Valid percentile aggregations supported by Datadog

@@ -3,19 +3,20 @@
 
 import argparse
 import json
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, DefaultDict, Set, Optional
-from collections import defaultdict
+from typing import Any, DefaultDict, Dict, List, Optional, Set
 from urllib.parse import quote
+
 from llm.utils.test_env_vars import (
-    CLASSIFIER_MODEL,
     BRAINTRUST_API_KEY,
     BRAINTRUST_ORG,
     BRAINTRUST_PROJECT,
+    BUILDKITE_BRANCH,
+    CLASSIFIER_MODEL,
     EXPERIMENT_ID,
     GITHUB_REF_NAME,
-    BUILDKITE_BRANCH,
 )
 
 

@@ -1,31 +1,28 @@
+import asyncio
 import json
+import logging
+import threading
+from contextlib import asynccontextmanager
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from mcp.client.session import ClientSession
+from mcp.client.sse import sse_client
+from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.streamable_http import streamablehttp_client
+from mcp.types import Tool as MCP_Tool
+from pydantic import AnyUrl, BaseModel, Field, model_validator
 
 from holmes.common.env_vars import SSE_READ_TIMEOUT
 from holmes.core.tools import (
-    ToolInvokeContext,
-    Toolset,
-    Tool,
-    ToolParameter,
+    CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
-    CallablePrerequisite,
+    Tool,
+    ToolInvokeContext,
+    ToolParameter,
+    Toolset,
 )
-
-from typing import Dict, Any, List, Optional, Union
-from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
-from mcp.client.stdio import stdio_client, StdioServerParameters
-
-from mcp.types import Tool as MCP_Tool
-
-import asyncio
-from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field, AnyUrl, model_validator
-from typing import Tuple
-import logging
-from enum import Enum
-import threading
 
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}
@@ -185,17 +182,17 @@ class RemoteMCPTool(Tool):
         return parameters
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        if params:
-            if params.get("cli_command"):  # Return AWS MCP cli command, if available
-                return f"{params.get('cli_command')}"
+        # AWS MCP cli_command
+        if params and params.get("cli_command"):
+            return f"{params.get('cli_command')}"
 
-        if isinstance(self.toolset._mcp_config, MCPConfig):
-            cmd = str(self.toolset._mcp_config.url)
-        elif isinstance(self.toolset._mcp_config, StdioMCPConfig):
-            cmd = self.toolset._mcp_config.command
-        else:
-            cmd = "unknown"
-        return f"Call MCP Server ({cmd} - {self.name})"
+        # gcloud MCP run_gcloud_command
+        if self.name == "run_gcloud_command" and params and "args" in params:
+            args = params.get("args", [])
+            if isinstance(args, list):
+                return f"gcloud {' '.join(str(arg) for arg in args)}"
+
+        return f"{self.toolset.name}: {self.name} {params}"
 
 
 class RemoteMCPToolset(Toolset):

@@ -22,7 +22,7 @@ before_test: |
     sleep 1
   done
   if [ "$ERROR_FOUND" = false ]; then
-    echo "❌ No error logs found after 30 seconds"
+    echo "❌ No error logs found"
     kubectl logs -n app-23 -l app=curl-app
     exit 1
   fi

@@ -4,10 +4,11 @@ Isolates one rabbitmq pods by raising the firewall (iptables) on relevant kubern
 This works well with local kind clusters with docker engine but has not been tested on other setups.
 """
 
-import subprocess
-import time
-import sys
 import argparse
+import subprocess
+import sys
+import time
+
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 

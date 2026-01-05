@@ -1,17 +1,17 @@
-import os
 import json
+import os
 import time
 import uuid
+from typing import Any, Dict, List, Optional, Tuple, cast
 from urllib.parse import quote
-from typing import Any, Dict, Tuple, cast, List, Optional
 
-from holmes.common.env_vars import load_bool, MAX_GRAPH_POINTS
+from holmes.common.env_vars import MAX_GRAPH_POINTS, load_bool
 from holmes.core.tools import (
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.grafana.base_grafana_toolset import BaseGrafanaToolset
@@ -23,12 +23,12 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
 from holmes.plugins.toolsets.utils import (
-    toolset_name_for_one_liner,
-    process_timestamps_to_int,
-    standard_start_datetime_tool_param_description,
     adjust_step_for_max_points,
-    seconds_to_duration_string,
     duration_string_to_seconds,
+    process_timestamps_to_int,
+    seconds_to_duration_string,
+    standard_start_datetime_tool_param_description,
+    toolset_name_for_one_liner,
 )
 
 TEMPO_LABELS_ADD_PREFIX = load_bool("TEMPO_LABELS_ADD_PREFIX", True)

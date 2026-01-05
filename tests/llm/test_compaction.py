@@ -9,23 +9,23 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 
 from holmes.config import Config
-from holmes.core.tracing import TracingFactory, SpanType
+from holmes.core.tracing import SpanType, TracingFactory
 from holmes.core.truncation.compaction import compact_conversation_history
+from tests.llm.utils.braintrust import CompactionResult, log_to_braintrust
+from tests.llm.utils.classifiers import evaluate_correctness
+from tests.llm.utils.iteration_utils import get_test_cases
+from tests.llm.utils.property_manager import (
+    handle_test_error,
+    set_initial_properties,
+    set_trace_properties,
+)
 from tests.llm.utils.test_case_utils import (
     HolmesTestCase,
     check_and_skip_test,
+    create_eval_llm,
     get_models,
     load_conversation_history,
-    create_eval_llm,
 )
-from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.property_manager import (
-    set_initial_properties,
-    set_trace_properties,
-    handle_test_error,
-)
-from tests.llm.utils.braintrust import CompactionResult, log_to_braintrust
-from tests.llm.utils.classifiers import evaluate_correctness
 
 TEST_CASES_FOLDER = Path(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "fixtures", "compaction"))

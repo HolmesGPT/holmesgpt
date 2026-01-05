@@ -7,17 +7,17 @@ from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
-    ToolsetTag,
     Tool,
     ToolInvokeContext,
     ToolParameter,
     Toolset,
+    ToolsetTag,
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.coralogix.api import (
-    health_check,
-    execute_dataprime_query,
     CoralogixTier,
+    execute_dataprime_query,
+    health_check,
 )
 from holmes.plugins.toolsets.coralogix.utils import CoralogixConfig, normalize_datetime
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner

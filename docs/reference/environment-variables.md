@@ -82,9 +82,6 @@ export HOLMES_LOG_LEVEL="DEBUG"
 ### HOLMES_CACHE_DIR
 Directory for caching HolmesGPT data and temporary files.
 
-### HOLMES_POST_PROCESSING_PROMPT
-Custom prompt template for post-processing LLM responses.
-
 ## Data Source Configuration
 
 ### Prometheus

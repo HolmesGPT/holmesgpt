@@ -1,12 +1,13 @@
 # ruff: noqa: F821
-import os
 import logging
+import os
 import time
+from random import randint
+from time import sleep
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from prometheus_fastapi_instrumentator import Instrumentator
-from random import randint
-from time import sleep
 
 app = FastAPI()
 

@@ -2,6 +2,8 @@ user_prompt: "My signup service is failing and users can't register. What should
 tags:
   - kubernetes
   - runbooks
+  - regression
+  - medium
 
 # simulates loading runbooks and global instructions from a cluster environment
 test_type: cluster

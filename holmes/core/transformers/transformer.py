@@ -4,6 +4,7 @@ Configuration class for tool transformers.
 
 import logging
 from typing import Any, Dict
+
 from pydantic import BaseModel, Field, model_validator
 
 from .registry import registry

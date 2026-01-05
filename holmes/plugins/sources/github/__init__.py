@@ -1,9 +1,11 @@
 import logging
 from typing import List
+
+import requests  # type: ignore
+
+from holmes.core.issue import Issue
 from holmes.core.tool_calling_llm import LLMResult
 from holmes.plugins.interfaces import SourcePlugin
-from holmes.core.issue import Issue
-import requests  # type: ignore
 
 
 class GitHubSource(SourcePlugin):

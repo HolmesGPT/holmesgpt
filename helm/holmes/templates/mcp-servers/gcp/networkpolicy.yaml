@@ -1,0 +1,57 @@
+{{- if and .Values.mcpAddons.gcp.enabled .Values.mcpAddons.gcp.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-gcp-mcp-netpol
+  namespace: {{ .Values.mcpAddons.gcp.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gcp-mcp
+    app.kubernetes.io/name: gcp-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}-gcp-mcp
+      app.kubernetes.io/name: gcp-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from Holmes pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: {{ .Release.Name }}
+          app.kubernetes.io/name: holmes
+    ports:
+    {{- if .Values.mcpAddons.gcp.gcloud.enabled }}
+    - protocol: TCP
+      port: {{ .Values.mcpAddons.gcp.gcloud.port }}
+    {{- end }}
+    {{- if .Values.mcpAddons.gcp.observability.enabled }}
+    - protocol: TCP
+      port: {{ .Values.mcpAddons.gcp.observability.port }}
+    {{- end }}
+    {{- if .Values.mcpAddons.gcp.storage.enabled }}
+    - protocol: TCP
+      port: {{ .Values.mcpAddons.gcp.storage.port }}
+    {{- end }}
+  egress:
+  # Allow DNS lookups
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  # Allow traffic to GCP APIs (all external IPs except metadata service)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 169.254.169.254/32  # Block GCP metadata service (use Workload Identity instead)
+{{- end }}

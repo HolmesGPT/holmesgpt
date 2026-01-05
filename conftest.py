@@ -1,11 +1,14 @@
-import os
 import logging
-from tests.llm.conftest import show_llm_summary_report
-from holmes.core.tracing import readable_timestamp, get_active_branch_name
-from tests.llm.utils.braintrust import get_braintrust_url
+import os
+import re
 from unittest.mock import MagicMock, patch
+
 import pytest
 import responses as responses_
+
+from holmes.core.tracing import get_active_branch_name, readable_timestamp
+from tests.llm.conftest import show_llm_summary_report
+from tests.llm.utils.braintrust import get_braintrust_url
 
 
 def pytest_addoption(parser):
@@ -226,4 +229,15 @@ def responses():
         rsps.add_passthru("https://app.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.eu")
         rsps.add_passthru("https://ng-api-http.eu2.coralogix.com")
+
+        # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
+        rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
+        rsps.add_passthru(re.compile(r"https://.*\.elastic-cloud\.com"))  # Azure-hosted
+        rsps.add_passthru(re.compile(r"https://.*\.es\.amazonaws\.com"))  # AWS OpenSearch
+
+        # Allow
+        rsps.add_passthru("https://google.com")
+        rsps.add_passthru("https://burgergooglenetworkspam.co.uk")
+        rsps.add_passthru("https://www.google.com")
+        rsps.add_passthru("https://www.burgergooglenetworkspam.co.uk")
         yield rsps

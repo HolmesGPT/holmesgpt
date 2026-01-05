@@ -1,21 +1,21 @@
-import os
 import logging
+import os
 from typing import Any, ClassVar, List, Optional, Tuple, Type
+from urllib.parse import urljoin
 
 from pydantic import BaseModel, Field
+from requests import RequestException  # type: ignore
+
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    StructuredToolResultStatus,
     Toolset,
     ToolsetTag,
 )
-from requests import RequestException  # type: ignore
-from urllib.parse import urljoin
-
 from holmes.plugins.toolsets.rabbitmq.api import (
     ClusterConnectionStatus,
     RabbitMQClusterConfig,

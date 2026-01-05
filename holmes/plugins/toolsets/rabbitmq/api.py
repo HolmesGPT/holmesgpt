@@ -1,11 +1,11 @@
-from enum import Enum
 import logging
+from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 import backoff
-from pydantic import BaseModel, Field
 import requests  # type: ignore
+from pydantic import BaseModel, Field
 from requests.auth import HTTPBasicAuth  # type: ignore
 
 # --- Enums and Pydantic Models (Mostly Unchanged) ---

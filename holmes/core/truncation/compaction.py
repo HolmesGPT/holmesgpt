@@ -2,10 +2,10 @@ import logging
 from typing import Optional
 
 import litellm
+from litellm.types.utils import ModelResponse
 
 from holmes.core.llm import LLM
 from holmes.plugins.prompts import load_and_render_prompt
-from litellm.types.utils import ModelResponse
 
 
 def strip_system_prompt(

@@ -1,8 +1,11 @@
-import re
-import logging
 import json
+import logging
+import re
 from typing import Any, Dict, Tuple
+
 from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     ToolParameter,
@@ -11,10 +14,6 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.internet.internet import (
     InternetBaseToolset,
     scrape,
-)
-from holmes.core.tools import (
-    StructuredToolResult,
-    StructuredToolResultStatus,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 

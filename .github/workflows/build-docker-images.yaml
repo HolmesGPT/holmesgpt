@@ -88,5 +88,4 @@ jobs:
     - name: Push Helm chart to OCI registry
       run: |
         helm package helm/holmes
-        helm push holmes-${{github.ref_name}}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
-
+        helm push holmes-${{github.ref_name}}.tgz oci://ghcr.io/holmesgpt/charts

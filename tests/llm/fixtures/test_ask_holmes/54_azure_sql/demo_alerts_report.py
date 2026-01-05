@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
+import logging
 import os
 import sys
-import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from tests.conftest import create_mock_tool_invoke_context
 
@@ -11,10 +11,10 @@ from tests.conftest import create_mock_tool_invoke_context
 sys.path.insert(0, "/home/nherment/workspace/robusta-dev/holmesgpt")
 
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import (
-    AzureSQLToolset,
-    GetActiveAlerts,
     AzureSQLConfig,
     AzureSQLDatabaseConfig,
+    AzureSQLToolset,
+    GetActiveAlerts,
 )
 
 

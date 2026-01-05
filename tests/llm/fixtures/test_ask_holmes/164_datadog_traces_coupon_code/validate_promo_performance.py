@@ -3,12 +3,12 @@ Validate that checkout URLs with promo codes are at least 3x slower than those w
 Uses Datadog Spans Analytics API to aggregate performance data.
 """
 
-import sys
-import os
 import json
-import urllib.request
-import urllib.error
+import os
+import sys
 import time
+import urllib.error
+import urllib.request
 
 
 def check_environment_variables():

@@ -1,20 +1,13 @@
-import pytest
 import re
-from typing import Optional
-from unittest.mock import Mock
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
+from unittest.mock import Mock
 
+import pytest
 from rich.console import Console
 
 from holmes.config import Config
-from holmes.core.prompt import (
-    build_initial_ask_messages,
-    append_file_to_user_prompt,
-    append_all_files_to_user_prompt,
-    get_tasks_management_system_reminder,
-    generate_user_prompt,
-)
 from holmes.core.conversations import (
     build_chat_messages,
     build_issue_chat_messages,
@@ -22,11 +15,18 @@ from holmes.core.conversations import (
 )
 from holmes.core.investigation import get_investigation_context
 from holmes.core.models import (
-    IssueChatRequest,
-    WorkloadHealthChatRequest,
     InvestigateRequest,
+    IssueChatRequest,
     IssueInvestigationResult,
+    WorkloadHealthChatRequest,
     WorkloadHealthInvestigationResult,
+)
+from holmes.core.prompt import (
+    append_all_files_to_user_prompt,
+    append_file_to_user_prompt,
+    build_initial_ask_messages,
+    generate_user_prompt,
+    get_tasks_management_system_reminder,
 )
 from holmes.utils.global_instructions import generate_runbooks_args
 
