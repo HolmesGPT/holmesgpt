@@ -106,7 +106,7 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
                 required=True,
             ),
             "description": ToolParameter(
-                description="A breif 6 word human understandable description of the query you are running.",
+                description="A brief 6 word human understandable description of the query you are running.",
                 type="string",
                 required=True,
             ),
@@ -121,7 +121,7 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
         if toolset.enable_multi_account:
             parameters["account_id"] = ToolParameter(
                 description=(
-                    f"A New Relic account ID is a numeric identifier, typically a 6–8 digit integer (e.g., 1234567). It contains only digits, has no prefixes or separators, and uniquely identifies a New Relic account. default: {toolset.nr_account_id}"
+                    f"A New Relic account ID is a numeric identifier, typically a 6-8 digit integer (e.g., 1234567). It contains only digits, has no prefixes or separators, and uniquely identifies a New Relic account. default: {toolset.nr_account_id}"
                 ),
                 type="integer",
                 required=True,
