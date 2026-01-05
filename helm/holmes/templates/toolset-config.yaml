@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,11 +11,26 @@ data:
     {{- if .Values.mcpAddons.aws.enabled }}
     {{- $awsMcpServers := dict "aws_api" (dict
         "description" "AWS API MCP Server - comprehensive AWS service access. Allow executing any AWS CLI commands."
-        "url" (printf "http://%s-aws-mcp-server.%s.svc.cluster.local:8000" .Release.Name (.Values.mcpAddons.aws.config.namespace | default .Release.Namespace))
+        "config" (dict
+          "url" (printf "http://%s-aws-mcp-server.%s.svc.cluster.local:8000" .Release.Name (.Values.mcpAddons.aws.config.namespace | default .Release.Namespace))
+          "mode" "streamable-http"
+        )
         "llm_instructions" (include "holmes.awsMcp.llmInstructions" . | trim)
       )
     }}
     {{- $mcpServers = merge $mcpServers $awsMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.azure.enabled }}
+    {{- $azureMcpServers := dict "azure_api" (dict
+        "description" "Azure API MCP Server - comprehensive Azure service access. Execute any Azure CLI commands."
+        "config" (dict
+          "url" (printf "http://%s-azure-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name (.Values.mcpAddons.azure.config.namespace | default .Release.Namespace))
+          "mode" "streamable-http"
+        )
+        "llm_instructions" (include "holmes.azureMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $azureMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.mariadb.enabled }}
     {{- $mariadbMcpServers := dict "mariadb" (dict
@@ -29,6 +44,43 @@ data:
       )
     }}
     {{- $mcpServers = merge $mcpServers $mariadbMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.gcp.enabled }}
+    {{- $gcpMcpServers := dict }}
+    {{- if .Values.mcpAddons.gcp.gcloud.enabled }}
+    {{- $gcpMcpServers = merge $gcpMcpServers (dict "gcp_gcloud" (dict
+        "description" "Google Cloud management via gcloud CLI"
+        "config" (dict
+          "url" (printf "http://%s-gcp-mcp-server.%s.svc.cluster.local:%d/sse" .Release.Name (.Values.mcpAddons.gcp.config.namespace | default .Release.Namespace) (int .Values.mcpAddons.gcp.gcloud.port))
+          "mode" "sse"
+        )
+        "llm_instructions" (include "holmes.gcpMcp.gcloud.llmInstructions" . | trim)
+      ))
+    }}
+    {{- end }}
+    {{- if .Values.mcpAddons.gcp.observability.enabled }}
+    {{- $gcpMcpServers = merge $gcpMcpServers (dict "gcp_observability" (dict
+        "description" "GCP Observability - logs, metrics, traces, errors"
+        "config" (dict
+          "url" (printf "http://%s-gcp-mcp-server.%s.svc.cluster.local:%d/sse" .Release.Name (.Values.mcpAddons.gcp.config.namespace | default .Release.Namespace) (int .Values.mcpAddons.gcp.observability.port))
+          "mode" "sse"
+        )
+        "llm_instructions" (include "holmes.gcpMcp.observability.llmInstructions" . | trim)
+      ))
+    }}
+    {{- end }}
+    {{- if .Values.mcpAddons.gcp.storage.enabled }}
+    {{- $gcpMcpServers = merge $gcpMcpServers (dict "gcp_storage" (dict
+        "description" "Google Cloud Storage operations"
+        "config" (dict
+          "url" (printf "http://%s-gcp-mcp-server.%s.svc.cluster.local:%d/sse" .Release.Name (.Values.mcpAddons.gcp.config.namespace | default .Release.Namespace) (int .Values.mcpAddons.gcp.storage.port))
+          "mode" "sse"
+        )
+        "llm_instructions" (include "holmes.gcpMcp.storage.llmInstructions" . | trim)
+      ))
+    }}
+    {{- end }}
+    {{- $mcpServers = merge $mcpServers $gcpMcpServers }}
     {{- end }}
     mcp_servers: {{ toYaml $mcpServers | nindent 6 }}
   model_list.yaml: |-
