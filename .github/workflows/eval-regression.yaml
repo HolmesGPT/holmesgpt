@@ -281,10 +281,14 @@ jobs:
             function parseComment(body) {
               const params = { model: '', markers: '', filter: '', iterations: '1', branch: '' };
               const validKeys = new Set(Object.keys(params));
+              // Aliases: marker -> markers, filters -> filter
+              const keyAliases = { marker: 'markers', filters: 'filter' };
               for (const line of body.split('\n').slice(1)) {
                 const colonIdx = line.indexOf(':');
                 if (colonIdx === -1) continue;
-                const key = line.slice(0, colonIdx).trim().toLowerCase();
+                let key = line.slice(0, colonIdx).trim().toLowerCase();
+                // Normalize aliases
+                if (keyAliases[key]) key = keyAliases[key];
                 // Strip leading/trailing quotes (users sometimes add them unnecessarily)
                 const value = line.slice(colonIdx + 1).trim().replace(/^['"]|['"]$/g, '');
                 if (validKeys.has(key) && value) params[key] = value;
@@ -820,8 +824,22 @@ jobs:
               title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals',
               context
             });
-            currentContent += '\n' + (report || '⚠️ No eval report was generated.\n\n');
-            if (hasFailures) currentContent += `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
+
+            // Insert failures warning before "Historical Comparison Details" if present
+            let reportContent = report || '⚠️ No eval report was generated.\n\n';
+            if (hasFailures) {
+              const failuresWarning = `\n### ⚠️ ${failures} Failure${failures === '1' ? '' : 's'} Detected\n\n`;
+              const historyMarker = '### Historical Comparison Details';
+              const historyIdx = reportContent.indexOf(historyMarker);
+              if (historyIdx !== -1) {
+                // Insert before Historical Comparison Details
+                reportContent = reportContent.slice(0, historyIdx) + failuresWarning + reportContent.slice(historyIdx);
+              } else {
+                // Append at the end if no Historical Comparison Details section
+                reportContent += failuresWarning;
+              }
+            }
+            currentContent += '\n' + reportContent;
             const footer = buildRerunFooter(p, context, { includeLegend: true });
 
             if (isPersistent && p.commentId) {
