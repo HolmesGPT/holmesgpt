@@ -1,0 +1,20 @@
+user_prompt:
+  - Show me a chart embed comparing namespaces that start with app-194, such as app-194-kube and app-194-sphere
+
+expected_output:
+  - 'Includes a block embed such as <<{ "type": "chart", "data": JSON, "title": "namespace app-194 substring comparison" }>>'
+  - The embed type is exactly equal to "chart"
+  - The embed includes the count or percentage for each group
+  - The embed doesn't contain any line-break characters
+  - The `data` JSON doesn't contain fields that their values are js scriptable. It should only contain fixed values!
+
+tags:
+  - frontend
+
+before_test: |
+  kubectl create namespace app-194-kube || true
+  kubectl create namespace app-194-sphere || true
+
+after_test: |
+  kubectl delete namespace app-194-kube --ignore-not-found
+  kubectl delete namespace app-194-sphere --ignore-not-found
