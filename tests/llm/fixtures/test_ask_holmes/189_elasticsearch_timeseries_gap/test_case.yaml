@@ -1,0 +1,161 @@
+# Test: Elasticsearch Time-Series Gap Detection
+#
+# This test creates time-series data with intentional gaps to simulate
+# data collection issues that need to be investigated.
+#
+# Setup:
+# - Metrics index with hourly data points for 48 hours
+# - Intentional 6-hour gap from 14:00 to 20:00 on 2024-01-15
+# - Unique request ID (REQ-37-8A4F2) injected just before the gap
+#
+# The LLM must use date histogram aggregation or search to:
+# 1. Identify there's a gap in the data
+# 2. Determine the time range of the gap (approximately 6 hours)
+# 3. Find the timestamp when data stopped and resumed
+#
+# Anti-hallucination: The specific gap times and duration can only be found by querying.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "We noticed our metrics dashboard shows missing data. Can you analyze the app-189-metrics-timeseries index to find any gaps in the data collection? When did data stop being collected and when did it resume? Also, what was the last request ID before the gap started?"
+
+expected_output:
+  - "Must identify a gap in the data around 2024-01-15"
+  - "Must report the gap started around 14:00 UTC and resumed around 20:00 UTC (approximately 6 hours)"
+  - "Must mention request ID REQ-37-8A4F2 as the last entry before the gap"
+
+tags:
+  - elasticsearch
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  echo "Creating test index for time-series gap detection..."
+
+  # Clean up any existing test data first
+  echo "Cleaning up any existing test data..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create the index
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": {"type": "date"},
+          "request_id": {"type": "keyword"},
+          "metric_name": {"type": "keyword"},
+          "value": {"type": "float"},
+          "host": {"type": "keyword"}
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  echo "✅ Index created, generating time-series data with gap..."
+
+  # Generate time-series data using bash
+  # Base time: 2024-01-14 00:00:00 UTC
+  # Gap: hours 38-43 (2024-01-15 14:00 to 19:59) - 6 hours missing
+  BULK_FILE="/tmp/es_timeseries_189_$$.ndjson"
+  > "$BULK_FILE"
+
+  for hour in $(seq 0 47); do
+    # Skip hours 38-43 to create the gap
+    if [ $hour -ge 38 ] && [ $hour -le 43 ]; then
+      continue
+    fi
+
+    # Calculate the timestamp
+    DAY=$((14 + hour / 24))
+    HOUR_OF_DAY=$((hour % 24))
+    TIMESTAMP=$(printf "2024-01-%02dT%02d:00:00Z" $DAY $HOUR_OF_DAY)
+
+    # Generate request ID
+    if [ $hour -eq 37 ]; then
+      # Special marker just before the gap
+      REQUEST_ID="REQ-37-8A4F2"
+    else
+      REQUEST_ID=$(printf "REQ-%02d%02d-%04d" $HOUR_OF_DAY $((RANDOM % 60)) $((RANDOM % 10000)))
+    fi
+
+    # Random CPU value
+    CPU_VALUE=$((20 + RANDOM % 60))
+
+    # Host rotation
+    HOST_NUM=$((hour % 5 + 1))
+
+    echo "{\"index\": {\"_index\": \"app-189-metrics-timeseries\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"$TIMESTAMP\", \"request_id\": \"$REQUEST_ID\", \"metric_name\": \"cpu_usage\", \"value\": ${CPU_VALUE}.0, \"host\": \"server-${HOST_NUM}\"}" >> "$BULK_FILE"
+  done
+
+  DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
+  echo "Generated $DOC_COUNT data points (with 6-hour gap)"
+
+  # Bulk insert
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$RESPONSE" | grep -q '"errors":false'; then
+    echo "✅ Time-series data inserted successfully"
+  else
+    echo "⚠️ Some errors during bulk insert"
+  fi
+
+  rm -f "$BULK_FILE"
+
+  # Refresh
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-189-metrics-timeseries/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 2
+
+  # Verify the gap exists by counting documents
+  echo "Verifying gap in time-series data..."
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-189-metrics-timeseries/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  echo "Total documents: $DOC_COUNT (expected 42 = 48 hours - 6 gap hours)"
+
+  # Verify marker document exists
+  MARKER=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-189-metrics-timeseries/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query": {"term": {"request_id": "REQ-37-8A4F2"}}, "size": 1}')
+
+  if echo "$MARKER" | grep -q '"REQ-37-8A4F2"'; then
+    echo "✅ Verified: Marker REQ-37-8A4F2 exists"
+  else
+    echo "⚠️ Warning: Could not find gap marker"
+  fi
+
+  echo "✅ Setup complete!"
+
+after_test: |
+
+  echo "Cleaning up test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_timeseries_189_*.ndjson
+
+  echo "✅ Cleanup complete"

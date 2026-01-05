@@ -1,0 +1,207 @@
+# Test: Elasticsearch Index Explosion - Top 5 Largest Among 1800 Indexes
+#
+# This test simulates an enterprise Elasticsearch cluster with 1800 indexes.
+# Without proper sorting/filtering, _cat/indices would return ~300K chars,
+# far exceeding context limits.
+#
+# The LLM must:
+# 1. Recognize it cannot list all 1800 indexes at once
+# 2. Use sort="store.size:desc" or "docs.count:desc" parameter
+# 3. Use jq filtering to limit results (e.g., jq=".[0:5]")
+# 4. Return the correct top 5 largest indexes
+#
+# Anti-hallucination: 5 specific indexes have 500 docs each while all others
+# have just 1 doc. The large index names can only be discovered by querying.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "List the top 5 largest Elasticsearch indices matching the pattern 'app-184-*' by document count. Show their names and doc counts."
+
+expected_output:
+  - "Must list exactly 5 indices in the response"
+  - "Must include app-184-platform-billing-2024.01.15 as one of the largest (500 docs)"
+  - "Must include app-184-engineering-api-2024.01.20 as one of the largest (500 docs)"
+  - "Must include app-184-data-analytics-2024.01.10 as one of the largest (500 docs)"
+  - "Should show document counts around 500 for the largest indices"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - hard
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating 1800 test indexes (5 large, 1795 small)..."
+
+  # Clean up any existing test data first for idempotency
+  echo "Cleaning up any existing test data..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-184-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-184-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
+
+  # Create index template with 0 replicas to fit within cluster shard limits
+  echo "Creating index template with 0 replicas..."
+  TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-184-template" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "index_patterns": ["app-184-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        }
+      }
+    }')
+
+  if ! echo "$TEMPLATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index template: $TEMPLATE_RESPONSE"
+    exit 1
+  fi
+
+  # Define teams, services, and dates for 1800 indexes (5 x 10 x 36 = 1800)
+  TEAMS="engineering platform data ml security"
+  SERVICES="api web worker cache db auth billing notification search analytics"
+
+  # These 5 indexes will be "large" (500 docs each)
+  LARGE_INDEXES="app-184-platform-billing-2024.01.15 app-184-engineering-api-2024.01.20 app-184-data-analytics-2024.01.10 app-184-ml-worker-2024.01.25 app-184-security-auth-2024.01.05"
+
+  # Generate bulk request body with 1800 documents (one per index)
+  BULK_FILE="/tmp/es_bulk_184_$$.ndjson"
+  > "$BULK_FILE"
+
+  for team in $TEAMS; do
+    for service in $SERVICES; do
+      for day in $(seq -w 1 36); do
+        INDEX_NAME="app-184-${team}-${service}-2024.01.${day}"
+        echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
+        echo "{\"@timestamp\": \"2024-01-${day}T12:00:00Z\", \"level\": \"INFO\", \"service\": \"${service}\", \"team\": \"${team}\", \"message\": \"Health check passed\"}" >> "$BULK_FILE"
+      done
+    done
+  done
+
+  # Count lines to verify (should be 3600 = 1800 action + 1800 doc lines)
+  LINE_COUNT=$(wc -l < "$BULK_FILE")
+  echo "Generated bulk file with $LINE_COUNT lines (expecting 3600 for 1800 indexes)"
+
+  # Upload in chunks to avoid request size limits
+  echo "Uploading bulk data to Elasticsearch..."
+
+  # Split into 10 chunks of 200 indexes each (400 lines per chunk)
+  split -l 400 "$BULK_FILE" /tmp/es_bulk_184_chunk_
+
+  CHUNK_NUM=0
+  for chunk in /tmp/es_bulk_184_chunk_*; do
+    CHUNK_NUM=$((CHUNK_NUM + 1))
+    RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$chunk")
+
+    if echo "$RESPONSE" | grep -q '"errors":false'; then
+      echo "Chunk $CHUNK_NUM uploaded successfully"
+    elif echo "$RESPONSE" | grep -q '"errors":true'; then
+      ERROR_COUNT=$(echo "$RESPONSE" | grep -o '"error"' | wc -l)
+      echo "Chunk $CHUNK_NUM: $ERROR_COUNT errors (may be expected if re-running)"
+    else
+      echo "Chunk $CHUNK_NUM failed: $RESPONSE"
+    fi
+    rm -f "$chunk"
+  done
+
+  rm -f "$BULK_FILE"
+
+  # Now add extra docs to the 5 "large" indexes (499 more each to total 500)
+  echo "Adding extra documents to 5 large indexes..."
+
+  for LARGE_INDEX in $LARGE_INDEXES; do
+    echo "  Adding 499 docs to $LARGE_INDEX..."
+    LARGE_BULK="/tmp/es_large_184_$$.ndjson"
+    > "$LARGE_BULK"
+
+    for i in $(seq 1 499); do
+      echo '{"index":{}}' >> "$LARGE_BULK"
+      echo "{\"@timestamp\":\"2024-01-15T12:00:00Z\",\"level\":\"INFO\",\"message\":\"Log entry $i\"}" >> "$LARGE_BULK"
+    done
+
+    # Capture response and check for errors
+    BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LARGE_INDEX}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$LARGE_BULK" 2>&1)
+    CURL_EXIT=$?
+
+    rm -f "$LARGE_BULK"
+
+    if [ $CURL_EXIT -ne 0 ]; then
+      echo "❌ Bulk insert failed for $LARGE_INDEX (curl exit code: $CURL_EXIT)"
+      echo "Response: $BULK_RESPONSE"
+      exit 1
+    fi
+
+    # Check for errors in bulk response
+    if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+      ERROR_COUNT=$(echo "$BULK_RESPONSE" | grep -o '"error"' | wc -l)
+      echo "❌ Bulk insert had $ERROR_COUNT errors for $LARGE_INDEX"
+      echo "Response snippet: $(echo "$BULK_RESPONSE" | head -c 500)"
+      exit 1
+    fi
+  done
+
+  # Wait for indexing
+  sleep 2
+
+  # Refresh all indexes to make sure data is searchable
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-184-*/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify large indexes have 500 docs
+  echo "Verifying large index doc counts..."
+  VERIFICATION_FAILED=false
+  for LARGE_INDEX in $LARGE_INDEXES; do
+    DOC_COUNT=$(curl -sf "${ELASTICSEARCH_URL}/_cat/indices/${LARGE_INDEX}?format=json&h=docs.count" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | jq -r '.[0]["docs.count"]')
+    echo "  $LARGE_INDEX: $DOC_COUNT docs"
+    if [ "$DOC_COUNT" != "500" ]; then
+      echo "❌ Expected 500 docs but got $DOC_COUNT for $LARGE_INDEX"
+      VERIFICATION_FAILED=true
+    fi
+  done
+
+  # Count total indexes created
+  INDEX_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cat/indices/app-184-*?format=json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | jq 'length')
+  echo "Total test indexes created: $INDEX_COUNT"
+  if [ "$INDEX_COUNT" != "1800" ]; then
+    echo "❌ Expected 1800 indexes but got $INDEX_COUNT"
+    VERIFICATION_FAILED=true
+  fi
+
+  if [ "$VERIFICATION_FAILED" = true ]; then
+    echo "❌ Verification failed!"
+    exit 1
+  fi
+
+  echo "✅ Setup complete!"
+
+after_test: |
+  echo "Cleaning up test indexes (app-184-*)..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-184-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "Cleaning up index template..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-184-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_bulk_184_*.ndjson /tmp/es_bulk_184_chunk_* /tmp/es_large_184_*.ndjson
+
+  echo "✅ Cleanup complete"

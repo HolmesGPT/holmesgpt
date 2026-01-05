@@ -92,6 +92,59 @@ poetry run mypy
   - Include the full API error response (status code and message)
   - For "no data" responses, specify what was searched and where
 
+**Thin API Wrapper Pattern for Python Toolsets**:
+- Reference implementation: `servicenow_tables/servicenow_tables.py`
+- Use `requests` library for HTTP calls (not specialized client libraries like `opensearchpy`)
+- Simple config class with Pydantic validation
+- Health check in `prerequisites_callable()` method
+- Each tool is a thin wrapper around a single API endpoint
+
+**Server-Side Filtering is Critical**:
+- **Never return unbounded data from APIs** - this causes token overflow
+- Always include filter parameters on tools that query collections (e.g., `index` parameter for Elasticsearch _cat APIs)
+- Example problem: `opensearch_list_shards` returned ALL shards → 25K+ tokens on large clusters
+- Example fix: `elasticsearch_cat` tool requires `index` parameter for shards/segments endpoints
+- When server-side filtering is not possible, use `JsonFilterMixin` (see `json_filter_mixin.py`) to add `max_depth` and `jq` parameters for client-side filtering
+
+**Toolset Config Backwards Compatibility**:
+When renaming config fields in a toolset, maintain backwards compatibility using Pydantic's `extra="allow"`:
+
+```python
+# ✅ DO: Use extra="allow" to accept deprecated fields without polluting schema
+class MyToolsetConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    # Only define current field names in schema
+    new_field_name: int = 10
+
+    @model_validator(mode="after")
+    def handle_deprecated_fields(self):
+        extra = self.model_extra or {}
+        deprecated = []
+
+        # Map old names to new names
+        if "old_field_name" in extra:
+            self.new_field_name = extra["old_field_name"]
+            deprecated.append("old_field_name -> new_field_name")
+
+        if deprecated:
+            logging.warning(f"Deprecated config names: {', '.join(deprecated)}")
+        return self
+
+# ❌ DON'T: Define deprecated fields in schema with Optional[None]
+class BadConfig(BaseModel):
+    new_field_name: int = 10
+    old_field_name: Optional[int] = None  # Pollutes schema, shows in model_dump()
+```
+
+Benefits of `extra="allow"` approach:
+- Schema only shows current field names
+- `model_dump()` returns clean output without deprecated fields
+- Old configs still work (backwards compatible)
+- Deprecation warnings guide users to update
+
+See `prometheus/prometheus.py` PrometheusConfig for a complete example.
+
 **LLM Integration**:
 - Uses LiteLLM for multi-provider support (OpenAI, Anthropic, Azure, etc.)
 - Structured tool calling with automatic retry and error handling
@@ -235,10 +288,12 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
 - `MODEL`: Override default model(s) - supports comma-separated list
 - `RUN_LIVE`: Use live tools in tests (strongly recommended)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
+- `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`: For Elasticsearch/OpenSearch cloud testing
 
 ## Development Guidelines
 
@@ -289,6 +344,14 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - **CRITICAL**: Only use valid tags from `pyproject.toml` - invalid tags cause test collection failures
 - Check existing tags before adding new ones, ask user permission for new tags
 
+**Cloud Service Evals (No Kubernetes Required)**:
+- Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
+- Faster setup (<30 seconds vs minutes for K8s infrastructure)
+- `before_test` creates test data in the cloud service, `after_test` cleans up
+- Use `toolsets.yaml` to configure the toolset with env var references: `url: "{{ env.ELASTICSEARCH_URL }}"`
+- **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
+- **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
+
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
 - **Match prompt to test**: User prompt must explicitly request what you're testing
@@ -298,6 +361,18 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
   - BAD: `"Find node_exporter metrics"`
   - GOOD: `"Find CPU pressure monitoring queries"`
 - **Test discovery, not recognition**: Holmes should search/analyze, not guess from context
+- **Ruling out hallucinations is paramount**: When choosing between test approaches, prefer the one that rules out hallucinations:
+  - **Best**: Check specific values that can only be discovered by querying (e.g., unique IDs, injected error codes, exact counts)
+  - **Acceptable**: Use `include_tool_calls: true` to verify the tool was called when output values are too generic to rule out hallucinations
+  - **Bad**: Check generic output patterns that an LLM could plausibly guess (e.g., "cluster status is green/yellow/red", "has N nodes")
+- **`include_tool_calls: true`**: Use when expected output is too generic to be hallucination-proof. Prefer specific answer checking when possible, but verifying tool calls is better than a test that can't rule out hallucinations.
+  ```yaml
+  # Use when values are generic (cluster health could be guessed)
+  include_tool_calls: true
+  expected_output:
+    - "Must call elasticsearch_cluster_health tool"
+    - "Must report cluster status"
+  ```
 
 **Infrastructure Setup:**
 - **Don't just test pod readiness** - verify actual service functionality

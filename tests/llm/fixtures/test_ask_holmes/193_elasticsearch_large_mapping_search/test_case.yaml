@@ -1,0 +1,147 @@
+# Test: Elasticsearch Large Mapping Field Search
+#
+# This test creates an index with 10,000 fields to test the LLM's ability to
+# search within large mappings that exceed the context window.
+#
+# The LLM must use the jq parameter on elasticsearch_mappings to filter/search
+# field names rather than retrieving the full mapping.
+#
+# Setup:
+# - Index with 10,000+ fields generated dynamically
+# - One needle field: du_transaction_id_7k3m (unique identifier prevents hallucination)
+# - Fields follow patterns: metric_NNNN, counter_NNNN, flag_NNNN, label_NNNN
+#
+# Anti-hallucination: The needle field 'du_transaction_id_7k3m' has a unique suffix
+# that cannot be guessed. The LLM must actually search the mapping to find it.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "I need to find a field in the app-193-telemetry index that's used for tracking transactions. The field name should contain 'transaction'. Can you search the mappings and tell me the exact field name?"
+
+expected_output:
+  - "Must find and report the field 'du_transaction_id_7k3m'"
+  - "Must use jq filtering to search the large mapping (cannot retrieve full 10K field mapping)"
+
+tags:
+  - elasticsearch
+  - hard
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  echo "Creating index with 10,000+ fields for large mapping test..."
+
+  # Clean up any existing test data first
+  echo "Cleaning up any existing test data..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-193-telemetry" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create the index
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-193-telemetry" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+        "mapping.total_fields.limit": 15000
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  echo "Generating document with 10,000+ fields..."
+
+  DOC_FILE="/tmp/es_large_mapping_193_$$.json"
+  echo -n '{"@timestamp":"2024-01-15T12:00:00Z"' > "$DOC_FILE"
+
+  # Add the needle field - unique identifier that can't be guessed
+  echo -n ',"du_transaction_id_7k3m":"TXN-98765"' >> "$DOC_FILE"
+
+  # Generate 10,000 fields with various patterns
+  for i in $(seq 0 9999); do
+    MOD=$((i % 4))
+    NUM=$(printf '%04d' $i)
+    if [ $MOD -eq 0 ]; then
+      VAL=$(echo "$i * 1.5" | bc)
+      echo -n ",\"metric_${NUM}\":${VAL}" >> "$DOC_FILE"
+    elif [ $MOD -eq 1 ]; then
+      echo -n ",\"counter_${NUM}\":${i}" >> "$DOC_FILE"
+    elif [ $MOD -eq 2 ]; then
+      if [ $((i % 2)) -eq 0 ]; then
+        echo -n ",\"flag_${NUM}\":true" >> "$DOC_FILE"
+      else
+        echo -n ",\"flag_${NUM}\":false" >> "$DOC_FILE"
+      fi
+    else
+      echo -n ",\"label_${NUM}\":\"value_${i}\"" >> "$DOC_FILE"
+    fi
+  done
+  echo "}" >> "$DOC_FILE"
+
+  FIELD_COUNT=$(grep -o '"[^"]*":' "$DOC_FILE" | wc -l)
+  echo "Generated document with $FIELD_COUNT fields"
+
+  # Index the document
+  echo "Indexing document (this may take a moment)..."
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-193-telemetry/_doc" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d @"$DOC_FILE")
+
+  if echo "$RESPONSE" | grep -q '"result":"created"'; then
+    echo "Document indexed successfully"
+  else
+    echo "Failed to index document: $RESPONSE"
+    rm -f "$DOC_FILE"
+    exit 1
+  fi
+
+  rm -f "$DOC_FILE"
+
+  # Refresh to update mappings
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-193-telemetry/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify mapping was created with expected field count
+  MAPPING_RESPONSE=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-193-telemetry/_mapping" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
+  MAPPING_FIELD_COUNT=$(echo "$MAPPING_RESPONSE" | jq '."app-193-telemetry".mappings.properties | keys | length')
+
+  echo "Index has $MAPPING_FIELD_COUNT fields in mapping"
+
+  if [ "$MAPPING_FIELD_COUNT" -lt 10000 ]; then
+    echo "Expected 10000+ fields but got $MAPPING_FIELD_COUNT"
+    exit 1
+  fi
+
+  # Verify needle field exists
+  NEEDLE_EXISTS=$(echo "$MAPPING_RESPONSE" | jq -r '."app-193-telemetry".mappings.properties | has("du_transaction_id_7k3m")')
+
+  if [ "$NEEDLE_EXISTS" != "true" ]; then
+    echo "Needle field du_transaction_id_7k3m not found in mapping!"
+    exit 1
+  fi
+
+  echo "Verified needle field 'du_transaction_id_7k3m' exists in mapping"
+  echo "Setup complete!"
+
+after_test: |
+
+  echo "Cleaning up test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-193-telemetry" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_large_mapping_193_*.json
+
+  echo "Cleanup complete"
