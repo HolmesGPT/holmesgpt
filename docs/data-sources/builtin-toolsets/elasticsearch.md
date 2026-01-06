@@ -17,9 +17,9 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 
 ## Configuration
 
-=== "Data Querying Only"
+=== "Holmes CLI"
 
-    For searching logs and documents (lower permissions):
+    Add to your config file (`~/.holmes/config.yaml`):
 
     ```yaml
     toolsets:
@@ -28,44 +28,71 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
         config:
           url: "https://your-cluster.es.cloud.io:443"
           api_key: "your-api-key"
-          verify_ssl: true
-    ```
-
-=== "Cluster Troubleshooting Only"
-
-    For diagnosing cluster issues (requires cluster-level access):
-
-    ```yaml
-    toolsets:
+          # Alternative: use basic auth instead of api_key
+          # username: "elastic"
+          # password: "your-password"
       elasticsearch/cluster:
         enabled: true
         config:
           url: "https://your-cluster.es.cloud.io:443"
           api_key: "your-api-key"
-          verify_ssl: true
+          # Alternative: use basic auth instead of api_key
+          # username: "elastic"
+          # password: "your-password"
     ```
 
-=== "Both Toolsets"
+    --8<-- "snippets/toolset_refresh_warning.md"
 
-    Enable both for full functionality:
+=== "Holmes Helm Chart"
+
+    First, create a Kubernetes secret with your credentials:
+
+    ```bash
+    kubectl create secret generic elasticsearch-credentials \
+      --from-literal=api-key=your-api-key
+    ```
+
+    Then add to your Holmes Helm values:
 
     ```yaml
+    additionalEnvVars:
+      - name: ELASTICSEARCH_URL
+        value: "https://your-cluster.es.cloud.io:443"
+      - name: ELASTICSEARCH_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: elasticsearch-credentials
+            key: api-key
+
     toolsets:
       elasticsearch/data:
         enabled: true
         config:
           url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+          # Alternative: use basic auth instead of api_key
+          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
+          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
       elasticsearch/cluster:
         enabled: true
         config:
           url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+          # Alternative: use basic auth instead of api_key
+          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
+          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
     ```
-
---8<-- "snippets/toolset_refresh_warning.md"
 
 === "Robusta Helm Chart"
+
+    First, create a Kubernetes secret with your credentials:
+
+    ```bash
+    kubectl create secret generic elasticsearch-credentials \
+      --from-literal=api-key=your-api-key
+    ```
+
+    Then add to your Robusta Helm values:
 
     ```yaml
     holmes:
@@ -83,14 +110,23 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
           config:
             url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+            # Alternative: use basic auth instead of api_key
+            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
+            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
         elasticsearch/cluster:
           enabled: true
           config:
             url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+            # Alternative: use basic auth instead of api_key
+            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
+            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
     ```
 
     --8<-- "snippets/helm_upgrade_command.md"
+
+!!! tip "Enable only what you need"
+    You can enable just `elasticsearch/data` or `elasticsearch/cluster` depending on your needs. Most users who just want to search logs only need `elasticsearch/data`.
 
 ## Authentication
 
@@ -113,23 +149,16 @@ The toolsets support multiple authentication methods:
 
 --8<-- "snippets/toolset_capabilities_intro.md"
 
-### elasticsearch/data
-
-| Tool Name | Description |
-|-----------|-------------|
-| elasticsearch_search | Search documents using Elasticsearch Query DSL |
-| elasticsearch_mappings | Get field mappings for an index |
-| elasticsearch_list_indices | List indices matching a pattern |
-
-### elasticsearch/cluster
-
-| Tool Name | Description |
-|-----------|-------------|
-| elasticsearch_cat | Query _cat APIs (indices, shards, nodes, etc.) |
-| elasticsearch_cluster_health | Get cluster health status |
-| elasticsearch_allocation_explain | Explain shard allocation decisions |
-| elasticsearch_nodes_stats | Get node-level statistics |
-| elasticsearch_index_stats | Get statistics for an index |
+| Toolset | Tool Name | Description |
+|---------|-----------|-------------|
+| `elasticsearch/data` | elasticsearch_search | Search documents using Elasticsearch Query DSL |
+| `elasticsearch/data` | elasticsearch_mappings | Get field mappings for an index |
+| `elasticsearch/data` | elasticsearch_list_indices | List indices matching a pattern |
+| `elasticsearch/cluster` | elasticsearch_cat | Query _cat APIs (indices, shards, nodes, etc.) |
+| `elasticsearch/cluster` | elasticsearch_cluster_health | Get cluster health status |
+| `elasticsearch/cluster` | elasticsearch_allocation_explain | Explain shard allocation decisions |
+| `elasticsearch/cluster` | elasticsearch_nodes_stats | Get node-level statistics |
+| `elasticsearch/cluster` | elasticsearch_index_stats | Get statistics for an index |
 
 ## Example Queries
 
