@@ -153,6 +153,9 @@ jobs:
           EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json number --jq '.[0].number')
           if [ -n "$EXISTING_PR" ]; then
             echo "Updating existing PR #$EXISTING_PR"
+            gh pr edit "$EXISTING_PR" \
+              --title "$PR_TITLE" \
+              --body "$PR_BODY"
           else
             gh pr create \
               --title "$PR_TITLE" \
