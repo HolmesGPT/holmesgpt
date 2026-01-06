@@ -31,6 +31,7 @@ from holmes.plugins.toolsets.bash.kubectl.kubectl_run import validate_image_and_
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
     ValidationStatus,
+    get_effective_lists,
     validate_command,
 )
 from holmes.plugins.toolsets.utils import get_param_or_raise
@@ -230,12 +231,16 @@ class RunBashCommand(BaseBashTool):
         # Get config (default if not set)
         config = self.toolset.config or BashExecutorConfig()
 
+        # Build the effective allow/deny lists (copies, not references to shared config)
+        allow_list, deny_list = get_effective_lists(config)
+
         # Merge session-approved prefixes from conversation history (server flow)
+        # This modifies our local copy, not the shared config
         if context.session_approved_prefixes:
-            existing = set(config.allow)
+            existing = set(allow_list)
             for prefix in context.session_approved_prefixes:
                 if prefix not in existing:
-                    config.allow.append(prefix)
+                    allow_list.append(prefix)
             logging.debug(
                 f"Merged {len(context.session_approved_prefixes)} session-approved prefixes"
             )
@@ -246,7 +251,9 @@ class RunBashCommand(BaseBashTool):
             return execute_bash_command(cmd=command_str, timeout=timeout, params=params)
 
         # Validate the command using prefix-based matching
-        validation_result = validate_command(command_str, suggested_prefixes, config)
+        validation_result = validate_command(
+            command_str, suggested_prefixes, allow_list, deny_list
+        )
 
         if validation_result.status == ValidationStatus.ALLOWED:
             logging.info(f"Executing allowed bash command: {command_str}")

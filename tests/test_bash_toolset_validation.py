@@ -338,20 +338,24 @@ class TestValidateCommand:
     def test_simple_allowed_command(self):
         """Test a simple allowed command."""
         config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get pods",
             ["kubectl get"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.ALLOWED
 
     def test_piped_allowed_command(self):
         """Test a piped command where all segments are allowed."""
         config = BashExecutorConfig(allow=["kubectl get", "grep", "head"])
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get pods | grep error | head -10",
             ["kubectl get", "grep", "head"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.ALLOWED
 
@@ -361,10 +365,12 @@ class TestValidateCommand:
             allow=["kubectl get", "grep"],
             deny=["kubectl get secret"],
         )
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get secret | grep password",
             ["kubectl get secret", "grep"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
@@ -372,10 +378,12 @@ class TestValidateCommand:
     def test_subshell_detection(self):
         """Test that subshells are blocked."""
         config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "echo $(kubectl get secret)",
             ["echo"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
@@ -383,10 +391,12 @@ class TestValidateCommand:
     def test_prefix_count_mismatch(self):
         """Test that prefix count must match segment count."""
         config = BashExecutorConfig(allow=["kubectl get", "grep"])
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get pods | grep error",
             ["kubectl get"],  # Only 1 prefix for 2 segments
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.PREFIX_COUNT_MISMATCH
@@ -394,10 +404,12 @@ class TestValidateCommand:
     def test_hardcoded_block_in_pipe(self):
         """Test that hardcoded blocks are caught in piped commands."""
         config = BashExecutorConfig(allow=["sudo", "ls"])
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "sudo ls | grep file",
             ["sudo", "grep"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.HARDCODED_BLOCK
@@ -405,10 +417,12 @@ class TestValidateCommand:
     def test_approval_required_for_unknown(self):
         """Test that unknown commands require approval."""
         config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl delete pod my-pod",
             ["kubectl delete"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         assert result.prefixes_needing_approval == ["kubectl delete"]
@@ -423,7 +437,8 @@ class TestValidationOrder:
             allow=[],
             deny=["sudo"],  # Sudo in deny list is redundant
         )
-        result = validate_command("sudo ls", ["sudo"], config)
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command("sudo ls", ["sudo"], allow_list, deny_list)
         # Should be hardcoded block, not deny list
         assert result.deny_reason == DenyReason.HARDCODED_BLOCK
 
@@ -433,10 +448,12 @@ class TestValidationOrder:
             allow=["kubectl get"],  # General allow
             deny=["kubectl get secret"],  # More specific deny
         )
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get secret my-secret",
             ["kubectl get secret"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
@@ -470,10 +487,12 @@ class TestDefaultDenyList:
         match_prefix_for_deny() automatically handles plural forms.
         """
         config = BashExecutorConfig(include_default_allow_deny_list=True)
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get secrets -n default",
             ["kubectl get secrets"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
@@ -484,10 +503,12 @@ class TestDefaultDenyList:
         This prevents bypass via kubectl's resource/name syntax.
         """
         config = BashExecutorConfig(include_default_allow_deny_list=True)
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get secret/my-secret",
             ["kubectl get secret"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
@@ -495,10 +516,12 @@ class TestDefaultDenyList:
     def test_kubectl_get_secrets_path_syntax_denied(self):
         """Test that 'kubectl get secrets/name' path syntax is also denied."""
         config = BashExecutorConfig(include_default_allow_deny_list=True)
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get secrets/my-secret",
             ["kubectl get secrets"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
@@ -506,10 +529,12 @@ class TestDefaultDenyList:
     def test_kubectl_describe_secrets_denied_with_defaults(self):
         """Test that 'kubectl describe secrets' is denied when using default lists."""
         config = BashExecutorConfig(include_default_allow_deny_list=True)
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl describe secrets my-secret",
             ["kubectl describe secrets"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
@@ -517,9 +542,11 @@ class TestDefaultDenyList:
     def test_kubectl_get_pods_allowed_with_defaults(self):
         """Test that non-secret kubectl commands are still allowed."""
         config = BashExecutorConfig(include_default_allow_deny_list=True)
+        allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get pods -n default",
             ["kubectl get"],
-            config,
+            allow_list,
+            deny_list,
         )
         assert result.status == ValidationStatus.ALLOWED

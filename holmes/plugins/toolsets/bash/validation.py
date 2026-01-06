@@ -57,16 +57,19 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     """
     Get the effective allow and deny lists based on configuration.
 
+    Returns copies to prevent mutation of the shared config.
+
     Returns:
-        Tuple of (allow_list, deny_list)
+        Tuple of (allow_list, deny_list) - always returns copies, never references
     """
     if config.include_default_allow_deny_list:
-        # Merge user lists with defaults
+        # Merge user lists with defaults (creates new lists)
         allow_list = list(set(DEFAULT_ALLOW_LIST + config.allow))
         deny_list = list(set(DEFAULT_DENY_LIST + config.deny))
     else:
-        allow_list = config.allow
-        deny_list = config.deny
+        # Return copies to prevent mutation of shared config
+        allow_list = list(config.allow)
+        deny_list = list(config.deny)
 
     return allow_list, deny_list
 
@@ -312,7 +315,8 @@ def validate_prefix_for_segment(
 def validate_command(
     command: str,
     suggested_prefixes: List[str],
-    config: BashExecutorConfig,
+    allow_list: List[str],
+    deny_list: List[str],
 ) -> ValidationResult:
     """
     Validate a bash command against the allow/deny lists.
@@ -320,7 +324,8 @@ def validate_command(
     Args:
         command: The full bash command to validate
         suggested_prefixes: AI-provided prefixes (one per command segment)
-        config: Bash toolset configuration
+        allow_list: List of allowed command prefixes
+        deny_list: List of denied command prefixes
 
     Returns:
         ValidationResult with status and details
@@ -350,9 +355,6 @@ def validate_command(
             deny_reason=DenyReason.PREFIX_COUNT_MISMATCH,
             message=f"Number of suggested prefixes ({len(suggested_prefixes)}) does not match number of command segments ({len(segments)}). Each pipe/operator segment needs its own prefix.",
         )
-
-    # Get effective allow/deny lists
-    allow_list, deny_list = get_effective_lists(config)
 
     # Validate each segment
     prefixes_needing_approval: List[str] = []
