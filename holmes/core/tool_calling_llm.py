@@ -104,6 +104,10 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
         except (json.JSONDecodeError, KeyError):
             continue
 
+    if prefixes:
+        logging.info(
+            f"Found {len(prefixes)} session-approved bash prefixes from conversation: {list(prefixes)}"
+        )
     return list(prefixes)
 
 
@@ -333,6 +337,9 @@ class ToolCallingLLM:
 
             # If user chose "Yes, and don't ask again", inject prefixes into message
             if decision and decision.approved and decision.save_prefixes:
+                logging.info(
+                    f"Saving bash session prefixes for future commands: {decision.save_prefixes}"
+                )
                 inject_bash_session_prefixes(tool_call_message, decision.save_prefixes)
 
             # It is expected that the tool call result directly follows the tool call request from the LLM
