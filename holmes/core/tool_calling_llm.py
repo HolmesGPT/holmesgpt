@@ -68,6 +68,33 @@ from holmes.utils.tags import parse_messages_tags
 cost_logger = logging.getLogger("holmes.costs")
 
 
+def _extract_text_from_content(content: Any) -> str:
+    """Extract text from message content, handling both string and array formats.
+
+    OpenAI messages can have content as either:
+    - A plain string: "some text"
+    - An array of content objects: [{"type": "text", "text": "some text"}]
+
+    Args:
+        content: Message content (string or array)
+
+    Returns:
+        Extracted text as a string
+    """
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        # Extract text from array of content objects
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+        return " ".join(texts)
+
+    return ""
+
+
 def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
     """Extract bash session approved prefixes from conversation history.
 
@@ -87,8 +114,8 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
         if msg.get("role") != "tool":
             continue
 
-        content = msg.get("content", "")
-        if not isinstance(content, str):
+        content = _extract_text_from_content(msg.get("content", ""))
+        if not content:
             continue
 
         # Extract tool_call_metadata from the content string

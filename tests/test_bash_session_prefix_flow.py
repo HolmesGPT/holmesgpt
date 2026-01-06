@@ -459,3 +459,107 @@ def test_bash_session_prefix_memory_flow(
     print("\n" + "=" * 60)
     print("TEST PASSED: Session prefix memory is working correctly!")
     print("=" * 60)
+
+
+# Unit tests for helper functions
+class TestExtractTextFromContent:
+    """Tests for _extract_text_from_content helper function."""
+
+    def test_string_content(self):
+        """Test extraction from plain string content."""
+        from holmes.core.tool_calling_llm import _extract_text_from_content
+
+        content = 'tool_call_metadata={"bash_session_approved_prefixes": ["rm"]}'
+        result = _extract_text_from_content(content)
+        assert result == content
+
+    def test_array_content(self):
+        """Test extraction from array content (OpenAI structured format)."""
+        from holmes.core.tool_calling_llm import _extract_text_from_content
+
+        content = [
+            {
+                "type": "text",
+                "text": 'tool_call_metadata={"bash_session_approved_prefixes": ["rm"]}',
+            }
+        ]
+        result = _extract_text_from_content(content)
+        assert "bash_session_approved_prefixes" in result
+        assert "rm" in result
+
+    def test_empty_content(self):
+        """Test extraction from empty content."""
+        from holmes.core.tool_calling_llm import _extract_text_from_content
+
+        assert _extract_text_from_content("") == ""
+        assert _extract_text_from_content([]) == ""
+        assert _extract_text_from_content(None) == ""
+
+
+class TestExtractBashSessionPrefixesWithArrayContent:
+    """Tests for extract_bash_session_prefixes with array content format."""
+
+    def test_extract_from_array_content(self):
+        """Test extraction from messages with array content (real-world format)."""
+        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+
+        messages = [
+            {"role": "system", "content": "You are helpful"},
+            {"role": "user", "content": "run rm /tmp/yoyo"},
+            {
+                "role": "tool",
+                "tool_call_id": "tooluse_abc123",
+                "name": "bash",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": 'tool_call_metadata={"tool_name": "bash", "tool_call_id": "tooluse_abc123", "bash_session_approved_prefixes": ["rm"]}Output: file removed',
+                    }
+                ],
+            },
+        ]
+
+        prefixes = extract_bash_session_prefixes(messages)
+        assert "rm" in prefixes
+
+    def test_extract_from_string_content(self):
+        """Test extraction from messages with string content."""
+        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+
+        messages = [
+            {"role": "system", "content": "You are helpful"},
+            {
+                "role": "tool",
+                "tool_call_id": "call_123",
+                "name": "bash",
+                "content": 'tool_call_metadata={"tool_name": "bash", "tool_call_id": "call_123", "bash_session_approved_prefixes": ["kubectl get"]}',
+            },
+        ]
+
+        prefixes = extract_bash_session_prefixes(messages)
+        assert "kubectl get" in prefixes
+
+    def test_extract_multiple_prefixes_mixed_formats(self):
+        """Test extraction from messages with mixed content formats."""
+        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+
+        messages = [
+            {
+                "role": "tool",
+                "content": 'tool_call_metadata={"bash_session_approved_prefixes": ["kubectl get"]}',
+            },
+            {
+                "role": "tool",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": 'tool_call_metadata={"bash_session_approved_prefixes": ["rm", "grep"]}',
+                    }
+                ],
+            },
+        ]
+
+        prefixes = extract_bash_session_prefixes(messages)
+        assert "kubectl get" in prefixes
+        assert "rm" in prefixes
+        assert "grep" in prefixes
