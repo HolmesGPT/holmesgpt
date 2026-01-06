@@ -17,6 +17,7 @@ from holmes.plugins.toolsets.bash.validation import (
     detect_subshells,
     get_effective_lists,
     match_prefix,
+    match_prefix_for_deny,
     parse_command_segments,
     validate_command,
     validate_prefix_for_segment,
@@ -54,10 +55,64 @@ class TestMatchPrefix:
         # 'greps' should not match 'grep'
         assert not match_prefix("greps error", "grep")
 
+    def test_path_separator_boundary(self):
+        """Test that '/' is treated as a valid boundary."""
+        assert match_prefix("kubectl get secret/my-secret", "kubectl get secret")
+        assert match_prefix("cat /etc/passwd", "cat")
+
     def test_whitespace_handling(self):
         """Test that whitespace is handled correctly."""
         assert match_prefix("  kubectl get pods  ", "kubectl get")
         assert match_prefix("kubectl get pods", "  kubectl get  ")
+
+
+class TestMatchPrefixForDeny:
+    """Tests for the stricter deny list prefix matching."""
+
+    def test_exact_match(self):
+        """Test that exact matches work."""
+        assert match_prefix_for_deny("kubectl get secret", "kubectl get secret")
+
+    def test_word_boundary_match(self):
+        """Test standard word boundary matching (space)."""
+        assert match_prefix_for_deny(
+            "kubectl get secret my-secret", "kubectl get secret"
+        )
+        assert match_prefix_for_deny("kubectl get secret -o yaml", "kubectl get secret")
+
+    def test_path_separator_boundary(self):
+        """Test that '/' is treated as a valid boundary for deny matching."""
+        assert match_prefix_for_deny(
+            "kubectl get secret/my-secret", "kubectl get secret"
+        )
+        assert match_prefix_for_deny("kubectl get secret/foo/bar", "kubectl get secret")
+
+    def test_plural_form_auto_match(self):
+        """Test that plural forms are automatically matched."""
+        # 'secrets' should match deny prefix 'secret'
+        assert match_prefix_for_deny("kubectl get secrets", "kubectl get secret")
+        assert match_prefix_for_deny(
+            "kubectl get secrets -n default", "kubectl get secret"
+        )
+        assert match_prefix_for_deny(
+            "kubectl get secrets/my-secret", "kubectl get secret"
+        )
+
+    def test_no_match_different_command(self):
+        """Test that unrelated commands don't match."""
+        assert not match_prefix_for_deny("kubectl get pods", "kubectl get secret")
+        assert not match_prefix_for_deny("kubectl get configmaps", "kubectl get secret")
+
+    def test_no_partial_word_match(self):
+        """Test that random continuations don't match (not just 's' for plural)."""
+        # 'secretstore' should not match 'secret' (not a plural, not a boundary)
+        assert not match_prefix_for_deny(
+            "kubectl get secretstore", "kubectl get secret"
+        )
+        # But 'secretstores' should match (plural of secretstore... wait no)
+        # Actually 'secretstores' starts with 'secrets' which is prefix+'s', so it would match
+        # Let's test a clearer case
+        assert not match_prefix_for_deny("kubectl get secretfoo", "kubectl get secret")
 
 
 class TestParseCommandSegments:
@@ -395,3 +450,76 @@ class TestHardcodedBlocksList:
         assert "sudo" in HARDCODED_BLOCKS
         assert "su" in HARDCODED_BLOCKS
         assert ":(){" in HARDCODED_BLOCKS
+
+
+class TestDefaultDenyList:
+    """Tests for the default deny list with include_default_allow_deny_list=True."""
+
+    def test_deny_list_contains_secret_commands(self):
+        """Verify deny list contains secret access commands (singular form only).
+
+        Plural forms are handled automatically by match_prefix_for_deny().
+        """
+        assert "kubectl get secret" in DEFAULT_DENY_LIST
+        assert "kubectl describe secret" in DEFAULT_DENY_LIST
+
+    def test_kubectl_get_secrets_denied_with_defaults(self):
+        """Test that 'kubectl get secrets' (plural) is denied.
+
+        The deny list only has 'kubectl get secret' (singular), but
+        match_prefix_for_deny() automatically handles plural forms.
+        """
+        config = BashExecutorConfig(include_default_allow_deny_list=True)
+        result = validate_command(
+            "kubectl get secrets -n default",
+            ["kubectl get secrets"],
+            config,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    def test_kubectl_get_secret_path_syntax_denied(self):
+        """Test that 'kubectl get secret/name' path syntax is denied.
+
+        This prevents bypass via kubectl's resource/name syntax.
+        """
+        config = BashExecutorConfig(include_default_allow_deny_list=True)
+        result = validate_command(
+            "kubectl get secret/my-secret",
+            ["kubectl get secret"],
+            config,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    def test_kubectl_get_secrets_path_syntax_denied(self):
+        """Test that 'kubectl get secrets/name' path syntax is also denied."""
+        config = BashExecutorConfig(include_default_allow_deny_list=True)
+        result = validate_command(
+            "kubectl get secrets/my-secret",
+            ["kubectl get secrets"],
+            config,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    def test_kubectl_describe_secrets_denied_with_defaults(self):
+        """Test that 'kubectl describe secrets' is denied when using default lists."""
+        config = BashExecutorConfig(include_default_allow_deny_list=True)
+        result = validate_command(
+            "kubectl describe secrets my-secret",
+            ["kubectl describe secrets"],
+            config,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    def test_kubectl_get_pods_allowed_with_defaults(self):
+        """Test that non-secret kubectl commands are still allowed."""
+        config = BashExecutorConfig(include_default_allow_deny_list=True)
+        result = validate_command(
+            "kubectl get pods -n default",
+            ["kubectl get"],
+            config,
+        )
+        assert result.status == ValidationStatus.ALLOWED

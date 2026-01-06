@@ -193,11 +193,13 @@ def match_prefix(segment: str, prefix: str) -> bool:
     Check if a command segment matches a prefix.
 
     The prefix should match the beginning of the command at word boundaries.
+    Accepts whitespace or '/' as valid boundaries (for kubectl resource/name syntax).
 
     Examples:
         - "kubectl get pods" matches prefix "kubectl get"
         - "kubectl delete pod" does NOT match prefix "kubectl get"
         - "grep -r error" matches prefix "grep"
+        - "kubectl get secret/my-secret" matches prefix "kubectl get secret"
     """
     segment = segment.strip()
     prefix = prefix.strip()
@@ -206,13 +208,54 @@ def match_prefix(segment: str, prefix: str) -> bool:
     if not segment.startswith(prefix):
         return False
 
-    # If prefix is shorter than segment, the next char must be whitespace or end
+    # If prefix is shorter than segment, the next char must be boundary char or end
     if len(segment) > len(prefix):
         next_char = segment[len(prefix)]
-        if not next_char.isspace():
+        # Allow whitespace or path separator as boundary
+        if not (next_char.isspace() or next_char == "/"):
             return False
 
     return True
+
+
+def match_prefix_for_deny(segment: str, prefix: str) -> bool:
+    """
+    Check if a command segment matches a deny list prefix.
+
+    More aggressive than allow list matching to prevent security bypasses:
+    - Treats '/' as a valid boundary (catches 'kubectl get secret/name' syntax)
+    - Also matches plural form (prefix + 's') to catch resource type aliases
+
+    Examples:
+        - "kubectl get secret/my-secret" matches prefix "kubectl get secret"
+        - "kubectl get secrets" matches prefix "kubectl get secret" (plural)
+        - "kubectl get secrets/my-secret" matches prefix "kubectl get secret"
+    """
+    segment = segment.strip()
+    prefix = prefix.strip()
+
+    def is_deny_boundary_char(char: str) -> bool:
+        """Check if char is a valid boundary for deny matching."""
+        return char.isspace() or char == "/"
+
+    def check_at_boundary(seg: str, pref: str) -> bool:
+        """Check if segment starts with prefix at a valid boundary."""
+        if not seg.startswith(pref):
+            return False
+        if len(seg) > len(pref):
+            if not is_deny_boundary_char(seg[len(pref)]):
+                return False
+        return True
+
+    # Check exact prefix match
+    if check_at_boundary(segment, prefix):
+        return True
+
+    # Check plural form (handles 'secret' matching 'secrets')
+    if check_at_boundary(segment, prefix + "s"):
+        return True
+
+    return False
 
 
 def validate_prefix_for_segment(
@@ -244,9 +287,9 @@ def validate_prefix_for_segment(
             message=f"Suggested prefix '{prefix}' does not match command segment '{segment}'.",
         )
 
-    # Step 2: Check deny list (using prefix)
+    # Step 2: Check deny list (using stricter matching)
     for deny_prefix in deny_list:
-        if match_prefix(segment, deny_prefix):
+        if match_prefix_for_deny(segment, deny_prefix):
             return ValidationResult(
                 status=ValidationStatus.DENIED,
                 deny_reason=DenyReason.DENY_LIST,
