@@ -216,7 +216,6 @@ EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
 - `CLASSIFIER_MODEL`: Model for scoring answers (defaults to MODEL)
 - `RUN_LIVE=true`: Execute real commands (now enabled by default)
 - `ITERATIONS=<number>`: Run each test multiple times
-- `UPLOAD_DATASET=true`: Sync dataset to Braintrust
 - `EXPERIMENT_ID`: Custom experiment name for tracking
 - `BRAINTRUST_API_KEY`: Enable Braintrust integration
 - `ASK_HOLMES_TEST_TYPE`: Controls message building flow in ask_holmes tests
@@ -274,6 +273,59 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - **Important for LLM tests**: Each test must use a dedicated namespace `app-<testid>` (e.g., `app-01`, `app-02`) to prevent conflicts when tests run simultaneously
 - All pod names must be unique across tests (e.g., `giant-narwhal`, `blue-whale`, `sea-turtle`) - never reuse pod names between tests
 - **Resource naming in evals**: Never use names that hint at the problem or expected behavior (e.g., avoid `broken-pod`, `test-project-that-does-not-exist`, `crashloop-app`). Use neutral names that don't give away what the LLM should discover
+
+## Remote Braintrust Evals
+
+HolmesGPT supports running all evaluations as remote Braintrust evals, allowing you to:
+- Use the Braintrust playground UI for interactive testing
+- Compare different models side-by-side
+- Track results over time
+- Share evals with team members
+
+### Starting the Remote Eval Server
+
+```bash
+# Setup all infrastructure once at server start (default, faster)
+braintrust eval tests/llm/remote_evals --dev
+
+# On-demand setup per eval (isolated, supports concurrent runs)
+SETUP_MODE=per_run braintrust eval tests/llm/remote_evals --dev
+
+# Custom port
+braintrust eval tests/llm/remote_evals --dev --dev-port 8301
+```
+
+### Configuration in Braintrust
+
+1. In your Braintrust project, go to **Settings** > **Remote Evals**
+2. Click **Add Remote Eval Source**
+3. Enter name (e.g., "Holmes Local") and URL: `http://localhost:8300`
+4. Click **Create**
+
+### Using Remote Evals
+
+1. Open a playground in Braintrust
+2. Click **Add Task** > **Remote Eval**
+3. Select an eval (e.g., "Holmes: 01_how_many_pods")
+4. Configure parameters:
+   - `model`: LLM model (e.g., "gpt-4.1" or "anthropic/claude-sonnet-4-20250514")
+   - `setup_mode`: "once" (default) or "per_run"
+   - `skip_setup`/`skip_cleanup`: Only for per_run mode
+5. Run the eval and view results
+
+### Setup Modes
+
+**Setup Once Mode** (default):
+- All test infrastructure setup at server start
+- Faster eval execution
+- Best for sequential testing
+- ⚠️ Avoid running multiple evals simultaneously
+
+**Per-Run Mode**:
+- Infrastructure setup/cleanup for each eval
+- Slower but fully isolated
+- Supports concurrent eval execution
+- Uses reference counting for shared resources
 
 ## Configuration
 

@@ -65,7 +65,6 @@ RUN_LIVE=true ITERATIONS=10 EXPERIMENT_ID=claude4 MODEL=anthropic/claude-sonnet-
 
 | Variable | Purpose |
 |----------|---------|
-| `UPLOAD_DATASET` | Sync test cases to Braintrust |
 | `EXPERIMENT_ID` | Name your experiment run. This makes it easier to find and track in Braintrust's UI |
 | `MODEL` | The LLM model for Holmes to use |
 | `CLASSIFIER_MODEL` | The LLM model to use for scoring the answer (LLM as judge) |

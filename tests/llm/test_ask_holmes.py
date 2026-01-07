@@ -1,6 +1,4 @@
 # type: ignore
-import os
-import time
 from datetime import datetime
 from os import path
 from pathlib import Path
@@ -8,25 +6,13 @@ from typing import Optional
 from unittest.mock import patch
 
 import pytest
-from rich.console import Console
 
-from holmes.config import Config
-from holmes.core.conversations import build_chat_messages
-from holmes.core.models import ChatRequest
-from holmes.core.prompt import build_initial_ask_messages
-from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
-from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.core.tracing import SpanType, TracingFactory
-from holmes.plugins.runbooks import RunbookCatalog, load_runbook_catalog
+from holmes.core.tool_calling_llm import LLMResult
+from holmes.core.tracing import TracingFactory, SpanType
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.commands import set_test_env_vars
 from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.mock_dal import load_mock_dal
-from tests.llm.utils.mock_toolset import (
-    MockGenerationConfig,
-    MockToolsetManager,
-    check_for_mock_errors,
-)
+from tests.llm.utils.mock_toolset import MockGenerationConfig
 from tests.llm.utils.property_manager import (
     handle_test_error,
     set_initial_properties,
@@ -37,7 +23,6 @@ from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.test_case_utils import (
     AskHolmesTestCase,
     check_and_skip_test,
-    create_eval_llm,
     get_models,
 )
 
@@ -171,101 +156,8 @@ def ask_holmes(
     mock_generation_config,
     request=None,
 ) -> LLMResult:
-    with eval_span.start_span(
-        "Initialize Toolsets",
-        type=SpanType.TASK.value,
-    ):
-        toolset_manager = MockToolsetManager(
-            test_case_folder=test_case.folder,
-            mock_generation_config=mock_generation_config,
-            request=request,
-            mock_policy=test_case.mock_policy,
-            mock_overrides=test_case.mock_overrides,
-            allow_toolset_failures=getattr(test_case, "allow_toolset_failures", False),
-        )
+    from tests.llm.core_eval import run_ask_holmes_eval
 
-    tool_executor = ToolExecutor(toolset_manager.toolsets)
-    enabled_toolsets = [t.name for t in tool_executor.enabled_toolsets]
-    print(
-        f"\n🛠️  ENABLED TOOLSETS ({len(enabled_toolsets)}):", ", ".join(enabled_toolsets)
+    return run_ask_holmes_eval(
+        test_case, model, tracer, eval_span, mock_generation_config, request
     )
-
-    ai = ToolCallingLLM(
-        tool_executor=tool_executor,
-        max_steps=40,
-        llm=create_eval_llm(model=model, tracer=tracer),
-    )
-
-    test_type = (
-        test_case.test_type or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
-    )
-    if test_type == "cli":
-        if test_case.conversation_history:
-            pytest.skip("CLI mode does not support conversation history tests")
-        else:
-            console = Console()
-            if test_case.runbooks is None:
-                runbooks = load_runbook_catalog()
-            elif test_case.runbooks == {}:
-                runbooks = None
-            else:
-                try:
-                    runbooks = RunbookCatalog(**test_case.runbooks)
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
-                        f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
-                    ) from e
-            messages = build_initial_ask_messages(
-                console,
-                test_case.user_prompt,
-                None,
-                ai.tool_executor,
-                runbooks,
-            )
-    else:
-        chat_request = ChatRequest(ask=test_case.user_prompt)
-        config = Config()
-        if test_case.cluster_name:
-            config.cluster_name = test_case.cluster_name
-
-        mock_dal = load_mock_dal(
-            Path(test_case.folder), generate_mocks=False, initialize_base=False
-        )
-        runbooks = load_runbook_catalog(mock_dal)
-        global_instructions = mock_dal.get_global_instructions_for_account()
-
-        messages = build_chat_messages(
-            ask=chat_request.ask,
-            conversation_history=test_case.conversation_history,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            runbooks=runbooks,
-        )
-
-    # Create LLM completion trace within current context
-    with tracer.start_trace("Holmes Run", span_type=SpanType.TASK) as llm_span:
-        start_time = time.time()
-        result = ai.messages_call(messages=messages, trace_span=llm_span)
-        holmes_duration = time.time() - start_time
-        # Log duration directly to eval_span
-        eval_span.log(metadata={"holmes_duration": holmes_duration})
-        # Store metrics in user_properties for GitHub report
-        if request:
-            request.node.user_properties.append(("holmes_duration", holmes_duration))
-            if result.num_llm_calls is not None:
-                request.node.user_properties.append(
-                    ("num_llm_calls", result.num_llm_calls)
-                )
-            if result.tool_calls is not None:
-                request.node.user_properties.append(
-                    ("tool_call_count", len(result.tool_calls))
-                )
-
-    # Check for any mock errors that occurred during tool execution
-    # This will raise an exception if any mock data errors happened
-    if request:
-        check_for_mock_errors(request)
-
-    return result

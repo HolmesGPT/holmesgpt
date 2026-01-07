@@ -119,12 +119,13 @@ def evaluate_correctness(
     expected_elements: Union[str, List[str]],
     output: Optional[str],
     parent_span: Optional[Span],
-    caplog,
+    caplog=None,
     evaluation_type: str = "strict",
 ):
     expected_elements_str = "\n- ".join(expected_elements)
 
-    caplog.set_level("INFO", logger="classifier")
+    if caplog:
+        caplog.set_level("INFO", logger="classifier")
     logger = logging.getLogger("classifier")
 
     if isinstance(expected_elements, str):
