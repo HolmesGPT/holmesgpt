@@ -9,7 +9,6 @@ Tests the full client experience:
 This test mocks LLM and bash tool responses but uses the real:
 - Server endpoints
 - process_tool_decisions()
-- inject_bash_session_prefixes()
 - extract_bash_session_prefixes()
 """
 

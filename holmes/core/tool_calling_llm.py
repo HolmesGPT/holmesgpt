@@ -71,9 +71,13 @@ cost_logger = logging.getLogger("holmes.costs")
 def _extract_text_from_content(content: Any) -> str:
     """Extract text from message content, handling both string and array formats.
 
-    OpenAI messages can have content as either:
+    OpenAI/LiteLLM message content can be:
     - A plain string: "some text"
-    - An array of content objects: [{"type": "text", "text": "some text"}]
+    - An array of content objects: [{"type": "text", "text": "some text", ...}]
+
+    The array format is used by our cache_control feature (see llm.py add_cache_control_to_last_message)
+    which converts string content to a single-item array. For tool messages, there's always
+    only one text item containing the full tool output with tool_call_metadata at the start.
 
     Args:
         content: Message content (string or array)
@@ -85,12 +89,11 @@ def _extract_text_from_content(content: Any) -> str:
         return content
 
     if isinstance(content, list):
-        # Extract text from array of content objects
-        texts = []
+        # Tool messages have a single text item (created by format_tool_result_data,
+        # possibly wrapped in array by cache_control). Return the first text item.
         for item in content:
             if isinstance(item, dict) and item.get("type") == "text":
-                texts.append(item.get("text", ""))
-        return " ".join(texts)
+                return item.get("text", "")
 
     return ""
 
@@ -136,38 +139,6 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
             f"Found {len(prefixes)} session-approved bash prefixes from conversation: {list(prefixes)}"
         )
     return list(prefixes)
-
-
-def inject_bash_session_prefixes(
-    tool_message: Dict[str, Any], prefixes: List[str]
-) -> None:
-    """Inject bash session approved prefixes into a tool message.
-
-    Modifies the tool_call_metadata in the message content to include
-    the approved prefixes. This is used to persist prefixes in conversation
-    history when a user approves with "don't ask again".
-
-    Args:
-        tool_message: The tool message dict (modified in place)
-        prefixes: List of prefixes to inject
-    """
-    content = tool_message.get("content", "")
-    if not isinstance(content, str):
-        return
-
-    # Find and parse the existing metadata
-    match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
-    if not match:
-        return
-
-    try:
-        metadata = json.loads(match.group(1))
-        metadata["bash_session_approved_prefixes"] = prefixes
-        new_metadata_str = f"tool_call_metadata={json.dumps(metadata)}"
-        # Replace the old metadata with the new one
-        tool_message["content"] = content.replace(match.group(0), new_metadata_str)
-    except (json.JSONDecodeError, KeyError):
-        pass
 
 
 class LLMCosts(BaseModel):
@@ -360,14 +331,19 @@ class ToolCallingLLM:
                 )
             )
 
-            tool_call_message = tool_result.as_tool_call_message()
-
-            # If user chose "Yes, and don't ask again", inject prefixes into message
+            # If user chose "Yes, and don't ask again", include prefixes in metadata
+            extra_metadata = None
             if decision and decision.approved and decision.save_prefixes:
                 logging.info(
                     f"Saving bash session prefixes for future commands: {decision.save_prefixes}"
                 )
-                inject_bash_session_prefixes(tool_call_message, decision.save_prefixes)
+                extra_metadata = {
+                    "bash_session_approved_prefixes": decision.save_prefixes
+                }
+
+            tool_call_message = tool_result.as_tool_call_message(
+                extra_metadata=extra_metadata
+            )
 
             # It is expected that the tool call result directly follows the tool call request from the LLM
             # The API call may contain a user ask which is appended to the messages so we can't just append
