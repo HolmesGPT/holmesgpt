@@ -774,7 +774,7 @@ jobs:
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           MODEL: ${{ steps.eval-params.outputs.model }}
           ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
-          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4o' }}
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}

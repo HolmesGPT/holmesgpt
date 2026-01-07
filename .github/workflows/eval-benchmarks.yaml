@@ -92,13 +92,15 @@ jobs:
           echo "benchmark_type=$BENCHMARK_TYPE" >> $GITHUB_OUTPUT
 
       - name: Run evaluation benchmarks
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        env:  
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
         run: |
           echo "Running: ${{ steps.build-command.outputs.command }}"
