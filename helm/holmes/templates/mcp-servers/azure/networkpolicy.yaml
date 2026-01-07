@@ -1,0 +1,59 @@
+{{- if and .Values.mcpAddons.azure.enabled .Values.mcpAddons.azure.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-azure-mcp-server
+  namespace: {{ .Values.mcpAddons.azure.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-azure-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}-azure-mcp
+      app.kubernetes.io/name: azure-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    # Allow traffic from Holmes pods
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: holmes
+          app.kubernetes.io/instance: {{ .Release.Name }}
+    # Allow traffic from pods with specific label
+    - podSelector:
+        matchLabels:
+          holmes.mcp.client: "true"
+    {{- if .Values.mcpAddons.azure.networkPolicy.additionalIngressRules }}
+    {{- toYaml .Values.mcpAddons.azure.networkPolicy.additionalIngressRules | nindent 4 }}
+    {{- end }}
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS traffic to Azure APIs
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+  {{- if .Values.mcpAddons.azure.networkPolicy.additionalEgressRules }}
+  {{- toYaml .Values.mcpAddons.azure.networkPolicy.additionalEgressRules | nindent 2 }}
+  {{- end }}
+{{- end }}
