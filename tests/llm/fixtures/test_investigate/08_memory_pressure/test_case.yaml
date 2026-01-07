@@ -1,3 +1,4 @@
+tags: [prometheus, kubernetes]
 expected_output:
   - The node `ip-172-31-40-111.us-east-2.compute.internal` is running too many pods for its capacity
 expected_sections:

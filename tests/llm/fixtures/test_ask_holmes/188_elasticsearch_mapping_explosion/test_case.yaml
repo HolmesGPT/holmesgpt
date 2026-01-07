@@ -1,0 +1,169 @@
+# Test: Elasticsearch Mapping Explosion
+#
+# This test creates an index with 500+ fields to simulate mapping explosion,
+# a common issue where dynamic mapping creates too many fields.
+#
+# Setup:
+# - Normal indexes (app-188-index-a/b/c) with standard field counts (~10 fields)
+# - One index (app-188-index-x) with 500+ dynamically created fields
+#
+# The LLM must use the mapping API to identify which index has excessive fields.
+# This is a common performance issue - mappings with hundreds of fields slow down
+# indexing and increase memory usage.
+#
+# Anti-hallucination: The exact field count (523) can only be found by querying.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "We're getting mapping errors and slow indexing on our events index. Can you check the field mappings for our app-188-index-* indexes and tell me if any have an unusually high number of fields? What's the exact field count for each?"
+
+expected_output:
+  - "Must identify app-188-index-x as having 500+ fields (exactly 523)"
+  - "Must compare it to the other indexes which have fewer fields (~10 fields)"
+
+tags:
+  - elasticsearch
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  echo "Creating test indexes for mapping explosion scenario..."
+
+  # Clean up any existing test data first
+  echo "Cleaning up any existing test data..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-188-index-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create indexes with standard field counts
+  for suffix in a b c; do
+    INDEX_NAME="app-188-index-${suffix}"
+    echo "Creating normal index: ${INDEX_NAME}..."
+
+    CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${INDEX_NAME}" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      -d '{
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        },
+        "mappings": {
+          "properties": {
+            "@timestamp": {"type": "date"},
+            "event_type": {"type": "keyword"},
+            "user_id": {"type": "keyword"},
+            "session_id": {"type": "keyword"},
+            "ip_address": {"type": "ip"},
+            "action": {"type": "keyword"},
+            "duration_ms": {"type": "integer"},
+            "status": {"type": "keyword"},
+            "error_message": {"type": "text"},
+            "metadata": {"type": "object"}
+          }
+        }
+      }')
+
+    if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+      echo "⚠️ Warning creating ${INDEX_NAME}: $CREATE_RESPONSE"
+    fi
+  done
+
+  echo "✅ Standard indexes created with ~10 fields each"
+
+  # Create index with 523 fields using dynamic mapping
+  echo "Creating index with 500+ fields..."
+
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-188-index-x" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  # Generate a document with 523 unique fields using bash
+  echo "Generating document with 523 fields..."
+
+  DOC_FILE="/tmp/es_mapping_188_$$.json"
+  echo -n '{"@timestamp":"2024-01-15T12:00:00Z","event_type":"user_action","user_id":"usr_12345"' > "$DOC_FILE"
+
+  # Add 520 additional fields to reach 523 total
+  for i in $(seq 0 519); do
+    MOD=$((i % 4))
+    NUM=$(printf '%04d' $i)
+    if [ $MOD -eq 0 ]; then
+      VAL=$(echo "$i * 1.5" | bc)
+      echo -n ",\"metric_${NUM}\":${VAL}" >> "$DOC_FILE"
+    elif [ $MOD -eq 1 ]; then
+      echo -n ",\"counter_${NUM}\":${i}" >> "$DOC_FILE"
+    elif [ $MOD -eq 2 ]; then
+      if [ $((i % 2)) -eq 0 ]; then
+        echo -n ",\"flag_${NUM}\":true" >> "$DOC_FILE"
+      else
+        echo -n ",\"flag_${NUM}\":false" >> "$DOC_FILE"
+      fi
+    else
+      echo -n ",\"label_${NUM}\":\"value_${i}\"" >> "$DOC_FILE"
+    fi
+  done
+  echo "}" >> "$DOC_FILE"
+
+  FIELD_COUNT=$(grep -o '"[^"]*":' "$DOC_FILE" | wc -l)
+  echo "Generated document with $FIELD_COUNT fields"
+
+  # Index the document
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-188-index-x/_doc" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d @"$DOC_FILE")
+
+  if echo "$RESPONSE" | grep -q '"result":"created"'; then
+    echo "✅ Document indexed successfully"
+  else
+    echo "❌ Failed to index document: $RESPONSE"
+    rm -f "$DOC_FILE"
+    exit 1
+  fi
+
+  rm -f "$DOC_FILE"
+
+  # Refresh to update mappings
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-188-index-x/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 2
+
+  # Verify field counts
+  echo "Verifying field counts..."
+  for index in app-188-index-a app-188-index-b app-188-index-c app-188-index-x; do
+    FIELD_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${index}/_mapping" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[list(d.keys())[0]]['mappings'].get('properties',{})))")
+    echo "${index}: ${FIELD_COUNT} fields"
+  done
+
+  echo "✅ Setup complete!"
+
+after_test: |
+
+  echo "Cleaning up test indexes..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-188-index-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_mapping_188_*.json
+
+  echo "✅ Cleanup complete"

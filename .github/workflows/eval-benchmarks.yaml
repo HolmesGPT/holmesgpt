@@ -1,27 +1,33 @@
-name: Run full eval benchmarks
+name: Run eval benchmarks
 
 on:
   # Allow manual trigger
   workflow_dispatch:
     inputs:
+      benchmark_type:
+        description: 'Benchmark type (fast-benchmark or full-benchmark). Cannot be combined with custom test_markers.'
+        required: false
+        type: choice
+        options:
+          - 'fast-benchmark'
+          - 'full-benchmark'
+        default: 'fast-benchmark'
       models:
-        description: 'Comma-separated list of models to test (e.g., gpt-4o,claude-sonnet-4)'
+        description: 'Comma-separated list of models to test'
         required: false
-        default: 'gpt-4o,gpt-4.1,gpt-5,anthropic/claude-sonnet-4-20250514'
+        default: 'azure/gpt-4.1'
       test_markers:
-        description: 'Additional pytest markers (will be combined with "llm" - e.g., "easy", "medium", "logs")'
+        description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
-        default: 'easy'
+        default: ''
       iterations:
         description: 'Number of iterations per test (max 10)'
         required: false
-        # TODO: For testing, use just 1 iteration by default
-        default: '1'  # Was: '3'
+        default: '1'
 
-  # TODO: Enable after testing
-  # # Run weekly on Sunday at 2 AM UTC
-  # schedule:
-  #   - cron: '0 2 * * 0'
+  # Run weekly on Sunday at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * 0'
 
 jobs:
   run-benchmarks:
@@ -48,36 +54,42 @@ jobs:
           cluster-name: 'kind'
           wait-for-ready: 'true'
 
-      - name: Determine test command
-        id: test-command
+      - name: Build benchmark command
+        id: build-command
         run: |
-          # Set default values from workflow inputs or triggers
+          # Start with base command
+          CMD="./run_benchmarks_local.py"
+
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            MODEL="${{ github.event.inputs.models }}"
-            # Always prepend "llm and " to user-provided markers with proper parentheses
-            TEST_MARKERS="llm and (${{ github.event.inputs.test_markers }})"
-            # Cap iterations at 10
+            BENCHMARK_TYPE="${{ github.event.inputs.benchmark_type }}"
+            CUSTOM_MARKERS="${{ github.event.inputs.test_markers }}"
+            MODELS="${{ github.event.inputs.models }}"
             ITERATIONS="${{ github.event.inputs.iterations }}"
-            if [ "$ITERATIONS" -gt 10 ]; then
-              echo "Capping iterations at 10 (requested: $ITERATIONS)"
-              ITERATIONS="10"
+
+            # Add benchmark type or custom markers (script validates they're mutually exclusive)
+            if [ -n "$CUSTOM_MARKERS" ]; then
+              CMD="$CMD --markers \"$CUSTOM_MARKERS\""
+            elif [ -n "$BENCHMARK_TYPE" ]; then
+              CMD="$CMD --benchmark-type $BENCHMARK_TYPE"
             fi
-          elif [ "${{ github.event_name }}" == "schedule" ]; then
-            MODEL="gpt-4o,anthropic/claude-sonnet-4-20250514,gpt-4.1"
-            TEST_MARKERS="llm and (easy)"
-            ITERATIONS="10"
+
+            # Add models only if specified (otherwise use script defaults)
+            if [ -n "$MODELS" ]; then
+              CMD="$CMD --models $MODELS"
+            fi
+
+            # Add iterations if specified
+            if [ -n "$ITERATIONS" ] && [ "$ITERATIONS" != "1" ]; then
+              CMD="$CMD --iterations $ITERATIONS"
+            fi
+          else
+            # Scheduled run: use fast-benchmark with azure/gpt-4.1
+            BENCHMARK_TYPE="fast-benchmark"
+            CMD="$CMD --benchmark-type fast-benchmark --models azure/gpt-4.1"
           fi
 
-          # Set test path and markers separately
-          TEST_PATH="tests/llm/"
-
-          # Write all outputs atomically
-          {
-            echo "models=$MODEL"
-            echo "test_path=$TEST_PATH"
-            echo "test_markers=$TEST_MARKERS"
-            echo "iterations=$ITERATIONS"
-          } >> $GITHUB_OUTPUT
+          echo "command=$CMD" >> $GITHUB_OUTPUT
+          echo "benchmark_type=$BENCHMARK_TYPE" >> $GITHUB_OUTPUT
 
       - name: Run evaluation benchmarks
         env:
@@ -86,47 +98,11 @@ jobs:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
-          MODEL: ${{ steps.test-command.outputs.models }}
-          ITERATIONS: ${{ steps.test-command.outputs.iterations }}
-          RUN_LIVE: "true"
-          CLASSIFIER_MODEL: "gpt-4o"  # Always use OpenAI for classification
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
-          UPLOAD_DATASET: "true"
         run: |
-          poetry run pytest "${{ steps.test-command.outputs.test_path }}" \
-            -m "${{ steps.test-command.outputs.test_markers }}" \
-            --no-cov \
-            --tb=short \
-            -v \
-            --strict-setup-mode \
-            --strict-setup-exceptions=22_high_latency_dbi_down \
-            --json-report \
-            --json-report-file=eval_results.json \
-            || true  # Don't fail the workflow if tests fail
-
-          # TODO: For testing, show what would be run
-          echo "==== Test execution summary ===="
-          echo "Models: ${{ steps.test-command.outputs.models }}"
-          echo "Markers: ${{ steps.test-command.outputs.test_markers }}"
-          echo "Iterations: ${{ steps.test-command.outputs.iterations }}"
-          echo "================================"
-
-      - name: Generate benchmark report
-        if: always()
-        run: |
-          # Generate latest results
-          poetry run python tests/generate_eval_report.py \
-            --json-file eval_results.json \
-            --output-file docs/development/evaluations/latest-results.md \
-            --models "${{ steps.test-command.outputs.models }}"
-
-          # Also generate timestamped version for history
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          poetry run python tests/generate_eval_report.py \
-            --json-file eval_results.json \
-            --output-file "docs/development/evaluations/history/weekly/results_${TIMESTAMP}.md" \
-            --models "${{ steps.test-command.outputs.models }}"
+          echo "Running: ${{ steps.build-command.outputs.command }}"
+          ${{ steps.build-command.outputs.command }}
 
       - name: Upload eval results
         if: always()
@@ -134,20 +110,56 @@ jobs:
         with:
           name: eval-results-${{ github.run_id }}
           path: |
+            docs/development/evaluations/fast-benchmark-results.md
+            docs/development/evaluations/full-benchmark-results.md
             docs/development/evaluations/latest-results.md
+            eval_results.json
 
-      # TODO: Enable after testing
-      # - name: Commit benchmark results
-      #   if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-      #   run: |
-      #     git config --local user.email "github-actions[bot]@users.noreply.github.com"
-      #     git config --local user.name "github-actions[bot]"
-      #
-      #     # Copy results to historical directory with timestamp
-      #     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-      #     mkdir -p docs/development/evaluations/history
-      #     cp docs/development/evaluations/latest-results.md "docs/development/evaluations/history/results_${TIMESTAMP}.md"
-      #
-      #     git add docs/development/evaluations/
-      #     git diff --staged --quiet || git commit -m "Update benchmark results [skip ci]"
-      #     git push
+      - name: Create PR with benchmark results
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Configure git
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Create timestamped branch
+          BRANCH_NAME="automated/benchmark-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH_NAME"
+
+          # Add all evaluation results
+          git add docs/development/evaluations/
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Commit and push
+          BENCHMARK_TYPE="${{ steps.build-command.outputs.benchmark_type }}"
+          git commit -m "Update ${BENCHMARK_TYPE:-benchmark} results [skip ci]"
+          git push origin "$BRANCH_NAME" --force
+
+          # Create PR (or update existing)
+          PR_TITLE="Weekly Benchmark Results $(date +%Y-%m-%d)"
+          PR_BODY="Automated weekly benchmark results from CI.
+
+          **Benchmark Type**: ${BENCHMARK_TYPE:-custom}
+          **Command**: ${{ steps.build-command.outputs.command }}"
+
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json number --jq '.[0].number')
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Updating existing PR #$EXISTING_PR"
+            gh pr edit "$EXISTING_PR" \
+              --title "$PR_TITLE" \
+              --body "$PR_BODY"
+          else
+            gh pr create \
+              --title "$PR_TITLE" \
+              --body "$PR_BODY" \
+              --base master \
+              --head "$BRANCH_NAME"
+          fi

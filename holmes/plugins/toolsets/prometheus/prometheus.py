@@ -9,7 +9,7 @@ import dateutil.parser
 import requests  # type: ignore
 from prometrix.connect.aws_connect import AWSPrometheusConnect
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from requests import RequestException
 
 from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
@@ -53,44 +53,42 @@ DEFAULT_METADATA_TIME_WINDOW_HRS = 1
 
 
 class PrometheusConfig(BaseModel):
-    # URL is optional because it can be set with an env var
-    prometheus_url: Optional[str]
+    """Prometheus toolset configuration.
 
-    # New config for default time window for metadata APIs
-    default_metadata_time_window_hrs: int = DEFAULT_METADATA_TIME_WINDOW_HRS  # Default: only show metrics active in the last hour
+    Deprecated config names (still accepted but not in schema):
+    - default_metadata_time_window_hrs -> discover_metrics_from_last_hours
+    - default_query_timeout_seconds -> query_timeout_seconds_default
+    - max_query_timeout_seconds -> query_timeout_seconds_hard_max
+    - default_metadata_timeout_seconds -> metadata_timeout_seconds_default
+    - max_metadata_timeout_seconds -> metadata_timeout_seconds_hard_max
+    - metrics_labels_time_window_hrs -> discover_metrics_from_last_hours
+    - prometheus_ssl_enabled -> verify_ssl
+    - metrics_labels_cache_duration_hrs (no longer used)
+    - fetch_labels_with_labels_api (no longer used)
+    - fetch_metadata_with_series_api (no longer used)
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    # URL is optional because it can be set with an env var
+    prometheus_url: Optional[str] = None
+
+    # Discovery API time window - only return metrics with data in the last N hours
+    discover_metrics_from_last_hours: int = DEFAULT_METADATA_TIME_WINDOW_HRS
 
     # Query timeout configuration
-    default_query_timeout_seconds: int = (
-        DEFAULT_QUERY_TIMEOUT_SECONDS  # Default timeout for PromQL queries
-    )
-    max_query_timeout_seconds: int = (
-        MAX_QUERY_TIMEOUT_SECONDS  # Maximum allowed timeout for PromQL queries
-    )
+    query_timeout_seconds_default: int = DEFAULT_QUERY_TIMEOUT_SECONDS
+    query_timeout_seconds_hard_max: int = MAX_QUERY_TIMEOUT_SECONDS
 
     # Metadata API timeout configuration
-    default_metadata_timeout_seconds: int = (
-        DEFAULT_METADATA_TIMEOUT_SECONDS  # Default timeout for metadata/discovery APIs
-    )
-    max_metadata_timeout_seconds: int = (
-        MAX_METADATA_TIMEOUT_SECONDS  # Maximum allowed timeout for metadata APIs
-    )
-
-    # DEPRECATED: These config values are deprecated and will be removed in a future version
-    # Using None as default so we can detect if user explicitly set them
-    metrics_labels_time_window_hrs: Optional[int] = (
-        None  # DEPRECATED - use default_metadata_time_window_hrs instead
-    )
-    metrics_labels_cache_duration_hrs: Optional[int] = (
-        None  # DEPRECATED - no longer used
-    )
-    fetch_labels_with_labels_api: Optional[bool] = None  # DEPRECATED - no longer used
-    fetch_metadata_with_series_api: Optional[bool] = None  # DEPRECATED - no longer used
+    metadata_timeout_seconds_default: int = DEFAULT_METADATA_TIMEOUT_SECONDS
+    metadata_timeout_seconds_hard_max: int = MAX_METADATA_TIMEOUT_SECONDS
 
     tool_calls_return_data: bool = True
     headers: Dict = Field(default_factory=dict)
     rules_cache_duration_seconds: Optional[int] = 1800  # 30 minutes
     additional_labels: Optional[Dict[str, str]] = None
-    prometheus_ssl_enabled: bool = True
+    verify_ssl: bool = True
 
     # Custom limit to the max number of tokens that a query result can take to proactively
     #   prevent token limit issues. Expressed in % of the model's context window.
@@ -106,26 +104,50 @@ class PrometheusConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_prom_config(self):
-        # Check for deprecated config values and print warnings
-        deprecated_configs = []
-        if self.metrics_labels_time_window_hrs is not None:  # Check if explicitly set
-            deprecated_configs.append(
-                "metrics_labels_time_window_hrs (use default_metadata_time_window_hrs instead)"
-            )
-        if (
-            self.metrics_labels_cache_duration_hrs is not None
-        ):  # Check if explicitly set
-            deprecated_configs.append("metrics_labels_cache_duration_hrs")
-        if self.fetch_labels_with_labels_api is not None:  # Check if explicitly set
-            deprecated_configs.append("fetch_labels_with_labels_api")
-        if self.fetch_metadata_with_series_api is not None:  # Check if explicitly set
-            deprecated_configs.append("fetch_metadata_with_series_api")
+        # Handle deprecated config names passed as extra fields
+        # These are accepted via extra="allow" but not defined in schema
+        extra = self.model_extra or {}
+        deprecated_with_replacement = []
 
-        if deprecated_configs:
+        # Map of old names -> new names
+        deprecated_mappings = {
+            "default_metadata_time_window_hrs": "discover_metrics_from_last_hours",
+            "default_query_timeout_seconds": "query_timeout_seconds_default",
+            "max_query_timeout_seconds": "query_timeout_seconds_hard_max",
+            "default_metadata_timeout_seconds": "metadata_timeout_seconds_default",
+            "max_metadata_timeout_seconds": "metadata_timeout_seconds_hard_max",
+            "metrics_labels_time_window_hrs": "discover_metrics_from_last_hours",
+            "prometheus_ssl_enabled": "verify_ssl",
+        }
+
+        for old_name, new_name in deprecated_mappings.items():
+            if old_name in extra:
+                setattr(self, new_name, extra[old_name])
+                deprecated_with_replacement.append(f"{old_name} -> {new_name}")
+
+        if deprecated_with_replacement:
             logging.warning(
-                f"WARNING: The following Prometheus config values are deprecated and will be removed in a future version: "
-                f"{', '.join(deprecated_configs)}. These configs no longer affect behavior."
+                f"Prometheus config uses deprecated names. Please update: "
+                f"{', '.join(deprecated_with_replacement)}"
             )
+
+        # Check for deprecated config values that no longer have any effect
+        deprecated_no_effect = [
+            name
+            for name in [
+                "metrics_labels_cache_duration_hrs",
+                "fetch_labels_with_labels_api",
+                "fetch_metadata_with_series_api",
+            ]
+            if name in extra
+        ]
+
+        if deprecated_no_effect:
+            logging.warning(
+                f"The following Prometheus config values are deprecated and have no effect: "
+                f"{', '.join(deprecated_no_effect)}"
+            )
+
         # If openshift is enabled, and the user didn't configure auth headers, we will try to load the token from the service account.
         if IS_OPENSHIFT:
             if self.headers.get("Authorization"):
@@ -147,7 +169,7 @@ class AMPConfig(PrometheusConfig):
     aws_secret_access_key: Optional[str] = None
     aws_region: str
     aws_service_name: str = "aps"
-    prometheus_ssl_enabled: bool = False
+    verify_ssl: bool = False
     assume_role_arn: Optional[str] = None
 
     # Refresh the AWS client (and its STS creds) every N seconds (default: 15 minutes)
@@ -171,7 +193,7 @@ class AMPConfig(PrometheusConfig):
             try:
                 base_config = BasePrometheusConfig(
                     url=self.prometheus_url,
-                    disable_ssl=not self.prometheus_ssl_enabled,
+                    disable_ssl=not self.verify_ssl,
                     additional_labels=self.additional_labels,
                 )
                 self._aws_client = AWSPrometheusConnect(
@@ -212,7 +234,7 @@ def do_request(
     method defaults to GET so callers can omit it for reads.
     """
     if verify is None:
-        verify = config.prometheus_ssl_enabled
+        verify = config.verify_ssl
     if headers is None:
         headers = config.headers or {}
 
@@ -485,7 +507,7 @@ class ListPrometheusRules(BasePrometheusTool):
                 url=rules_url,
                 params=params,
                 timeout=40,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                verify=self.toolset.config.verify_ssl,
                 headers=self.toolset.config.headers,
                 method="GET",
             )
@@ -599,19 +621,19 @@ class GetMetricNames(BasePrometheusTool):
 
             if params.get("start"):
                 query_params["start"] = params["start"]
-            elif self.toolset.config.default_metadata_time_window_hrs:
+            elif self.toolset.config.discover_metrics_from_last_hours:
                 # Use default time window
                 query_params["start"] = str(
                     int(time.time())
-                    - (self.toolset.config.default_metadata_time_window_hrs * 3600)
+                    - (self.toolset.config.discover_metrics_from_last_hours * 3600)
                 )
 
             response = do_request(
                 config=self.toolset.config,
                 url=url,
                 params=query_params,
-                timeout=self.toolset.config.default_metadata_timeout_seconds,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                timeout=self.toolset.config.metadata_timeout_seconds_default,
+                verify=self.toolset.config.verify_ssl,
                 headers=self.toolset.config.headers,
                 method="GET",
             )
@@ -717,19 +739,19 @@ class GetLabelValues(BasePrometheusTool):
 
             if params.get("start"):
                 query_params["start"] = params["start"]
-            elif self.toolset.config.default_metadata_time_window_hrs:
+            elif self.toolset.config.discover_metrics_from_last_hours:
                 # Use default time window
                 query_params["start"] = str(
                     int(time.time())
-                    - (self.toolset.config.default_metadata_time_window_hrs * 3600)
+                    - (self.toolset.config.discover_metrics_from_last_hours * 3600)
                 )
 
             response = do_request(
                 config=self.toolset.config,
                 url=url,
                 params=query_params,
-                timeout=self.toolset.config.default_metadata_timeout_seconds,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                timeout=self.toolset.config.metadata_timeout_seconds_default,
+                verify=self.toolset.config.verify_ssl,
                 headers=self.toolset.config.headers,
                 method="GET",
             )
@@ -821,19 +843,19 @@ class GetAllLabels(BasePrometheusTool):
 
             if params.get("start"):
                 query_params["start"] = params["start"]
-            elif self.toolset.config.default_metadata_time_window_hrs:
+            elif self.toolset.config.discover_metrics_from_last_hours:
                 # Use default time window
                 query_params["start"] = str(
                     int(time.time())
-                    - (self.toolset.config.default_metadata_time_window_hrs * 3600)
+                    - (self.toolset.config.discover_metrics_from_last_hours * 3600)
                 )
 
             response = do_request(
                 config=self.toolset.config,
                 url=url,
                 params=query_params,
-                timeout=self.toolset.config.default_metadata_timeout_seconds,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                timeout=self.toolset.config.metadata_timeout_seconds_default,
+                verify=self.toolset.config.verify_ssl,
                 headers=self.toolset.config.headers,
                 method="GET",
             )
@@ -935,19 +957,19 @@ class GetSeries(BasePrometheusTool):
 
             if params.get("start"):
                 query_params["start"] = params["start"]
-            elif self.toolset.config.default_metadata_time_window_hrs:
+            elif self.toolset.config.discover_metrics_from_last_hours:
                 # Use default time window
                 query_params["start"] = str(
                     int(time.time())
-                    - (self.toolset.config.default_metadata_time_window_hrs * 3600)
+                    - (self.toolset.config.discover_metrics_from_last_hours * 3600)
                 )
 
             response = do_request(
                 config=self.toolset.config,
                 url=url,
                 params=query_params,
-                timeout=self.toolset.config.default_metadata_timeout_seconds,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                timeout=self.toolset.config.metadata_timeout_seconds_default,
+                verify=self.toolset.config.verify_ssl,
                 headers=self.toolset.config.headers,
                 method="GET",
             )
@@ -1025,8 +1047,8 @@ class GetMetricMetadata(BasePrometheusTool):
                 config=self.toolset.config,
                 url=url,
                 params=query_params,
-                timeout=self.toolset.config.default_metadata_timeout_seconds,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                timeout=self.toolset.config.metadata_timeout_seconds_default,
+                verify=self.toolset.config.verify_ssl,
                 headers=self.toolset.config.headers,
                 method="GET",
             )
@@ -1112,8 +1134,8 @@ class ExecuteInstantQuery(BasePrometheusTool):
             payload = {"query": query}
 
             # Get timeout parameter and enforce limits
-            default_timeout = self.toolset.config.default_query_timeout_seconds
-            max_timeout = self.toolset.config.max_query_timeout_seconds
+            default_timeout = self.toolset.config.query_timeout_seconds_default
+            max_timeout = self.toolset.config.query_timeout_seconds_hard_max
             timeout = params.get("timeout", default_timeout)
             if timeout > max_timeout:
                 timeout = max_timeout
@@ -1129,7 +1151,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
                 headers=self.toolset.config.headers,
                 data=payload,
                 timeout=timeout,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                verify=self.toolset.config.verify_ssl,
                 method="POST",
             )
 
@@ -1354,8 +1376,8 @@ class ExecuteRangeQuery(BasePrometheusTool):
             }
 
             # Get timeout parameter and enforce limits
-            default_timeout = self.toolset.config.default_query_timeout_seconds
-            max_timeout = self.toolset.config.max_query_timeout_seconds
+            default_timeout = self.toolset.config.query_timeout_seconds_default
+            max_timeout = self.toolset.config.query_timeout_seconds_hard_max
             timeout = params.get("timeout", default_timeout)
             if timeout > max_timeout:
                 timeout = max_timeout
@@ -1371,7 +1393,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 headers=self.toolset.config.headers,
                 data=payload,
                 timeout=timeout,
-                verify=self.toolset.config.prometheus_ssl_enabled,
+                verify=self.toolset.config.verify_ssl,
                 method="POST",
             )
 
@@ -1587,7 +1609,7 @@ class PrometheusToolset(Toolset):
                 url=url,
                 headers=self.config.headers,
                 timeout=10,
-                verify=self.config.prometheus_ssl_enabled,
+                verify=self.config.verify_ssl,
                 method="GET",
             )
 
@@ -1608,6 +1630,11 @@ class PrometheusToolset(Toolset):
 
     def get_example_config(self):
         example_config = PrometheusConfig(
-            prometheus_url="http://robusta-kube-prometheus-st-prometheus:9090"
+            prometheus_url="http://prometheus-server.monitoring.svc.cluster.local:9090",
+            headers={"Authorization": "Basic <base64_encoded_credentials>"},
+            discover_metrics_from_last_hours=1,
+            query_timeout_seconds_default=20,
+            query_timeout_seconds_hard_max=180,
+            verify_ssl=True,
         )
         return example_config.model_dump()

@@ -56,6 +56,7 @@ nav:
                 - "DataDog": data-sources/builtin-toolsets/datadog.md
                 - "Datetime": data-sources/builtin-toolsets/datetime.md
                 - "Docker": data-sources/builtin-toolsets/docker.md
+                - "Elasticsearch / OpenSearch": data-sources/builtin-toolsets/elasticsearch.md
                 - "GitHub": data-sources/builtin-toolsets/github.md
                 - "Grafana Dashboards": data-sources/builtin-toolsets/grafanadashboards.md
                 - "Loki": data-sources/builtin-toolsets/grafanaloki.md
@@ -68,8 +69,6 @@ nav:
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md
                 - "Notion": data-sources/builtin-toolsets/notion.md
-                - "OpenSearch logs": data-sources/builtin-toolsets/opensearch-logs.md
-                - "OpenSearch status": data-sources/builtin-toolsets/opensearch-status.md
                 - "OpenShift": data-sources/builtin-toolsets/openshift.md
                 - "Prometheus": data-sources/builtin-toolsets/prometheus.md
                 - "RabbitMQ": data-sources/builtin-toolsets/rabbitmq.md

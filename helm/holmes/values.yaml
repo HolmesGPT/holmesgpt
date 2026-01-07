@@ -158,3 +158,149 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+  # Google Cloud Platform MCP addon - provides access to GCP services
+  # Docker images and deployment scripts: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
+  #
+  # AUTHENTICATION:
+  # The recommended method is using a service account key file:
+  # 1. Create a service account key:
+  #    gcloud iam service-accounts keys create key.json \
+  #      --iam-account=YOUR_SA@PROJECT.iam.gserviceaccount.com
+  # 2. Create a Kubernetes secret:
+  #    kubectl create secret generic gcp-sa-key \
+  #      --from-file=key.json=key.json -n YOUR_NAMESPACE
+  # 3. Set serviceAccountKey.secretName below to "gcp-sa-key"
+  #
+  # MULTI-PROJECT SUPPORT:
+  # The gcloud MCP can query multiple GCP projects. To enable:
+  # 1. Grant the service account permissions in all target projects:
+  #    gcloud projects add-iam-policy-binding PROJECT_ID \
+  #      --member="serviceAccount:SA_EMAIL" --role="roles/viewer"
+  # 2. Holmes will automatically query across projects when you specify --project flag
+  gcp:
+    enabled: false
+
+    # Service account key authentication (recommended)
+    serviceAccountKey:
+      secretName: ""  # Name of K8s secret containing the service account key (e.g., "gcp-sa-key")
+                     # Secret must have a key named "key.json" with the service account JSON key
+
+    # Kubernetes service account (for Workload Identity - currently not working with gcloud CLI)
+    serviceAccount:
+      create: true
+      name: "gcp-mcp-sa"
+      annotations: {}  # Add GKE Workload Identity annotations if needed
+
+    # Container registry for GCP MCP images
+    # Build images from: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: "IfNotPresent"
+
+    # Workload Identity configuration (works for observability/storage MCPs, not gcloud)
+    workloadIdentity:
+      enabled: false  # Set to true for observability/storage MCPs
+
+    networkPolicy:
+      enabled: true
+
+    config:
+      project: ""            # Primary GCP project ID (optional - can query any project with --project flag)
+      projectNumber: ""      # GCP project number (only needed if using Workload Identity)
+      region: "us-central1"  # Default GCP region (can override with --region flag)
+      namespace: ""          # MCP server installation namespace (defaults to release namespace if empty)
+
+    # Individual MCP server toggles and configurations
+    # gcloud MCP - General GCP management via gcloud CLI
+    gcloud:
+      enabled: true
+      image: "gcloud-cli-mcp:1.0.7"
+      port: 8000
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "1Gi"
+
+    # Observability MCP - Cloud Logging, Monitoring, Trace, Error Reporting
+    observability:
+      enabled: true
+      image: "gcloud-observability-mcp:1.0.0"
+      port: 8001
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+    # Storage MCP - Cloud Storage operations
+    storage:
+      enabled: true
+      image: "gcloud-storage-mcp:1.0.0"
+      port: 8002
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          
+    # Custom LLM instructions (optional) - These will override the default instructions for each of the gcp MCPs
+    # Leave empty to use default instructions
+    llmInstructions:
+      gcloud: ""
+      observability: ""
+      storage: ""
+
+  # Azure MCP Server Configuration
+  azure:
+    enabled: false
+    # Service account configuration for Azure Workload Identity
+    serviceAccount:
+      create: true
+      name: "azure-api-mcp-sa"
+      annotations: {}  # Add workload identity annotations here
+        # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
+        # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
+
+    image: "azure-cli-mcp:1.0.1"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: "IfNotPresent"
+
+    config:
+      tenantId: ""                      # Azure tenant ID (required for workload identity)
+      subscriptionId: ""                # Default Azure subscription ID
+      clientId: ""                      # Azure client ID (required for workload-identity and managed-identity)
+      readOnlyMode: false               # read-only mode blocks any post requests. Limit the Azure roles to read-only
+      authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
+      enableSecurityPolicy: false       # Enable additional security policies
+      timeout: "120"                    # Command execution timeout in seconds
+      namespace: ""                     # MCP installation namespace (defaults to release namespace if empty)
+
+    # Secret name for service principal authentication (if using service-principal auth)
+    secretName: "azure-mcp-creds"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    service:
+      port: 8000
+
+    networkPolicy:
+      enabled: false
+      additionalIngressRules: []
+      additionalEgressRules: []
+
+    additionalEnvVars: []
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
