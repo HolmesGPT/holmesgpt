@@ -233,6 +233,10 @@ class WorkloadHealthRequest(BaseModel):
 
 class ChatRequest(ChatRequestBaseModel):
     ask: str
+    images: Optional[List[str]] = Field(
+        default=None,
+        description="List of image URLs to analyze. Images will be included in the message content for vision-enabled models.",
+    )
 
 
 class FollowUpAction(BaseModel):

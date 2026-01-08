@@ -331,6 +331,7 @@ def build_chat_messages(
     global_instructions: Optional[Instructions] = None,
     additional_system_prompt: Optional[str] = None,
     runbooks: Optional[RunbookCatalog] = None,
+    images: Optional[List[str]] = None,
 ) -> List[dict]:
     """
     This function generates a list of messages for general chat conversation and ensures that the message sequence adheres to the model's context window limitations
@@ -402,12 +403,18 @@ def build_chat_messages(
         runbooks_ctx,
     )
 
-    conversation_history.append(  # type: ignore
-        {
-            "role": "user",
-            "content": ask,
-        },
-    )
+    # Build user message with optional images
+    if images:
+        # For vision models, content is an array of content items
+        content = [{"type": "text", "text": ask}]
+        for image_url in images:
+            content.append({"type": "image_url", "image_url": {"url": image_url}})
+        user_message = {"role": "user", "content": content}
+    else:
+        # Standard text-only message
+        user_message = {"role": "user", "content": ask}
+
+    conversation_history.append(user_message)  # type: ignore
 
     number_of_tools = len(
         [message for message in conversation_history if message.get("role") == "tool"]  # type: ignore

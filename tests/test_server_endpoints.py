@@ -79,6 +79,80 @@ def test_api_chat_all_fields(
 
 @patch("holmes.config.Config.create_toolcalling_llm")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_with_images(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """Test /api/chat endpoint with image analysis support."""
+    mock_ai = MagicMock()
+
+    # Capture the messages passed to the LLM
+    captured_messages = []
+
+    def capture_messages(messages):
+        captured_messages.append(messages)
+        return MagicMock(
+            result="This is an analysis of the provided image.",
+            tool_calls=[],
+            messages=messages,
+            metadata={},
+        )
+
+    mock_ai.messages_call.side_effect = capture_messages
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "What's in this image?",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "model": "gpt-4-vision-preview",
+        "images": [
+            "https://example.com/image1.png",
+            "https://example.com/image2.jpg",
+        ],
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Verify response structure
+    assert "analysis" in data
+    assert "conversation_history" in data
+    assert "tool_calls" in data
+    assert "follow_up_actions" in data
+
+    # Verify the messages were captured
+    assert len(captured_messages) == 1
+    messages = captured_messages[0]
+
+    # Find the user message with images
+    user_message = next((m for m in messages if m["role"] == "user"), None)
+    assert user_message is not None
+
+    # Verify the content is an array with text and images
+    content = user_message["content"]
+    assert isinstance(content, list)
+    assert len(content) == 3  # 1 text + 2 images
+
+    # Verify text content
+    text_item = content[0]
+    assert text_item["type"] == "text"
+    assert "What's in this image?" in text_item["text"]
+
+    # Verify image contents
+    image_items = content[1:]
+    assert len(image_items) == 2
+    for i, image_item in enumerate(image_items):
+        assert image_item["type"] == "image_url"
+        assert "image_url" in image_item
+        assert image_item["image_url"]["url"] == payload["images"][i]
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
 def test_api_issue_chat_all_fields(
     mock_get_global_instructions,
     mock_create_toolcalling_llm,

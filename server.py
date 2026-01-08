@@ -360,6 +360,7 @@ def chat(chat_request: ChatRequest):
             global_instructions=global_instructions,
             additional_system_prompt=chat_request.additional_system_prompt,
             runbooks=runbooks,
+            images=chat_request.images,
         )
 
         follow_up_actions = []
