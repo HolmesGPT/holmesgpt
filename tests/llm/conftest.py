@@ -57,10 +57,7 @@ DEFAULT_SYSTEM_PROMPT_URL = (
 
 
 def _fetch_additional_system_prompt(url: str) -> Optional[str]:
-    """Fetch optional additional system prompt from a URL.
-
-    Accepts either plain text or JSON with an "additional_system_prompt" field.
-    """
+    """Fetch optional additional system prompt from a URL."""
 
     if not url:
         return None
