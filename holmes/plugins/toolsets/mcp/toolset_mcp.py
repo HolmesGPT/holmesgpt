@@ -182,17 +182,17 @@ class RemoteMCPTool(Tool):
         return parameters
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        if params:
-            if params.get("cli_command"):  # Return AWS MCP cli command, if available
-                return f"{params.get('cli_command')}"
+        # AWS MCP cli_command
+        if params and params.get("cli_command"):
+            return f"{params.get('cli_command')}"
 
-        if isinstance(self.toolset._mcp_config, MCPConfig):
-            cmd = str(self.toolset._mcp_config.url)
-        elif isinstance(self.toolset._mcp_config, StdioMCPConfig):
-            cmd = self.toolset._mcp_config.command
-        else:
-            cmd = "unknown"
-        return f"Call MCP Server ({cmd} - {self.name})"
+        # gcloud MCP run_gcloud_command
+        if self.name == "run_gcloud_command" and params and "args" in params:
+            args = params.get("args", [])
+            if isinstance(args, list):
+                return f"gcloud {' '.join(str(arg) for arg in args)}"
+
+        return f"{self.toolset.name}: {self.name} {params}"
 
 
 class RemoteMCPToolset(Toolset):

@@ -1,0 +1,379 @@
+{{- if .Values.mcpAddons.gcp.enabled }}
+{{- if or .Values.mcpAddons.gcp.config.project .Values.mcpAddons.gcp.config.region }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-gcp-mcp-config
+  namespace: {{ .Values.mcpAddons.gcp.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gcp-mcp
+    app.kubernetes.io/name: gcp-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data:
+  {{- if .Values.mcpAddons.gcp.config.project }}
+  GCP_PROJECT: {{ .Values.mcpAddons.gcp.config.project | quote }}
+  GOOGLE_CLOUD_PROJECT: {{ .Values.mcpAddons.gcp.config.project | quote }}
+  {{- end }}
+  {{- if .Values.mcpAddons.gcp.config.projectNumber }}
+  PROJECT_NUMBER: {{ .Values.mcpAddons.gcp.config.projectNumber | quote }}
+  {{- end }}
+  {{- if .Values.mcpAddons.gcp.config.region }}
+  GCLOUD_REGION: {{ .Values.mcpAddons.gcp.config.region | quote }}
+  {{- end }}
+  CLOUDSDK_CORE_DISABLE_PROMPTS: "true"
+  CLOUDSDK_METRICS_ENVIRONMENT: "kubernetes"
+---
+{{- end }}
+{{- if .Values.mcpAddons.gcp.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.mcpAddons.gcp.serviceAccount.name }}
+  namespace: {{ .Values.mcpAddons.gcp.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gcp-mcp
+    app.kubernetes.io/name: gcp-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+  {{- if .Values.mcpAddons.gcp.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml .Values.mcpAddons.gcp.serviceAccount.annotations | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-gcp-mcp-server
+  namespace: {{ .Values.mcpAddons.gcp.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gcp-mcp
+    app.kubernetes.io/name: gcp-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-gcp-mcp
+      app.kubernetes.io/name: gcp-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-gcp-mcp
+        app.kubernetes.io/name: gcp-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.gcp | toYaml | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.mcpAddons.gcp.serviceAccount.name }}
+      {{- if .Values.mcpAddons.gcp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.gcp.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.gcp.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.gcp.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.gcp.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.gcp.affinity | nindent 8 }}
+      {{- end }}
+
+      # Security context for the pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      # Volumes for authentication
+      volumes:
+      {{- if .Values.mcpAddons.gcp.serviceAccountKey.secretName }}
+      - name: gcp-sa-key
+        secret:
+          secretName: {{ .Values.mcpAddons.gcp.serviceAccountKey.secretName }}
+          optional: true
+      {{- end }}
+      {{- if .Values.mcpAddons.gcp.workloadIdentity.enabled }}
+      - name: workload-identity-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              audience: https://iam.googleapis.com/
+              path: token
+              expirationSeconds: 3600
+      {{- end }}
+
+      containers:
+      {{- if .Values.mcpAddons.gcp.gcloud.enabled }}
+      # gcloud MCP container
+      - name: gcloud-mcp
+        image: "{{ .Values.mcpAddons.gcp.registry }}/{{ .Values.mcpAddons.gcp.gcloud.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.gcp.imagePullPolicy | default "Always" }}
+        ports:
+        - containerPort: {{ .Values.mcpAddons.gcp.gcloud.port }}
+          name: gcloud-http
+          protocol: TCP
+        env:
+        {{- if or .Values.mcpAddons.gcp.config.project .Values.mcpAddons.gcp.config.region }}
+        {{- if .Values.mcpAddons.gcp.config.project }}
+        - name: GCP_PROJECT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GCP_PROJECT
+        - name: GOOGLE_CLOUD_PROJECT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GOOGLE_CLOUD_PROJECT
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.config.projectNumber }}
+        - name: PROJECT_NUMBER
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: PROJECT_NUMBER
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.config.region }}
+        - name: GCLOUD_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GCLOUD_REGION
+        {{- end }}
+        - name: CLOUDSDK_CORE_DISABLE_PROMPTS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: CLOUDSDK_CORE_DISABLE_PROMPTS
+        - name: CLOUDSDK_METRICS_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: CLOUDSDK_METRICS_ENVIRONMENT
+        {{- else }}
+        # No project or region configured - using defaults
+        - name: CLOUDSDK_CORE_DISABLE_PROMPTS
+          value: "true"
+        - name: CLOUDSDK_METRICS_ENVIRONMENT
+          value: "kubernetes"
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.workloadIdentity.enabled }}
+        {{- with index .Values.mcpAddons.gcp.serviceAccount.annotations "iam.gke.io/gcp-service-account" }}
+        - name: GCP_SERVICE_ACCOUNT
+          value: {{ . }}
+        {{- end }}
+        {{- end }}
+        volumeMounts:
+        {{- if .Values.mcpAddons.gcp.serviceAccountKey.secretName }}
+        - name: gcp-sa-key
+          mountPath: /var/secrets/gcp
+          readOnly: true
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.workloadIdentity.enabled }}
+        - name: workload-identity-token
+          mountPath: /var/run/secrets/workload-identity
+          readOnly: true
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.gcp.gcloud.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.mcpAddons.gcp.gcloud.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.mcpAddons.gcp.gcloud.port }}
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+      {{- end }}
+
+      {{- if .Values.mcpAddons.gcp.observability.enabled }}
+      # Observability MCP container
+      - name: observability-mcp
+        image: "{{ .Values.mcpAddons.gcp.registry }}/{{ .Values.mcpAddons.gcp.observability.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.gcp.imagePullPolicy | default "Always" }}
+        ports:
+        - containerPort: {{ .Values.mcpAddons.gcp.observability.port }}
+          name: obs-http
+          protocol: TCP
+        env:
+        {{- if .Values.mcpAddons.gcp.serviceAccountKey.secretName }}
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/gcp/key.json
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.config.project }}
+        - name: GCP_PROJECT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GCP_PROJECT
+        - name: GOOGLE_CLOUD_PROJECT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GOOGLE_CLOUD_PROJECT
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.config.region }}
+        - name: GCLOUD_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GCLOUD_REGION
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.workloadIdentity.enabled }}
+        {{- with index .Values.mcpAddons.gcp.serviceAccount.annotations "iam.gke.io/gcp-service-account" }}
+        - name: GCP_SERVICE_ACCOUNT
+          value: {{ . }}
+        {{- end }}
+        {{- end }}
+        volumeMounts:
+        {{- if .Values.mcpAddons.gcp.serviceAccountKey.secretName }}
+        - name: gcp-sa-key
+          mountPath: /var/secrets/gcp
+          readOnly: true
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.workloadIdentity.enabled }}
+        - name: workload-identity-token
+          mountPath: /var/run/secrets/workload-identity
+          readOnly: true
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.gcp.observability.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.mcpAddons.gcp.observability.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.mcpAddons.gcp.observability.port }}
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+      {{- end }}
+
+      {{- if .Values.mcpAddons.gcp.storage.enabled }}
+      # Storage MCP container
+      - name: storage-mcp
+        image: "{{ .Values.mcpAddons.gcp.registry }}/{{ .Values.mcpAddons.gcp.storage.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.gcp.imagePullPolicy | default "Always" }}
+        ports:
+        - containerPort: {{ .Values.mcpAddons.gcp.storage.port }}
+          name: storage-http
+          protocol: TCP
+        env:
+        {{- if .Values.mcpAddons.gcp.serviceAccountKey.secretName }}
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/gcp/key.json
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.config.project }}
+        - name: GCP_PROJECT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GCP_PROJECT
+        - name: GOOGLE_CLOUD_PROJECT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GOOGLE_CLOUD_PROJECT
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.config.region }}
+        - name: GCLOUD_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-gcp-mcp-config
+              key: GCLOUD_REGION
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.workloadIdentity.enabled }}
+        {{- with index .Values.mcpAddons.gcp.serviceAccount.annotations "iam.gke.io/gcp-service-account" }}
+        - name: GCP_SERVICE_ACCOUNT
+          value: {{ . }}
+        {{- end }}
+        {{- end }}
+        volumeMounts:
+        {{- if .Values.mcpAddons.gcp.serviceAccountKey.secretName }}
+        - name: gcp-sa-key
+          mountPath: /var/secrets/gcp
+          readOnly: true
+        {{- end }}
+        {{- if .Values.mcpAddons.gcp.workloadIdentity.enabled }}
+        - name: workload-identity-token
+          mountPath: /var/run/secrets/workload-identity
+          readOnly: true
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.gcp.storage.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.mcpAddons.gcp.storage.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.mcpAddons.gcp.storage.port }}
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-gcp-mcp-server
+  namespace: {{ .Values.mcpAddons.gcp.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gcp-mcp
+    app.kubernetes.io/name: gcp-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  selector:
+    app: {{ .Release.Name }}-gcp-mcp
+    app.kubernetes.io/name: gcp-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  {{- if .Values.mcpAddons.gcp.gcloud.enabled }}
+  - port: {{ .Values.mcpAddons.gcp.gcloud.port }}
+    targetPort: {{ .Values.mcpAddons.gcp.gcloud.port }}
+    protocol: TCP
+    name: gcloud
+  {{- end }}
+  {{- if .Values.mcpAddons.gcp.observability.enabled }}
+  - port: {{ .Values.mcpAddons.gcp.observability.port }}
+    targetPort: {{ .Values.mcpAddons.gcp.observability.port }}
+    protocol: TCP
+    name: observability
+  {{- end }}
+  {{- if .Values.mcpAddons.gcp.storage.enabled }}
+  - port: {{ .Values.mcpAddons.gcp.storage.port }}
+    targetPort: {{ .Values.mcpAddons.gcp.storage.port }}
+    protocol: TCP
+    name: storage
+  {{- end }}
+{{- end }}
