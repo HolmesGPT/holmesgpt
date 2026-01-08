@@ -233,9 +233,16 @@ class WorkloadHealthRequest(BaseModel):
 
 class ChatRequest(ChatRequestBaseModel):
     ask: str
-    images: Optional[List[str]] = Field(
+    images: Optional[List[Union[str, Dict[str, Any]]]] = Field(
         default=None,
-        description="List of image URLs to analyze. Images will be included in the message content for vision-enabled models.",
+        description=(
+            "List of images to analyze with vision-enabled models. Each item can be:\n"
+            "- A string: URL (https://...) or base64 data URI (data:image/jpeg;base64,...)\n"
+            "- A dict with keys:\n"
+            "  - url (required): URL or base64 data URI\n"
+            "  - detail (optional): 'low', 'high', or 'auto' (OpenAI-specific)\n"
+            "  - format (optional): MIME type like 'image/jpeg' (for providers that need it)"
+        ),
     )
 
 

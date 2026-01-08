@@ -24,6 +24,7 @@ def test_image_analysis_non_streaming():
     # Example with a publicly available image
     url = "http://localhost:8080/api/chat"
 
+    # Test with simple string format (URL)
     payload = {
         "ask": "What's in this image? Describe what you see.",
         "model": "gpt-4o",  # Use a vision-enabled model
@@ -164,6 +165,66 @@ def test_backward_compatibility():
         return False
 
 
+def test_advanced_image_format():
+    """Test advanced image format with detail and format parameters."""
+    print("\n\nTesting advanced image format (detail + format parameters)...")
+    print("-" * 60)
+
+    url = "http://localhost:8080/api/chat"
+
+    payload = {
+        "ask": "Analyze these images in detail.",
+        "model": "gpt-4o",
+        "images": [
+            # Simple string URL
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/800px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg",
+            # Dict with detail parameter
+            {
+                "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/800px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg",
+                "detail": "high"  # Request high-detail analysis (OpenAI-specific)
+            },
+            # Base64 data URI (small example)
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        ],
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ]
+    }
+
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+
+        data = response.json()
+        print(f"Analysis: {data['analysis'][:200]}...")
+
+        # Find the user message with images
+        user_messages = [msg for msg in data['conversation_history'] if msg.get('role') == 'user']
+        if user_messages:
+            last_user_msg = user_messages[-1]
+            content = last_user_msg.get('content')
+            if isinstance(content, list):
+                image_parts = [c for c in content if c.get('type') == 'image_url']
+                print(f"✓ Successfully sent {len(image_parts)} images with mixed formats")
+
+                # Verify detail parameter was preserved
+                high_detail_images = [
+                    img for img in image_parts
+                    if img.get('image_url', {}).get('detail') == 'high'
+                ]
+                if high_detail_images:
+                    print(f"✓ High-detail parameter preserved for {len(high_detail_images)} image(s)")
+
+        print("✓ Advanced format test passed!")
+        return True
+
+    except requests.exceptions.RequestException as e:
+        print(f"✗ Error: {e}")
+        if hasattr(e.response, 'text'):
+            print(f"Response: {e.response.text}")
+        return False
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Holmes Image Analysis Test Script")
@@ -178,6 +239,7 @@ if __name__ == "__main__":
     results.append(test_backward_compatibility())
     results.append(test_image_analysis_non_streaming())
     results.append(test_image_analysis_streaming())
+    results.append(test_advanced_image_format())
 
     print("\n" + "=" * 60)
     print("Summary:")

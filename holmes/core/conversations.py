@@ -407,8 +407,21 @@ def build_chat_messages(
     if images:
         # For vision models, content is an array of content items
         content = [{"type": "text", "text": ask}]
-        for image_url in images:
-            content.append({"type": "image_url", "image_url": {"url": image_url}})
+        for image_item in images:
+            # Support both simple string and dict format
+            if isinstance(image_item, str):
+                # Simple URL or data URI string
+                content.append({"type": "image_url", "image_url": {"url": image_item}})
+            else:
+                # Dict with url, detail, format fields (full LiteLLM format)
+                image_url_obj = {"url": image_item["url"]}
+                # Add optional detail parameter (OpenAI-specific: low/high/auto)
+                if "detail" in image_item:
+                    image_url_obj["detail"] = image_item["detail"]
+                # Add optional format parameter (MIME type)
+                if "format" in image_item:
+                    image_url_obj["format"] = image_item["format"]
+                content.append({"type": "image_url", "image_url": image_url_obj})
         user_message = {"role": "user", "content": content}
     else:
         # Standard text-only message
