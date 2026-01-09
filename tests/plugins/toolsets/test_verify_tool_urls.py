@@ -1,46 +1,16 @@
-from unittest.mock import MagicMock, patch
-from urllib.parse import unquote, parse_qs, urlparse
-import json
 import base64
+import json
+from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, unquote, urlparse
+
 import pytest
 
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.plugins.toolsets.grafana.common import (
-    GrafanaTempoConfig,
-    GrafanaConfig,
-)
-from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaDashboardConfig
-from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
-    GrafanaTempoToolset,
-    FetchTracesSimpleComparison,
-    SearchTracesByQuery,
-    SearchTracesByTags,
-    QueryTraceById,
-    SearchTagNames,
-    SearchTagValues,
-    QueryMetricsInstant,
-    QueryMetricsRange,
-)
-from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import (
-    GrafanaLokiToolset,
-    LokiQuery,
-)
-from holmes.plugins.toolsets.grafana.toolset_grafana import (
-    GrafanaToolset,
-    SearchDashboards,
-    GetDashboardByUID,
-    GetHomeDashboard,
-    GetDashboardTags,
-)
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
     CoralogixToolset,
     ExecuteDataPrimeQuery,
 )
 from holmes.plugins.toolsets.coralogix.utils import CoralogixConfig
-from holmes.plugins.toolsets.newrelic.newrelic import (
-    NewRelicToolset,
-    ExecuteNRQLQuery,
-)
 from holmes.plugins.toolsets.datadog.datadog_models import (
     DatadogGeneralConfig,
     DatadogMetricsConfig,
@@ -62,6 +32,37 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     AggregateSpans,
     DatadogTracesToolset,
     GetSpans,
+)
+from holmes.plugins.toolsets.grafana.common import (
+    GrafanaConfig,
+    GrafanaTempoConfig,
+)
+from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import (
+    GrafanaLokiToolset,
+    LokiQuery,
+)
+from holmes.plugins.toolsets.grafana.toolset_grafana import (
+    GetDashboardByUID,
+    GetDashboardTags,
+    GetHomeDashboard,
+    GrafanaDashboardConfig,
+    GrafanaToolset,
+    SearchDashboards,
+)
+from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
+    FetchTracesSimpleComparison,
+    GrafanaTempoToolset,
+    QueryMetricsInstant,
+    QueryMetricsRange,
+    QueryTraceById,
+    SearchTagNames,
+    SearchTagValues,
+    SearchTracesByQuery,
+    SearchTracesByTags,
+)
+from holmes.plugins.toolsets.newrelic.newrelic import (
+    ExecuteNRQLQuery,
+    NewRelicToolset,
 )
 from tests.conftest import create_mock_tool_invoke_context
 

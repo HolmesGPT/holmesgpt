@@ -3,8 +3,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from holmes.core.llm import LLM, TokenCountMetadata
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.models import ToolCallResult
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_context_window_limiter import (
     prevent_overly_big_tool_response,
 )

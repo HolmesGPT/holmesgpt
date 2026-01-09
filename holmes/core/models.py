@@ -1,9 +1,10 @@
 import json
-from holmes.core.investigation_structured_output import InputSectionsDataType
-from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, model_validator, Field
 from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
+from pydantic import BaseModel, Field, model_validator
+
+from holmes.core.investigation_structured_output import InputSectionsDataType
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
@@ -87,6 +88,7 @@ class InvestigationResult(BaseModel):
     analysis: Optional[str] = None
     sections: Optional[Dict[str, Union[str, None]]] = None
     tool_calls: List[ToolCallResult] = []
+    num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
     instructions: List[str] = []
     metadata: Optional[Dict[Any, Any]] = None
 

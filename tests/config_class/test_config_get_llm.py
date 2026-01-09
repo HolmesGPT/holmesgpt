@@ -1,6 +1,5 @@
 from holmes.config import Config
 from holmes.core.llm import DefaultLLM
-
 from tests.conftest import DEFAULT_ROBUSTA_MODEL, ROBUSTA_SONNET_4_MODEL, get_cli_config
 
 

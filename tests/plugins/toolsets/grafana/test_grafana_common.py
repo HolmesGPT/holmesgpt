@@ -1,5 +1,6 @@
+from typing import Dict, Optional
+
 import pytest
-from typing import Optional, Dict
 
 from holmes.plugins.toolsets.grafana.common import build_headers
 

@@ -79,7 +79,7 @@ jobs:
             --add-data 'holmes/plugins/toolsets/coralogix*:holmes/plugins/toolsets/coralogix' \
             --add-data 'holmes/plugins/toolsets/grafana*:holmes/plugins/toolsets/grafana' \
             --add-data 'holmes/plugins/toolsets/internet*:holmes/plugins/toolsets/internet' \
-            --add-data 'holmes/plugins/toolsets/opensearch*:holmes/plugins/toolsets/opensearch' \
+            --add-data 'holmes/plugins/toolsets/elasticsearch*:holmes/plugins/toolsets/elasticsearch' \
             --add-data 'holmes/plugins/toolsets/prometheus*:holmes/plugins/toolsets/prometheus' \
             --hidden-import=tiktoken_ext.openai_public \
             --hidden-import=tiktoken_ext \

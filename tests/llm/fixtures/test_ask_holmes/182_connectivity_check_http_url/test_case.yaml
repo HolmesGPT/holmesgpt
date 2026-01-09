@@ -1,0 +1,9 @@
+user_prompt: "Is this specific web address accessible: https://www.google.com/favicon.ico? What about https://www.google.com/favicon.webp?"
+tags:
+  - question-answer
+  - network
+  - hard
+expected_output:
+  - "https://www.google.com/favicon.ico is accessible"
+  - "https://www.google.com/favicon.webp is not accessible and returns 404"
+  - "The AI must directly verify the accessibility of each address, not just guess"

@@ -1,24 +1,26 @@
 # type: ignore
-import os
 import logging
-import pytest
-import litellm
-from typing import List, Dict, Any
-from unittest.mock import patch
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any, Dict, List
+from unittest.mock import patch
+
+import litellm
+import pytest
+
+from holmes.config import Config
+from holmes.core.conversations import build_chat_messages
 from holmes.core.llm import DefaultLLM
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.core.conversations import build_chat_messages
-from holmes.config import Config
-from tests.llm.utils.test_case_utils import get_models
 from tests.llm.utils.mock_dal import load_mock_dal
 from tests.llm.utils.mock_toolset import (
-    MockToolsetManager,
     MockGenerationConfig,
     MockMode,
+    MockToolsetManager,
 )
+from tests.llm.utils.test_case_utils import get_models
 
 logger = logging.getLogger(__name__)
 

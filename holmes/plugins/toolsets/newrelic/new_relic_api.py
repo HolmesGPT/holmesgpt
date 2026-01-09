@@ -5,7 +5,6 @@ from typing import Any, Dict
 
 import requests  # type: ignore
 
-
 logger = logging.getLogger(__name__)
 
 

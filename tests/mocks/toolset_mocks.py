@@ -1,11 +1,11 @@
 from typing import Any, Dict, List
 
 from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
     Toolset,
-    StructuredToolResult,
-    StructuredToolResultStatus,
 )
 
 

@@ -6,10 +6,24 @@ We also use the evals as regression tests on every commit.
 
 **[View latest evaluation results →](./latest-results.md)**
 
+## Benchmark Types
+
+We run two types of benchmarks to balance speed and coverage:
+
+| Benchmark | Markers | Purpose | Schedule |
+|-----------|---------|---------|----------|
+| ⚡ **Fast** | `regression or benchmark` | Quick regression tests to catch breaking changes | Weekly (Sunday 2 AM UTC) |
+| **Full** | `easy or medium or hard or regression or benchmark` | Comprehensive testing across all difficulty levels | Manual / On-demand |
+
+All results are stored in [History](./history/index.md). Fast benchmark results are marked with ⚡.
+
 ## Test Categories
 
-- **Regression tests (`easy`)**: Scenarios that must always pass
-- **Advanced tests (`medium` and `hard`)**: More challenging scenarios
+- **Regression tests (`regression`)**: Critical scenarios that must always pass
+- **Benchmark tests (`benchmark`)**: Tests included in the fast benchmark for quick validation
+- **Easy tests (`easy`)**: Straightforward scenarios for baseline validation
+- **Medium tests (`medium`)**: Moderately complex troubleshooting scenarios
+- **Hard tests (`hard`)**: Challenging multi-step investigations
 - **Specialized tests**: Focused on specific capabilities (logs, kubernetes, prometheus, etc.)
 
 ## Quick Start

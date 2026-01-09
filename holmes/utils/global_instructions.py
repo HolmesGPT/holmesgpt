@@ -1,5 +1,7 @@
-from typing import Optional, List, TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 from pydantic import BaseModel
+
 from holmes.plugins.runbooks import RunbookCatalog
 
 if TYPE_CHECKING:

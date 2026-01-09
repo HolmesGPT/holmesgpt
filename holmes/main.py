@@ -137,13 +137,6 @@ opt_json_output_file: Optional[str] = typer.Option(
     envvar="HOLMES_JSON_OUTPUT_FILE",
 )
 
-opt_post_processing_prompt: Optional[str] = typer.Option(
-    None,
-    "--post-processing-prompt",
-    help="Adds a prompt for post processing. (Preferable for chatty ai models)",
-    envvar="HOLMES_POST_PROCESSING_PROMPT",
-)
-
 opt_documents: Optional[str] = typer.Option(
     None,
     "--documents",
@@ -201,7 +194,6 @@ def ask(
     ),
     json_output_file: Optional[str] = opt_json_output_file,
     echo_request: bool = opt_echo_request,
-    post_processing_prompt: Optional[str] = opt_post_processing_prompt,
     interactive: bool = typer.Option(
         True,
         "--interactive/--no-interactive",
@@ -299,7 +291,6 @@ def ask(
             console,
             prompt,
             include_file,
-            post_processing_prompt,
             show_tool_output,
             tracer,
             config.get_runbook_catalog(),
@@ -321,7 +312,7 @@ def ask(
         f'holmes ask "{prompt}"', span_type=SpanType.TASK
     ) as trace_span:
         trace_span.log(input=prompt, metadata={"type": "user_question"})
-        response = ai.call(messages, post_processing_prompt, trace_span=trace_span)
+        response = ai.call(messages, trace_span=trace_span)
         trace_span.log(
             output=response.result,
         )
@@ -393,7 +384,6 @@ def alertmanager(
     system_prompt: Optional[str] = typer.Option(
         "builtin://generic_investigation.jinja2", help=system_prompt_help
     ),
-    post_processing_prompt: Optional[str] = opt_post_processing_prompt,
 ):
     """
     Investigate a Prometheus/Alertmanager alert
@@ -449,7 +439,6 @@ def alertmanager(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            post_processing_prompt=post_processing_prompt,
         )
         results.append({"issue": issue.model_dump(), "result": result.model_dump()})
         handle_result(result, console, destination, config, issue, False, True)  # type: ignore
@@ -526,7 +515,6 @@ def jira(
     system_prompt: Optional[str] = typer.Option(
         "builtin://generic_investigation.jinja2", help=system_prompt_help
     ),
-    post_processing_prompt: Optional[str] = opt_post_processing_prompt,
 ):
     """
     Investigate a Jira ticket
@@ -565,7 +553,6 @@ def jira(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            post_processing_prompt=post_processing_prompt,
         )
 
         console.print(Rule())
@@ -618,7 +605,6 @@ def ticket(
     system_prompt: Optional[str] = typer.Option(
         "builtin://generic_ticket.jinja2", help=system_prompt_help
     ),
-    post_processing_prompt: Optional[str] = opt_post_processing_prompt,
     model: Optional[str] = opt_model,
 ):
     """
@@ -670,7 +656,7 @@ def ticket(
     )
 
     ticket_user_prompt = generate_user_prompt(prompt, context={})
-    result = ai.prompt_call(system_prompt, ticket_user_prompt, post_processing_prompt)
+    result = ai.prompt_call(system_prompt, ticket_user_prompt)
 
     console.print(Rule())
     console.print(
@@ -717,7 +703,6 @@ def github(
     system_prompt: Optional[str] = typer.Option(
         "builtin://generic_investigation.jinja2", help=system_prompt_help
     ),
-    post_processing_prompt: Optional[str] = opt_post_processing_prompt,
 ):
     """
     Investigate a GitHub issue
@@ -756,7 +741,6 @@ def github(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            post_processing_prompt=post_processing_prompt,
         )
 
         console.print(Rule())
@@ -802,7 +786,6 @@ def pagerduty(
     system_prompt: Optional[str] = typer.Option(
         "builtin://generic_investigation.jinja2", help=system_prompt_help
     ),
-    post_processing_prompt: Optional[str] = opt_post_processing_prompt,
 ):
     """
     Investigate a PagerDuty incident
@@ -841,7 +824,6 @@ def pagerduty(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            post_processing_prompt=post_processing_prompt,
         )
 
         console.print(Rule())
@@ -886,7 +868,6 @@ def opsgenie(
     system_prompt: Optional[str] = typer.Option(
         "builtin://generic_investigation.jinja2", help=system_prompt_help
     ),
-    post_processing_prompt: Optional[str] = opt_post_processing_prompt,
     documents: Optional[str] = opt_documents,
 ):
     """
@@ -923,7 +904,6 @@ def opsgenie(
             issue=issue,
             prompt=system_prompt,  # type: ignore
             console=console,
-            post_processing_prompt=post_processing_prompt,
         )
 
         console.print(Rule())

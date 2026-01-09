@@ -1,5 +1,5 @@
-import shlex
 import re
+import shlex
 
 SAFE_SHELL_CHARS = frozenset(".-_=/,:")
 

@@ -8,6 +8,7 @@ user_prompt: "What is causing connection refused errors in api-service in namesp
 tags:
   - logs
   - medium
+  - benchmark
 
 before_test: |
   kubectl create namespace app-108 || true

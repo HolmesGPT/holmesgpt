@@ -1,7 +1,7 @@
-import socket
 import logging
+import socket
 
-from holmes.common.env_vars import KEEPALIVE_IDLE, KEEPALIVE_INTVL, KEEPALIVE_CNT
+from holmes.common.env_vars import KEEPALIVE_CNT, KEEPALIVE_IDLE, KEEPALIVE_INTVL
 
 
 def patch_socket_create_connection(

@@ -4,6 +4,7 @@ tags:
   - context_window
   - datetime
   - medium
+  - benchmark
 expected_output:
   - Task scheduler pod experienced temporary issues between when it could not connect to an external API possibly due to a maintenance window
 before_test: |

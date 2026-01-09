@@ -1,46 +1,45 @@
 # type: ignore
 import os
 import time
-from typing import Optional
-import pytest
-from pathlib import Path
-from unittest.mock import patch
 from datetime import datetime
-from holmes.plugins.runbooks import load_runbook_catalog, RunbookCatalog
+from os import path
+from pathlib import Path
+from typing import Optional
+from unittest.mock import patch
+
+import pytest
 from rich.console import Console
-from holmes.core.models import ChatRequest
-from holmes.core.tracing import TracingFactory
+
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
+from holmes.core.models import ChatRequest
+from holmes.core.prompt import build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.tracing import SpanType, TracingFactory
+from holmes.plugins.runbooks import RunbookCatalog, load_runbook_catalog
+from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.commands import set_test_env_vars
+from tests.llm.utils.iteration_utils import get_test_cases
+from tests.llm.utils.mock_dal import load_mock_dal
 from tests.llm.utils.mock_toolset import (
-    MockToolsetManager,
     MockGenerationConfig,
+    MockToolsetManager,
     check_for_mock_errors,
 )
-from tests.llm.utils.test_case_utils import (
-    AskHolmesTestCase,
-    check_and_skip_test,
-    get_models,
-    create_eval_llm,
-)
-
-from holmes.core.prompt import build_initial_ask_messages
-from tests.llm.utils.retry_handler import retry_on_throttle
-from tests.llm.utils.mock_dal import load_mock_dal
-
 from tests.llm.utils.property_manager import (
+    handle_test_error,
     set_initial_properties,
     set_trace_properties,
     update_test_results,
-    handle_test_error,
 )
-from os import path
-from holmes.core.tracing import SpanType
-from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.braintrust import log_to_braintrust
+from tests.llm.utils.retry_handler import retry_on_throttle
+from tests.llm.utils.test_case_utils import (
+    AskHolmesTestCase,
+    check_and_skip_test,
+    create_eval_llm,
+    get_models,
+)
 
 TEST_CASES_FOLDER = Path(
     path.abspath(path.join(path.dirname(__file__), "fixtures", "test_ask_holmes"))
@@ -60,6 +59,7 @@ def test_ask_holmes(
     caplog,
     request,
     mock_generation_config: MockGenerationConfig,
+    additional_system_prompt,
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
@@ -110,6 +110,7 @@ def test_ask_holmes(
                     tracer,  # positional arg
                     eval_span,  # positional arg
                     mock_generation_config,  # positional arg
+                    additional_system_prompt=additional_system_prompt,
                     request=request,
                     retry_enabled=retry_enabled,
                     test_id=test_case.id,
@@ -170,6 +171,7 @@ def ask_holmes(
     tracer,
     eval_span,
     mock_generation_config,
+    additional_system_prompt,
     request=None,
 ) -> LLMResult:
     with eval_span.start_span(
@@ -223,9 +225,12 @@ def ask_holmes(
                 None,
                 ai.tool_executor,
                 runbooks,
+                system_prompt_additions=additional_system_prompt,
             )
     else:
-        chat_request = ChatRequest(ask=test_case.user_prompt)
+        chat_request = ChatRequest(
+            ask=test_case.user_prompt, additional_system_prompt=additional_system_prompt
+        )
         config = Config()
         if test_case.cluster_name:
             config.cluster_name = test_case.cluster_name
@@ -243,6 +248,7 @@ def ask_holmes(
             config=config,
             global_instructions=global_instructions,
             runbooks=runbooks,
+            additional_system_prompt=additional_system_prompt,
         )
 
     # Create LLM completion trace within current context
@@ -252,6 +258,17 @@ def ask_holmes(
         holmes_duration = time.time() - start_time
         # Log duration directly to eval_span
         eval_span.log(metadata={"holmes_duration": holmes_duration})
+        # Store metrics in user_properties for GitHub report
+        if request:
+            request.node.user_properties.append(("holmes_duration", holmes_duration))
+            if result.num_llm_calls is not None:
+                request.node.user_properties.append(
+                    ("num_llm_calls", result.num_llm_calls)
+                )
+            if result.tool_calls is not None:
+                request.node.user_properties.append(
+                    ("tool_call_count", len(result.tool_calls))
+                )
 
     # Check for any mock errors that occurred during tool execution
     # This will raise an exception if any mock data errors happened
