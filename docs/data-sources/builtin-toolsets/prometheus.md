@@ -100,19 +100,21 @@ toolsets:
         cluster: "production"
 ```
 
-**Config option explanations:**
+**Configuration options:**
 
-- `prometheus_url`: The base URL for Prometheus. Should include protocol and port.
-- `headers`: Extra headers for all Prometheus HTTP requests (e.g., for authentication).
-- `discover_metrics_from_last_hours`: Only return metrics that have data in the last N hours when using discovery APIs (get_metric_names, get_label_values, etc.). Default: 1 hour. Increase if you have metrics that report infrequently.
-- `query_timeout_seconds_default`: Default timeout for PromQL queries. Can be overridden per query. Default: 20.
-- `query_timeout_seconds_hard_max`: Maximum allowed timeout for PromQL queries. Default: 180.
-- `metadata_timeout_seconds_default`: Default timeout for metadata/discovery API calls. Default: 20.
-- `metadata_timeout_seconds_hard_max`: Maximum allowed timeout for metadata API calls. Default: 60.
-- `rules_cache_duration_seconds`: How long to cache Prometheus rules. Set to `null` to disable caching. Default: 1800 (30 minutes).
-- `verify_ssl`: Enable SSL certificate verification. Default: true.
-- `tool_calls_return_data`: If `false`, disables returning Prometheus data to HolmesGPT (useful if you hit token limits). Default: true.
-- `additional_labels`: Dictionary of labels to add to all queries (currently only implemented for AWS/AMP).
+| Option | Default | Description |
+|--------|---------|-------------|
+| `prometheus_url` | - | Prometheus server URL (include protocol and port) |
+| `headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
+| `discover_metrics_from_last_hours` | `1` | Only discover metrics with data in last N hours |
+| `query_timeout_seconds_default` | `20` | Default PromQL query timeout |
+| `query_timeout_seconds_hard_max` | `180` | Maximum query timeout |
+| `metadata_timeout_seconds_default` | `20` | Default metadata/discovery API timeout |
+| `metadata_timeout_seconds_hard_max` | `60` | Maximum metadata API timeout |
+| `rules_cache_duration_seconds` | `1800` | Cache duration for rules (set to `null` to disable) |
+| `verify_ssl` | `true` | Enable SSL certificate verification |
+| `tool_calls_return_data` | `true` | Return Prometheus data (disable if hitting token limits) |
+| `additional_labels` | `{}` | Labels to add to all queries (AWS/AMP only) |
 
 ## Capabilities
 

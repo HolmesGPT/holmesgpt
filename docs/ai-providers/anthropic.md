@@ -104,8 +104,6 @@ You can also pass the API key directly as a command-line parameter:
 holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5" --api-key="your-api-key"
 ```
 
-**Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
-
 ## Prompt Caching
 
 HolmesGPT adds Anthropic's prompt caching feature, which can significantly reduce costs and latency for repeated API calls with similar prompts.
