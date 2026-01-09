@@ -671,7 +671,7 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
-    def check_prerequisites(self):
+    def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
 
         # Sort prerequisites by type to fail fast on missing env vars before
@@ -741,11 +741,13 @@ class Toolset(BaseModel):
                 self.status == ToolsetStatusEnum.DISABLED
                 or self.status == ToolsetStatusEnum.FAILED
             ):
-                logger.info(f"❌ Toolset {self.name}: {self.error}")
+                if not silent:
+                    logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
                 return
 
-        logger.info(f"✅ Toolset {self.name}")
+        if not silent:
+            logger.info(f"✅ Toolset {self.name}")
 
     @abstractmethod
     def get_example_config(self) -> Dict[str, Any]:

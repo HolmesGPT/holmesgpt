@@ -98,6 +98,7 @@ class ToolsetManager:
         check_prerequisites=True,
         enable_all_toolsets=False,
         toolset_tags: Optional[List[ToolsetTag]] = None,
+        silent: bool = False,
     ) -> List[Toolset]:
         """
         List all built-in and custom toolsets.
@@ -167,16 +168,16 @@ class ToolsetManager:
                 enabled_toolsets.append(toolset)
             else:
                 toolset.status = ToolsetStatusEnum.DISABLED
-        self.check_toolset_prerequisites(enabled_toolsets)
+        self.check_toolset_prerequisites(enabled_toolsets, silent=silent)
 
         return final_toolsets
 
     @classmethod
-    def check_toolset_prerequisites(cls, toolsets: list[Toolset]):
+    def check_toolset_prerequisites(cls, toolsets: list[Toolset], silent: bool = False):
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
             for toolset in toolsets:
-                futures.append(executor.submit(toolset.check_prerequisites))
+                futures.append(executor.submit(toolset.check_prerequisites, silent))
 
             for _ in concurrent.futures.as_completed(futures):
                 pass
@@ -365,7 +366,6 @@ class ToolsetManager:
         )
         return toolsets_with_status
 
-    # TODO(mainred): cache and refresh periodically toolset status for server if necessary
     def list_server_toolsets(
         self, dal: Optional[SupabaseDal] = None, refresh_status=True
     ) -> List[Toolset]:
@@ -382,6 +382,31 @@ class ToolsetManager:
             toolset_tags=self.server_tool_tags,
         )
         return toolsets_with_status
+
+    def refresh_server_toolsets_and_get_changes(
+        self,
+        current_toolsets: List[Toolset],
+        dal: Optional[SupabaseDal] = None,
+    ) -> tuple[List[Toolset], List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]]]:
+        old_status_by_name: dict[str, ToolsetStatusEnum] = {
+            toolset.name: toolset.status for toolset in current_toolsets
+        }
+
+        new_toolsets = self._list_all_toolsets(
+            dal,
+            check_prerequisites=True,
+            enable_all_toolsets=False,
+            toolset_tags=self.server_tool_tags,
+            silent=True,
+        )
+
+        changes: List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]] = []
+        for toolset in new_toolsets:
+            old_status = old_status_by_name.get(toolset.name)
+            if old_status is not None and old_status != toolset.status:
+                changes.append((toolset.name, old_status, toolset.status))
+
+        return new_toolsets, changes
 
     def _load_toolsets_from_paths(
         self,
