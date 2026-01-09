@@ -175,6 +175,19 @@ class ToolCallingLLM:
             Callable[[StructuredToolResult], tuple[bool, Optional[str]]]
         ] = None
 
+        # Restriction tracking - these are set per-conversation
+        self._runbook_in_use: bool = False
+        self._restricted_tools_enabled: bool = False
+
+    def reset_conversation_state(self) -> None:
+        """Reset conversation-level state for a new conversation."""
+        self._runbook_in_use = False
+        # Note: _restricted_tools_enabled is not reset here as it's set per-request
+
+    def set_restricted_tools_enabled(self, enabled: bool) -> None:
+        """Enable or disable restricted tools for this conversation."""
+        self._restricted_tools_enabled = enabled
+
     def process_tool_decisions(
         self, messages: List[Dict[str, Any]], tool_decisions: List[ToolApprovalDecision]
     ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
@@ -506,8 +519,20 @@ class ToolCallingLLM:
                 max_token_count=self.llm.get_max_token_count_for_single_tool(),
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
+                restricted_tools_enabled=self._restricted_tools_enabled,
+                runbook_in_use=self._runbook_in_use,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
+
+            # Track runbook usage - if fetch_runbook is called successfully,
+            # restricted tools become available for the rest of the conversation
+            if (
+                tool_name == "fetch_runbook"
+                and tool_response.status == StructuredToolResultStatus.SUCCESS
+            ):
+                self._runbook_in_use = True
+                logging.debug("Runbook fetched - restricted tools now available")
+
         except Exception as e:
             logging.error(
                 f"Tool call to {tool_name} failed with an Exception", exc_info=True

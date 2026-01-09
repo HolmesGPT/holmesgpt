@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import logging
 import os
@@ -106,6 +107,20 @@ class StructuredToolResult(BaseModel):
                 return str(self.data)
 
 
+class ApprovalRequirement(BaseModel):
+    """Result of checking if a tool requires user approval before execution."""
+
+    needs_approval: bool
+    reason: str = ""
+
+
+class RestrictionResult(BaseModel):
+    """Result of checking if a tool is authorized to be used."""
+
+    authorized: bool
+    reason: str = ""
+
+
 def sanitize(param):
     # allow empty strings to be unquoted - useful for optional params
     # it is up to the user to ensure that the command they are using is ok with empty strings
@@ -157,6 +172,10 @@ class ToolInvokeContext(BaseModel):
     tool_call_id: str
     tool_name: str
 
+    # For restriction enforcement
+    restricted_tools_enabled: bool = False  # Explicit flag from request
+    runbook_in_use: bool = False  # True if fetch_runbook was called
+
 
 class Tool(ABC, BaseModel):
     name: str
@@ -171,6 +190,10 @@ class Tool(ABC, BaseModel):
         description="The URL of the icon for the tool, if None will get toolset icon",
     )
     transformers: Optional[List[Transformer]] = None
+    restricted: bool = Field(
+        default=False,
+        description="If True, tool requires runbook authorization or restricted_tools=true to use",
+    )
 
     # Private attribute to store initialized transformer instances for performance
     _transformer_instances: Optional[List["BaseTransformer"]] = PrivateAttr(
@@ -214,9 +237,14 @@ class Tool(ABC, BaseModel):
             self._transformer_instances = None
 
     def get_openai_format(self, target_model: str):
+        # Add [RESTRICTED] prefix if tool is restricted
+        description = self.description
+        if self._is_restricted():
+            description = f"[RESTRICTED] {description}"
+
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
-            tool_description=self.description,
+            tool_description=description,
             tool_parameters=self.parameters,
             target_model=target_model,
         )
@@ -230,6 +258,35 @@ class Tool(ABC, BaseModel):
         logger.info(
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
+
+        # Skip checks if user already approved
+        if not context.user_approved:
+            # 1. Check RESTRICTION (is tool authorized to be used?)
+            restriction_check = self._check_restriction(context)
+            if restriction_check and not restriction_check.authorized:
+                logger.info(
+                    f"  [yellow]Tool '{self.name}' blocked: {restriction_check.reason}[/yellow]"
+                )
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=restriction_check.reason,
+                    params=params,
+                    invocation=self.get_parameterized_one_liner(params),
+                )
+
+            # 2. Check APPROVAL (does user need to confirm?)
+            approval_check = self._get_approval_requirement(params, context)
+            if approval_check and approval_check.needs_approval:
+                logger.info(
+                    f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
+                )
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                    error=approval_check.reason,
+                    params=params,
+                    invocation=self.get_parameterized_one_liner(params),
+                )
+
         start_time = time.time()
         result = self._invoke(params=params, context=context)
         result.icon_url = self.icon_url
@@ -248,6 +305,86 @@ class Tool(ABC, BaseModel):
             f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
+
+    def _check_restriction(self, context: ToolInvokeContext) -> Optional[RestrictionResult]:
+        """Check if this tool is restricted and whether it's authorized to be used."""
+        # Check if tool is restricted (either directly or via toolset config)
+        is_restricted = self._is_restricted()
+
+        if not is_restricted:
+            return None  # Not restricted, no check needed
+
+        # Restricted tool - check if authorized
+        if context.restricted_tools_enabled or context.runbook_in_use:
+            return RestrictionResult(authorized=True)
+
+        return RestrictionResult(
+            authorized=False,
+            reason=f"Tool '{self.name}' is restricted and requires runbook authorization or explicit enablement",
+        )
+
+    def _is_restricted(self) -> bool:
+        """Check if this tool is restricted (either directly or via toolset config)."""
+        # Check tool-level flag
+        if self.restricted:
+            return True
+
+        # Check toolset-level patterns
+        toolset = getattr(self, "toolset", None)
+        if toolset:
+            restricted_patterns = getattr(toolset, "restricted_tools", [])
+            for pattern in restricted_patterns:
+                if fnmatch.fnmatch(self.name, pattern):
+                    return True
+
+        return False
+
+    def _get_approval_requirement(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        """Check all approval sources: toolset config and tool-specific logic."""
+        # 1. Check toolset-level configuration
+        toolset_approval = self._check_approval_config()
+        if toolset_approval and toolset_approval.needs_approval:
+            return toolset_approval
+
+        # 2. Check tool-specific logic
+        return self.requires_approval(params, context)
+
+    def _check_approval_config(self) -> Optional[ApprovalRequirement]:
+        """Check if toolset configuration requires approval for this tool."""
+        toolset = getattr(self, "toolset", None)
+        if not toolset:
+            return None
+
+        # Check if all tools require approval
+        if getattr(toolset, "require_approval_for_all_tools", False):
+            return ApprovalRequirement(
+                needs_approval=True,
+                reason=f"Toolset '{toolset.name}' requires approval for all tools",
+            )
+
+        # Check pattern matching
+        approval_patterns = getattr(toolset, "approval_required_tools", [])
+        for pattern in approval_patterns:
+            if fnmatch.fnmatch(self.name, pattern):
+                return ApprovalRequirement(
+                    needs_approval=True,
+                    reason=f"Tool '{self.name}' matches approval pattern '{pattern}'",
+                )
+
+        return None
+
+    def requires_approval(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        """Override to implement tool-specific approval logic.
+
+        Returns:
+            None - No approval logic (default behavior)
+            ApprovalRequirement - Whether approval is needed and why
+        """
+        return None
 
     def _apply_transformers(self, result: StructuredToolResult) -> StructuredToolResult:
         """
@@ -549,6 +686,20 @@ class Toolset(BaseModel):
     is_default: bool = False
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
+
+    # Tool restriction and approval configuration
+    restricted_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require runbook authorization or restricted_tools=true",
+    )
+    approval_required_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require user approval before execution",
+    )
+    require_approval_for_all_tools: bool = Field(
+        default=False,
+        description="If True, all tools in this toolset require user approval",
+    )
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
