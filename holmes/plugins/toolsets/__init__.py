@@ -28,6 +28,13 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
 from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     DatadogTracesToolset,
 )
+from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
+    ElasticsearchClusterToolset,
+    ElasticsearchDataToolset,
+)
+from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
+    OpenSearchQueryAssistToolset,
+)
 from holmes.plugins.toolsets.git import GitToolset
 from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import GrafanaLokiToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
@@ -41,18 +48,11 @@ from holmes.plugins.toolsets.kafka import KafkaToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
-from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
-    OpenSearchQueryAssistToolset,
-)
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
 from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
-)
-from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
-    ElasticsearchClusterToolset,
-    ElasticsearchDataToolset,
 )
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))

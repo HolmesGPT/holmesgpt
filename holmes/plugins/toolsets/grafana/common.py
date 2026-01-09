@@ -1,10 +1,6 @@
-import datetime
-import json
 from typing import Dict, Optional
 
 from pydantic import BaseModel
-
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
 class GrafanaConfig(BaseModel):
