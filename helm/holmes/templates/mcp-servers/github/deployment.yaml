@@ -79,6 +79,10 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-github-mcp-config
               key: GITHUB_TOOLS
+        {{- if .Values.mcpAddons.github.config.host }}
+        - name: GITHUB_HOST
+          value: {{ .Values.mcpAddons.github.config.host | quote }}
+        {{- end }}
         stdin: true
         tty: true
         resources:

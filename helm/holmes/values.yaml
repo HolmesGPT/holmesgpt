@@ -307,7 +307,11 @@ mcpAddons:
 
   # GitHub MCP Server Configuration
   # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
-  # Uses the official GitHub MCP server wrapped with Supergateway for HTTP transport
+  # Uses a custom image that bundles GitHub MCP server with Supergateway for HTTP transport
+  #
+  # PREREQUISITES:
+  # 1. Build the custom Docker image (see docs for Dockerfile)
+  # 2. Push to your container registry
   #
   # AUTHENTICATION:
   # Create a GitHub Personal Access Token (PAT) with appropriate permissions:
@@ -315,13 +319,17 @@ mcpAddons:
   # - workflow: Update GitHub Action workflows (for CI/CD debugging)
   # Then create a Kubernetes secret:
   #   kubectl create secret generic github-mcp-token --from-literal=token=ghp_YOUR_TOKEN -n YOUR_NAMESPACE
+  #
+  # GITHUB ENTERPRISE:
+  # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
   github:
     enabled: false
 
     # Container image configuration
-    # Uses Supergateway to wrap the GitHub MCP server (stdio) as HTTP
+    # Requires a custom image that bundles Supergateway + GitHub MCP server
+    # See documentation for the Dockerfile to build this image
     image:
-      repository: supercorp/supergateway
+      repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/github-mcp-server
       tag: "latest"
       pullPolicy: IfNotPresent
 
@@ -331,6 +339,10 @@ mcpAddons:
       secretKey: "token"  # Key in secret (default: "token")
 
     config:
+      # GitHub Enterprise hostname (leave empty for github.com)
+      # Example: "github.mycompany.com"
+      host: ""
+
       # Tools to enable (comma-separated list)
       # Default: 17 tools for repos, PRs, issues, and GitHub Actions
       tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,list_issues,search_issues"
