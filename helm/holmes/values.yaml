@@ -326,11 +326,10 @@ mcpAddons:
     enabled: false
 
     # Container image configuration
-    # Requires a custom image that bundles Supergateway + GitHub MCP server
-    # See documentation for the Dockerfile to build this image
+    # Uses a pre-built image that bundles Supergateway + GitHub MCP server
     image:
-      repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/github-mcp-server
-      tag: "latest"
+      repository: me-west1-docker.pkg.dev/robusta-development/development/github-mcp
+      tag: "1.0.0"
       pullPolicy: IfNotPresent
 
     # Authentication - PAT from Kubernetes secret
