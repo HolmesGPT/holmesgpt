@@ -29,24 +29,23 @@ Create a Personal Access Token with the following scopes:
 
     For CLI usage, you need to deploy the GitHub MCP server first, then configure Holmes to connect to it.
 
-    ### Step 1: Deploy the GitHub MCP Server
+    ### Step 1: Create the GitHub PAT Secret
+
+    First, create a namespace and secret for the GitHub MCP server:
+
+    ```bash
+    kubectl create namespace holmes-mcp
+
+    kubectl create secret generic github-mcp-token \
+      --from-literal=token=<YOUR_GITHUB_PAT> \
+      -n holmes-mcp
+    ```
+
+    ### Step 2: Deploy the GitHub MCP Server
 
     Create a file named `github-mcp-deployment.yaml`:
 
     ```yaml
-    apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: holmes-mcp
-    ---
-    apiVersion: v1
-    kind: Secret
-    metadata:
-      name: github-mcp-token
-      namespace: holmes-mcp
-    stringData:
-      token: "ghp_YOUR_PERSONAL_ACCESS_TOKEN"
-    ---
     apiVersion: v1
     kind: ConfigMap
     metadata:
@@ -135,14 +134,6 @@ Create a Personal Access Token with the following scopes:
     kubectl apply -f github-mcp-deployment.yaml
     ```
 
-    ### Step 2: Create the GitHub PAT Secret
-
-    ```bash
-    kubectl create secret generic github-mcp-token \
-      --from-literal=token=ghp_YOUR_PERSONAL_ACCESS_TOKEN \
-      -n holmes-mcp
-    ```
-
     ### Step 3: Configure Holmes CLI
 
     Add the MCP server configuration to **~/.holmes/config.yaml**:
@@ -191,8 +182,8 @@ Create a Personal Access Token with the following scopes:
 
     ```bash
     kubectl create secret generic github-mcp-token \
-      --from-literal=token=ghp_YOUR_PERSONAL_ACCESS_TOKEN \
-      -n YOUR_NAMESPACE
+      --from-literal=token=<YOUR_GITHUB_PAT> \
+      -n <NAMESPACE>
     ```
 
     Then add the following to your `values.yaml`:
@@ -244,8 +235,8 @@ Create a Personal Access Token with the following scopes:
 
     ```bash
     kubectl create secret generic github-mcp-token \
-      --from-literal=token=ghp_YOUR_PERSONAL_ACCESS_TOKEN \
-      -n YOUR_NAMESPACE
+      --from-literal=token=<YOUR_GITHUB_PAT> \
+      -n <NAMESPACE>
     ```
 
     Then add the following to your `generated_values.yaml`:
@@ -343,13 +334,21 @@ After deploying the GitHub MCP server, verify it's working:
 ### Test 1: Check Pod Status
 
 ```bash
+# For Helm deployments
 kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=github-mcp-server
+
+# For manual CLI deployments
+kubectl get pods -n holmes-mcp -l app=github-mcp-server
 ```
 
 ### Test 2: Check Logs
 
 ```bash
+# For Helm deployments
 kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=github-mcp-server
+
+# For manual CLI deployments
+kubectl logs -n holmes-mcp -l app=github-mcp-server
 ```
 
 ### Test 3: Ask Holmes
@@ -367,6 +366,7 @@ holmes ask "List the recent commits in the owner/repo repository"
 ```
 
 Holmes will:
+
 1. Get the workflow runs for the repository
 2. Find the failed run associated with the PR
 3. List the jobs in that run to identify which failed
@@ -380,6 +380,7 @@ Holmes will:
 ```
 
 Holmes will:
+
 1. List recent commits on the repository
 2. Filter for changes to authentication-related files
 3. Summarize the changes and their authors
@@ -391,6 +392,7 @@ Holmes will:
 ```
 
 Holmes will:
+
 1. Search code across repositories for the pattern
 2. List files and locations where it's used
 3. Provide context for each usage
@@ -402,6 +404,7 @@ Holmes will:
 ```
 
 Holmes will:
+
 1. Create an issue with clear requirements
 2. Assign GitHub Copilot to work on it
 
@@ -417,8 +420,8 @@ Holmes will:
 # Check secret exists
 kubectl get secret github-mcp-token -n YOUR_NAMESPACE
 
-# Verify PAT has correct permissions (test locally)
-curl -H "Authorization: token ghp_YOUR_TOKEN" https://api.github.com/user
+# Verify PAT has correct permissions (test locally with your token)
+curl -H "Authorization: token <YOUR_GITHUB_PAT>" https://api.github.com/user
 ```
 
 ### Rate Limiting
