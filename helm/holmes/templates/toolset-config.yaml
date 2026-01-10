@@ -13,7 +13,6 @@ data:
         "description" "AWS API MCP Server - comprehensive AWS service access. Allow executing any AWS CLI commands."
         "config" (dict
           "url" (printf "http://%s-aws-mcp-server.%s.svc.cluster.local:8000" .Release.Name (.Values.mcpAddons.aws.config.namespace | default .Release.Namespace))
-          "mode" "streamable-http"
         )
         "llm_instructions" (include "holmes.awsMcp.llmInstructions" . | trim)
       )
