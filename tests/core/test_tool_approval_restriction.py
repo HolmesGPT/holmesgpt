@@ -702,3 +702,96 @@ class TestToolsetConfigValidation:
         object.__setattr__(tool, "toolset", toolset)
 
         assert tool._is_restricted() is True
+
+    def test_wildcard_approval_pattern_matches_all(self):
+        """Test that '*' pattern in approval_required_tools matches all tools."""
+        toolset = YAMLToolset(
+            name="test_toolset",
+            description="Test toolset",
+            tags=[ToolsetTag.CORE],
+            tools=[
+                YAMLTool(
+                    name="any_tool",
+                    description="Any tool",
+                    command="echo hello",
+                ),
+                YAMLTool(
+                    name="another_tool",
+                    description="Another tool",
+                    command="echo world",
+                ),
+            ],
+            approval_required_tools=["*"],
+        )
+
+        for tool in toolset.tools:
+            object.__setattr__(tool, "toolset", toolset)
+            approval = tool._check_approval_config()
+            assert approval is not None
+            assert approval.needs_approval is True
+            assert "'*'" in approval.reason
+
+    def test_restrict_all_tools_flag(self):
+        """Test that restrict_all_tools=True restricts all tools."""
+        toolset = YAMLToolset(
+            name="test_toolset",
+            description="Test toolset",
+            tags=[ToolsetTag.CORE],
+            tools=[
+                YAMLTool(
+                    name="tool_one",
+                    description="Tool one",
+                    command="echo one",
+                ),
+                YAMLTool(
+                    name="tool_two",
+                    description="Tool two",
+                    command="echo two",
+                ),
+            ],
+            restrict_all_tools=True,
+        )
+
+        for tool in toolset.tools:
+            object.__setattr__(tool, "toolset", toolset)
+            assert tool._is_restricted() is True
+
+    def test_restrict_all_tools_false_by_default(self):
+        """Test that restrict_all_tools is False by default."""
+        toolset = YAMLToolset(
+            name="test_toolset",
+            description="Test toolset",
+            tags=[ToolsetTag.CORE],
+            tools=[
+                YAMLTool(
+                    name="tool_one",
+                    description="Tool one",
+                    command="echo one",
+                ),
+            ],
+        )
+
+        tool = toolset.tools[0]
+        object.__setattr__(tool, "toolset", toolset)
+        assert tool._is_restricted() is False
+
+    def test_restrict_all_tools_overrides_patterns(self):
+        """Test that restrict_all_tools=True overrides even empty patterns."""
+        toolset = YAMLToolset(
+            name="test_toolset",
+            description="Test toolset",
+            tags=[ToolsetTag.CORE],
+            tools=[
+                YAMLTool(
+                    name="safe_tool",
+                    description="A safe tool",
+                    command="echo safe",
+                ),
+            ],
+            restricted_tools=[],  # Empty patterns
+            restrict_all_tools=True,  # But this flag restricts all
+        )
+
+        tool = toolset.tools[0]
+        object.__setattr__(tool, "toolset", toolset)
+        assert tool._is_restricted() is True

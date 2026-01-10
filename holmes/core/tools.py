@@ -317,9 +317,14 @@ class Tool(ABC, BaseModel):
         if self.restricted:
             return True
 
-        # Check toolset-level patterns
+        # Check toolset-level config
         toolset = getattr(self, "toolset", None)
         if toolset:
+            # Check if all tools are restricted
+            if getattr(toolset, "restrict_all_tools", False):
+                return True
+
+            # Check pattern matching
             restricted_patterns = getattr(toolset, "restricted_tools", [])
             for pattern in restricted_patterns:
                 if fnmatch.fnmatch(self.name, pattern):
@@ -688,6 +693,10 @@ class Toolset(BaseModel):
         default=False,
         description="If True, all tools in this toolset require user approval",
     )
+    restrict_all_tools: bool = Field(
+        default=False,
+        description="If True, all tools in this toolset are restricted until runbook authorization",
+    )
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
@@ -955,6 +964,7 @@ class ToolsetYamlFromConfig(Toolset):
     restricted_tools: List[str] = Field(default_factory=list)
     approval_required_tools: List[str] = Field(default_factory=list)
     require_approval_for_all_tools: bool = False
+    restrict_all_tools: bool = False
 
     def get_example_config(self) -> Dict[str, Any]:
         return {}
