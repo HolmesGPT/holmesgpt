@@ -353,7 +353,7 @@ def ensure_strict_response_format(response_format: Optional[dict]) -> Optional[d
     Controlled by STRUCTURED_OUTPUT_STRICT_MODE env var (default: True).
     """
     if response_format is None:
-        logging.debug("Structured output: No response_format provided")
+        logging.info("Structured output: No response_format provided")
         return None
 
     logging.info(
@@ -437,7 +437,7 @@ def chat(chat_request: ChatRequest):
                 f"Structured output: Calling call_stream with response_format={response_format is not None}"
             )
             if response_format:
-                logging.debug(
+                logging.info(
                     f"Structured output: Full response_format={response_format}"
                 )
             return StreamingResponse(
@@ -457,7 +457,7 @@ def chat(chat_request: ChatRequest):
                 f"Structured output: Calling messages_call with response_format={response_format is not None}"
             )
             if response_format:
-                logging.debug(
+                logging.info(
                     f"Structured output: Full response_format={response_format}"
                 )
             llm_call = ai.messages_call(
