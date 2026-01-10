@@ -73,14 +73,18 @@ def _fetch_additional_system_prompt(url: str) -> Optional[str]:
 
     # Validate structure
     if not isinstance(data, dict):
-        raise ValueError(f"Invalid format from {url}. Expected JSON dict, got: {type(data).__name__}")
+        raise ValueError(
+            f"Invalid format from {url}. Expected JSON dict, got: {type(data).__name__}"
+        )
 
     if "additional_system_prompt" not in data:
         raise ValueError(f"Missing 'additional_system_prompt' field in JSON from {url}")
 
     prompt = data["additional_system_prompt"]
     if not isinstance(prompt, str):
-        raise ValueError(f"'additional_system_prompt' field must be a string in JSON from {url}, got: {type(prompt).__name__}")
+        raise ValueError(
+            f"'additional_system_prompt' field must be a string in JSON from {url}, got: {type(prompt).__name__}"
+        )
 
     return prompt
 
