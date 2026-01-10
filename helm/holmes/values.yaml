@@ -307,21 +307,20 @@ mcpAddons:
 
   # GitHub MCP Server Configuration
   # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
-  # Uses a custom image that bundles GitHub MCP server with Supergateway for HTTP transport
-  #
-  # PREREQUISITES:
-  # 1. Build the custom Docker image (see docs for Dockerfile)
-  # 2. Push to your container registry
+  # Uses a prebuilt image that bundles GitHub MCP server with Supergateway for HTTP transport
   #
   # AUTHENTICATION:
   # Create a GitHub Personal Access Token (PAT) with appropriate permissions:
   # - repo: Full control of private repositories (or public_repo for public only)
   # - workflow: Update GitHub Action workflows (for CI/CD debugging)
   # Then create a Kubernetes secret:
-  #   kubectl create secret generic github-mcp-token --from-literal=token=ghp_YOUR_TOKEN -n YOUR_NAMESPACE
+  #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
   #
   # GITHUB ENTERPRISE:
   # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
+  #
+  # CUSTOM IMAGE (optional):
+  # To build your own image, see: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/github
   github:
     enabled: false
 
