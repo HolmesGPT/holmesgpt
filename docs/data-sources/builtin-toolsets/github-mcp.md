@@ -10,18 +10,44 @@ The server supports both GitHub.com and GitHub Enterprise Server, making it suit
 
 ## Prerequisites
 
-Before deploying the GitHub MCP server, ensure you have:
+Before deploying the GitHub MCP server, you need a GitHub Personal Access Token (PAT). GitHub offers two types of PATs:
 
-- A GitHub Personal Access Token (PAT) with appropriate permissions
-- For GitHub Enterprise: Your GitHub Enterprise Server hostname
+| Type | Best For | Expiration |
+|------|----------|------------|
+| **Classic** | Simple setup, broad access | Up to no expiration |
+| **Fine-grained** | Production, least-privilege | Max 1 year |
 
-### Required PAT Permissions
+### Creating a Classic PAT
 
-Create a Personal Access Token with the following scopes:
+1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
+2. Click **Generate new token** → **Generate new token (classic)**
+3. Set a descriptive name (e.g., "Holmes MCP Server")
+4. Set expiration (90 days recommended)
+5. Select the following scopes:
+   - ✅ **repo** - Full control of private repositories
+   - ✅ **workflow** - Update GitHub Action workflows
+   - ✅ **read:org** - Read organization membership (optional)
+6. Click **Generate token**
+7. **Copy the token immediately** - it won't be shown again
 
-- **repo**: Full control of private repositories (or `public_repo` for public only)
-- **workflow**: Update GitHub Action workflows (required for CI/CD debugging)
-- **read:org**: Read organization membership (optional, for org-level queries)
+### Creating a Fine-grained PAT
+
+1. Go to [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
+2. Click **Generate new token**
+3. Set a descriptive name and expiration
+4. Under **Resource owner**, select your organization or personal account
+5. Under **Repository access**, choose:
+   - **All repositories**, or
+   - **Only select repositories** (for restricted access)
+6. Under **Permissions** → **Repository permissions**, set:
+   - **Actions**: Read-only
+   - **Contents**: Read-only
+   - **Commit statuses**: Read-only
+   - **Issues**: Read and write (for Copilot delegation)
+   - **Pull requests**: Read-only
+   - **Metadata**: Read-only (automatically selected)
+7. Click **Generate token**
+8. **Copy the token immediately** - it won't be shown again
 
 ## Configuration
 
@@ -46,17 +72,6 @@ Create a Personal Access Token with the following scopes:
     Create a file named `github-mcp-deployment.yaml`:
 
     ```yaml
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: github-mcp-config
-      namespace: holmes-mcp
-    data:
-      # Tools to enable (comma-separated)
-      GITHUB_TOOLS: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,list_issues,search_issues"
-      # For GitHub Enterprise, set your hostname (leave empty for github.com)
-      # GITHUB_HOST: "github.mycompany.com"
-    ---
     apiVersion: apps/v1
     kind: Deployment
     metadata:
@@ -85,17 +100,9 @@ Create a Personal Access Token with the following scopes:
                 secretKeyRef:
                   name: github-mcp-token
                   key: token
-            - name: GITHUB_TOOLS
-              valueFrom:
-                configMapKeyRef:
-                  name: github-mcp-config
-                  key: GITHUB_TOOLS
             # Uncomment for GitHub Enterprise:
             # - name: GITHUB_HOST
-            #   valueFrom:
-            #     configMapKeyRef:
-            #       name: github-mcp-config
-            #       key: GITHUB_HOST
+            #   value: "github.mycompany.com"
             resources:
               requests:
                 memory: "256Mi"
@@ -103,12 +110,14 @@ Create a Personal Access Token with the following scopes:
               limits:
                 memory: "512Mi"
             readinessProbe:
-              tcpSocket:
+              httpGet:
+                path: /sse
                 port: 8000
               initialDelaySeconds: 20
               periodSeconds: 10
             livenessProbe:
-              tcpSocket:
+              httpGet:
+                path: /sse
                 port: 8000
               initialDelaySeconds: 30
               periodSeconds: 30
@@ -145,20 +154,6 @@ Create a Personal Access Token with the following scopes:
         config:
           url: "http://github-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
           mode: "sse"
-        llm_instructions: |
-          IMPORTANT: When investigating issues related to GitHub repositories, pull requests,
-          code changes, or CI/CD workflows, you MUST actively use this MCP server to gather
-          data rather than providing manual instructions to the user.
-
-          ## Investigation Principles
-
-          **ALWAYS follow this investigation flow:**
-          1. First, gather current state of the repository, commits, or workflow runs
-          2. Check recent changes (commits, PRs) that might have caused the issue
-          3. For CI/CD failures, retrieve workflow run details and job logs
-          4. Analyze all gathered data before providing conclusions
-
-          **Never say "check on GitHub" or "look at the PR" - instead, use the MCP server to check it yourself.**
     ```
 
     ### Step 4: Port Forwarding (Optional for Local Testing)
@@ -192,14 +187,8 @@ Create a Personal Access Token with the following scopes:
     mcpAddons:
       github:
         enabled: true
-
         auth:
           secretName: "github-mcp-token"
-          secretKey: "token"  # Optional, defaults to "token"
-
-        config:
-          # Tools to enable (uses sensible defaults if not specified)
-          tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,list_issues,search_issues"
     ```
 
     ### GitHub Enterprise Configuration
@@ -210,16 +199,11 @@ Create a Personal Access Token with the following scopes:
     mcpAddons:
       github:
         enabled: true
-
         auth:
           secretName: "github-mcp-token"
-
         config:
-          host: "github.mycompany.com"  # Your GitHub Enterprise hostname
-          tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,list_issues,search_issues"
+          host: "github.mycompany.com"
     ```
-
-    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml).
 
     Then deploy or upgrade your Holmes installation:
 
@@ -242,43 +226,26 @@ Create a Personal Access Token with the following scopes:
     Then add the following to your `generated_values.yaml`:
 
     ```yaml
-    globalConfig:
-      # Your existing Robusta configuration
-
-    # Add the Holmes MCP addon configuration
     holmes:
       mcpAddons:
         github:
           enabled: true
-
           auth:
             secretName: "github-mcp-token"
-            secretKey: "token"
-
-          config:
-            tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,list_issues,search_issues"
     ```
 
     ### GitHub Enterprise Configuration
 
     ```yaml
-    globalConfig:
-      # Your existing Robusta configuration
-
     holmes:
       mcpAddons:
         github:
           enabled: true
-
           auth:
             secretName: "github-mcp-token"
-
           config:
             host: "github.mycompany.com"
-            tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,list_issues,search_issues"
     ```
-
-    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml).
 
     Then deploy or upgrade your Robusta installation:
 
@@ -288,7 +255,7 @@ Create a Personal Access Token with the following scopes:
 
 ## Available Tools
 
-The GitHub MCP server provides 17 tools by default, organized into four categories:
+By default, the GitHub MCP server enables 17 tools organized into four categories. These defaults cover the most common troubleshooting and investigation scenarios.
 
 ### Repository & Code Tools
 
@@ -326,6 +293,23 @@ The GitHub MCP server provides 17 tools by default, organized into four categori
 | `issue_write` | Create or update an issue |
 | `add_issue_comment` | Add a comment to an issue |
 | `assign_copilot_to_issue` | Delegate a task to GitHub Copilot |
+
+### Customizing Tools
+
+To use a different set of tools, override the `config.tools` value with a comma-separated list:
+
+```yaml
+mcpAddons:
+  github:
+    enabled: true
+    auth:
+      secretName: "github-mcp-token"
+    config:
+      # Only enable read-only tools (no issue writing)
+      tools: "get_file_contents,list_commits,get_commit,search_code,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,list_issues,search_issues"
+```
+
+For the full list of available tools, see the [GitHub MCP Server documentation](https://github.com/github/github-mcp-server).
 
 ## Testing the Connection
 
@@ -454,7 +438,7 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 **Problem:** Holmes reports a tool is not available
 
-**Solution:** Verify the `GITHUB_TOOLS` environment variable includes the tool you need. The default configuration includes 17 commonly used tools.
+**Solution:** Verify the `config.tools` setting includes the tool you need, or remove the setting to use the default 17 tools.
 
 ## Security Best Practices
 
