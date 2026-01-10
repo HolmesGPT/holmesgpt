@@ -15,16 +15,18 @@ before_test: |
   kubectl create namespace app-184-alpha || true
   kubectl create namespace app-184-beta || true
 
-  echo "Creating 49 ConfigMaps in app-184-alpha..."
+  echo "Creating 49 ConfigMaps in app-184-alpha with random names..."
   for i in $(seq 1 49); do
-    kubectl create configmap "config-$i" --from-literal=key="value-$i" -n app-184-alpha &
+    NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
+    kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-184-alpha &
   done
   wait
   echo "Created 49 ConfigMaps in app-184-alpha (plus default kube-root-ca.crt = 50 total)"
 
-  echo "Creating 62 ConfigMaps in app-184-beta..."
+  echo "Creating 62 ConfigMaps in app-184-beta with random names..."
   for i in $(seq 1 62); do
-    kubectl create configmap "config-$i" --from-literal=key="value-$i" -n app-184-beta &
+    NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
+    kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-184-beta &
   done
   wait
   echo "Created 62 ConfigMaps in app-184-beta (plus default kube-root-ca.crt = 63 total)"
