@@ -23,9 +23,9 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class GrafanaDashboardConfig(GrafanaConfig):
-    """Configuration specific to Grafana Dashboard toolset with api/health as default healthcheck"""
+    """Configuration specific to Grafana Dashboard toolset."""
 
-    healthcheck: Optional[str] = "api/health"
+    pass
 
 
 def _build_grafana_dashboard_url(
