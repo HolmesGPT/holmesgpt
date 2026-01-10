@@ -83,17 +83,17 @@ spec:
         - name: GITHUB_HOST
           value: {{ .Values.mcpAddons.github.config.host | quote }}
         {{- end }}
-        stdin: true
-        tty: true
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
         readinessProbe:
-          tcpSocket:
+          httpGet:
+            path: /sse
             port: 8000
           initialDelaySeconds: 20
           periodSeconds: 10
         livenessProbe:
-          tcpSocket:
+          httpGet:
+            path: /sse
             port: 8000
           initialDelaySeconds: 30
           periodSeconds: 30
