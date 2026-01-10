@@ -6,6 +6,7 @@ Define the LLM instructions for Azure MCP
 {{ .Values.mcpAddons.azure.llmInstructions }}
 {{- else -}}
 IMPORTANT: When investigating Kubernetes issues, ALWAYS check if Azure infrastructure could be the root cause. Many K8s problems originate from Azure-level configurations.
+IMPORTANT: Always use paging, where possible, to avoid reaching the size limit. Use pagination parameters like  --max-items and --next-token or similar.
 
 ## When to Check Azure
 
@@ -169,6 +170,9 @@ az sql server conn-policy show -g RG_NAME -s SERVER_NAME
 ```
 
 ## Cost Analysis
+
+Does NOT exist in Azure CLI. Do NOT attempt to use `az costmanagement query` for cost analysis. Calling it result in errors.
+You can use the "Microsoft.CostManagement" rest api to get cost data.
 
 ```bash
 # Get current costs by resource group (using consumption API)

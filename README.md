@@ -203,9 +203,7 @@ Distributed under the Apache 2.0 License. See [LICENSE](https://github.com/Holme
 
 Join our community to discuss the HolmesGPT roadmap and share feedback:
 
-📹 **First Community Meetup Recording:** [Watch on YouTube](https://youtu.be/slQRc6nlFQU)
-- **Topics:** Roadmap discussion, community feedback, and Q&A
-- **Resources:** [📝 Meeting Notes](https://docs.google.com/document/d/1sIHCcTivyzrF5XNvos7ZT_UcxEOqgwfawsTbb9wMJe4/edit?tab=t.0) | [📋 Community Page](https://holmesgpt.dev/community/)
+- [Community Meetups](https://docs.google.com/document/d/1q3L2iUd8tNu-NmZ6QIVOJcCLHrile9CC5QguOGTn_tg/edit?tab=t.0#heading=h.ihdnrt5bstrv)
 
 ## Support
 
