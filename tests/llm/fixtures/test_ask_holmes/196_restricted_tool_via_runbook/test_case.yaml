@@ -9,6 +9,7 @@ runbooks:
     - id: pod-logs-investigation
       description: "Guide for investigating pod logs when troubleshooting application issues"
       link: "pod_logs_runbook.md"
+      update_date: "2025-01-01"
 before_test: |
   kubectl create namespace app-196 || true
   kubectl apply -f manifests.yaml

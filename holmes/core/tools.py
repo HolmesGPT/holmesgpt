@@ -949,6 +949,13 @@ class ToolsetYamlFromConfig(Toolset):
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
 
+    # Tool restriction and approval configuration
+    # These need to be explicitly declared so they're recognized when parsing YAML
+    # and included in model_dump() for override_with() to work correctly
+    restricted_tools: List[str] = Field(default_factory=list)
+    approval_required_tools: List[str] = Field(default_factory=list)
+    require_approval_for_all_tools: bool = False
+
     def get_example_config(self) -> Dict[str, Any]:
         return {}
 
