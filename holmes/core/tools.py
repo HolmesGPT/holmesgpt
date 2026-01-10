@@ -317,14 +317,9 @@ class Tool(ABC, BaseModel):
         if self.restricted:
             return True
 
-        # Check toolset-level config
+        # Check toolset-level patterns (use "*" for all tools)
         toolset = getattr(self, "toolset", None)
         if toolset:
-            # Check if all tools are restricted
-            if getattr(toolset, "restrict_all_tools", False):
-                return True
-
-            # Check pattern matching
             restricted_patterns = getattr(toolset, "restricted_tools", [])
             for pattern in restricted_patterns:
                 if fnmatch.fnmatch(self.name, pattern):
@@ -350,14 +345,7 @@ class Tool(ABC, BaseModel):
         if not toolset:
             return None
 
-        # Check if all tools require approval
-        if getattr(toolset, "require_approval_for_all_tools", False):
-            return ApprovalRequirement(
-                needs_approval=True,
-                reason=f"Toolset '{toolset.name}' requires approval for all tools",
-            )
-
-        # Check pattern matching
+        # Check pattern matching (use "*" for all tools)
         approval_patterns = getattr(toolset, "approval_required_tools", [])
         for pattern in approval_patterns:
             if fnmatch.fnmatch(self.name, pattern):
@@ -680,22 +668,14 @@ class Toolset(BaseModel):
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
-    # Tool restriction and approval configuration
+    # Tool restriction and approval configuration (use "*" pattern for all tools)
     restricted_tools: List[str] = Field(
         default_factory=list,
-        description="Tool names/patterns that require runbook authorization or restricted_tools=true",
+        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
     )
     approval_required_tools: List[str] = Field(
         default_factory=list,
-        description="Tool names/patterns that require user approval before execution",
-    )
-    require_approval_for_all_tools: bool = Field(
-        default=False,
-        description="If True, all tools in this toolset require user approval",
-    )
-    restrict_all_tools: bool = Field(
-        default=False,
-        description="If True, all tools in this toolset are restricted until runbook authorization",
+        description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
     )
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
@@ -958,13 +938,11 @@ class ToolsetYamlFromConfig(Toolset):
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
 
-    # Tool restriction and approval configuration
+    # Tool restriction and approval configuration (use "*" pattern for all tools)
     # These need to be explicitly declared so they're recognized when parsing YAML
     # and included in model_dump() for override_with() to work correctly
     restricted_tools: List[str] = Field(default_factory=list)
     approval_required_tools: List[str] = Field(default_factory=list)
-    require_approval_for_all_tools: bool = False
-    restrict_all_tools: bool = False
 
     def get_example_config(self) -> Dict[str, Any]:
         return {}
