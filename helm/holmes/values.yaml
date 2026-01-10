@@ -325,12 +325,9 @@ mcpAddons:
   github:
     enabled: false
 
-    # Container image configuration
-    # Uses a pre-built image that bundles Supergateway + GitHub MCP server
-    image:
-      repository: me-west1-docker.pkg.dev/robusta-development/development/github-mcp
-      tag: "1.0.0"
-      pullPolicy: IfNotPresent
+    image: "github-mcp:1.0.0"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: IfNotPresent
 
     # Authentication - PAT from Kubernetes secret
     auth:
