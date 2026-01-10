@@ -18,6 +18,7 @@ from holmes.core.tools import (
     ToolInvokeContext,
     ToolParameter,
     Toolset,
+    ToolsetStatusEnum,
     ToolsetTag,
     YAMLTool,
     YAMLToolset,
@@ -431,11 +432,57 @@ class TestToolRestriction:
         assert tool._is_restricted() is False
 
 
-class TestRestrictionEnforcement:
-    """Tests for restriction enforcement during tool invocation."""
+class TestRestrictionFiltering:
+    """Tests for restriction filtering at the tools list level.
 
-    def test_restricted_tool_blocked_without_authorization(self, base_context):
-        """Test that restricted tools are blocked without authorization."""
+    Note: Restriction is enforced by filtering tools from the tools list,
+    not by blocking at invocation time. These tests verify the filtering logic.
+    """
+
+    def test_restricted_tool_filtered_from_tools_list(self):
+        """Test that restricted tools are filtered when include_restricted=False."""
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+        # Create a toolset with both restricted and non-restricted tools
+        toolset = YAMLToolset(
+            name="test_toolset",
+            description="Test toolset",
+            tags=[ToolsetTag.CORE],
+            tools=[
+                YAMLTool(
+                    name="normal_tool",
+                    description="A normal tool",
+                    command="echo normal",
+                ),
+                YAMLTool(
+                    name="restricted_tool",
+                    description="A restricted tool",
+                    command="echo restricted",
+                    restricted=True,
+                ),
+            ],
+        )
+        toolset.status = ToolsetStatusEnum.ENABLED
+
+        executor = ToolExecutor([toolset])
+
+        # With include_restricted=True, both tools should be present
+        all_tools = executor.get_all_tools_openai_format(
+            target_model="gpt-4", include_restricted=True
+        )
+        assert len(all_tools) == 2
+
+        # With include_restricted=False, only the normal tool should be present
+        filtered_tools = executor.get_all_tools_openai_format(
+            target_model="gpt-4", include_restricted=False
+        )
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0]["function"]["name"] == "normal_tool"
+
+    def test_restricted_tool_invocation_succeeds(self, base_context):
+        """Test that restricted tools can be invoked (filtering is at list level)."""
+        # Restriction is at the tools list level, not at invocation time.
+        # If a tool is invoked, it should succeed regardless of restriction.
         tool = SimpleTool(
             name="restricted_tool",
             description="A restricted tool",
@@ -444,53 +491,7 @@ class TestRestrictionEnforcement:
 
         result = tool.invoke({}, base_context)
 
-        assert result.status == StructuredToolResultStatus.ERROR
-        assert "restricted" in result.error.lower()
-
-    def test_restricted_tool_allowed_with_restricted_tools_enabled(self, mock_llm):
-        """Test that restricted tools work with restricted_tools_enabled=True."""
-        tool = SimpleTool(
-            name="restricted_tool",
-            description="A restricted tool",
-            restricted=True,
-        )
-
-        context = ToolInvokeContext(
-            tool_number=1,
-            user_approved=False,
-            llm=mock_llm,
-            max_token_count=10000,
-            tool_call_id="test-call-id",
-            tool_name="restricted_tool",
-            restricted_tools_enabled=True,  # Explicitly enabled
-            runbook_in_use=False,
-        )
-
-        result = tool.invoke({}, context)
-
-        assert result.status == StructuredToolResultStatus.SUCCESS
-
-    def test_restricted_tool_allowed_with_runbook_in_use(self, mock_llm):
-        """Test that restricted tools work when a runbook is in use."""
-        tool = SimpleTool(
-            name="restricted_tool",
-            description="A restricted tool",
-            restricted=True,
-        )
-
-        context = ToolInvokeContext(
-            tool_number=1,
-            user_approved=False,
-            llm=mock_llm,
-            max_token_count=10000,
-            tool_call_id="test-call-id",
-            tool_name="restricted_tool",
-            restricted_tools_enabled=False,
-            runbook_in_use=True,  # Runbook fetched
-        )
-
-        result = tool.invoke({}, context)
-
+        # Tool should execute successfully - filtering happens at list level
         assert result.status == StructuredToolResultStatus.SUCCESS
 
 
@@ -529,33 +530,38 @@ class TestRestrictedToolDescription:
 
 
 class TestApprovalAndRestrictionCombined:
-    """Tests for tools that are both restricted AND require approval."""
+    """Tests for tools that are both restricted AND require approval.
 
-    def test_restricted_checked_before_approval(self, base_context):
-        """Test that restriction is checked before approval."""
-        # A tool that is both restricted and requires approval
+    Note: Restriction is enforced at the tools list level (filtering),
+    while approval is enforced at invocation time.
+    """
+
+    def test_restricted_tool_with_approval_still_requires_approval(self, base_context):
+        """Test that restricted tools with approval requirements still check approval.
+
+        Restriction filtering happens at the tools list level.
+        If a tool is invoked (meaning it was in the list), approval is still checked.
+        """
         tool = ApprovalRequiredTool(
             name="restricted_approval_tool",
             description="A tool that is restricted and requires approval",
             restricted=True,
         )
 
-        # Without authorization, restriction should block first
+        # Tool is invoked (passed the filter), but approval is still required
         result = tool.invoke({}, base_context)
 
-        # Should get restriction error, not approval required
-        assert result.status == StructuredToolResultStatus.ERROR
-        assert "restricted" in result.error.lower()
+        # Should get approval required (restriction is at list level, not invocation)
+        assert result.status == StructuredToolResultStatus.APPROVAL_REQUIRED
 
-    def test_approval_checked_after_restriction_passes(self, mock_llm):
-        """Test that approval is checked after restriction passes."""
+    def test_approval_checked_when_tool_invoked(self, mock_llm):
+        """Test that approval is checked when a restricted tool is invoked."""
         tool = ApprovalRequiredTool(
             name="restricted_approval_tool",
             description="A tool that is restricted and requires approval",
             restricted=True,
         )
 
-        # With runbook in use, restriction passes but approval should still be checked
         context = ToolInvokeContext(
             tool_number=1,
             user_approved=False,
@@ -564,12 +570,12 @@ class TestApprovalAndRestrictionCombined:
             tool_call_id="test-call-id",
             tool_name="restricted_approval_tool",
             restricted_tools_enabled=False,
-            runbook_in_use=True,  # Bypasses restriction
+            runbook_in_use=True,  # Tool is in the list (runbook enables it)
         )
 
         result = tool.invoke({}, context)
 
-        # Should now get approval required (restriction passed)
+        # Approval should still be required
         assert result.status == StructuredToolResultStatus.APPROVAL_REQUIRED
 
     def test_user_approved_bypasses_both(self, mock_llm):

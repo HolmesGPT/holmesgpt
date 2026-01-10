@@ -261,20 +261,8 @@ class Tool(ABC, BaseModel):
 
         # Skip checks if user already approved
         if not context.user_approved:
-            # 1. Check RESTRICTION (is tool authorized to be used?)
-            restriction_check = self._check_restriction(context)
-            if restriction_check and not restriction_check.authorized:
-                logger.info(
-                    f"  [yellow]Tool '{self.name}' blocked: {restriction_check.reason}[/yellow]"
-                )
-                return StructuredToolResult(
-                    status=StructuredToolResultStatus.ERROR,
-                    error=restriction_check.reason,
-                    params=params,
-                    invocation=self.get_parameterized_one_liner(params),
-                )
-
-            # 2. Check APPROVAL (does user need to confirm?)
+            # Check APPROVAL (does user need to confirm?)
+            # Note: Restriction is enforced at the tools list level, not here
             approval_check = self._get_approval_requirement(params, context)
             if approval_check and approval_check.needs_approval:
                 logger.info(
