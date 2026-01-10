@@ -2,8 +2,8 @@ user_prompt:
 - "How many ConfigMaps are in namespace app-195-alpha and how many are in app-195-beta? Give me the exact counts."
 
 expected_output:
-  - The answer must state that app-195-alpha has exactly 50 ConfigMaps
-  - The answer must state that app-195-beta has exactly 63 ConfigMaps
+  - The answer must state that app-195-alpha has exactly 149 ConfigMaps
+  - The answer must state that app-195-beta has exactly 202 ConfigMaps
 
 tags:
   - kubernetes
@@ -15,21 +15,21 @@ before_test: |
   kubectl create namespace app-195-alpha || true
   kubectl create namespace app-195-beta || true
 
-  echo "Creating 49 ConfigMaps in app-195-alpha with random names..."
-  for i in $(seq 1 49); do
+  echo "Creating 148 ConfigMaps in app-195-alpha with random names..."
+  for i in $(seq 1 148); do
     NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
     kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-195-alpha &
   done
   wait
-  echo "Created 49 ConfigMaps in app-195-alpha (plus default kube-root-ca.crt = 50 total)"
+  echo "Created 148 ConfigMaps in app-195-alpha (plus default kube-root-ca.crt = 149 total)"
 
-  echo "Creating 62 ConfigMaps in app-195-beta with random names..."
-  for i in $(seq 1 62); do
+  echo "Creating 201 ConfigMaps in app-195-beta with random names..."
+  for i in $(seq 1 201); do
     NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
     kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-195-beta &
   done
   wait
-  echo "Created 62 ConfigMaps in app-195-beta (plus default kube-root-ca.crt = 63 total)"
+  echo "Created 201 ConfigMaps in app-195-beta (plus default kube-root-ca.crt = 202 total)"
 
   echo "Verifying counts..."
   ALPHA_COUNT=$(kubectl get configmaps -n app-195-alpha --no-headers | wc -l)
@@ -37,13 +37,13 @@ before_test: |
   echo "app-195-alpha: $ALPHA_COUNT ConfigMaps"
   echo "app-195-beta: $BETA_COUNT ConfigMaps"
 
-  if [ "$ALPHA_COUNT" -ne 50 ]; then
-    echo "ERROR: Expected 50 ConfigMaps in app-195-alpha, got $ALPHA_COUNT"
+  if [ "$ALPHA_COUNT" -ne 149 ]; then
+    echo "ERROR: Expected 149 ConfigMaps in app-195-alpha, got $ALPHA_COUNT"
     exit 1
   fi
 
-  if [ "$BETA_COUNT" -ne 63 ]; then
-    echo "ERROR: Expected 63 ConfigMaps in app-195-beta, got $BETA_COUNT"
+  if [ "$BETA_COUNT" -ne 202 ]; then
+    echo "ERROR: Expected 202 ConfigMaps in app-195-beta, got $BETA_COUNT"
     exit 1
   fi
 
