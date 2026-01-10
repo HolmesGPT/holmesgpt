@@ -502,18 +502,6 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
             ),
             toolset=toolset,
         )
-        self._cache = None
-
-    def _build_cache_key(self, query_params: dict) -> str:
-        """Build a cache key that includes filter parameters."""
-        # Sort params for consistent key generation
-        sorted_items = sorted(query_params.items())
-        param_str = "&".join(f"{k}={v}" for k, v in sorted_items)
-        return (
-            f"{PROMETHEUS_RULES_CACHE_KEY}:{param_str}"
-            if param_str
-            else PROMETHEUS_RULES_CACHE_KEY
-        )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.config or not self.toolset.config.prometheus_url:
@@ -528,8 +516,6 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
                 error="Tool not supported in AMP",
                 params=params,
             )
-        if not self._cache and self.toolset.config.rules_cache_duration_seconds:
-            self._cache = TTLCache(self.toolset.config.rules_cache_duration_seconds)  # type: ignore
         try:
             # Build query parameters for server-side filtering
             query_params: dict = {}
@@ -543,19 +529,6 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
                 query_params["file[]"] = params["file"]
             if params.get("match"):
                 query_params["match[]"] = params["match"]
-
-            cache_key = self._build_cache_key(query_params)
-
-            if self._cache:
-                cached_rules = self._cache.get(cache_key)
-                if cached_rules:
-                    logging.debug(f"rules returned from cache (key: {cache_key})")
-                    result = StructuredToolResult(
-                        status=StructuredToolResultStatus.SUCCESS,
-                        data=cached_rules,
-                        params=params,
-                    )
-                    return self.filter_result(result, params)
 
             prometheus_url = self.toolset.config.prometheus_url
 
@@ -572,9 +545,6 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
             )
             rules_response.raise_for_status()
             data = rules_response.json()["data"]
-
-            if self._cache:
-                self._cache.set(cache_key, data)
 
             result = StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
