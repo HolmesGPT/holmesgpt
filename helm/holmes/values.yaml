@@ -304,3 +304,50 @@ mcpAddons:
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
+
+  # GitHub MCP Server Configuration
+  # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
+  # Uses the official GitHub MCP server wrapped with Supergateway for HTTP transport
+  #
+  # AUTHENTICATION:
+  # Create a GitHub Personal Access Token (PAT) with appropriate permissions:
+  # - repo: Full control of private repositories (or public_repo for public only)
+  # - workflow: Update GitHub Action workflows (for CI/CD debugging)
+  # Then create a Kubernetes secret:
+  #   kubectl create secret generic github-mcp-token --from-literal=token=ghp_YOUR_TOKEN -n YOUR_NAMESPACE
+  github:
+    enabled: false
+
+    # Container image configuration
+    # Uses Supergateway to wrap the GitHub MCP server (stdio) as HTTP
+    image:
+      repository: supercorp/supergateway
+      tag: "latest"
+      pullPolicy: IfNotPresent
+
+    # Authentication - PAT from Kubernetes secret
+    auth:
+      secretName: ""      # Required: name of K8s secret containing the GitHub PAT
+      secretKey: "token"  # Key in secret (default: "token")
+
+    config:
+      # Tools to enable (comma-separated list)
+      # Default: 17 tools for repos, PRs, issues, and GitHub Actions
+      tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,list_issues,search_issues"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
