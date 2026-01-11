@@ -443,7 +443,7 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 **Problem:** Holmes reports a tool is not available
 
-**Solution:** Verify the `config.tools` setting includes the tool you need, or remove the setting to use the default 17 tools.
+**Solution:** Verify the `config.tools` setting includes the tool you need, or remove the setting to use the default 22 tools.
 
 ## Security Best Practices
 
