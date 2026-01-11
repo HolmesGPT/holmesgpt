@@ -140,7 +140,8 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if self._toolset.enable_multi_account:
-            account_id = str(params.get("account_id")) or self._toolset.nr_account_id
+            account_id = params.get("account_id") or self._toolset.nr_account_id
+            account_id = str(account_id)
         else:
             account_id = self._toolset.nr_account_id
 
