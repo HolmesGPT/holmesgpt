@@ -9,6 +9,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
 -   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
 -   [:material-aws:{ .lg .middle } **AWS**](aws.md)
+-   [:material-microsoft-azure:{ .lg .middle } **Azure (MCP)**](azure-mcp.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
 -   [:material-console:{ .lg .middle } **Bash**](bash.md)

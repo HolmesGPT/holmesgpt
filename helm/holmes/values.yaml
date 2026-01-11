@@ -124,7 +124,7 @@ mcpAddons:
   mariadb:
     enabled: false
 
-    image: "mariadb-http-mcp-minimal:1.0.3"
+    image: "mariadb-http-mcp-minimal:1.0.5"
     registry: "me-west1-docker.pkg.dev/robusta-development/development"
 
     config:

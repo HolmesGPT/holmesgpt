@@ -11,6 +11,7 @@ from prometrix.connect.aws_connect import AWSPrometheusConnect
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from requests import RequestException
+from requests.exceptions import SSLError
 
 from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
 from holmes.common.openshift import load_openshift_token
@@ -50,6 +51,20 @@ DEFAULT_METADATA_TIMEOUT_SECONDS = 20
 MAX_METADATA_TIMEOUT_SECONDS = 60
 # Default time window for metadata APIs (in hours)
 DEFAULT_METADATA_TIME_WINDOW_HRS = 1
+
+
+def format_ssl_error_message(prometheus_url: str, error: SSLError) -> str:
+    """Format a clear SSL error message with remediation steps."""
+    return (
+        f"SSL certificate verification failed when connecting to Prometheus at {prometheus_url}. "
+        f"Error: {str(error)}. "
+        f"To disable SSL verification, set 'verify_ssl: false' in your configuration. "
+        f"For Helm deployments, add this to your values.yaml:\n"
+        f"  toolsets:\n"
+        f"    prometheus/metrics:\n"
+        f"      config:\n"
+        f"        verify_ssl: false"
+    )
 
 
 class PrometheusConfig(BaseModel):
@@ -526,6 +541,13 @@ class ListPrometheusRules(BasePrometheusTool):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error="Request timed out while fetching rules",
+                params=params,
+            )
+        except SSLError as e:
+            logging.warning("SSL error while fetching prometheus rules", exc_info=True)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=format_ssl_error_message(self.toolset.config.prometheus_url, e),
                 params=params,
             )
         except RequestException as e:
@@ -1250,6 +1272,13 @@ class ExecuteInstantQuery(BasePrometheusTool):
                 params=params,
             )
 
+        except SSLError as e:
+            logging.warning("SSL error while executing Prometheus query", exc_info=True)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=format_ssl_error_message(self.toolset.config.prometheus_url, e),
+                params=params,
+            )
         except RequestException as e:
             logging.info("Failed to connect to Prometheus", exc_info=True)
             return StructuredToolResult(
@@ -1494,6 +1523,15 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 params=params,
             )
 
+        except SSLError as e:
+            logging.warning(
+                "SSL error while executing Prometheus range query", exc_info=True
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=format_ssl_error_message(self.toolset.config.prometheus_url, e),
+                params=params,
+            )
         except RequestException as e:
             logging.info("Failed to connect to Prometheus", exc_info=True)
             return StructuredToolResult(
