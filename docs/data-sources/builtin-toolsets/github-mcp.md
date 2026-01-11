@@ -255,7 +255,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ## Available Tools
 
-By default, the GitHub MCP server enables 17 tools organized into four categories. These defaults cover the most common troubleshooting and investigation scenarios.
+By default, the GitHub MCP server enables 21 tools organized into five categories. These defaults cover troubleshooting, investigation, and code change scenarios.
 
 ### Repository & Code Tools
 
@@ -268,12 +268,16 @@ By default, the GitHub MCP server enables 17 tools organized into four categorie
 | `search_code` | Search for code across repositories |
 | `search_repositories` | Search for repositories |
 
-### Pull Request Tools
+### Pull Request & Code Change Tools
 
 | Tool | Description |
 |------|-------------|
 | `list_pull_requests` | List pull requests in a repository |
 | `pull_request_read` | Get details of a PR including diff, comments, reviews |
+| `create_pull_request` | Create a new pull request |
+| `create_branch` | Create a new branch |
+| `push_files` | Push file changes to a branch |
+| `create_or_update_file` | Create or update a file in a repository |
 
 ### GitHub Actions Tools
 
