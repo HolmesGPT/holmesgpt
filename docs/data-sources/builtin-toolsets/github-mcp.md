@@ -255,7 +255,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ## Available Tools
 
-By default, the GitHub MCP server enables 21 tools organized into five categories. These defaults cover troubleshooting, investigation, and code change scenarios.
+By default, the GitHub MCP server enables 22 tools organized into five categories. These defaults cover troubleshooting, investigation, code changes, and Copilot integration.
 
 ### Repository & Code Tools
 
@@ -288,7 +288,7 @@ By default, the GitHub MCP server enables 21 tools organized into five categorie
 | `list_workflow_jobs` | List jobs in a workflow run |
 | `get_job_logs` | Get logs from a specific job (critical for debugging) |
 
-### Issue Tools
+### Issue & Copilot Tools
 
 | Tool | Description |
 |------|-------------|
@@ -297,6 +297,7 @@ By default, the GitHub MCP server enables 21 tools organized into five categorie
 | `issue_write` | Create or update an issue |
 | `add_issue_comment` | Add a comment to an issue |
 | `assign_copilot_to_issue` | Delegate a task to GitHub Copilot |
+| `request_copilot_review` | Request Copilot to review a pull request |
 
 ### Customizing Tools
 
