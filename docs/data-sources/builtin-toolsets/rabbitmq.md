@@ -21,7 +21,7 @@ toolsets:
           management_url: <http://rabbitmq.rabbitmq:15672>
 ```
 
-## Advanced configuration
+## Advanced Configuration
 
 Below is the full list of options for this toolset:
 
@@ -35,6 +35,24 @@ rabbitmq/core:
         password: <password>
         management_url: <http://rabbitmq.rabbitmq:15672>
         request_timeout_seconds: 30 # timeout for HTTP requests
+        verify_ssl: true # SSL certificate verification (default: true)
+```
+
+### SSL Verification
+
+For self-signed certificates, you can disable SSL verification:
+
+```yaml
+toolsets:
+  rabbitmq/core:
+    enabled: true
+    config:
+      clusters:
+        - id: rabbitmq
+          management_url: https://rabbitmq.internal:15672
+          username: <user>
+          password: <password>
+          verify_ssl: false  # Disable SSL verification (default: true)
 ```
 
 ## Capabilities

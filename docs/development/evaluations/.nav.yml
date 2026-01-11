@@ -1,7 +1,7 @@
 nav:
   - index.md
   - Latest Results: latest-results.md
-  - Historical Results: history
+  - History: history
   - Running Evaluations: running-evals.md
   - Adding New Evaluations: adding-evals.md
   - Benchmarking New Models: benchmarking-new-models.md

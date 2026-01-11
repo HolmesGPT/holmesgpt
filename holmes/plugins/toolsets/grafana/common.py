@@ -1,10 +1,6 @@
-import datetime
-import json
 from typing import Dict, Optional
 
 from pydantic import BaseModel
-
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
 class GrafanaConfig(BaseModel):
@@ -20,6 +16,7 @@ class GrafanaConfig(BaseModel):
     url: str
     grafana_datasource_uid: Optional[str] = None
     external_url: Optional[str] = None
+    verify_ssl: bool = True
 
 
 def build_headers(api_key: Optional[str], additional_headers: Optional[Dict[str, str]]):

@@ -2,7 +2,7 @@ import json
 from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
-import requests
+import requests  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict
 
 from holmes.core.tools import (
@@ -77,16 +77,31 @@ class ElasticsearchBaseToolset(Toolset):
             response = self._make_request("GET", "_cluster/health", timeout=10)
             cluster_name = response.get("cluster_name", "unknown")
             status = response.get("status", "unknown")
-            return True, f"Connected to Elasticsearch cluster '{cluster_name}' (status: {status})"
+            return (
+                True,
+                f"Connected to Elasticsearch cluster '{cluster_name}' (status: {status})",
+            )
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
-                return False, "Elasticsearch authentication failed. Check your API key or credentials."
+                return (
+                    False,
+                    "Elasticsearch authentication failed. Check your API key or credentials.",
+                )
             elif e.response.status_code == 403:
-                return False, "Elasticsearch access denied. Ensure your credentials have cluster access."
+                return (
+                    False,
+                    "Elasticsearch access denied. Ensure your credentials have cluster access.",
+                )
             else:
-                return False, f"Elasticsearch API error: {e.response.status_code} - {e.response.text}"
+                return (
+                    False,
+                    f"Elasticsearch API error: {e.response.status_code} - {e.response.text}",
+                )
         except requests.exceptions.ConnectionError:
-            return False, f"Failed to connect to Elasticsearch at {self.elasticsearch_config.url}"
+            return (
+                False,
+                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.url}",
+            )
         except requests.exceptions.Timeout:
             return False, "Elasticsearch health check timed out"
         except Exception as e:
@@ -118,7 +133,10 @@ class ElasticsearchBaseToolset(Toolset):
     def _get_auth(self) -> Optional[Tuple[str, str]]:
         """Return basic auth tuple if username/password configured."""
         if self.elasticsearch_config.username and self.elasticsearch_config.password:
-            return (self.elasticsearch_config.username, self.elasticsearch_config.password)
+            return (
+                self.elasticsearch_config.username,
+                self.elasticsearch_config.password,
+            )
         return None
 
     def _make_request(
@@ -290,7 +308,13 @@ class ElasticsearchCat(BaseElasticsearchTool):
         index = params.get("index")
 
         # Build the endpoint path
-        if index and endpoint in ("shards", "indices", "segments", "recovery", "aliases"):
+        if index and endpoint in (
+            "shards",
+            "indices",
+            "segments",
+            "recovery",
+            "aliases",
+        ):
             path = f"_cat/{endpoint}/{index}"
         else:
             path = f"_cat/{endpoint}"
@@ -313,7 +337,9 @@ class ElasticsearchCat(BaseElasticsearchTool):
         endpoint = params.get("endpoint", "")
         index = params.get("index", "")
         suffix = f" ({index})" if index else ""
-        return f"{toolset_name_for_one_liner(self._toolset.name)}: Cat {endpoint}{suffix}"
+        return (
+            f"{toolset_name_for_one_liner(self._toolset.name)}: Cat {endpoint}{suffix}"
+        )
 
 
 class ElasticsearchSearch(BaseElasticsearchTool):
@@ -468,7 +494,9 @@ class ElasticsearchClusterHealth(BaseElasticsearchTool):
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")
         suffix = f" ({index})" if index else ""
-        return f"{toolset_name_for_one_liner(self._toolset.name)}: Cluster health{suffix}"
+        return (
+            f"{toolset_name_for_one_liner(self._toolset.name)}: Cluster health{suffix}"
+        )
 
 
 class ElasticsearchMappings(BaseElasticsearchTool, JsonFilterMixin):
@@ -485,13 +513,15 @@ class ElasticsearchMappings(BaseElasticsearchTool, JsonFilterMixin):
                 "For large mappings, use the jq parameter to filter results "
                 "(e.g., jq='.*.mappings.properties | keys' to list field names)."
             ),
-            parameters=JsonFilterMixin.extend_parameters({
-                "index": ToolParameter(
-                    description="Index name or pattern to get mappings for",
-                    type="string",
-                    required=True,
-                ),
-            }),
+            parameters=JsonFilterMixin.extend_parameters(
+                {
+                    "index": ToolParameter(
+                        description="Index name or pattern to get mappings for",
+                        type="string",
+                        required=True,
+                    ),
+                }
+            ),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -591,7 +621,9 @@ class ElasticsearchAllocationExplain(BaseElasticsearchTool):
                 "primary": params.get("primary", True),
             }
 
-        return self._make_request("GET", "_cluster/allocation/explain", params, body=body)
+        return self._make_request(
+            "GET", "_cluster/allocation/explain", params, body=body
+        )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")
@@ -642,7 +674,9 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         node_id = params.get("node_id", "_all")
-        return f"{toolset_name_for_one_liner(self._toolset.name)}: Node stats ({node_id})"
+        return (
+            f"{toolset_name_for_one_liner(self._toolset.name)}: Node stats ({node_id})"
+        )
 
 
 class ElasticsearchListIndices(BaseElasticsearchTool, JsonFilterMixin):
@@ -657,54 +691,56 @@ class ElasticsearchListIndices(BaseElasticsearchTool, JsonFilterMixin):
                 "Returns index names, document counts, and storage size. "
                 "Supports server-side sorting and filtering for efficient queries on large clusters."
             ),
-            parameters=JsonFilterMixin.extend_parameters({
-                "pattern": ToolParameter(
-                    description=(
-                        "Index name pattern to match. Supports wildcards (e.g., 'logs-*', 'app-*'). "
-                        "Use '*' to list all indices."
+            parameters=JsonFilterMixin.extend_parameters(
+                {
+                    "pattern": ToolParameter(
+                        description=(
+                            "Index name pattern to match. Supports wildcards (e.g., 'logs-*', 'app-*'). "
+                            "Use '*' to list all indices."
+                        ),
+                        type="string",
+                        required=False,
                     ),
-                    type="string",
-                    required=False,
-                ),
-                "sort": ToolParameter(
-                    description=(
-                        "Sort by column. Format: 'column' or 'column:desc'. "
-                        "Examples: 'store.size:desc' (largest first), 'docs.count:desc', 'index'. "
-                        "Default: 'index' (alphabetical)."
+                    "sort": ToolParameter(
+                        description=(
+                            "Sort by column. Format: 'column' or 'column:desc'. "
+                            "Examples: 'store.size:desc' (largest first), 'docs.count:desc', 'index'. "
+                            "Default: 'index' (alphabetical)."
+                        ),
+                        type="string",
+                        required=False,
                     ),
-                    type="string",
-                    required=False,
-                ),
-                "columns": ToolParameter(
-                    description=(
-                        "Comma-separated columns to return. Available: index, health, status, pri, rep, "
-                        "docs.count, docs.deleted, store.size, pri.store.size, creation.date, creation.date.string. "
-                        "Default: 'index,health,status,docs.count,store.size'"
+                    "columns": ToolParameter(
+                        description=(
+                            "Comma-separated columns to return. Available: index, health, status, pri, rep, "
+                            "docs.count, docs.deleted, store.size, pri.store.size, creation.date, creation.date.string. "
+                            "Default: 'index,health,status,docs.count,store.size'"
+                        ),
+                        type="string",
+                        required=False,
                     ),
-                    type="string",
-                    required=False,
-                ),
-                "health": ToolParameter(
-                    description="Filter by index health: green, yellow, or red",
-                    type="string",
-                    required=False,
-                ),
-                "bytes": ToolParameter(
-                    description="Unit for byte sizes: b, kb, mb, gb, tb, pb. Default: human-readable.",
-                    type="string",
-                    required=False,
-                ),
-                "pri": ToolParameter(
-                    description="If true, return only primary shard statistics",
-                    type="boolean",
-                    required=False,
-                ),
-                "expand_wildcards": ToolParameter(
-                    description="Which indices to expand wildcards to: open, closed, hidden, none, all. Default: open",
-                    type="string",
-                    required=False,
-                ),
-            }),
+                    "health": ToolParameter(
+                        description="Filter by index health: green, yellow, or red",
+                        type="string",
+                        required=False,
+                    ),
+                    "bytes": ToolParameter(
+                        description="Unit for byte sizes: b, kb, mb, gb, tb, pb. Default: human-readable.",
+                        type="string",
+                        required=False,
+                    ),
+                    "pri": ToolParameter(
+                        description="If true, return only primary shard statistics",
+                        type="boolean",
+                        required=False,
+                    ),
+                    "expand_wildcards": ToolParameter(
+                        description="Which indices to expand wildcards to: open, closed, hidden, none, all. Default: open",
+                        type="string",
+                        required=False,
+                    ),
+                }
+            ),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:

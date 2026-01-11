@@ -64,6 +64,23 @@ class MockValidationError(MockDataError):
     pass
 
 
+class ToolsetPrerequisiteError(Exception):
+    """Raised when an explicitly enabled toolset fails its prerequisite check.
+
+    This is classified as a setup failure rather than a test failure because
+    it indicates infrastructure issues, not LLM evaluation issues.
+    """
+
+    def __init__(self, toolset_name: str, error_detail: str):
+        self.toolset_name = toolset_name
+        self.error_detail = error_detail
+        message = (
+            f"Toolset '{toolset_name}' was explicitly enabled in toolsets.yaml "
+            f"but failed prerequisites check: {error_detail}"
+        )
+        super().__init__(message)
+
+
 class MockMode(Enum):
     """Modes for mock tool execution."""
 
@@ -792,16 +809,19 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                             and toolset.status != ToolsetStatusEnum.ENABLED
                             and not self.allow_toolset_failures
                         ):
-                            raise RuntimeError(
-                                f"Toolset '{toolset.name}' was explicitly enabled in toolsets.yaml "
-                                f"but failed prerequisites check: {toolset.error or 'Unknown error'}"
+                            raise ToolsetPrerequisiteError(
+                                toolset_name=toolset.name,
+                                error_detail=toolset.error or "Unknown error",
                             )
+                    except ToolsetPrerequisiteError:
+                        # Re-raise ToolsetPrerequisiteError without wrapping
+                        raise
                     except Exception as e:
                         # If this toolset was explicitly enabled in the test config, re-raise the error
                         if definition and definition.enabled:
-                            raise RuntimeError(
-                                f"Toolset '{toolset.name}' was explicitly enabled in toolsets.yaml "
-                                f"but failed prerequisites check: {str(e)}"
+                            raise ToolsetPrerequisiteError(
+                                toolset_name=toolset.name,
+                                error_detail=str(e),
                             ) from e
                         else:
                             # Otherwise just log it - it was enabled by default, not explicitly

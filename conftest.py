@@ -86,6 +86,12 @@ def pytest_addoption(parser):
         default="",
         help="Comma-separated list of test IDs that are allowed to have setup failures even with --strict-setup-mode",
     )
+    parser.addoption(
+        "--additional-system-prompt-url",
+        action="store",
+        default=None,
+        help="URL returning the additional system prompt text or JSON (expects 'additional_system_prompt' field)",
+    )
 
 
 def pytest_configure(config):
@@ -233,7 +239,9 @@ def responses():
         # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
         rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
         rsps.add_passthru(re.compile(r"https://.*\.elastic-cloud\.com"))  # Azure-hosted
-        rsps.add_passthru(re.compile(r"https://.*\.es\.amazonaws\.com"))  # AWS OpenSearch
+        rsps.add_passthru(
+            re.compile(r"https://.*\.es\.amazonaws\.com")
+        )  # AWS OpenSearch
 
         # Allow
         rsps.add_passthru("https://google.com")
