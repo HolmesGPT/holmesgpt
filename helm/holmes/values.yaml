@@ -338,9 +338,15 @@ mcpAddons:
       # Example: "github.mycompany.com"
       host: ""
 
-      # Tools to enable (comma-separated list)
-      # Default: 24 tools for repos, PRs, issues, GitHub Actions, code changes, and Copilot
-      tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,create_pull_request,create_branch,push_files,create_or_update_file,list_workflows,list_workflow_runs,get_workflow_run,get_workflow_run_logs,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,request_copilot_review,list_issues,search_issues"
+      # Toolsets to enable (comma-separated list of toolset names)
+      # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
+      # Default: repos, issues, pull_requests, actions (covers most investigation needs)
+      toolsets: "repos,issues,pull_requests,actions"
+
+      # Individual tools to enable (comma-separated, optional)
+      # Use this for fine-grained control. Leave empty to use all tools from enabled toolsets.
+      # Example: "get_file_contents,list_commits,list_workflow_runs"
+      tools: ""
 
     resources:
       requests:
