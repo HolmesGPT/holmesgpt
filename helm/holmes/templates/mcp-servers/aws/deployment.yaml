@@ -106,7 +106,11 @@ spec:
       {{- end }}
       containers:
       - name: aws-mcp
+        {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.image }}
+        image: "{{ .Values.mcpAddons.aws.registry }}/{{ .Values.mcpAddons.aws.multiAccount.image }}"
+        {{- else }}
         image: "{{ .Values.mcpAddons.aws.registry }}/{{ .Values.mcpAddons.aws.image }}"
+        {{- end }}
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
