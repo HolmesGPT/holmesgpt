@@ -339,8 +339,8 @@ mcpAddons:
       host: ""
 
       # Tools to enable (comma-separated list)
-      # Default: 22 tools for repos, PRs, issues, GitHub Actions, code changes, and Copilot
-      tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,create_pull_request,create_branch,push_files,create_or_update_file,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,request_copilot_review,list_issues,search_issues"
+      # Default: 24 tools for repos, PRs, issues, GitHub Actions, code changes, and Copilot
+      tools: "get_file_contents,get_repository_tree,list_commits,get_commit,search_code,search_repositories,list_pull_requests,pull_request_read,create_pull_request,create_branch,push_files,create_or_update_file,list_workflows,list_workflow_runs,get_workflow_run,get_workflow_run_logs,list_workflow_jobs,get_job_logs,issue_write,add_issue_comment,assign_copilot_to_issue,request_copilot_review,list_issues,search_issues"
 
     resources:
       requests:

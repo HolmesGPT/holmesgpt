@@ -34,8 +34,10 @@ This MCP server provides the following tools:
 - `pull_request_read` - Get details of a specific pull request (diff, comments, reviews)
 
 ### GitHub Actions Tools
+- `list_workflows` - List available workflow definitions in a repository
 - `list_workflow_runs` - List workflow runs for a repository
 - `get_workflow_run` - Get details of a specific workflow run
+- `get_workflow_run_logs` - Get complete logs from an entire workflow run
 - `list_workflow_jobs` - List jobs in a workflow run
 - `get_job_logs` - Get logs from a specific job (CRITICAL for debugging CI failures)
 
@@ -49,10 +51,10 @@ This MCP server provides the following tools:
 ## Core Investigation Patterns
 
 ### Debugging GitHub Actions Failures
-1. List recent workflow runs: `list_workflow_runs` with the repository owner/name
-2. Get the failed workflow run details: `get_workflow_run` with the run ID
-3. List jobs in that run: `list_workflow_jobs` to find which job failed
-4. Get the job logs: `get_job_logs` to see the actual error messages
+1. List available workflows: `list_workflows` to discover workflow definitions
+2. List recent workflow runs: `list_workflow_runs` with the repository owner/name
+3. Get the failed workflow run details: `get_workflow_run` with the run ID
+4. Get workflow logs: `get_workflow_run_logs` for complete logs, or `list_workflow_jobs` + `get_job_logs` for specific job logs
 5. If the failure relates to code, use `get_file_contents` to examine the problematic files
 
 ### Investigating Recent Changes
@@ -74,17 +76,18 @@ This MCP server provides the following tools:
 ## Example Investigation Flow for CI Failure
 
 ```
-1. list_workflow_runs(owner="myorg", repo="myrepo", status="failure")
+1. list_workflows(owner="myorg", repo="myrepo")
+   → Discover available workflow definitions
+
+2. list_workflow_runs(owner="myorg", repo="myrepo", status="failure")
    → Find the failed run ID
 
-2. get_workflow_run(owner="myorg", repo="myrepo", run_id=12345)
+3. get_workflow_run(owner="myorg", repo="myrepo", run_id=12345)
    → Get run details and conclusion
 
-3. list_workflow_jobs(owner="myorg", repo="myrepo", run_id=12345)
-   → Find which job failed
-
-4. get_job_logs(owner="myorg", repo="myrepo", job_id=67890)
-   → Get the actual error logs
+4. get_workflow_run_logs(owner="myorg", repo="myrepo", run_id=12345)
+   → Get complete logs from the workflow run
+   OR use list_workflow_jobs + get_job_logs for specific job logs
 
 5. If code-related, use get_file_contents to examine the failing code
 ```

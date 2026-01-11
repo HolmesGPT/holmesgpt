@@ -255,7 +255,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ## Available Tools
 
-By default, the GitHub MCP server enables 22 tools organized into five categories. These defaults cover troubleshooting, investigation, code changes, and Copilot integration.
+By default, the GitHub MCP server enables 24 tools organized into five categories. These defaults cover troubleshooting, investigation, code changes, and Copilot integration.
 
 ### Repository & Code Tools
 
@@ -283,8 +283,10 @@ By default, the GitHub MCP server enables 22 tools organized into five categorie
 
 | Tool | Description |
 |------|-------------|
+| `list_workflows` | List available workflow definitions in a repository |
 | `list_workflow_runs` | List workflow runs for a repository |
 | `get_workflow_run` | Get details of a specific workflow run |
+| `get_workflow_run_logs` | Get complete logs from an entire workflow run |
 | `list_workflow_jobs` | List jobs in a workflow run |
 | `get_job_logs` | Get logs from a specific job (critical for debugging) |
 
@@ -443,7 +445,7 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 **Problem:** Holmes reports a tool is not available
 
-**Solution:** Verify the `config.tools` setting includes the tool you need, or remove the setting to use the default 22 tools.
+**Solution:** Verify the `config.tools` setting includes the tool you need, or remove the setting to use the default 24 tools.
 
 ## Security Best Practices
 
