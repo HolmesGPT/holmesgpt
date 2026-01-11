@@ -86,16 +86,14 @@ spec:
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
         readinessProbe:
-          httpGet:
-            path: /sse
+          tcpSocket:
             port: 8000
-          initialDelaySeconds: 20
+          initialDelaySeconds: 5
           periodSeconds: 10
         livenessProbe:
-          httpGet:
-            path: /sse
+          tcpSocket:
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 10
           periodSeconds: 30
 ---
 apiVersion: v1
