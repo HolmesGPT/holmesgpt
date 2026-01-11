@@ -108,6 +108,15 @@ mcpAddons:
       readOnlyMode: true   # Set to false to allow write operations (use with caution)
       namespace: ""        # Kubernetes namespace (defaults to release namespace if empty)
 
+    # Multi-account configuration
+    # When multiAccount.profiles is defined, the chart will use EKS token projection
+    multiAccount:
+      enabled: false  # Set to true to enable multi-account access
+      image: "multi-aws-api-mcp-server:2.0.0"
+      # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
+      profiles: {}
+      llm_account_descriptions: ""
+      
     # Network policy to restrict access to MCP server
     networkPolicy:
       enabled: true  # Enable network isolation (recommended)
