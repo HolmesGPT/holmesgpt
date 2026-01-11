@@ -140,18 +140,14 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if self._toolset.enable_multi_account:
-            account_id = params.get("account_id") or self._toolset.nr_account_id
+            account_id = str(params.get("account_id")) or self._toolset.nr_account_id
         else:
             account_id = self._toolset.nr_account_id
 
-        if not self._toolset.nr_api_key or not account_id:
-            raise ValueError("NewRelic API key or account ID is not configured")
+        if not account_id:
+            raise ValueError("NewRelic account ID is not configured")
 
-        api = NewRelicAPI(
-            api_key=self._toolset.nr_api_key,
-            account_id=str(account_id),
-            is_eu_datacenter=self._toolset.is_eu_datacenter,
-        )
+        api = self._toolset.create_api_client(account_id)
 
         query = params["query"]
         result = api.execute_nrql_query(query)
@@ -197,14 +193,9 @@ class ListOrganizationAccounts(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        if not self._toolset.nr_api_key:
-            raise ValueError("NewRelic API key is not configured")
-
-        api = NewRelicAPI(
-            api_key=self._toolset.nr_api_key,
-            account_id="0",  # Account ID not needed for org query
-            is_eu_datacenter=self._toolset.is_eu_datacenter,
-        )
+        api = self._toolset.create_api_client(
+            account_id="0"
+        )  # organization query does not need account_id
 
         accounts = api.get_organization_accounts()
 
@@ -231,8 +222,8 @@ class ListOrganizationAccounts(Tool):
 
 
 class NewrelicConfig(BaseModel):
-    nr_api_key: Optional[str] = None
-    nr_account_id: Optional[str] = None
+    nr_api_key: str
+    nr_account_id: str
     is_eu_datacenter: Optional[bool] = False
     enable_multi_account: Optional[bool] = False
 
@@ -250,6 +241,35 @@ class NewRelicToolset(Toolset):
             "https://one.eu.newrelic.com"
             if self.is_eu_datacenter
             else "https://one.newrelic.com"
+        )
+
+    def create_api_client(self, account_id: Optional[str] = None) -> NewRelicAPI:
+        """Create a NewRelicAPI client instance.
+
+        Args:
+            account_id: Account ID to use. If None, uses the default from config.
+                       Set to "0" for organization-level queries.
+
+        Returns:
+            Configured NewRelicAPI instance
+
+        Raises:
+            ValueError: If API key is not configured
+        """
+        if not self.nr_api_key:
+            raise ValueError("NewRelic API key is not configured")
+
+        effective_account_id = (
+            account_id if account_id is not None else self.nr_account_id
+        )
+
+        if not effective_account_id:
+            raise ValueError("NewRelic Account id is not configured")
+
+        return NewRelicAPI(
+            api_key=self.nr_api_key,
+            account_id=effective_account_id,
+            is_eu_datacenter=self.is_eu_datacenter,
         )
 
     def __init__(self):
@@ -275,9 +295,6 @@ class NewRelicToolset(Toolset):
             self.nr_api_key = nr_config.nr_api_key
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
             self.enable_multi_account = nr_config.enable_multi_account or False
-
-            if not self.nr_account_id or not self.nr_api_key:
-                return False, "New Relic account ID or API key is missing"
 
             # Tool uses enable_multi_account flag.
             self.tools = [ExecuteNRQLQuery(self)]
