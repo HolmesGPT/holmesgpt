@@ -11,7 +11,7 @@ from prometrix.connect.aws_connect import AWSPrometheusConnect
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from requests import RequestException
-from requests.exceptions import SSLError
+from requests.exceptions import SSLError  # type: ignore
 
 from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
 from holmes.common.openshift import load_openshift_token

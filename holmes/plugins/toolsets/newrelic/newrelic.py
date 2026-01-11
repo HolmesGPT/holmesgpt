@@ -21,9 +21,9 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 def _build_newrelic_query_url(
+    base_url: str,
     account_id: str,
     nrql_query: str,
-    is_eu_datacenter: bool = False,
 ) -> Optional[str]:
     """Build a New Relic query URL for the NRQL query builder.
 
@@ -33,12 +33,6 @@ def _build_newrelic_query_url(
 
     """
     try:
-        base_url = (
-            "https://one.eu.newrelic.com"
-            if is_eu_datacenter
-            else "https://one.newrelic.com"
-        )
-
         account_id_int = int(account_id) if isinstance(account_id, str) else account_id
 
         overlay = {
@@ -170,9 +164,9 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
         # Build New Relic query URL
         explore_url = _build_newrelic_query_url(
+            base_url=self._toolset.base_url,
             account_id=account_id,
             nrql_query=query,
-            is_eu_datacenter=self._toolset.is_eu_datacenter,
         )
 
         return StructuredToolResult(
@@ -221,12 +215,9 @@ class ListOrganizationAccounts(Tool):
         }
 
         # Build New Relic accounts URL
-        base_url = (
-            "https://one.eu.newrelic.com"
-            if self._toolset.is_eu_datacenter
-            else "https://one.newrelic.com"
+        accounts_url = (
+            f"{self._toolset.base_url}/admin-portal/organizations/organization-detail"
         )
-        accounts_url = f"{base_url}/admin-portal/organizations/organization-detail"
 
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
@@ -251,6 +242,15 @@ class NewRelicToolset(Toolset):
     nr_account_id: Optional[str] = None
     is_eu_datacenter: bool = False
     enable_multi_account: bool = False
+
+    @property
+    def base_url(self) -> str:
+        """Get the New Relic base URL based on datacenter region."""
+        return (
+            "https://one.eu.newrelic.com"
+            if self.is_eu_datacenter
+            else "https://one.newrelic.com"
+        )
 
     def __init__(self):
         super().__init__(
