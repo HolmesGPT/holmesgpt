@@ -98,12 +98,7 @@ DEFAULT_ALLOW_LIST = [
 ]
 
 # Default deny list (used when include_default_allow_deny_list=True)
-# Note: Plural forms (e.g., 'secrets') and path syntax (e.g., 'secret/name')
-# are automatically matched by match_prefix_for_deny()
-DEFAULT_DENY_LIST = [
-    "kubectl get secret",
-    "kubectl describe secret",
-]
+DEFAULT_DENY_LIST: List[str] = []
 
 # Hardcoded blocks - these patterns are ALWAYS blocked and cannot be overridden
 HARDCODED_BLOCKS = [
