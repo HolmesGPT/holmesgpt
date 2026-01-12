@@ -4,37 +4,36 @@ Use the `bash` tool to execute shell commands. You must provide:
 1. `command`: The bash command to execute
 2. `suggested_prefixes`: Array of prefixes, one per command segment
 
+## Command Structure
+
+When constructing commands, **place parameter values at the end** so that prefixes can match effectively:
+- Good: `kubectl scale deployment nginx -n prod --replicas=3` (prefix `kubectl scale deployment nginx -n prod` matches)
+- Bad: `kubectl scale --replicas=3 deployment nginx -n prod` (prefix won't match)
+
+General principle: identifiers first (what you're targeting), parameter values last (how you're affecting it).
+
 ## Prefix Guidelines
 
-For each command segment (separated by `|`, `&&`, `||`, `;`, `&`), provide a prefix that includes:
-- Command name (e.g., `kubectl`, `grep`, `cat`)
-- Subcommand if applicable (e.g., `kubectl get`, `kubectl describe`)
-- Resource type if needed for specificity (e.g., `kubectl get pod`)
+For each command segment (separated by `|`, `&&`, `||`, `;`, `&`), provide a `suggested_prefixes` entry based on the operation type:
 
-Do NOT include in prefixes:
-- Resource names (e.g., `my-pod-name`)
-- Namespace values (e.g., `-n default`)
-- Flag values or file paths
+### Read-only operations
+Use the **shortest prefix that commits to read-only behavior**.
+- `kubectl get pods -n default` → `kubectl get`
+- `cat /var/log/app.log` → `cat`
+- `grep error file.txt` → `grep`
+- `kubectl get pods | grep error | head -10` → `["kubectl get", "grep", "head"]`
 
-## Examples
+### Mixed operations (can branch to read OR write)
+Use a **longer prefix that specifies the read-only branch**.
+- `kubectl config view` → `kubectl config view` (not `kubectl config`, which could also do `set`)
+- `git remote -v` → `git remote -v` (not `git remote`, which could also do `add/remove`)
 
-**Simple command:**
-```
-command: "kubectl get pods -n default"
-suggested_prefixes: ["kubectl get"]
-```
-
-**Piped command:**
-```
-command: "kubectl get pods | grep error | head -10"
-suggested_prefixes: ["kubectl get", "grep", "head"]
-```
-
-**Command with resource type:**
-```
-command: "kubectl get pod my-app -o yaml"
-suggested_prefixes: ["kubectl get pod"]
-```
+### Destructive/write operations
+Include the **full target identification** (action + resource type + resource name + namespace), but **exclude parameter values**.
+- `kubectl delete pod my-pod -n default` → `kubectl delete pod my-pod -n default`
+- `kubectl scale deployment nginx --replicas=3` → `kubectl scale deployment nginx`
+- `kubectl scale deployment nginx -n prod --replicas=3` → `kubectl scale deployment nginx -n prod`
+- `rm /tmp/file.txt` → `rm /tmp/file.txt`
 
 ## Allowed Commands
 
