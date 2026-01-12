@@ -396,15 +396,9 @@ class BashExecutorToolset(BaseBashExecutorToolset):
         super().__init__(
             name="bash",
             enabled=False,
-            description=(
-                "Toolset for executing bash commands with prefix-based validation. "
-                "Commands are validated against allow/deny lists using prefix matching. "
-                "Safe commands in the allow list execute immediately. "
-                "Commands in the deny list are blocked. "
-                "Other commands require user approval."
-            ),
-            docs_url="",  # TODO: Add documentation URL
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Bash_Logo_Colored.svg/120px-Bash_Logo_Colored.svg.png",
+            description="Execute bash commands validated against prefix-based allow/deny lists, with user approval for unknown commands.",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/bash/",
+            icon_url="https://upload.wikimedia.org/wikipedia/commons/d/da/GNOME_Terminal_icon_2019.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[RunBashCommand(self), KubectlRunImageCommand(self)],
             tags=[ToolsetTag.CORE],
