@@ -108,8 +108,6 @@ class StructuredToolResult(BaseModel):
 
 
 class ApprovalRequirement(BaseModel):
-    """Result of checking if a tool requires user approval before execution."""
-
     needs_approval: bool
     reason: str = ""
 
@@ -165,9 +163,8 @@ class ToolInvokeContext(BaseModel):
     tool_call_id: str
     tool_name: str
 
-    # For restriction enforcement
-    restricted_tools_enabled: bool = False  # Explicit flag from request
-    runbook_in_use: bool = False  # True if fetch_runbook was called
+    restricted_tools_enabled: bool = False
+    runbook_in_use: bool = False
 
 
 class Tool(ABC, BaseModel):
@@ -252,10 +249,7 @@ class Tool(ABC, BaseModel):
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
 
-        # Skip checks if user already approved
         if not context.user_approved:
-            # Check APPROVAL (does user need to confirm?)
-            # Note: Restriction is enforced at the tools list level, not here
             approval_check = self._get_approval_requirement(params, context)
             if approval_check and approval_check.needs_approval:
                 logger.info(
@@ -272,7 +266,6 @@ class Tool(ABC, BaseModel):
         result = self._invoke(params=params, context=context)
         result.icon_url = self.icon_url
 
-        # Apply transformers to the result
         transformed_result = self._apply_transformers(result)
         elapsed = time.time() - start_time
         output_str = (
@@ -288,16 +281,12 @@ class Tool(ABC, BaseModel):
         return transformed_result
 
     def _is_restricted(self) -> bool:
-        """Check if this tool is restricted (either directly or via toolset config)."""
-        # Check tool-level flag
         if self.restricted:
             return True
 
-        # Check toolset-level patterns (use "*" for all tools)
         toolset = getattr(self, "toolset", None)
         if toolset:
-            restricted_patterns = getattr(toolset, "restricted_tools", [])
-            for pattern in restricted_patterns:
+            for pattern in getattr(toolset, "restricted_tools", []):
                 if fnmatch.fnmatch(self.name, pattern):
                     return True
 
@@ -306,41 +295,28 @@ class Tool(ABC, BaseModel):
     def _get_approval_requirement(
         self, params: Dict, context: ToolInvokeContext
     ) -> Optional[ApprovalRequirement]:
-        """Check all approval sources: toolset config and tool-specific logic."""
-        # 1. Check toolset-level configuration
         toolset_approval = self._check_approval_config()
         if toolset_approval and toolset_approval.needs_approval:
             return toolset_approval
-
-        # 2. Check tool-specific logic
         return self.requires_approval(params, context)
 
     def _check_approval_config(self) -> Optional[ApprovalRequirement]:
-        """Check if toolset configuration requires approval for this tool."""
         toolset = getattr(self, "toolset", None)
         if not toolset:
             return None
 
-        # Check pattern matching (use "*" for all tools)
-        approval_patterns = getattr(toolset, "approval_required_tools", [])
-        for pattern in approval_patterns:
+        for pattern in getattr(toolset, "approval_required_tools", []):
             if fnmatch.fnmatch(self.name, pattern):
                 return ApprovalRequirement(
                     needs_approval=True,
                     reason=f"Tool '{self.name}' matches approval pattern '{pattern}'",
                 )
-
         return None
 
     def requires_approval(
         self, params: Dict, context: ToolInvokeContext
     ) -> Optional[ApprovalRequirement]:
-        """Override to implement tool-specific approval logic.
-
-        Returns:
-            None - No approval logic (default behavior)
-            ApprovalRequirement - Whether approval is needed and why
-        """
+        """Override to implement tool-specific approval logic."""
         return None
 
     def _apply_transformers(self, result: StructuredToolResult) -> StructuredToolResult:
@@ -644,15 +620,8 @@ class Toolset(BaseModel):
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
-    # Tool restriction and approval configuration (use "*" pattern for all tools)
-    restricted_tools: List[str] = Field(
-        default_factory=list,
-        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
-    )
-    approval_required_tools: List[str] = Field(
-        default_factory=list,
-        description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
-    )
+    restricted_tools: List[str] = Field(default_factory=list)
+    approval_required_tools: List[str] = Field(default_factory=list)
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
@@ -914,9 +883,6 @@ class ToolsetYamlFromConfig(Toolset):
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
 
-    # Tool restriction and approval configuration (use "*" pattern for all tools)
-    # These need to be explicitly declared so they're recognized when parsing YAML
-    # and included in model_dump() for override_with() to work correctly
     restricted_tools: List[str] = Field(default_factory=list)
     approval_required_tools: List[str] = Field(default_factory=list)
 
