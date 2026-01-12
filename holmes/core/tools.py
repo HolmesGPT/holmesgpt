@@ -114,13 +114,6 @@ class ApprovalRequirement(BaseModel):
     reason: str = ""
 
 
-class RestrictionResult(BaseModel):
-    """Result of checking if a tool is authorized to be used."""
-
-    authorized: bool
-    reason: str = ""
-
-
 def sanitize(param):
     # allow empty strings to be unquoted - useful for optional params
     # it is up to the user to ensure that the command they are using is ok with empty strings
@@ -293,23 +286,6 @@ class Tool(ABC, BaseModel):
             f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
-
-    def _check_restriction(self, context: ToolInvokeContext) -> Optional[RestrictionResult]:
-        """Check if this tool is restricted and whether it's authorized to be used."""
-        # Check if tool is restricted (either directly or via toolset config)
-        is_restricted = self._is_restricted()
-
-        if not is_restricted:
-            return None  # Not restricted, no check needed
-
-        # Restricted tool - check if authorized
-        if context.restricted_tools_enabled or context.runbook_in_use:
-            return RestrictionResult(authorized=True)
-
-        return RestrictionResult(
-            authorized=False,
-            reason=f"Tool '{self.name}' is restricted and requires runbook authorization or explicit enablement",
-        )
 
     def _is_restricted(self) -> bool:
         """Check if this tool is restricted (either directly or via toolset config)."""
