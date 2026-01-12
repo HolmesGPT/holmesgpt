@@ -1,35 +1,37 @@
 nav:
-    - index.md
-    - AKS Node Health: aks-node-health.md
-    - ArgoCD: argocd.md
-    - AWS (MCP): aws.md
-    - Azure Kubernetes Service: aks.md
-    - Azure SQL Database: azure-sql.md
-    - Bash: bash.md
-    - Cilium: cilium.md
-    - Confluence: confluence.md
-    - Connectivity Check: connectivity-check.md
-    - Coralogix: coralogix-logs.md
-    - DataDog: datadog.md
-    - Datetime: datetime.md
-    - Docker: docker.md
-    - GitHub: github.md
-    - Grafana Dashboards: grafanadashboards.md
-    - Loki: grafanaloki.md
-    - Tempo: grafanatempo.md
-    - Helm: helm.md
-    - Internet: internet.md
-    - Kafka: kafka.md
-    - Kubernetes: kubernetes.md
-    - MariaDB (MCP): mariadb-mcp.md
-    - MongoDB Atlas: mongodb-atlas.md
-    - New Relic: newrelic.md
-    - Notion: notion.md
-    - OpenSearch logs: opensearch-logs.md
-    - OpenSearch status: opensearch-status.md
-    - OpenShift: openshift.md
-    - Prometheus: prometheus.md
-    - RabbitMQ: rabbitmq.md
-    - Robusta: robusta.md
-    - ServiceNow: servicenow.md
-    - Slab: slab.md
+  - index.md
+  - AKS Node Health: aks-node-health.md
+  - ArgoCD: argocd.md
+  - AWS (MCP): aws.md
+  - Azure (MCP): azure-mcp.md
+  - Azure Kubernetes Service: aks.md
+  - Azure SQL Database: azure-sql.md
+  - Bash: bash.md
+  - Cilium: cilium.md
+  - Confluence: confluence.md
+  - Connectivity Check: connectivity-check.md
+  - Coralogix: coralogix-logs.md
+  - DataDog: datadog.md
+  - Datetime: datetime.md
+  - Docker: docker.md
+  - GCP (MCP): gcp.md
+  - GitHub: github.md
+  - Grafana Dashboards: grafanadashboards.md
+  - Loki: grafanaloki.md
+  - Tempo: grafanatempo.md
+  - Helm: helm.md
+  - Internet: internet.md
+  - Kafka: kafka.md
+  - Kubernetes: kubernetes.md
+  - MariaDB (MCP): mariadb-mcp.md
+  - MongoDB Atlas: mongodb-atlas.md
+  - New Relic: newrelic.md
+  - Notion: notion.md
+  - OpenSearch logs: opensearch-logs.md
+  - OpenSearch status: opensearch-status.md
+  - OpenShift: openshift.md
+  - Prometheus: prometheus.md
+  - RabbitMQ: rabbitmq.md
+  - Robusta: robusta.md
+  - ServiceNow: servicenow.md
+  - Slab: slab.md

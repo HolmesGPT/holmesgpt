@@ -10,6 +10,7 @@ tags:
   - metrics
   - logs
   - coralogix
+  - prometheus
 
 setup_timeout: 900
 

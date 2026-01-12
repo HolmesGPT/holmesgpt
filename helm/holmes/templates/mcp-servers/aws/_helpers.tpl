@@ -242,4 +242,8 @@ Pagination Strategy:
 4. If investigating trends, sample pages instead of fetching all
 
 {{- end -}}
+{{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.llm_account_descriptions }}
+
+{{ .Values.mcpAddons.aws.multiAccount.llm_account_descriptions }}
+{{- end -}}
 {{- end -}}

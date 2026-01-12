@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -84,6 +85,12 @@ def pytest_addoption(parser):
         type=str,
         default="",
         help="Comma-separated list of test IDs that are allowed to have setup failures even with --strict-setup-mode",
+    )
+    parser.addoption(
+        "--additional-system-prompt-url",
+        action="store",
+        default=None,
+        help="URL returning the additional system prompt text or JSON (expects 'additional_system_prompt' field)",
     )
 
 
@@ -228,6 +235,13 @@ def responses():
         rsps.add_passthru("https://app.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.eu")
         rsps.add_passthru("https://ng-api-http.eu2.coralogix.com")
+
+        # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
+        rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
+        rsps.add_passthru(re.compile(r"https://.*\.elastic-cloud\.com"))  # Azure-hosted
+        rsps.add_passthru(
+            re.compile(r"https://.*\.es\.amazonaws\.com")
+        )  # AWS OpenSearch
 
         # Allow
         rsps.add_passthru("https://google.com")
