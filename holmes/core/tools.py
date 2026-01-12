@@ -120,23 +120,6 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
-def format_tool_output(tool_result: Union[str, StructuredToolResult]) -> str:
-    if isinstance(tool_result, StructuredToolResult):
-        if tool_result.data and isinstance(tool_result.data, str):
-            # Display logs and other string outputs in a way that is readable to humans.
-            # To do this, we extract them from the result and print them as-is below.
-            # The metadata is printed on a single line to
-            data = tool_result.data
-            tool_result.data = "The raw tool data is printed below this JSON"
-            result_str = tool_result.model_dump_json(indent=2, exclude_none=True)
-            result_str += f"\n{data}"
-            return result_str
-        else:
-            return tool_result.model_dump_json(indent=2)
-    else:
-        return tool_result
-
-
 class ToolsetStatusEnum(str, Enum):
     ENABLED = "enabled"
     DISABLED = "disabled"

@@ -1,0 +1,107 @@
+# Test: Elasticsearch Query Profile API
+# Tests that Holmes can use the Profile API to analyze query performance
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+#
+# Anti-hallucination: The test runs specific query types that have distinct profile signatures.
+# Holmes must use elasticsearch_search with profile=true and report the query type from profile output.
+
+user_prompt: "I have a slow query on the 'app-191-profile' index. Use the profile option to analyze this query and tell me the query type used: {\"wildcard\": {\"message\": \"*timeout*\"}}"
+
+expected_output:
+  - "Must use elasticsearch_search with profile enabled to analyze the query"
+  - "Must identify the query type as 'WildcardQuery' or 'wildcard' from the profile output"
+  - "Should report timing information from the profile"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  export HOLMES_ES_TEST_INDEX="app-191-profile"
+
+  # Delete the index if it exists (clean slate)
+  echo "⏳ Cleaning up any existing test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create the test index with mapping
+  echo "⏳ Creating test index..."
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"message":{"type":"text"},"status":{"type":"keyword"}}}}')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  # Create unique temp file
+  BULK_FILE="/tmp/es_bulk_191_$$.ndjson"
+
+  # Create bulk data file with logs including timeout messages
+  cat > "$BULK_FILE" << 'BULK_EOF'
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:00:00Z","message":"Connection established successfully","status":"success"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:01:00Z","message":"Request timeout after 30 seconds","status":"error"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:02:00Z","message":"Processing completed","status":"success"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:03:00Z","message":"Database query timeout exceeded limit","status":"error"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:04:00Z","message":"API response received","status":"success"}
+  {"index":{}}
+  {"timestamp":"2025-01-01T10:05:00Z","message":"Socket timeout during file upload","status":"error"}
+  BULK_EOF
+
+  # Remove leading spaces from the bulk file
+  sed -i 's/^  //' "$BULK_FILE"
+
+  # Index the documents
+  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+
+  rm -f "$BULK_FILE"
+
+  # Refresh the index
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify documents exist
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  if [ "$DOC_COUNT" = "6" ]; then
+    echo "✅ Test index created with $DOC_COUNT documents"
+  else
+    echo "❌ Expected 6 documents but found: $DOC_COUNT"
+    exit 1
+  fi
+
+after_test: |
+
+  echo "⏳ Cleaning up test index: app-191-profile"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-191-profile" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "✅ Cleanup complete"

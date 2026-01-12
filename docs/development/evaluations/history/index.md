@@ -1,9 +1,10 @@
-# Historical Evaluation Results
+# Benchmark History
 
-Browse through our past benchmark runs to track performance trends over time.
+Browse through past benchmark runs to track performance trends over time.
 
-## Weekly Results
-Regular weekly benchmark runs that track model performance over time.
+Results marked with ⚡ are **fast benchmarks** (quick regression tests). Other results are **full benchmarks** (comprehensive test suites).
 
-## Extended Comparisons
-Special benchmark runs comparing multiple models and configurations.
+| Type | Markers | Purpose |
+|------|---------|---------|
+| ⚡ Fast | `regression or benchmark` | Quick regression tests |
+| Full | `easy or medium or hard or regression or benchmark` | Comprehensive testing |
