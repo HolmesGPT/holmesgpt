@@ -5,10 +5,12 @@ Tests prefix-based command validation, subshell detection, and allow/deny list h
 """
 
 from holmes.plugins.toolsets.bash.common.config import (
-    DEFAULT_ALLOW_LIST,
-    DEFAULT_DENY_LIST,
     HARDCODED_BLOCKS,
     BashExecutorConfig,
+)
+from holmes.plugins.toolsets.bash.common.default_lists import (
+    DEFAULT_ALLOW_LIST,
+    DEFAULT_DENY_LIST,
 )
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
@@ -257,8 +259,6 @@ class TestGetEffectiveLists:
         assert "grep" in allow_list
         # Should include custom
         assert "custom-command" in allow_list
-        # Should include default deny
-        assert "kubectl get secret" in deny_list
         # Should include custom deny
         assert "custom-deny" in deny_list
 
@@ -269,10 +269,13 @@ class TestGetEffectiveLists:
         assert "kubectl describe" in DEFAULT_ALLOW_LIST
         assert "grep" in DEFAULT_ALLOW_LIST
         assert "cat" in DEFAULT_ALLOW_LIST
+        # Check new commands added
+        assert "helm list" in DEFAULT_ALLOW_LIST
+        assert "kube-lineage" in DEFAULT_ALLOW_LIST
+        assert "jq" in DEFAULT_ALLOW_LIST
 
-        # Check DEFAULT_DENY_LIST has secrets blocked
-        assert "kubectl get secret" in DEFAULT_DENY_LIST
-        assert "kubectl describe secret" in DEFAULT_DENY_LIST
+        # DEFAULT_DENY_LIST is empty by default - users configure their own
+        assert len(DEFAULT_DENY_LIST) == 0
 
 
 class TestValidatePrefixForSegment:
@@ -469,24 +472,19 @@ class TestHardcodedBlocksList:
         assert ":(){" in HARDCODED_BLOCKS
 
 
-class TestDefaultDenyList:
-    """Tests for the default deny list with include_default_allow_deny_list=True."""
+class TestUserConfiguredDenyList:
+    """Tests for user-configured deny lists."""
 
-    def test_deny_list_contains_secret_commands(self):
-        """Verify deny list contains secret access commands (singular form only).
+    def test_default_deny_list_is_empty(self):
+        """Verify DEFAULT_DENY_LIST is empty - users configure their own."""
+        assert len(DEFAULT_DENY_LIST) == 0
 
-        Plural forms are handled automatically by match_prefix_for_deny().
-        """
-        assert "kubectl get secret" in DEFAULT_DENY_LIST
-        assert "kubectl describe secret" in DEFAULT_DENY_LIST
-
-    def test_kubectl_get_secrets_denied_with_defaults(self):
-        """Test that 'kubectl get secrets' (plural) is denied.
-
-        The deny list only has 'kubectl get secret' (singular), but
-        match_prefix_for_deny() automatically handles plural forms.
-        """
-        config = BashExecutorConfig(include_default_allow_deny_list=True)
+    def test_user_configured_deny_blocks_command(self):
+        """Test that user-configured deny list blocks commands."""
+        config = BashExecutorConfig(
+            include_default_allow_deny_list=True,
+            deny=["kubectl get secret"],
+        )
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get secrets -n default",
@@ -497,12 +495,12 @@ class TestDefaultDenyList:
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
 
-    def test_kubectl_get_secret_path_syntax_denied(self):
-        """Test that 'kubectl get secret/name' path syntax is denied.
-
-        This prevents bypass via kubectl's resource/name syntax.
-        """
-        config = BashExecutorConfig(include_default_allow_deny_list=True)
+    def test_user_configured_deny_path_syntax(self):
+        """Test that user-configured deny blocks path syntax."""
+        config = BashExecutorConfig(
+            include_default_allow_deny_list=True,
+            deny=["kubectl get secret"],
+        )
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get secret/my-secret",
@@ -513,34 +511,8 @@ class TestDefaultDenyList:
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
 
-    def test_kubectl_get_secrets_path_syntax_denied(self):
-        """Test that 'kubectl get secrets/name' path syntax is also denied."""
-        config = BashExecutorConfig(include_default_allow_deny_list=True)
-        allow_list, deny_list = get_effective_lists(config)
-        result = validate_command(
-            "kubectl get secrets/my-secret",
-            ["kubectl get secrets"],
-            allow_list,
-            deny_list,
-        )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.DENY_LIST
-
-    def test_kubectl_describe_secrets_denied_with_defaults(self):
-        """Test that 'kubectl describe secrets' is denied when using default lists."""
-        config = BashExecutorConfig(include_default_allow_deny_list=True)
-        allow_list, deny_list = get_effective_lists(config)
-        result = validate_command(
-            "kubectl describe secrets my-secret",
-            ["kubectl describe secrets"],
-            allow_list,
-            deny_list,
-        )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.DENY_LIST
-
     def test_kubectl_get_pods_allowed_with_defaults(self):
-        """Test that non-secret kubectl commands are still allowed."""
+        """Test that non-denied kubectl commands are allowed."""
         config = BashExecutorConfig(include_default_allow_deny_list=True)
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(

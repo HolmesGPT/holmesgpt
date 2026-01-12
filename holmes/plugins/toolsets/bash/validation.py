@@ -14,10 +14,12 @@ from typing import List, Optional, Tuple
 import bashlex
 
 from holmes.plugins.toolsets.bash.common.config import (
-    DEFAULT_ALLOW_LIST,
-    DEFAULT_DENY_LIST,
     HARDCODED_BLOCKS,
     BashExecutorConfig,
+)
+from holmes.plugins.toolsets.bash.common.default_lists import (
+    DEFAULT_ALLOW_LIST,
+    DEFAULT_DENY_LIST,
 )
 
 logger = logging.getLogger(__name__)

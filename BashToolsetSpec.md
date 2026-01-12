@@ -111,57 +111,7 @@ toolsets:
 
 **Server/In-Cluster:** `include_default_allow_deny_list: true` by default. User-provided `allow` and `deny` lists are merged with these defaults.
 
-**Default allow list (when `include_default_allow_deny_list: true`):**
-```yaml
-# Kubernetes read-only commands
-- "kubectl get"
-- "kubectl describe"
-- "kubectl logs"
-- "kubectl top"
-- "kubectl explain"
-- "kubectl api-resources"
-
-# Text processing
-- "cat"
-- "grep"
-- "head"
-- "tail"
-- "sort"
-- "uniq"
-- "wc"
-- "cut"
-- "tr"
-
-# File system inspection
-- "ls"
-- "find"
-- "stat"
-- "file"
-- "du"
-- "df"
-
-# System monitoring
-- "ps"
-- "top -b"
-- "free"
-- "uptime"
-```
-
-**Default deny list (when `include_default_allow_deny_list: true`):**
-```yaml
-- "kubectl get secret"
-- "kubectl describe secret"
-```
-
-### Hardcoded Blocks
-
-These patterns are always blocked and cannot be overridden by configuration:
-
-```yaml
-- "sudo"
-- "su"
-- ":(){"  # Fork bomb
-```
+**Default allow/deny lists and hardcoded blocks:** See [default_lists.py](https://github.com/robusta-dev/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py)
 
 ### System Prompt
 
