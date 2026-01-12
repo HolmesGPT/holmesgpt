@@ -217,10 +217,15 @@ class RunBashCommand(BaseBashTool):
         else:
             try:
                 command_to_execute = make_command_safe(command_str, self.toolset.config)
-            except (argparse.ArgumentError, ValueError):
-                # This shouldn't happen - requires_approval() should catch this
-                # But if it does, execute the original command (user may have approved via other means)
-                command_to_execute = command_str
+            except (argparse.ArgumentError, ValueError) as e:
+                # This shouldn't happen - requires_approval() should catch unsafe commands
+                # If we reach here due to a race condition or edge case, return an error
+                # rather than executing a potentially unsafe command
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=f"Command failed safety validation: {e}",
+                    params=params,
+                )
 
         return execute_bash_command(
             cmd=command_to_execute, timeout=timeout, params=params
