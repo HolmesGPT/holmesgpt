@@ -37,6 +37,26 @@ DEFAULT_ALLOW_LIST = [
     "kubectl top",
     "kubectl explain",
     "kubectl api-resources",
+    "kubectl config view",
+    "kubectl config current-context",
+    "kubectl cluster-info",
+    "kubectl version",
+    "kubectl auth can-i",
+    "kubectl diff",
+    "kubectl events",
+    # Helm read-only commands
+    "helm list",
+    "helm status",
+    "helm get",
+    "helm history",
+    "helm show",
+    "helm search",
+    "helm version",
+    "helm repo list",
+    # Kube-lineage
+    "kube-lineage",
+    # JSON processing
+    "jq",
     # Text processing
     "cat",
     "grep",
@@ -56,11 +76,25 @@ DEFAULT_ALLOW_LIST = [
     "file",
     "du",
     "df",
+    # Archive inspection
+    "tar -tf",
+    "tar -tvf",
+    "gzip -l",
+    "zcat",
+    "zgrep",
     # System monitoring
     "ps",
     "top -b",
     "free",
     "uptime",
+    # Process/system info
+    "id",
+    "whoami",
+    "hostname",
+    "uname",
+    "date",
+    "which",
+    "type",
 ]
 
 # Default deny list (used when include_default_allow_deny_list=True)
