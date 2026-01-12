@@ -395,14 +395,14 @@ class BashExecutorToolset(BaseBashExecutorToolset):
     def __init__(self):
         super().__init__(
             name="bash",
-            enabled=False,
+            enabled=True,
             description="Execute bash commands validated against prefix-based allow/deny lists, with user approval for unknown commands.",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/bash/",
             icon_url="https://upload.wikimedia.org/wikipedia/commons/d/da/GNOME_Terminal_icon_2019.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[RunBashCommand(self), KubectlRunImageCommand(self)],
             tags=[ToolsetTag.CORE],
-            is_default=False,
+            is_default=True,
         )
 
         self._reload_llm_instructions()

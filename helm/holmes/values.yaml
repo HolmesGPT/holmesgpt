@@ -64,6 +64,10 @@ toolsets:
     enabled: true
   runbook:
     enabled: true
+  bash:
+    enabled: true
+    config:
+      include_default_allow_deny_list: true
 mcp_servers: {}
 
 resources:
