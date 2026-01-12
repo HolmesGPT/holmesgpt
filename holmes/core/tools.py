@@ -620,8 +620,14 @@ class Toolset(BaseModel):
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
-    restricted_tools: List[str] = Field(default_factory=list)
-    approval_required_tools: List[str] = Field(default_factory=list)
+    restricted_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
+    )
+    approval_required_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
+    )
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
