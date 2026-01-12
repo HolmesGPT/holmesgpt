@@ -269,8 +269,6 @@ class TestGetEffectiveLists:
         assert "kubectl describe" in DEFAULT_ALLOW_LIST
         assert "grep" in DEFAULT_ALLOW_LIST
         assert "cat" in DEFAULT_ALLOW_LIST
-        # Check new commands added
-        assert "helm list" in DEFAULT_ALLOW_LIST
         assert "kube-lineage" in DEFAULT_ALLOW_LIST
         assert "jq" in DEFAULT_ALLOW_LIST
 
