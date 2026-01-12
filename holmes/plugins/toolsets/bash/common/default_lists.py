@@ -26,15 +26,6 @@ DEFAULT_ALLOW_LIST: List[str] = [
     "kubectl auth can-i",
     "kubectl diff",
     "kubectl events",
-    # Helm read-only commands
-    "helm list",
-    "helm status",
-    "helm get",
-    "helm history",
-    "helm show",
-    "helm search",
-    "helm version",
-    "helm repo list",
     # Kube-lineage
     "kube-lineage",
     # JSON processing
