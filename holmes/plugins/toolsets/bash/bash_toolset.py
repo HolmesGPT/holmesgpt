@@ -24,7 +24,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
-from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
+from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.kubectl.constants import SAFE_NAMESPACE_PATTERN
 from holmes.plugins.toolsets.bash.kubectl.kubectl_run import validate_image_and_commands
@@ -35,6 +35,55 @@ from holmes.plugins.toolsets.bash.validation import (
     validate_command,
 )
 from holmes.plugins.toolsets.utils import get_param_or_raise
+
+
+def bash_result_to_structured(
+    result: BashResult, cmd: str, timeout: int, params: dict
+) -> StructuredToolResult:
+    """
+    Convert a BashResult to a StructuredToolResult.
+
+    Args:
+        result: The BashResult from execute_bash_command
+        cmd: The original command (for error messages)
+        timeout: The timeout value (for error messages)
+        params: Parameters to include in the result
+
+    Returns:
+        StructuredToolResult suitable for the tool response
+    """
+    if result.timed_out:
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR,
+            error=f"Error: Command '{cmd}' timed out after {timeout} seconds.",
+            data=f"{cmd}\n{result.stdout}" if result.stdout else None,
+            params=params,
+            invocation=cmd,
+        )
+
+    result_data = f"{cmd}\n{result.stdout}"
+
+    if result.return_code == 0:
+        status = (
+            StructuredToolResultStatus.SUCCESS
+            if result.stdout
+            else StructuredToolResultStatus.NO_DATA
+        )
+        error = None
+    else:
+        status = StructuredToolResultStatus.ERROR
+        error = (
+            f'Error: Command "{cmd}" returned non-zero exit status {result.return_code}'
+        )
+
+    return StructuredToolResult(
+        status=status,
+        error=error,
+        data=result_data,
+        params=params,
+        invocation=cmd,
+        return_code=result.return_code,
+    )
 
 
 class BaseBashExecutorToolset(Toolset):
@@ -136,9 +185,16 @@ class KubectlRunImageCommand(BaseBashTool):
             + "".join(random.choices(string.ascii_letters, k=8)).lower()
         )
         full_kubectl_command = self._build_kubectl_command(params, pod_name)
-        return execute_bash_command(
-            cmd=full_kubectl_command, timeout=timeout, params=params
-        )
+        try:
+            result = execute_bash_command(cmd=full_kubectl_command, timeout=timeout)
+        except FileNotFoundError:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="Error: Bash executable not found. Ensure /bin/bash is available.",
+                params=params,
+                invocation=full_kubectl_command,
+            )
+        return bash_result_to_structured(result, full_kubectl_command, timeout, params)
 
     def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
         return self._build_kubectl_command(params, "<pod_name>")
@@ -245,60 +301,59 @@ class RunBashCommand(BaseBashTool):
                 f"Merged {len(context.session_approved_prefixes)} session-approved prefixes"
             )
 
-        # Skip validation if user has already approved
-        if context.user_approved:
-            logging.info(f"Executing pre-approved bash command: {command_str}")
-            return execute_bash_command(cmd=command_str, timeout=timeout, params=params)
-
-        # Validate the command using prefix-based matching
-        validation_result = validate_command(
-            command_str, suggested_prefixes, allow_list, deny_list
-        )
-
-        if validation_result.status == ValidationStatus.ALLOWED:
-            logging.info(f"Executing allowed bash command: {command_str}")
-            return execute_bash_command(cmd=command_str, timeout=timeout, params=params)
-
-        elif validation_result.status == ValidationStatus.DENIED:
-            # Log security event
-            sentry_sdk.capture_event(
-                {
-                    "message": f"Bash command denied: {validation_result.deny_reason}",
-                    "level": "warning",
-                    "extra": {
-                        "command": command_str,
-                        "suggested_prefixes": suggested_prefixes,
-                        "deny_reason": validation_result.deny_reason.value
-                        if validation_result.deny_reason
-                        else None,
-                        "message": validation_result.message,
-                    },
-                }
+        # Validate command unless user has already approved
+        if not context.user_approved:
+            validation_result = validate_command(
+                command_str, suggested_prefixes, allow_list, deny_list
             )
 
-            # Build appropriate error message based on deny reason
-            error_message = self._build_deny_error_message(validation_result)
+            if validation_result.status == ValidationStatus.DENIED:
+                sentry_sdk.capture_event(
+                    {
+                        "message": f"Bash command denied: {validation_result.deny_reason}",
+                        "level": "warning",
+                        "extra": {
+                            "command": command_str,
+                            "suggested_prefixes": suggested_prefixes,
+                            "deny_reason": validation_result.deny_reason.value
+                            if validation_result.deny_reason
+                            else None,
+                            "message": validation_result.message,
+                        },
+                    }
+                )
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=self._build_deny_error_message(validation_result),
+                    params=params,
+                    invocation=command_str,
+                )
 
+            if validation_result.status == ValidationStatus.APPROVAL_REQUIRED:
+                logging.info(f"Bash command requires approval: {command_str}")
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                    error="Command not in allow list.",
+                    params={
+                        "command": command_str,
+                        "suggested_prefixes": validation_result.prefixes_needing_approval
+                        or suggested_prefixes,
+                    },
+                    invocation=command_str,
+                )
+
+        # Execute command (user_approved or validation passed)
+        logging.info(f"Executing bash command: {command_str}")
+        try:
+            result = execute_bash_command(cmd=command_str, timeout=timeout)
+        except FileNotFoundError:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=error_message,
+                error="Error: Bash executable not found. Ensure /bin/bash is available.",
                 params=params,
                 invocation=command_str,
             )
-
-        else:  # APPROVAL_REQUIRED
-            logging.info(f"Bash command requires approval: {command_str}")
-
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.APPROVAL_REQUIRED,
-                error="Command not in allow list.",
-                params={
-                    "command": command_str,
-                    "suggested_prefixes": validation_result.prefixes_needing_approval
-                    or suggested_prefixes,
-                },
-                invocation=command_str,
-            )
+        return bash_result_to_structured(result, command_str, timeout, params)
 
     def _build_deny_error_message(self, validation_result) -> str:
         """Build an appropriate error message based on the deny reason."""
