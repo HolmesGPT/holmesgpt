@@ -346,9 +346,6 @@ class AzurePrometheusConfig(PrometheusConfig):
     def is_amp(self) -> bool:
         return False
 
-    def is_azure(self) -> bool:
-        return True
-
     def _should_refresh_token(self) -> bool:
         if not PrometheusAuthorization.bearer_token:
             return True
