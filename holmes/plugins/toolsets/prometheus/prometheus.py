@@ -317,15 +317,14 @@ class AzurePrometheusConfig(PrometheusConfig):
             additional_labels=self.additional_labels,
         )
         # Ensure promtrix gets a real bool (not string) for managed identity
-        if self._prometrix_config:
-            object.__setattr__(
-                self._prometrix_config,
-                "azure_use_managed_id",
-                bool(self.azure_use_managed_id),
-            )
+        # fixing internal prometrix config issue
+        object.__setattr__(
+            self._prometrix_config,
+            "azure_use_managed_id",
+            bool(self.azure_use_managed_id),
+        )
 
-        if self._prometrix_config:
-            PrometheusAuthorization.azure_authorization(self._prometrix_config)
+        PrometheusAuthorization.azure_authorization(self._prometrix_config)
 
     @staticmethod
     def is_azure_config(config: dict[str, Any]) -> bool:
@@ -360,22 +359,6 @@ class AzurePrometheusConfig(PrometheusConfig):
         if not self._prometrix_config:
             logging.error("Prometrix Azure config not initialized")
             return False
-
-        # Ensure secret is plain string for prometrix (expects raw secret, not SecretStr)
-        secret_value = getattr(self._prometrix_config, "azure_client_secret", "")
-        if hasattr(secret_value, "get_secret_value"):
-            secret_value = secret_value.get_secret_value()
-            object.__setattr__(
-                self._prometrix_config, "azure_client_secret", secret_value
-            )
-
-        # Make sure managed id flag is boolean on the prometrix config
-        if hasattr(self._prometrix_config, "azure_use_managed_id"):
-            object.__setattr__(
-                self._prometrix_config,
-                "azure_use_managed_id",
-                bool(getattr(self._prometrix_config, "azure_use_managed_id", False)),
-            )
 
         success = PrometheusAuthorization.request_new_token(self._prometrix_config)
         if success:
