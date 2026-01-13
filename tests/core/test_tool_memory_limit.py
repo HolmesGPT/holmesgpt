@@ -10,11 +10,11 @@ from holmes.utils.memory_limit import (
 class TestGetUlimitPrefix:
     """Tests for get_ulimit_prefix function."""
 
-    def test_returns_ulimit_with_memory_limit(self):
-        """Test ulimit prefix includes memory limit."""
+    def test_returns_ulimit_command_with_default(self):
+        """Test ulimit prefix format with default value."""
         result = get_ulimit_prefix()
         expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
-        assert f"-v {expected_kb}" in result
+        assert result == f"ulimit -v {expected_kb} || true; "
 
 
 class TestCheckOomAndAppendHint:
