@@ -24,6 +24,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
+from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.kubectl.constants import SAFE_NAMESPACE_PATTERN
@@ -408,10 +409,26 @@ class BashExecutorToolset(BaseBashExecutorToolset):
         self._reload_llm_instructions()
 
     def _reload_llm_instructions(self):
+        """Reload LLM instructions with effective allow/deny lists."""
         template_file_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "bash_instructions.jinja2")
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+
+        # Compute effective lists (includes defaults if include_default_allow_deny_list is True)
+        config = self.config or BashExecutorConfig()
+        effective_allow, effective_deny = get_effective_lists(config)
+
+        # Create a config-like dict with effective lists for the template
+        effective_config = {
+            "allow": effective_allow,
+            "deny": effective_deny,
+        }
+
+        tool_names = [t.name for t in self.tools]
+        self.llm_instructions = load_and_render_prompt(
+            prompt=f"file://{template_file_path}",
+            context={"tool_names": tool_names, "config": effective_config},
+        )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> tuple[bool, str]:
         if config:
