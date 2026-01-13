@@ -220,6 +220,36 @@ holmes:
 * No additional headers or credentials are required
 * The Prometheus Frontend endpoint must be accessible from the cluster
 
+## Azure Managed Prometheus Configuration
+
+Before configuring Holmes, make sure you have:
+
+* An Azure Monitor workspace with Managed Prometheus enabled
+* A service principal (or managed identity) that has access to the workspace
+
+### Using a service principal (client secret)
+
+```yaml
+holmes:
+  toolsets:
+    prometheus/metrics:
+      enabled: true
+      config:
+        prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+  additionalEnvVars:
+    - name: AZURE_CLIENT_ID
+      value: "<your-app-client-id>"
+    - name: AZURE_TENANT_ID
+      value: "<your-tenant-id>"
+    - name: AZURE_CLIENT_SECRET
+      value: "<your-client-secret>"
+```
+
+**Notes:**
+- `prometheus_url` must point to the Azure Managed Prometheus workspace endpoint (include the trailing slash).
+- No extra headers are required; authentication is handled through Azure AD (service principal or managed identity).
+- SSL is enabled by default (`verify_ssl: true`). Disable only if you know you need to trust a custom cert.
+
 ## Grafana Cloud (Mimir) Configuration
 
 To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:

@@ -55,7 +55,7 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
     **Run HolmesGPT:**
 
     ```bash
-    holmes ask "show me dashboards related to CPU usage" --toolsets=toolsets.yaml
+    holmes ask "show me dashboards related to CPU usage" --custom-toolsets=toolsets.yaml
     ```
 
     After making changes to your toolsets file, run:
@@ -159,7 +159,7 @@ This example creates a toolset with advanced diagnostic tools for Kubernetes clu
     **Run HolmesGPT:**
 
     ```bash
-    holmes ask "check for any resource pressure in the cluster" --toolsets=toolsets.yaml
+    holmes ask "check for any resource pressure in the cluster" --custom-toolsets=toolsets.yaml
     ```
 
     After making changes to your toolsets file, run:
@@ -272,7 +272,7 @@ This example shows how to create a toolset for fetching information from GitHub 
     **Run HolmesGPT:**
 
     ```bash
-    holmes ask "check recent commits in robusta-dev/robusta repository" --toolsets=toolsets.yaml
+    holmes ask "check recent commits in robusta-dev/robusta repository" --custom-toolsets=toolsets.yaml
     ```
 
     After making changes to your toolsets file, run:
