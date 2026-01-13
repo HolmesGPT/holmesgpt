@@ -245,7 +245,7 @@ holmes:
       value: "<your-client-secret>"
 ```
 
-Notes:
+**Notes:**
 - `prometheus_url` must point to the Azure Managed Prometheus workspace endpoint (include the trailing slash).
 - No extra headers are required; authentication is handled through Azure AD (service principal or managed identity).
 - SSL is enabled by default (`verify_ssl: true`). Disable only if you know you need to trust a custom cert.
