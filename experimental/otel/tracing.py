@@ -18,14 +18,81 @@ from botocore.awsrequest import AWSRequest
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace import TracerProvider, ReadableSpan
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanProcessor, SpanExportResult
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.trace import Tracer, Status, StatusCode
+from opentelemetry.context import Context
 
 # Global tracer provider
 _tracer_provider: Optional[TracerProvider] = None
 _initialized = False
+
+
+def _get_otel_debug() -> bool:
+    """Check if OTEL debug logging is enabled."""
+    return os.environ.get("OTEL_DEBUG", "false").lower() == "true"
+
+
+class LoggingSpanProcessor(SpanProcessor):
+    """SpanProcessor that logs span lifecycle events for debugging."""
+
+    def __init__(self, wrapped_processor: SpanProcessor):
+        self._wrapped = wrapped_processor
+
+    def on_start(self, span: ReadableSpan, parent_context: Optional[Context] = None) -> None:
+        if _get_otel_debug():
+            logging.info(
+                f"[OTEL] Span STARTED: name='{span.name}' "
+                f"trace_id={format(span.context.trace_id, '032x')} "
+                f"span_id={format(span.context.span_id, '016x')}"
+            )
+        self._wrapped.on_start(span, parent_context)
+
+    def on_end(self, span: ReadableSpan) -> None:
+        if _get_otel_debug():
+            duration_ms = (span.end_time - span.start_time) / 1_000_000 if span.end_time and span.start_time else 0
+            logging.info(
+                f"[OTEL] Span ENDED: name='{span.name}' "
+                f"trace_id={format(span.context.trace_id, '032x')} "
+                f"span_id={format(span.context.span_id, '016x')} "
+                f"duration={duration_ms:.2f}ms "
+                f"status={span.status.status_code.name}"
+            )
+        self._wrapped.on_end(span)
+
+    def shutdown(self) -> None:
+        self._wrapped.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self._wrapped.force_flush(timeout_millis)
+
+
+class LoggingSpanExporter:
+    """Wrapper around SpanExporter that logs export results."""
+
+    def __init__(self, wrapped_exporter: OTLPSpanExporter):
+        self._wrapped = wrapped_exporter
+
+    def export(self, spans) -> SpanExportResult:
+        result = self._wrapped.export(spans)
+        if _get_otel_debug():
+            span_names = [s.name for s in spans]
+            if result == SpanExportResult.SUCCESS:
+                logging.info(
+                    f"[OTEL] Export SUCCESS: {len(spans)} spans exported - {span_names}"
+                )
+            else:
+                logging.error(
+                    f"[OTEL] Export FAILED: {len(spans)} spans failed to export - {span_names}"
+                )
+        return result
+
+    def shutdown(self) -> None:
+        self._wrapped.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self._wrapped.force_flush(timeout_millis)
 
 
 def _get_otel_enabled() -> bool:
@@ -292,17 +359,29 @@ def init_otel_tracer() -> bool:
             )
             exporter = OTLPSpanExporter(endpoint=otel_endpoint)
 
+        # Wrap exporter with logging if debug enabled
+        if _get_otel_debug():
+            logging.info("[OTEL] Debug mode enabled - span lifecycle will be logged")
+            exporter = LoggingSpanExporter(exporter)
+
         # Create tracer provider
         _tracer_provider = TracerProvider(resource=resource)
 
         # Add batch processor with reduced batch size to prevent payload too large errors
         # Based on ml-commons pattern: max_export_batch_size=32
-        processor = BatchSpanProcessor(
+        batch_processor = BatchSpanProcessor(
             exporter,
             max_queue_size=2048,
             max_export_batch_size=32,  # Reduced to prevent payload too large
             schedule_delay_millis=1000,
         )
+
+        # Wrap processor with logging if debug enabled
+        if _get_otel_debug():
+            processor = LoggingSpanProcessor(batch_processor)
+        else:
+            processor = batch_processor
+
         _tracer_provider.add_span_processor(processor)
 
         # Set as global tracer provider

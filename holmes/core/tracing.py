@@ -6,7 +6,9 @@ import socket
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
+
+from opentelemetry import trace as otel_trace
 
 BRAINTRUST_API_KEY = os.environ.get("BRAINTRUST_API_KEY")
 BRAINTRUST_ORG = os.environ.get("BRAINTRUST_ORG", "robustadev")
@@ -273,24 +275,270 @@ class BraintrustTracer:
         return WrappedLiteLLM(llm_module)
 
 
+# Mapping from SpanType to OTEL Gen AI semantic convention span names
+SPAN_TYPE_TO_OTEL = {
+    SpanType.LLM: "chat",
+    SpanType.TOOL: "execute_tool",
+    SpanType.TASK: "invoke_agent",
+    SpanType.FUNCTION: "execute_tool",
+    SpanType.EVAL: "invoke_agent",
+    SpanType.SCORE: "score",
+}
+
+
+class OTELSpan:
+    """Wrapper around OTEL Span that implements Braintrust-compatible interface."""
+
+    def __init__(self, span: otel_trace.Span, tracer: "OTELTracer"):
+        self._span = span
+        self._tracer = tracer
+        self._context = otel_trace.set_span_in_context(span)
+
+    def start_span(
+        self, name: Optional[str] = None, span_type: Optional[SpanType] = None, **kwargs
+    ) -> "OTELSpan":
+        """Create a child span."""
+        otel_name = self._tracer._get_otel_span_name(name or "", span_type)
+        child_span = self._tracer._native_tracer.start_span(
+            otel_name, context=self._context
+        )
+        return OTELSpan(child_span, self._tracer)
+
+    def log(
+        self,
+        input: Optional[Any] = None,
+        output: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> None:
+        """Log data to span as attributes (Braintrust compatibility)."""
+        from experimental.otel.attributes import truncate
+
+        if input is not None:
+            self._span.set_attribute("gen_ai.prompt", truncate(str(input)))
+        if output is not None:
+            self._span.set_attribute("gen_ai.completion", truncate(str(output)))
+        if metadata:
+            for key, value in metadata.items():
+                self._span.set_attribute(f"metadata.{key}", str(value))
+
+    def set_attributes(
+        self,
+        name: Optional[str] = None,
+        type: Optional[str] = None,
+        span_attributes: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Set span attributes."""
+        if name:
+            self._span.set_attribute("span.name", name)
+        if span_attributes:
+            for key, value in span_attributes.items():
+                self._span.set_attribute(key, str(value) if value is not None else "")
+
+    def end(self) -> None:
+        """End the span."""
+        self._span.end()
+
+    def __enter__(self) -> "OTELSpan":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if exc_val:
+            from experimental.otel.tracing import set_span_error
+
+            set_span_error(self._span, exc_val)
+        self.end()
+
+
+class OTELTracer:
+    """OpenTelemetry implementation of tracing."""
+
+    def __init__(self, service_name: str = "holmesgpt"):
+        self._service_name = service_name
+        self._initialized = False
+        self._native_tracer: Optional[otel_trace.Tracer] = None
+
+    def _ensure_initialized(self) -> None:
+        """Lazy initialization of OTEL tracer."""
+        if not self._initialized:
+            from experimental.otel.tracing import get_tracer, init_otel_tracer
+
+            init_otel_tracer()
+            self._native_tracer = get_tracer(self._service_name)
+            self._initialized = True
+
+    def _get_otel_span_name(self, name: str, span_type: Optional[SpanType]) -> str:
+        """Convert span name to Gen AI semantic convention format."""
+        if span_type:
+            prefix = SPAN_TYPE_TO_OTEL.get(span_type, "")
+            if prefix:
+                return f"{prefix} {name}" if name else prefix
+        return name
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        """No-op for OTEL - experiments are a Braintrust concept.
+
+        OTEL uses traces, not experiments. This method exists for API compatibility.
+        Returns None to indicate no experiment context.
+        """
+        self._ensure_initialized()
+        return None
+
+    def start_trace(
+        self, name: str, span_type: Optional[SpanType] = None
+    ) -> Union["OTELSpan", DummySpan]:
+        """Start a root trace span.
+
+        Args:
+            name: Human-readable span name
+            span_type: Type of span for Gen AI semantic conventions
+
+        Returns:
+            OTELSpan that can be used as context manager
+        """
+        self._ensure_initialized()
+
+        if not self._native_tracer:
+            return DummySpan()
+
+        otel_name = self._get_otel_span_name(name, span_type)
+        span = self._native_tracer.start_span(otel_name)
+
+        # Set Gen AI attributes based on span type
+        if span_type:
+            operation_name = SPAN_TYPE_TO_OTEL.get(span_type, "unknown")
+            span.set_attribute("gen_ai.operation.name", operation_name)
+
+        return OTELSpan(span, self)
+
+    def get_trace_url(self) -> Optional[str]:
+        """OTEL doesn't have a direct trace URL - depends on backend.
+
+        Returns None. Users should check their observability backend
+        (OpenSearch, Jaeger, etc.) for trace visualization.
+        """
+        return None
+
+    def wrap_llm(self, llm_module):
+        """No automatic LLM wrapping for OTEL.
+
+        OTEL instrumentation happens via manual spans, not automatic wrapping.
+        For automatic LiteLLM instrumentation, use OpenTelemetry's litellm
+        instrumentation separately.
+        """
+        return llm_module
+
+
+class CompositeSpan:
+    """Span that delegates to multiple underlying spans."""
+
+    def __init__(self, spans: List[Union[OTELSpan, DummySpan, Any]]):
+        self._spans = spans
+
+    def start_span(
+        self, name: Optional[str] = None, span_type: Optional[SpanType] = None, **kwargs
+    ) -> "CompositeSpan":
+        """Create child spans on all underlying spans."""
+        child_spans = [s.start_span(name, span_type, **kwargs) for s in self._spans]
+        return CompositeSpan(child_spans)
+
+    def log(self, *args, **kwargs) -> None:
+        """Log to all underlying spans."""
+        for span in self._spans:
+            span.log(*args, **kwargs)
+
+    def set_attributes(self, **kwargs) -> None:
+        """Set attributes on all underlying spans."""
+        for span in self._spans:
+            span.set_attributes(**kwargs)
+
+    def end(self) -> None:
+        """End all underlying spans."""
+        for span in self._spans:
+            span.end()
+
+    def __enter__(self) -> "CompositeSpan":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        for span in self._spans:
+            span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class CompositeTracer:
+    """Tracer that delegates to multiple tracers for dual tracing."""
+
+    def __init__(self, tracers: List[Union[OTELTracer, "BraintrustTracer", DummyTracer]]):
+        self._tracers = tracers
+
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ):
+        """Start experiment on all tracers that support it."""
+        for tracer in self._tracers:
+            tracer.start_experiment(experiment_name, additional_metadata)
+
+    def start_trace(
+        self, name: str, span_type: Optional[SpanType] = None
+    ) -> CompositeSpan:
+        """Start traces on all underlying tracers."""
+        spans = [tracer.start_trace(name, span_type) for tracer in self._tracers]
+        return CompositeSpan(spans)
+
+    def get_trace_url(self) -> Optional[str]:
+        """Get trace URL from the first tracer that has one."""
+        for tracer in self._tracers:
+            url = tracer.get_trace_url()
+            if url:
+                return url
+        return None
+
+    def wrap_llm(self, llm_module):
+        """Wrap LLM with all tracers that support it."""
+        result = llm_module
+        for tracer in self._tracers:
+            result = tracer.wrap_llm(result)
+        return result
+
+
 class TracingFactory:
     """Factory for creating tracer instances."""
 
+    _otel_initialized = False
+
     @staticmethod
-    def create_tracer(trace_type: Optional[str], project: str = BRAINTRUST_PROJECT):
-        """Create a tracer instance based on the trace type.
+    def init_otel() -> bool:
+        """Early OTEL initialization for servers.
 
-        Args:
-            trace_type: Type of tracing ('braintrust', etc.)
-            project: Project name for tracing
-
-        Returns:
-            Tracer instance if tracing enabled, DummySpan if disabled
+        Call at server startup for optimal performance.
+        Returns True if initialization succeeded.
         """
-        if not trace_type:
-            return DummyTracer()
+        if TracingFactory._otel_initialized:
+            return True
+        try:
+            from experimental.otel.tracing import init_otel_tracer
 
-        if trace_type.lower() == "braintrust":
+            result = init_otel_tracer()
+            TracingFactory._otel_initialized = result
+            return result
+        except Exception as e:
+            logging.warning(f"Failed to initialize OTEL: {e}")
+            return False
+
+    @staticmethod
+    def _create_single_tracer(
+        trace_type: str, project: str = BRAINTRUST_PROJECT
+    ) -> Union[OTELTracer, "BraintrustTracer", DummyTracer]:
+        """Create a single tracer instance based on the trace type."""
+        trace_type_lower = trace_type.lower().strip()
+
+        if trace_type_lower == "braintrust":
             if not BRAINTRUST_AVAILABLE:
                 logging.warning(
                     "Braintrust tracing requested but braintrust package not available"
@@ -305,5 +553,47 @@ class TracingFactory:
 
             return BraintrustTracer(project=project)
 
+        elif trace_type_lower == "otel":
+            if not os.environ.get("OTEL_ENABLED", "").lower() == "true":
+                logging.warning(
+                    "OTEL tracing requested but OTEL_ENABLED not set to 'true'"
+                )
+                return DummyTracer()
+            return OTELTracer()
+
         logging.warning(f"Unknown trace type: {trace_type}")
         return DummyTracer()
+
+    @staticmethod
+    def create_tracer(trace_type: Optional[str], project: str = BRAINTRUST_PROJECT):
+        """Create a tracer instance based on the trace type.
+
+        Args:
+            trace_type: Type of tracing. Can be:
+                - 'braintrust': For evaluations and experiments
+                - 'otel': For production observability (requires OTEL_ENABLED=true)
+                - 'braintrust,otel': For dual tracing (both systems)
+                - None: Returns DummyTracer
+            project: Project name for Braintrust tracing
+
+        Returns:
+            Tracer instance if tracing enabled, DummyTracer if disabled
+        """
+        if not trace_type:
+            return DummyTracer()
+
+        # Support multiple tracers: "braintrust,otel"
+        if "," in trace_type:
+            tracers = [
+                TracingFactory._create_single_tracer(t.strip(), project)
+                for t in trace_type.split(",")
+            ]
+            # Filter out DummyTracers
+            active_tracers = [t for t in tracers if not isinstance(t, DummyTracer)]
+            if not active_tracers:
+                return DummyTracer()
+            if len(active_tracers) == 1:
+                return active_tracers[0]
+            return CompositeTracer(active_tracers)
+
+        return TracingFactory._create_single_tracer(trace_type, project)

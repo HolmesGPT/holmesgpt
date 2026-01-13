@@ -25,8 +25,19 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 from opentelemetry import trace
-from experimental.otel.tracing import init_otel_tracer, get_tracer, set_span_error
+from holmes.core.tracing import TracingFactory
+from experimental.otel.tracing import get_tracer, set_span_error
 from experimental.otel import attributes as otel_attr
+from experimental.otel.metrics import (
+    init_otel_metrics,
+    shutdown_otel_metrics,
+    record_token_usage,
+    record_operation_duration,
+    record_tool_duration,
+    increment_iterations,
+    increment_tool_calls,
+    increment_errors,
+)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -83,11 +94,16 @@ def init_logging():
 
 init_logging()
 
-# Initialize OTEL tracer if enabled
-otel_initialized = init_otel_tracer()
+# Initialize OTEL tracer if enabled (using unified TracingFactory)
+otel_initialized = TracingFactory.init_otel()
 if otel_initialized:
     logging.info("OTEL tracing enabled for AG-UI endpoint")
 tracer = get_tracer("holmesgpt.agui")
+
+# Initialize OTEL metrics if enabled
+metrics_initialized = init_otel_metrics()
+if metrics_initialized:
+    logging.info("OTEL metrics enabled for AG-UI endpoint")
 
 config = Config.load_from_env()
 dal = config.dal
@@ -141,16 +157,23 @@ def agui_chat(input_data: RunAgentInput, request: Request):
 
     async def event_generator(message_history):
         # Start OTEL root span for this agent run - must be inside generator for streaming
-        root_span = tracer.start_span(otel_attr.SPAN_AGENT_RUN)
+        # Following Gen AI semantic conventions: "invoke_agent {agent_name}"
+        model_name = chat_request.model or "default"
+        operation_start_time = time.time()  # Track for operation duration metric
+        root_span = tracer.start_span(f"{otel_attr.SPAN_INVOKE_AGENT} HolmesGPT")
         try:
             # Set correlation attributes for linking traces
             root_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
             root_span.set_attribute(
                 otel_attr.CONVERSATION_ID, input_data.thread_id or ""
             )
-            root_span.set_attribute(otel_attr.AGENT_TYPE, "HolmesGPT")
-            root_span.set_attribute(otel_attr.MODEL, chat_request.model or "default")
+            root_span.set_attribute(otel_attr.OPERATION_NAME, "invoke_agent")
+            root_span.set_attribute(otel_attr.AGENT_NAME, "HolmesGPT")
+            root_span.set_attribute(otel_attr.MODEL, model_name)
 
+            logging.info(
+                f"[AG-UI] Starting agent run for run_id={input_data.run_id}, sending RUN_STARTED"
+            )
             yield encoder.encode(
                 RunStartedEvent(
                     type=EventType.RUN_STARTED,
@@ -166,6 +189,14 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             tool_start_times: dict[
                 str, float
             ] = {}  # Track tool start times for duration calculation
+
+            # Track current LLM iteration span for proper span hierarchy
+            current_chat_span = None
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cost_usd = 0.0
+            iteration_count = 0
+
             for chunk in hgpt_chat_stream_response:
                 if hasattr(chunk, "event"):
                     event_type = (
@@ -177,6 +208,64 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 else:
                     event_type = "unknown"
                     logging.debug(f"Streaming chunk: {chunk}")
+                # Handle LLM iteration events for proper span hierarchy
+                if event_type == StreamEvents.LLM_ITERATION_START:
+                    # End any existing chat span before starting new one
+                    if current_chat_span is not None:
+                        current_chat_span.end()
+
+                    # Create new chat span as child of root span
+                    # Following Gen AI semantic conventions: "chat {model}"
+                    iteration_model = chunk.data.get("model", model_name) if hasattr(chunk, "data") else model_name
+                    current_chat_span = tracer.start_span(
+                        f"{otel_attr.SPAN_CHAT} {iteration_model}",
+                        context=trace.set_span_in_context(root_span),
+                    )
+                    current_iteration = chunk.data.get("iteration", 0) if hasattr(chunk, "data") else 0
+                    current_chat_span.set_attribute(otel_attr.OPERATION_NAME, "chat")
+                    current_chat_span.set_attribute(otel_attr.MODEL, iteration_model)
+                    current_chat_span.set_attribute(otel_attr.AGENT_ITERATION, current_iteration)
+                    iteration_count = current_iteration
+                    continue
+
+                elif event_type == StreamEvents.LLM_ITERATION_COMPLETE:
+                    if current_chat_span is not None and hasattr(chunk, "data"):
+                        # Set token usage and cost attributes on chat span
+                        prompt_tokens = chunk.data.get("prompt_tokens", 0)
+                        completion_tokens = chunk.data.get("completion_tokens", 0)
+                        total_tokens = chunk.data.get("total_tokens", 0)
+                        cost_usd = chunk.data.get("cost_usd", 0.0)
+                        finish_reason = chunk.data.get("finish_reason")
+                        iteration_model = chunk.data.get("model", model_name)
+
+                        current_chat_span.set_attribute(otel_attr.INPUT_TOKENS, prompt_tokens)
+                        current_chat_span.set_attribute(otel_attr.OUTPUT_TOKENS, completion_tokens)
+                        current_chat_span.set_attribute(otel_attr.TOTAL_TOKENS, total_tokens)
+                        if cost_usd:
+                            current_chat_span.set_attribute(otel_attr.COST_USD, cost_usd)
+                        if finish_reason:
+                            current_chat_span.set_attribute(otel_attr.FINISH_REASON, finish_reason)
+
+                        # Record token usage metrics
+                        record_token_usage(
+                            tokens=prompt_tokens,
+                            token_type=otel_attr.TOKEN_TYPE_INPUT,
+                            model=iteration_model,
+                            operation_name="chat",
+                        )
+                        record_token_usage(
+                            tokens=completion_tokens,
+                            token_type=otel_attr.TOKEN_TYPE_OUTPUT,
+                            model=iteration_model,
+                            operation_name="chat",
+                        )
+
+                        # Accumulate totals for root span
+                        total_input_tokens += prompt_tokens
+                        total_output_tokens += completion_tokens
+                        total_cost_usd += cost_usd or 0.0
+                    continue
+
                 if hasattr(chunk, "data"):
                     tool_name = chunk.data.get(
                         "tool_name", chunk.data.get("name", "Tool")
@@ -206,6 +295,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             f"🔧 TOOL_RESULT received - tool_name: {tool_name}"
                         )
                         # Create OTEL child span for tool execution
+                        # Parent is current chat span if available, otherwise root span
                         tool_call_id = chunk.data.get(
                             "tool_call_id", chunk.data.get("id", "unknown")
                         )
@@ -215,10 +305,13 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             int((time.time() - start_time) * 1000) if start_time else 0
                         )
 
+                        # Tool spans are children of the current chat span (proper hierarchy)
+                        parent_span = current_chat_span if current_chat_span else root_span
                         tool_span = tracer.start_span(
-                            otel_attr.SPAN_TOOL_EXECUTE,
-                            context=trace.set_span_in_context(root_span),
+                            f"{otel_attr.SPAN_EXECUTE_TOOL} {tool_name}",
+                            context=trace.set_span_in_context(parent_span),
                         )
+                        tool_span.set_attribute(otel_attr.OPERATION_NAME, "execute_tool")
                         tool_span.set_attribute(otel_attr.TOOL_NAME, tool_name)
                         tool_span.set_attribute(otel_attr.TOOL_CALL_ID, tool_call_id)
                         tool_span.set_attribute(otel_attr.TOOL_DURATION_MS, duration_ms)
@@ -227,6 +320,14 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             otel_attr.truncate(str(chunk.data.get("result", {}))),
                         )
                         tool_span.end()
+
+                        # Record tool execution metrics
+                        record_tool_duration(
+                            duration_seconds=duration_ms / 1000.0,
+                            tool_name=tool_name,
+                            success=True,
+                        )
+                        increment_tool_calls(count=1, tool_name=tool_name, model=model_name)
 
                         front_end_tool_invoked = False
                         if _should_graph_timeseries_data(tool_name=tool_name):
@@ -274,10 +375,36 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             ):
                                 yield encoder.encode(event)
 
-            # Set final attributes on root span
-            root_span.set_attribute("tool_call_count", tool_call_count)
+            # End the last chat span if still open
+            if current_chat_span is not None:
+                current_chat_span.end()
+
+            # Calculate total operation duration
+            operation_duration = time.time() - operation_start_time
+
+            # Set final attributes on root span with accumulated metrics
+            root_span.set_attribute(otel_attr.METRIC_AGENT_TOOL_CALLS, tool_call_count)
+            root_span.set_attribute(otel_attr.METRIC_AGENT_ITERATIONS, iteration_count)
+            root_span.set_attribute(otel_attr.INPUT_TOKENS, total_input_tokens)
+            root_span.set_attribute(otel_attr.OUTPUT_TOKENS, total_output_tokens)
+            root_span.set_attribute(otel_attr.TOTAL_TOKENS, total_input_tokens + total_output_tokens)
+            if total_cost_usd > 0:
+                root_span.set_attribute(otel_attr.COST_USD, total_cost_usd)
             root_span.set_attribute(otel_attr.RESULT_SUCCESS, True)
 
+            # Record final metrics
+            record_operation_duration(
+                duration_seconds=operation_duration,
+                operation_name="invoke_agent",
+                model=model_name,
+                agent_name="HolmesGPT",
+                success=True,
+            )
+            increment_iterations(count=iteration_count, model=model_name, agent_name="HolmesGPT")
+
+            logging.info(
+                f"[AG-UI] Stream completed for run_id={input_data.run_id}, sending RUN_FINISHED"
+            )
             yield encoder.encode(
                 RunFinishedEvent(
                     type=EventType.RUN_FINISHED,
@@ -286,8 +413,28 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 )
             )
         except Exception as e:
-            logging.error(f"Error in /api/agui/chat: {e}", exc_info=True)
+            logging.error(f"[AG-UI] Error in /api/agui/chat: {e}", exc_info=True)
+            # End the chat span if still open on error
+            if current_chat_span is not None:
+                set_span_error(current_chat_span, e)
+                current_chat_span.end()
             set_span_error(root_span, e)
+
+            # Record error metrics
+            error_type = type(e).__name__
+            increment_errors(count=1, error_type=error_type, operation_name="invoke_agent")
+            operation_duration = time.time() - operation_start_time
+            record_operation_duration(
+                duration_seconds=operation_duration,
+                operation_name="invoke_agent",
+                model=model_name,
+                agent_name="HolmesGPT",
+                success=False,
+            )
+
+            logging.info(
+                f"[AG-UI] Sending RUN_ERROR for run_id={input_data.run_id}"
+            )
             yield encoder.encode(
                 RunErrorEvent(
                     type=EventType.RUN_ERROR,

@@ -48,6 +48,8 @@ from holmes.utils.stream import (
     StreamMessage,
     add_token_count_to_metadata,
     build_stream_event_token_count,
+    build_stream_event_llm_iteration_start,
+    build_stream_event_llm_iteration_complete,
 )
 from holmes.utils.tags import parse_messages_tags
 
@@ -997,6 +999,13 @@ class ToolCallingLLM:
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
+            # Emit LLM iteration start event for OTEL tracing
+            yield build_stream_event_llm_iteration_start(
+                iteration=i,
+                model=self.llm.model,
+            )
+
+
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
@@ -1010,6 +1019,19 @@ class ToolCallingLLM:
 
                 # Accumulate cost information for this iteration
                 _process_cost_info(full_response, costs, log_prefix="LLM iteration")
+
+                # Emit LLM iteration complete event for OTEL tracing
+                usage = getattr(full_response, "usage", None)
+                finish_reasons = getattr(full_response.choices[0], "finish_reason", None) if full_response.choices else None
+                yield build_stream_event_llm_iteration_complete(
+                    iteration=i,
+                    model=self.llm.model,
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+                    total_tokens=getattr(usage, "total_tokens", 0) if usage else 0,
+                    finish_reason=finish_reasons,
+                    cost_usd=_extract_cost_from_response(full_response),
+                )
 
             # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
             except BadRequestError as e:

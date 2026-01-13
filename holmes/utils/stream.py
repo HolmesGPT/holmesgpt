@@ -21,6 +21,9 @@ class StreamEvents(str, Enum):
     APPROVAL_REQUIRED = "approval_required"
     TOKEN_COUNT = "token_count"
     CONVERSATION_HISTORY_COMPACTED = "conversation_history_compacted"
+    # LLM iteration events for OTEL tracing
+    LLM_ITERATION_START = "llm_iteration_start"
+    LLM_ITERATION_COMPLETE = "llm_iteration_complete"
 
 
 class StreamMessage(BaseModel):
@@ -124,4 +127,60 @@ def build_stream_event_token_count(metadata: dict) -> StreamMessage:
         data={
             "metadata": metadata,
         },
+    )
+
+
+def build_stream_event_llm_iteration_start(
+    iteration: int,
+    model: str,
+) -> StreamMessage:
+    """Build a stream event for the start of an LLM iteration.
+
+    Args:
+        iteration: The iteration number (1-indexed)
+        model: The model being used for this iteration
+    """
+    return StreamMessage(
+        event=StreamEvents.LLM_ITERATION_START,
+        data={
+            "iteration": iteration,
+            "model": model,
+        },
+    )
+
+
+def build_stream_event_llm_iteration_complete(
+    iteration: int,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+    finish_reason: Optional[str] = None,
+    cost_usd: Optional[float] = None,
+) -> StreamMessage:
+    """Build a stream event for completion of an LLM iteration.
+
+    Args:
+        iteration: The iteration number (1-indexed)
+        model: The model used for this iteration
+        prompt_tokens: Number of input tokens
+        completion_tokens: Number of output tokens
+        total_tokens: Total tokens used
+        finish_reason: Why the LLM stopped (e.g., 'stop', 'tool_calls')
+        cost_usd: Cost in USD for this iteration (if available)
+    """
+    data = {
+        "iteration": iteration,
+        "model": model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+    if finish_reason is not None:
+        data["finish_reason"] = finish_reason
+    if cost_usd is not None:
+        data["cost_usd"] = cost_usd
+    return StreamMessage(
+        event=StreamEvents.LLM_ITERATION_COMPLETE,
+        data=data,
     )

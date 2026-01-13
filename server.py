@@ -56,9 +56,20 @@ from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
-from holmes.utils.stream import stream_chat_formatter
-
+from holmes.core.tracing import TracingFactory, SpanType
+from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
 # removed: add_runbooks_to_user_prompt
+
+
+def init_otel():
+    """Initialize OTEL tracing for production observability if enabled."""
+    if os.environ.get("OTEL_ENABLED", "").lower() == "true":
+        if TracingFactory.init_otel():
+            logging.info("OTEL tracing enabled for Holmes server")
+            return True
+        else:
+            logging.warning("OTEL tracing initialization failed")
+    return False
 
 
 def init_logging():
@@ -92,6 +103,8 @@ init_logging()
 
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
+
+otel_enabled = init_otel()
 
 
 def init_config():
@@ -240,6 +253,45 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+
+
+# OTEL tracing middleware - creates root spans for API requests
+if otel_enabled:
+
+    @app.middleware("http")
+    async def otel_tracing_middleware(request: Request, call_next):
+        """Create OTEL spans for incoming API requests."""
+        # Skip health checks and static assets
+        if request.url.path in ("/healthz", "/readyz", "/docs", "/openapi.json"):
+            return await call_next(request)
+
+        tracer = TracingFactory.create_tracer("otel")
+        span_name = f"{request.method} {request.url.path}"
+
+        with tracer.start_trace(span_name, SpanType.TASK) as span:
+            span.set_attributes(
+                span_attributes={
+                    "http.method": request.method,
+                    "http.url": str(request.url),
+                    "http.route": request.url.path,
+                }
+            )
+            try:
+                response = await call_next(request)
+                span.set_attributes(
+                    span_attributes={"http.status_code": str(response.status_code)}
+                )
+                return response
+            except Exception as e:
+                span.set_attributes(
+                    span_attributes={
+                        "error": "true",
+                        "error.type": type(e).__name__,
+                        "error.message": str(e),
+                    }
+                )
+                raise
+
 
 if LOG_PERFORMANCE:
 

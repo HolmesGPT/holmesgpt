@@ -185,7 +185,23 @@ class Config(RobustaBaseConfig):
 
     @classmethod
     def load_from_env(cls):
-        kwargs = {}
+        """
+        Load configuration from the default config file and override with environment variables.
+
+        This method first attempts to load settings from the default config file
+        (~/.holmes/config.yaml), then applies any environment variable overrides.
+        This allows complex configurations (like toolsets) to be defined in the config
+        file while still supporting environment variable overrides for simple values.
+        """
+        # First, try to load from the default config file
+        config_file = Path(DEFAULT_CONFIG_LOCATION)
+        config_from_file: Optional[Config] = None
+        if config_file.exists():
+            logging.debug(f"Loading config from {config_file}")
+            config_from_file = load_model_from_file(cls, config_file)
+
+        # Collect environment variable overrides
+        env_overrides = {}
         for field_name in [
             "model",
             "fast_model",
@@ -210,10 +226,20 @@ class Config(RobustaBaseConfig):
         ]:
             val = os.getenv(field_name.upper(), None)
             if val is not None:
-                kwargs[field_name] = val
-        kwargs["cluster_name"] = Config.__get_cluster_name()
-        kwargs["should_try_robusta_ai"] = True
-        result = cls(**kwargs)
+                env_overrides[field_name] = val
+
+        # Always set these values
+        env_overrides["cluster_name"] = Config.__get_cluster_name()
+        env_overrides["should_try_robusta_ai"] = True
+
+        # Merge config file with env overrides
+        if config_from_file is None:
+            result = cls(**env_overrides)
+        else:
+            merged_config = config_from_file.model_dump()
+            merged_config.update(env_overrides)
+            result = cls(**merged_config)
+
         result.log_useful_info()
         return result
 
