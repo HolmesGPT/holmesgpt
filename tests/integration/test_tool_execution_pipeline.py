@@ -3,11 +3,19 @@ Integration tests for Phase 2.2: Tool Execution Pipeline with transformers.
 
 These tests verify the complete tool execution flow with transformers
 in a more realistic environment.
+
+Note: These tests execute real shell commands via YAMLTool, which uses
+ulimit for memory protection. On macOS, ulimit -v fails and outputs an
+error message that gets captured in stdout (since stderr is redirected).
+These tests are skipped on systems where ulimit doesn't work cleanly.
 """
 
+import subprocess
 import time
 from typing import Dict
 from unittest.mock import patch
+
+import pytest
 
 from holmes.core.tools import (
     StructuredToolResult,
@@ -23,6 +31,22 @@ from holmes.core.transformers import (
     registry,
 )
 from tests.conftest import create_mock_tool_invoke_context
+
+
+def _ulimit_works() -> bool:
+    """Check if ulimit -v works without producing stderr output."""
+    result = subprocess.run(
+        "ulimit -v 1048576 2>&1",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    # If there's any output, ulimit is producing errors
+    return result.stdout.strip() == "" and result.returncode == 0
+
+
+ULIMIT_WORKS = _ulimit_works()
+SKIP_REASON = "ulimit -v not supported on this system (e.g., macOS)"
 
 
 class MockLLMSummarizeTransformer(BaseTransformer):
@@ -46,6 +70,7 @@ class MockLLMSummarizeTransformer(BaseTransformer):
         return "llm_summarize"
 
 
+@pytest.mark.skipif(not ULIMIT_WORKS, reason=SKIP_REASON)
 class TestToolExecutionPipelineIntegration:
     """Integration tests for complete tool execution pipeline."""
 
