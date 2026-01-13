@@ -7,5 +7,4 @@ description: |
   'git stash' can do show (read) or pop/push/apply (write), so we need 'git stash show' not just 'git stash'.
 include_tool_calls: true
 tags:
-  - kubernetes
   - question-answer

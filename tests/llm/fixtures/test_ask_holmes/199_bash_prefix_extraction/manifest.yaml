@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: memory-hog
+  name: data-processor
   namespace: app-190
   labels:
     app: bash-test

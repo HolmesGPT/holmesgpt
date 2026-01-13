@@ -10,13 +10,19 @@ before_test: |
   kubectl create namespace app-188 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f manifest.yaml
   # Wait for secret to exist
+  SECRET_CREATED=false
   for i in {1..10}; do
     if kubectl get secret db-credentials -n app-188 >/dev/null 2>&1; then
       echo "Secret created!"
+      SECRET_CREATED=true
       break
     fi
     sleep 1
   done
+  if [ "$SECRET_CREATED" = false ]; then
+    echo "Secret not created after 10 seconds"
+    exit 1
+  fi
 after_test: |
   kubectl delete namespace app-188 --ignore-not-found
 tags:

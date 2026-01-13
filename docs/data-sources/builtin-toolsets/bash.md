@@ -58,7 +58,7 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
     - JSON: `jq`, `base64`
     - System: `ls`, `find`, `ps`, `df`, `du`
 
-    See [default_lists.py](https://github.com/robusta-dev/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py) for the complete list.
+    See [default_lists.py](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py) for the complete list.
 
 ## Command Approval
 

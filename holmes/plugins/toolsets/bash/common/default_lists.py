@@ -52,6 +52,8 @@ DEFAULT_ALLOW_LIST: List[str] = [
     # Archive inspection
     "tar -tf",
     "tar -tvf",
+    "tar -tfv",
+    "tar -ftv",
     "gzip -l",
     "zcat",
     "zgrep",
