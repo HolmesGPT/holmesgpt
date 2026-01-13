@@ -1,5 +1,5 @@
 import json
-from typing import Optional
+from typing import List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -138,6 +138,7 @@ def test_streaming_chat_approval_workflow_requires_approval(
         user_approved: bool,
         tool_call_id: str,
         tool_number: Optional[int] = None,
+        session_approved_prefixes: Optional[List[str]] = None,
     ) -> StructuredToolResult:
         return StructuredToolResult(
             status=StructuredToolResultStatus.APPROVAL_REQUIRED,
