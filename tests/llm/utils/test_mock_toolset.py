@@ -643,6 +643,7 @@ class TestMockToolsMatching:
                     test_case_folder=tmpdir,
                     mock_generation_config=mock_config,
                     request=mock_request,
+                    allow_toolset_failures=True,  # Not testing prereqs, just mock generation
                 )
 
                 # Find the kubectl_describe tool and mock its _invoke method

@@ -86,6 +86,7 @@ class GrafanaLokiToolset(BaseGrafanaToolset):
                 start=start,
                 end=end,
                 limit=1,
+                verify_ssl=c.verify_ssl,
             )
         except Exception as e:
             return False, f"Unable to connect to Loki.\n{str(e)}"
@@ -157,6 +158,7 @@ class LokiQuery(Tool):
                 start=start,
                 end=end,
                 limit=params.get("limit") or DEFAULT_LOG_LIMIT,
+                verify_ssl=config.verify_ssl,
             )
 
             explore_url = _build_grafana_loki_explore_url(
