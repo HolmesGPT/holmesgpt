@@ -2,6 +2,7 @@ import pytest
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 from holmes.utils.memory_limit import (
+    TOOL_PROCESS_LIMIT,
     check_oom_and_append_hint,
     get_ulimit_prefix,
 )
@@ -10,11 +11,12 @@ from holmes.utils.memory_limit import (
 class TestGetUlimitPrefix:
     """Tests for get_ulimit_prefix function."""
 
-    def test_returns_ulimit_command_with_default(self, monkeypatch):
-        """Test ulimit prefix format with default value."""
+    def test_returns_ulimit_with_memory_and_process_limits(self):
+        """Test ulimit prefix includes both memory and process limits."""
         result = get_ulimit_prefix()
         expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
-        assert result == f"ulimit -v {expected_kb} || true; "
+        assert f"-v {expected_kb}" in result
+        assert f"-u {TOOL_PROCESS_LIMIT}" in result
 
 
 class TestCheckOomAndAppendHint:

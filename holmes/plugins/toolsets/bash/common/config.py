@@ -6,7 +6,6 @@ from pydantic import BaseModel
 HARDCODED_BLOCKS: List[str] = [
     "sudo",
     "su",
-    ":(){",  # Fork bomb pattern
 ]
 
 

@@ -10,7 +10,7 @@ Redesigned bash toolset for HolmesGPT with prefix-based command validation and u
 
 **Key features:**
 - Pre-configured allow list of safe command prefixes (server) or empty (local CLI)
-- Hardcoded blocks for inherently dangerous patterns (sudo, fork bombs)
+- Hardcoded blocks for inherently dangerous patterns (sudo, su)
 - User approval for non-whitelisted commands, with option to approve by prefix for future commands
 - Support for composed commands (pipes, &&, ||, ;, &)
 
@@ -79,7 +79,7 @@ If some segments are already allowed (e.g., `grep` is in allow list), only the n
 | Reason | Message should convey |
 |--------|----------------------|
 | Non-interactive, not in allow list | Command not allowed; use only allowed prefixes from system prompt |
-| Hardcoded block (sudo, fork bomb) | Permanently blocked for security; cannot be overridden |
+| Hardcoded block (sudo, su) | Permanently blocked for security; cannot be overridden |
 | User-configured deny list | Blocked by configuration |
 | User denied | User chose to deny; include their feedback if provided |
 
@@ -121,7 +121,7 @@ The allow list is injected into the system prompt via `llm_instructions` pattern
 
 ### Validation Order
 
-1. **Hardcoded blocks** → REJECT immediately (sudo, su, fork bombs - not overrideable)
+1. **Hardcoded blocks** → REJECT immediately (sudo, su - not overrideable)
 2. **Deny list** (user-configured) → REJECT immediately
 3. **Allow list** → ALLOW
 4. **Neither** → `APPROVAL_REQUIRED`

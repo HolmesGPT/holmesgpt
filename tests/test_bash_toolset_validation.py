@@ -209,10 +209,6 @@ class TestCheckHardcodedBlocks:
         assert check_hardcoded_blocks("su - root") == "su"
         assert check_hardcoded_blocks("su root -c 'whoami'") == "su"
 
-    def test_fork_bomb_blocked(self):
-        """Test that fork bomb is blocked."""
-        assert check_hardcoded_blocks(":(){:|:&};:") == ":(){"
-
     def test_normal_commands_not_blocked(self):
         """Test that normal commands are not blocked."""
         assert check_hardcoded_blocks("kubectl get pods") is None
@@ -467,7 +463,6 @@ class TestHardcodedBlocksList:
         """Verify the hardcoded blocks list."""
         assert "sudo" in HARDCODED_BLOCKS
         assert "su" in HARDCODED_BLOCKS
-        assert ":(){" in HARDCODED_BLOCKS
 
 
 class TestUserConfiguredDenyList:

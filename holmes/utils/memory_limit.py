@@ -3,21 +3,28 @@ Memory limit utilities for tool subprocess execution.
 """
 
 import logging
+import os
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
 logger = logging.getLogger(__name__)
 
+# Process limit to prevent fork bombs (each pipe segment spawns a process)
+TOOL_PROCESS_LIMIT = int(os.environ.get("TOOL_PROCESS_LIMIT", "100"))
+
 
 def get_ulimit_prefix() -> str:
     """
-    Get the ulimit command prefix for memory protection.
+    Get the ulimit command prefix for resource protection.
 
-    Returns a shell command prefix that sets virtual memory limit.
+    Returns a shell command prefix that sets resource limits:
+    - Memory limit (ulimit -v) to prevent excessive memory usage
+    - Process limit (ulimit -u) to prevent fork bombs
+
     The '|| true' ensures we continue even if ulimit is not supported.
     """
     memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
-    return f"ulimit -v {memory_limit_kb} || true; "
+    return f"ulimit -v {memory_limit_kb} -u {TOOL_PROCESS_LIMIT} || true; "
 
 
 def check_oom_and_append_hint(output: str, return_code: int) -> str:
