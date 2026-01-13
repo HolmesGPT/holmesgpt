@@ -292,7 +292,7 @@ class AzurePrometheusConfig(PrometheusConfig):
         # Check if managed identity should be used
         if not self.azure_use_managed_id:
             self.azure_use_managed_id = os.environ.get(
-                "AZURE_USE_MANAGED_ID", ""
+                "AZURE_USE_MANAGED_ID", "false"
             ).lower() in ("true", "1")
 
         # Convert None to empty string for prometrix compatibility (prometrix checks != "")
