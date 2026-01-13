@@ -64,6 +64,8 @@ toolsets:
     enabled: true
   runbook:
     enabled: true
+  connectivity_check:
+    enabled: true
 mcp_servers: {}
 
 resources:
