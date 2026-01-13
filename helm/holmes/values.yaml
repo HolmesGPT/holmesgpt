@@ -16,8 +16,9 @@ autoscaling:
   targetMemory: ""
   behavior: {}
 
-image: holmes:0.0.0
-registry: robustadev
+image:
+  repository: robustadev/holmes
+  tag: "0.0.0"
 
 sentryDSN: https://51f9cd9bd2fdee16144db08fc423cd3b@o1120648.ingest.us.sentry.io/4508799804702720
 

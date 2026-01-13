@@ -40,7 +40,7 @@ spec:
       {{- end }}
       containers:
       - name: holmes
-        image: "{{ .Values.registry }}/{{ .Values.image }}"
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: Always
         command: ["python3", "-u", "server.py"]
         ports:
