@@ -64,7 +64,7 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
 
 When Holmes tries to run a command not in your allow list, you'll see a prompt:
 
-```
+```text
 Bash command
 
   kubectl scale deployment nginx --replicas=3

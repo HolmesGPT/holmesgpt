@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: silver-moon
-  namespace: app-191
+  namespace: app-200
   labels:
     app: bash-test
 spec:

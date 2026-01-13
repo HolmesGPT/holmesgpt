@@ -1,4 +1,4 @@
-user_prompt: "Show me pods in app-187 namespace that have 'amber' in their name using the bash tool"
+user_prompt: "Show me pods in app-196 namespace that have 'amber' in their name using the bash tool"
 expected_output:
   - Holmes finds and shows the amber-sunset pod
   - Holmes correctly filters to show only pods with amber in the name
@@ -7,12 +7,12 @@ description: |
   Tests that the bash toolset allows composed commands (pipes) when all segments match allow list.
   AI should run 'kubectl get pods | grep amber' via the bash tool.
 before_test: |
-  kubectl create namespace app-187 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-196 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f manifest.yaml
   # Wait for pods to be ready
   PODS_READY=false
   for i in {1..30}; do
-    if kubectl wait --for=condition=ready pod -l app=bash-test -n app-187 --timeout=2s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=bash-test -n app-196 --timeout=2s 2>/dev/null; then
       echo "Pods ready!"
       PODS_READY=true
       break
@@ -21,11 +21,11 @@ before_test: |
   done
   if [ "$PODS_READY" = false ]; then
     echo "Pods not ready after 30 seconds"
-    kubectl get pods -n app-187
+    kubectl get pods -n app-196
     exit 1
   fi
 after_test: |
-  kubectl delete namespace app-187 --ignore-not-found
+  kubectl delete namespace app-196 --ignore-not-found
 tags:
   - kubernetes
   - question-answer

@@ -1,4 +1,4 @@
-user_prompt: "Run the command 'kubectl get pod silver-moon -n app-191 -o yaml' using the bash tool"
+user_prompt: "Run the command 'kubectl get pod silver-moon -n app-200 -o yaml' using the bash tool"
 expected_output:
   - The bash tool call includes suggested_prefixes containing 'kubectl get pod'
   - The command executes successfully and returns pod YAML
@@ -7,12 +7,12 @@ description: |
   AI must provide suggested_prefixes=['kubectl get pod'] for the command.
   The allow list only has 'kubectl get pod' not 'kubectl get'.
 before_test: |
-  kubectl create namespace app-191 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-200 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f manifest.yaml
   # Wait for pod to be ready
   PODS_READY=false
   for i in {1..30}; do
-    if kubectl wait --for=condition=ready pod silver-moon -n app-191 --timeout=2s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod silver-moon -n app-200 --timeout=2s 2>/dev/null; then
       echo "Pod ready!"
       PODS_READY=true
       break
@@ -21,11 +21,11 @@ before_test: |
   done
   if [ "$PODS_READY" = false ]; then
     echo "Pod not ready after 30 seconds"
-    kubectl get pods -n app-191
+    kubectl get pods -n app-200
     exit 1
   fi
 after_test: |
-  kubectl delete namespace app-191 --ignore-not-found
+  kubectl delete namespace app-200 --ignore-not-found
 tags:
   - kubernetes
   - question-answer

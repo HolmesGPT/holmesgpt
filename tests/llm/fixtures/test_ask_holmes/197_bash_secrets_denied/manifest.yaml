@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: db-credentials
-  namespace: app-188
+  namespace: app-197
 type: Opaque
 stringData:
   password: "super-secret-password-12345"
