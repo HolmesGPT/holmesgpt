@@ -353,20 +353,12 @@ class AzurePrometheusConfig(PrometheusConfig):
 
     def request_new_token(self) -> bool:
         """Request a new Azure access token using prometrix."""
-        if not self._prometrix_config:
-            logging.error("Prometrix Azure config not initialized")
-            return False
-
         success = PrometheusAuthorization.request_new_token(self._prometrix_config)
         if success:
             self._token_created_at = time.time()
         return success
 
     def get_authorization_headers(self) -> Dict[str, str]:
-        if not self._prometrix_config:
-            logging.error("Prometrix Azure config not initialized")
-            return {}
-
         # Request new token if needed
         if self._should_refresh_token():
             if not self.request_new_token():
