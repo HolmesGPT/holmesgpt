@@ -175,18 +175,13 @@ class ToolCallingLLM:
             Callable[[StructuredToolResult], tuple[bool, Optional[str]]]
         ] = None
 
-        # Restriction tracking - these are set per-conversation
         self._runbook_in_use: bool = False
-        self._restricted_tools_enabled: bool = False
 
-    def reset_conversation_state(self) -> None:
-        """Reset conversation-level state for a new conversation."""
+    def reset_interaction_state(self) -> None:
+        """
+            For interactive loop, reset runbooks in use
+        """
         self._runbook_in_use = False
-        # Note: _restricted_tools_enabled is not reset here as it's set per-request
-
-    def set_restricted_tools_enabled(self, enabled: bool) -> None:
-        """Enable or disable restricted tools for this conversation."""
-        self._restricted_tools_enabled = enabled
 
     def process_tool_decisions(
         self, messages: List[Dict[str, Any]], tool_decisions: List[ToolApprovalDecision]
@@ -309,7 +304,7 @@ class ToolCallingLLM:
 
     def _should_include_restricted_tools(self) -> bool:
         """Check if restricted tools should be included in the tools list."""
-        return self._restricted_tools_enabled or self._runbook_in_use
+        return self._runbook_in_use
 
     def _get_tools(self) -> list:
         """Get tools list, filtering restricted tools based on authorization."""
@@ -537,13 +532,11 @@ class ToolCallingLLM:
                 max_token_count=self.llm.get_max_token_count_for_single_tool(),
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
-                restricted_tools_enabled=self._restricted_tools_enabled,
-                runbook_in_use=self._runbook_in_use,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
             # Track runbook usage - if fetch_runbook is called successfully,
-            # restricted tools become available for the rest of the conversation
+            # restricted tools become available for the rest of the current request
             if (
                 tool_name == "fetch_runbook"
                 and tool_response.status == StructuredToolResultStatus.SUCCESS

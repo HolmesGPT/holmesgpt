@@ -163,9 +163,6 @@ class ToolInvokeContext(BaseModel):
     tool_call_id: str
     tool_name: str
 
-    restricted_tools_enabled: bool = False
-    runbook_in_use: bool = False
-
 
 class Tool(ABC, BaseModel):
     name: str
@@ -227,14 +224,10 @@ class Tool(ABC, BaseModel):
             self._transformer_instances = None
 
     def get_openai_format(self, target_model: str):
-        # Add [RESTRICTED] prefix if tool is restricted
-        description = self.description
-        if self._is_restricted():
-            description = f"[RESTRICTED] {description}"
 
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
-            tool_description=description,
+            tool_description=self.description,
             tool_parameters=self.parameters,
             target_model=target_model,
         )
