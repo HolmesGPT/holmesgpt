@@ -50,6 +50,11 @@ from holmes.utils.stream import (
     build_stream_event_token_count,
     build_stream_event_llm_iteration_start,
     build_stream_event_llm_iteration_complete,
+    build_stream_event_tool_invoke_start,
+    build_stream_event_tool_invoke_end,
+    build_stream_event_parse_response,
+    build_stream_event_context_check,
+    build_stream_event_error_handling,
 )
 from holmes.utils.tags import parse_messages_tags
 
@@ -971,6 +976,9 @@ class ToolCallingLLM:
             tools = None if i == max_steps else tools
             tool_choice = "auto" if tools else None
 
+            # Emit context check start event for OTEL tracing
+            yield build_stream_event_context_check(is_start=True)
+
             limit_result = limit_input_context_window(
                 llm=self.llm, messages=messages, tools=tools
             )
@@ -990,6 +998,14 @@ class ToolCallingLLM:
                     f"Compaction cost (streaming): ${compaction.cost:.6f} | "
                     f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
                 )
+
+            # Emit context check end event for OTEL tracing
+            yield build_stream_event_context_check(
+                is_start=False,
+                tokens_used=limit_result.max_context_size - limit_result.maximum_output_token if hasattr(limit_result, 'max_context_size') else None,
+                tokens_limit=limit_result.max_context_size if hasattr(limit_result, 'max_context_size') else None,
+                compaction_needed=limit_result.conversation_history_compacted,
+            )
 
             if (
                 limit_result.conversation_history_compacted
@@ -1035,6 +1051,14 @@ class ToolCallingLLM:
 
             # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
             except BadRequestError as e:
+                # Emit error handling event for OTEL tracing
+                yield build_stream_event_error_handling(
+                    is_start=True,
+                    error_type="BadRequestError",
+                    error_message=str(e),
+                    will_retry=False,
+                )
+                yield build_stream_event_error_handling(is_start=False)
                 if "Unrecognized request arguments supplied: tool_choice, tools" in str(
                     e
                 ):
@@ -1055,7 +1079,34 @@ class ToolCallingLLM:
                 )
                 raise
 
+            # Emit parse response start event for OTEL tracing
+            yield build_stream_event_parse_response(is_start=True)
+
             response_message = full_response.choices[0].message  # type: ignore
+            if response_message and response_format:
+                # Litellm API is bugged. Stringify and parsing ensures all attrs of the choice are available.
+                dict_response = json.loads(full_response.to_json())  # type: ignore
+                incorrect_tool_call = is_response_an_incorrect_tool_call(
+                    sections, dict_response.get("choices", [{}])[0]
+                )
+
+                if incorrect_tool_call:
+                    logging.warning(
+                        "Detected incorrect tool call. Structured output will be disabled. This can happen on models that do not support tool calling. For Azure AI, make sure the model name contains 'gpt-4.1' or other structured output compatible models. To disable this holmes behaviour, set REQUEST_STRUCTURED_OUTPUT_FROM_LLM to `false`."
+                    )
+                    # Emit error handling event for structured output fallback
+                    yield build_stream_event_error_handling(
+                        is_start=True,
+                        error_type="IncorrectToolCall",
+                        error_message="Detected incorrect tool call, disabling structured output",
+                        will_retry=True,
+                    )
+                    yield build_stream_event_error_handling(is_start=False)
+                    # disable structured output going forward and and retry
+                    sentry_helper.capture_structured_output_incorrect_tool_call()
+                    response_format = None
+                    max_steps = max_steps + 1
+                    continue
 
             messages.append(
                 response_message.model_dump(
@@ -1075,6 +1126,14 @@ class ToolCallingLLM:
             yield build_stream_event_token_count(metadata=metadata)
 
             tools_to_call = getattr(response_message, "tool_calls", None)
+
+            # Emit parse response end event for OTEL tracing
+            yield build_stream_event_parse_response(
+                is_start=False,
+                tool_call_count=len(tools_to_call) if tools_to_call else 0,
+                finish_reason=finish_reasons,
+            )
+
             if not tools_to_call:
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
@@ -1124,9 +1183,28 @@ class ToolCallingLLM:
                         event=StreamEvents.START_TOOL,
                         data={"tool_name": t.function.name, "id": t.id},
                     )
+                    # Emit tool invoke start event for OTEL tracing
+                    yield build_stream_event_tool_invoke_start(
+                        tool_name=t.function.name,
+                        tool_call_id=t.id,
+                        tool_arguments=t.function.arguments,
+                    )
 
                 for future in concurrent.futures.as_completed(futures):
                     tool_call_result: ToolCallResult = future.result()
+
+                    # Emit tool invoke end event for OTEL tracing
+                    tool_status = "SUCCESS" if tool_call_result.result.status == StructuredToolResultStatus.SUCCESS else "FAILURE"
+                    tool_result_str = str(tool_call_result.result.data) if tool_call_result.result.data else None
+                    tool_error_str = tool_call_result.result.error if tool_call_result.result.error else None
+                    yield build_stream_event_tool_invoke_end(
+                        tool_name=tool_call_result.tool_name,
+                        tool_call_id=tool_call_result.tool_call_id,
+                        duration_ms=0,  # Duration tracked separately in tool execution
+                        status=tool_status,
+                        result=tool_result_str,
+                        error=tool_error_str,
+                    )
 
                     if (
                         tool_call_result.result.status

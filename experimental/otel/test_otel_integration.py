@@ -305,6 +305,7 @@ def verify_traces_in_opensearch(
     ]
 
     # Search query for the test ID
+    # Note: Removed overly broad wildcard query per PR review feedback
     search_body = {
         "size": 10,
         "query": {
@@ -313,7 +314,6 @@ def verify_traces_in_opensearch(
                     {"match": {"resource.attributes.gen_ai@request@id": test_id}},
                     {"match": {"attributes.gen_ai@request@id": test_id}},
                     {"match": {"gen_ai.request.id": test_id}},
-                    {"wildcard": {"traceId": "*"}},
                 ],
                 "minimum_should_match": 1,
                 "filter": [{"range": {"startTime": {"gte": "now-5m"}}}],

@@ -24,6 +24,15 @@ class StreamEvents(str, Enum):
     # LLM iteration events for OTEL tracing
     LLM_ITERATION_START = "llm_iteration_start"
     LLM_ITERATION_COMPLETE = "llm_iteration_complete"
+    # Granular span events for detailed tracing
+    TOOL_INVOKE_START = "tool_invoke_start"
+    TOOL_INVOKE_END = "tool_invoke_end"
+    PARSE_RESPONSE_START = "parse_response_start"
+    PARSE_RESPONSE_END = "parse_response_end"
+    CONTEXT_CHECK_START = "context_check_start"
+    CONTEXT_CHECK_END = "context_check_end"
+    ERROR_HANDLING_START = "error_handling_start"
+    ERROR_HANDLING_END = "error_handling_end"
 
 
 class StreamMessage(BaseModel):
@@ -184,3 +193,135 @@ def build_stream_event_llm_iteration_complete(
         event=StreamEvents.LLM_ITERATION_COMPLETE,
         data=data,
     )
+
+
+def build_stream_event_tool_invoke_start(
+    tool_name: str,
+    tool_call_id: str,
+    tool_arguments: Optional[str] = None,
+) -> StreamMessage:
+    """Build a stream event for the start of tool invocation.
+
+    Args:
+        tool_name: Name of the tool being invoked
+        tool_call_id: Unique identifier for this tool call
+        tool_arguments: JSON string of tool arguments (will be truncated)
+    """
+    data = {
+        "tool_name": tool_name,
+        "tool_call_id": tool_call_id,
+    }
+    if tool_arguments is not None:
+        # Truncate arguments to prevent large payloads
+        data["tool_arguments"] = tool_arguments[:8192] if len(tool_arguments) > 8192 else tool_arguments
+    return StreamMessage(
+        event=StreamEvents.TOOL_INVOKE_START,
+        data=data,
+    )
+
+
+def build_stream_event_tool_invoke_end(
+    tool_name: str,
+    tool_call_id: str,
+    duration_ms: int,
+    status: str,
+    result: Optional[str] = None,
+    error: Optional[str] = None,
+) -> StreamMessage:
+    """Build a stream event for the end of tool invocation.
+
+    Args:
+        tool_name: Name of the tool that was invoked
+        tool_call_id: Unique identifier for this tool call
+        duration_ms: How long the tool took in milliseconds
+        status: SUCCESS or FAILURE
+        result: Tool result (will be truncated)
+        error: Error message if status is FAILURE
+    """
+    data = {
+        "tool_name": tool_name,
+        "tool_call_id": tool_call_id,
+        "duration_ms": duration_ms,
+        "status": status,
+    }
+    if result is not None:
+        data["result"] = result[:8192] if len(result) > 8192 else result
+    if error is not None:
+        data["error"] = error
+    return StreamMessage(
+        event=StreamEvents.TOOL_INVOKE_END,
+        data=data,
+    )
+
+
+def build_stream_event_parse_response(
+    is_start: bool,
+    tool_call_count: Optional[int] = None,
+    finish_reason: Optional[str] = None,
+) -> StreamMessage:
+    """Build a stream event for response parsing start/end.
+
+    Args:
+        is_start: True for start event, False for end event
+        tool_call_count: Number of tool calls found (only for end event)
+        finish_reason: LLM finish reason (only for end event)
+    """
+    event = StreamEvents.PARSE_RESPONSE_START if is_start else StreamEvents.PARSE_RESPONSE_END
+    data = {}
+    if not is_start:
+        if tool_call_count is not None:
+            data["tool_call_count"] = tool_call_count
+        if finish_reason is not None:
+            data["finish_reason"] = finish_reason
+    return StreamMessage(event=event, data=data)
+
+
+def build_stream_event_context_check(
+    is_start: bool,
+    tokens_used: Optional[int] = None,
+    tokens_limit: Optional[int] = None,
+    compaction_needed: Optional[bool] = None,
+) -> StreamMessage:
+    """Build a stream event for context limit checking.
+
+    Args:
+        is_start: True for start event, False for end event
+        tokens_used: Current token count (only for end event)
+        tokens_limit: Token limit (only for end event)
+        compaction_needed: Whether history compaction was needed (only for end event)
+    """
+    event = StreamEvents.CONTEXT_CHECK_START if is_start else StreamEvents.CONTEXT_CHECK_END
+    data = {}
+    if not is_start:
+        if tokens_used is not None:
+            data["tokens_used"] = tokens_used
+        if tokens_limit is not None:
+            data["tokens_limit"] = tokens_limit
+        if compaction_needed is not None:
+            data["compaction_needed"] = compaction_needed
+    return StreamMessage(event=event, data=data)
+
+
+def build_stream_event_error_handling(
+    is_start: bool,
+    error_type: Optional[str] = None,
+    error_message: Optional[str] = None,
+    will_retry: Optional[bool] = None,
+) -> StreamMessage:
+    """Build a stream event for error handling.
+
+    Args:
+        is_start: True for start event, False for end event
+        error_type: Type of error encountered
+        error_message: Error message
+        will_retry: Whether the operation will be retried
+    """
+    event = StreamEvents.ERROR_HANDLING_START if is_start else StreamEvents.ERROR_HANDLING_END
+    data = {}
+    if error_type is not None:
+        data["error_type"] = error_type
+    if error_message is not None:
+        data["error_message"] = error_message[:1024] if len(error_message) > 1024 else error_message
+    if will_retry is not None:
+        data["will_retry"] = will_retry
+    return StreamMessage(event=event, data=data)

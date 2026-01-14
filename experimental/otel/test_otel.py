@@ -100,12 +100,12 @@ def test_truncate_function():
     assert result == exact, "Expected no truncation at exact limit"
     print(f"  ✅ truncate(string of {MAX_ATTRIBUTE_SIZE} chars) returns unchanged")
 
-    # Test over limit
+    # Test over limit - result should stay within max_size including marker
     over = "x" * (MAX_ATTRIBUTE_SIZE + 100)
     result = truncate(over)
-    assert len(result) < len(over), "Expected truncation"
+    assert len(result) <= MAX_ATTRIBUTE_SIZE, f"Expected result <= {MAX_ATTRIBUTE_SIZE}, got {len(result)}"
     assert result.endswith("...[TRUNCATED]"), f"Expected truncation marker, got {result[-20:]!r}"
-    print(f"  ✅ truncate(string of {MAX_ATTRIBUTE_SIZE + 100} chars) truncates correctly")
+    print(f"  ✅ truncate(string of {MAX_ATTRIBUTE_SIZE + 100} chars) truncates correctly (result len: {len(result)})")
 
     # Test empty string
     result = truncate("")
@@ -210,10 +210,10 @@ def test_attribute_constants():
     assert attr.PROVIDER_NAME == "gen_ai.provider.name"
     print("  ✅ Gen AI required attributes defined correctly")
 
-    # Check tool attributes
+    # Check tool attributes (library uses dots, e.g., gen_ai.tool.call.id)
     assert attr.TOOL_NAME == "gen_ai.tool.name"
-    assert attr.TOOL_CALL_ID == "gen_ai.tool.call_id"
-    assert attr.TOOL_DURATION_MS == "gen_ai.tool.duration_ms"
+    assert attr.TOOL_CALL_ID == "gen_ai.tool.call.id"  # Library uses dots
+    assert attr.TOOL_DURATION_MS == "gen_ai.tool.duration_ms"  # Custom attribute
     print("  ✅ Tool attributes defined correctly")
 
     # Check legacy span names

@@ -222,8 +222,12 @@ class AWSSigV4Session(requests.Session):
         # Sign the request using botocore
         SigV4Auth(frozen_credentials, self._service, self._region).add_auth(aws_request)
 
-        # Debug: show signed headers
-        logging.debug(f"[OTEL SIGN] Headers after signing: {dict(aws_request.headers)}")
+        # Debug: show signed headers (mask Authorization to avoid credential exposure)
+        debug_headers = {
+            k: "[MASKED]" if k.lower() == "authorization" else v
+            for k, v in aws_request.headers.items()
+        }
+        logging.debug(f"[OTEL SIGN] Headers after signing: {debug_headers}")
 
         # Now make the actual request with signed headers
         kwargs["headers"] = dict(aws_request.headers)
@@ -434,9 +438,11 @@ def set_span_error(span: trace.Span, error: Exception) -> None:
         span: The span to set error on
         error: The exception that occurred
     """
+    from experimental.otel.attributes import ERROR_TYPE, ERROR_MESSAGE
+
     span.set_status(Status(StatusCode.ERROR, str(error)))
-    span.set_attribute("error.type", type(error).__name__)
-    span.set_attribute("error.message", str(error))
+    span.set_attribute(ERROR_TYPE, type(error).__name__)
+    span.set_attribute(ERROR_MESSAGE, str(error))
 
 
 def _get_version() -> str:

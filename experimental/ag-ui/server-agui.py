@@ -266,6 +266,108 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         total_cost_usd += cost_usd or 0.0
                     continue
 
+                # Handle granular tracing events
+                elif event_type == StreamEvents.TOOL_INVOKE_START.value:
+                    # Create granular span for tool invocation
+                    if hasattr(chunk, "data"):
+                        tool_name = chunk.data.get("tool_name", "unknown")
+                        tool_call_id = chunk.data.get("tool_call_id", "unknown")
+                        parent_span = current_chat_span if current_chat_span else root_span
+                        invoke_span = tracer.start_span(
+                            f"{otel_attr.SPAN_INVOKE_TOOL} {tool_name}",
+                            context=trace.set_span_in_context(parent_span),
+                        )
+                        invoke_span.set_attribute(otel_attr.TOOL_NAME, tool_name)
+                        invoke_span.set_attribute(otel_attr.TOOL_CALL_ID, tool_call_id)
+                        if chunk.data.get("tool_arguments"):
+                            invoke_span.set_attribute(
+                                otel_attr.TOOL_INPUT,
+                                otel_attr.truncate(chunk.data.get("tool_arguments")),
+                            )
+                        # Store span for later end
+                        tool_start_times[f"invoke_{tool_call_id}"] = invoke_span
+                    continue
+
+                elif event_type == StreamEvents.TOOL_INVOKE_END.value:
+                    if hasattr(chunk, "data"):
+                        tool_call_id = chunk.data.get("tool_call_id", "unknown")
+                        invoke_span = tool_start_times.pop(f"invoke_{tool_call_id}", None)
+                        if invoke_span:
+                            invoke_span.set_attribute(otel_attr.TOOL_STATUS, chunk.data.get("status", "UNKNOWN"))
+                            if chunk.data.get("result"):
+                                invoke_span.set_attribute(
+                                    otel_attr.TOOL_OUTPUT,
+                                    otel_attr.truncate(chunk.data.get("result")),
+                                )
+                            if chunk.data.get("error"):
+                                invoke_span.set_attribute(otel_attr.ERROR_MESSAGE, chunk.data.get("error"))
+                            invoke_span.end()
+                    continue
+
+                elif event_type == StreamEvents.PARSE_RESPONSE_START.value:
+                    # Create span for response parsing
+                    parent_span = current_chat_span if current_chat_span else root_span
+                    parse_span = tracer.start_span(
+                        otel_attr.SPAN_PARSE_RESPONSE,
+                        context=trace.set_span_in_context(parent_span),
+                    )
+                    tool_start_times["parse_response"] = parse_span
+                    continue
+
+                elif event_type == StreamEvents.PARSE_RESPONSE_END.value:
+                    parse_span = tool_start_times.pop("parse_response", None)
+                    if parse_span and hasattr(chunk, "data"):
+                        if chunk.data.get("tool_call_count") is not None:
+                            parse_span.set_attribute(otel_attr.TOOL_CALL_COUNT, chunk.data.get("tool_call_count"))
+                        if chunk.data.get("finish_reason"):
+                            parse_span.set_attribute(otel_attr.FINISH_REASON, chunk.data.get("finish_reason"))
+                        parse_span.end()
+                    continue
+
+                elif event_type == StreamEvents.CONTEXT_CHECK_START.value:
+                    # Create span for context limit checking
+                    context_span = tracer.start_span(
+                        otel_attr.SPAN_CHECK_CONTEXT_LIMITS,
+                        context=trace.set_span_in_context(root_span),
+                    )
+                    tool_start_times["context_check"] = context_span
+                    continue
+
+                elif event_type == StreamEvents.CONTEXT_CHECK_END.value:
+                    context_span = tool_start_times.pop("context_check", None)
+                    if context_span and hasattr(chunk, "data"):
+                        if chunk.data.get("tokens_used") is not None:
+                            context_span.set_attribute(otel_attr.CONTEXT_TOKENS_USED, chunk.data.get("tokens_used"))
+                        if chunk.data.get("tokens_limit") is not None:
+                            context_span.set_attribute(otel_attr.CONTEXT_TOKENS_LIMIT, chunk.data.get("tokens_limit"))
+                        if chunk.data.get("compaction_needed"):
+                            context_span.set_attribute("compaction_needed", chunk.data.get("compaction_needed"))
+                        context_span.end()
+                    continue
+
+                elif event_type == StreamEvents.ERROR_HANDLING_START.value:
+                    # Create span for error handling
+                    parent_span = current_chat_span if current_chat_span else root_span
+                    error_span = tracer.start_span(
+                        otel_attr.SPAN_HANDLE_LLM_ERROR,
+                        context=trace.set_span_in_context(parent_span),
+                    )
+                    if hasattr(chunk, "data"):
+                        if chunk.data.get("error_type"):
+                            error_span.set_attribute(otel_attr.ERROR_TYPE, chunk.data.get("error_type"))
+                        if chunk.data.get("error_message"):
+                            error_span.set_attribute(otel_attr.ERROR_MESSAGE, chunk.data.get("error_message"))
+                        if chunk.data.get("will_retry") is not None:
+                            error_span.set_attribute("will_retry", chunk.data.get("will_retry"))
+                    tool_start_times["error_handling"] = error_span
+                    continue
+
+                elif event_type == StreamEvents.ERROR_HANDLING_END.value:
+                    error_span = tool_start_times.pop("error_handling", None)
+                    if error_span:
+                        error_span.end()
+                    continue
+
                 if hasattr(chunk, "data"):
                     tool_name = chunk.data.get(
                         "tool_name", chunk.data.get("name", "Tool")
