@@ -56,7 +56,7 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
     - Kubernetes: `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl events`
     - Text processing: `grep`, `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`
     - JSON: `jq`, `base64`
-    - System: `ls`, `find`, `ps`, `df`, `du`
+    - File system: `ls`, `find`, `stat`, `df`, `du`
 
     See [default_lists.py](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py) for the complete list.
 
