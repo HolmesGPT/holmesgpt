@@ -5,7 +5,23 @@ Define the LLM instructions for GitHub MCP
 {{- if .Values.mcpAddons.github.llmInstructions -}}
 {{ .Values.mcpAddons.github.llmInstructions }}
 {{- else -}}
-This MCP server provides access to GitHub repositories, pull requests, issues, workflows, and code. Use it to investigate issues, find root causes, and suggest or implement fixes.
+This MCP server provides access to GitHub repositories, pull requests, issues, workflows, and code.
+
+IMPORTANT: When you see stack traces, exceptions, or error messages that reference code files, functions, classes, or line numbers - you MUST use this MCP server to look up the relevant code and investigate. Do not just report the error; find and analyze the actual code.
+
+## When to Use This MCP Server
+
+**Always use it when you see:**
+- Stack traces or exceptions with file paths, function names, or line numbers
+- Error messages mentioning specific code modules or classes
+- CI/CD or GitHub Actions failures
+- Issues that might be caused by recent code or configuration changes
+
+**What to do:**
+- Search for and read the relevant source code
+- Check recent commits to understand what changed
+- Find who made changes and when
+- Look for existing issues or PRs about the problem
 
 ## Investigation Scenarios
 
