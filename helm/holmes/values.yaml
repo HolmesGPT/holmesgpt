@@ -19,7 +19,7 @@ autoscaling:
 image: holmes:0.0.0
 registry: robustadev
 
-sentryDSN: https://51f9cd9bd2fdee16144db08fc423cd3b@o1120648.ingest.us.sentry.io/4508799804702720
+sentryDSN: https://aa95c183188a6ddf134ebfffe85fd108@o4510692373299200.ingest.de.sentry.io/4510707946094672
 
 enableAccountsCreate: true
 revisionHistoryLimit: 10
