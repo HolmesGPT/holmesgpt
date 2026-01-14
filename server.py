@@ -57,6 +57,12 @@ from holmes.core.models import (
     workload_health_structured_output,
 )
 from holmes.core.investigation_structured_output import clear_json_markdown
+from holmes.core.tracing import (
+    TracingConfigError,
+    TracingFactory,
+    validate_trace_config,
+    SpanType,
+)
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
@@ -161,14 +167,42 @@ if LOG_PERFORMANCE:
 @app.post("/api/investigate")
 def investigate_issues(investigate_request: InvestigateRequest):
     try:
-        runbooks = config.get_runbook_catalog()
-        result = investigation.investigate_issues(
-            investigate_request=investigate_request,
-            dal=dal,
-            config=config,
-            model=investigate_request.model,
-            runbooks=runbooks,
+        # Validate trace config early - fail fast if misconfigured
+        try:
+            validate_trace_config(investigate_request.trace)
+        except TracingConfigError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Create tracer if trace option is provided
+        tracer = TracingFactory.create_tracer(
+            investigate_request.trace, project="HolmesGPT-Server"
         )
+        tracer.start_experiment()
+
+        runbooks = config.get_runbook_catalog()
+
+        with tracer.start_trace(
+            f'investigate "{investigate_request.title}"', span_type=SpanType.TASK
+        ) as trace_span:
+            trace_span.log(
+                input={
+                    "title": investigate_request.title,
+                    "description": investigate_request.description,
+                },
+                metadata={"type": "investigation"},
+            )
+            result = investigation.investigate_issues(
+                investigate_request=investigate_request,
+                dal=dal,
+                config=config,
+                model=investigate_request.model,
+                trace_span=trace_span,
+                runbooks=runbooks,
+            )
+            trace_span.log(output=result.analysis)
+
+        # Add trace URL to result
+        result.trace_url = tracer.get_trace_url()
         return result
 
     except AuthenticationError as e:
@@ -349,6 +383,18 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
+        # Validate trace config early - fail fast if misconfigured
+        try:
+            validate_trace_config(chat_request.trace)
+        except TracingConfigError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Create tracer if trace option is provided
+        tracer = TracingFactory.create_tracer(
+            chat_request.trace, project="HolmesGPT-Server"
+        )
+        tracer.start_experiment()
+
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
@@ -386,19 +432,45 @@ def chat(chat_request: ChatRequest):
             ]
 
         if chat_request.stream:
-            return StreamingResponse(
-                stream_chat_formatter(
-                    ai.call_stream(
+            # Create trace span for streaming mode
+            trace_span = tracer.start_trace(
+                f'chat_stream "{chat_request.ask[:50]}"', span_type=SpanType.TASK
+            )
+            trace_span.log(
+                input={"ask": chat_request.ask},
+                metadata={"type": "chat_stream"},
+            )
+
+            def traced_stream_generator():
+                """Wrapper generator that manages trace span lifecycle."""
+                try:
+                    yield from ai.call_stream(
                         msgs=messages,
                         enable_tool_approval=chat_request.enable_tool_approval or False,
                         tool_decisions=chat_request.tool_decisions,
-                    ),
+                        trace_span=trace_span,
+                    )
+                finally:
+                    trace_span.end()
+
+            return StreamingResponse(
+                stream_chat_formatter(
+                    traced_stream_generator(),
                     [f.model_dump() for f in follow_up_actions],
+                    trace_url=tracer.get_trace_url(),
                 ),
                 media_type="text/event-stream",
             )
         else:
-            llm_call = ai.messages_call(messages=messages)
+            with tracer.start_trace(
+                f'chat "{chat_request.ask[:50]}"', span_type=SpanType.TASK
+            ) as trace_span:
+                trace_span.log(
+                    input={"ask": chat_request.ask},
+                    metadata={"type": "chat"},
+                )
+                llm_call = ai.messages_call(messages=messages, trace_span=trace_span)
+                trace_span.log(output=llm_call.result)
 
             # For non-streaming, we need to handle approvals differently
             # This is a simplified version - in practice, non-streaming with approvals
@@ -409,6 +481,7 @@ def chat(chat_request: ChatRequest):
                 conversation_history=llm_call.messages,
                 follow_up_actions=follow_up_actions,
                 metadata=llm_call.metadata,
+                trace_url=tracer.get_trace_url(),
             )
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)

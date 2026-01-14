@@ -91,6 +91,7 @@ class InvestigationResult(BaseModel):
     num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
     instructions: List[str] = []
     metadata: Optional[Dict[Any, Any]] = None
+    trace_url: Optional[str] = None
 
 
 class InvestigateRequest(BaseModel):
@@ -105,6 +106,10 @@ class InvestigateRequest(BaseModel):
     prompt_template: str = "builtin://generic_investigation.jinja2"
     sections: Optional[InputSectionsDataType] = None
     model: Optional[str] = None
+    trace: Optional[str] = Field(
+        default=None,
+        description="Enable tracing to the specified provider (e.g., 'braintrust')",
+    )
     # TODO in the future
     # response_handler: ...
 
@@ -192,6 +197,10 @@ class ChatRequestBaseModel(BaseModel):
     )
     tool_decisions: Optional[List[ToolApprovalDecision]] = None
     additional_system_prompt: Optional[str] = None
+    trace: Optional[str] = Field(
+        default=None,
+        description="Enable tracing to the specified provider (e.g., 'braintrust')",
+    )
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],
@@ -249,6 +258,7 @@ class ChatResponse(BaseModel):
     follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None
+    trace_url: Optional[str] = None
 
 
 class WorkloadHealthInvestigationResult(BaseModel):

@@ -88,6 +88,7 @@ def stream_investigate_formatter(
 def stream_chat_formatter(
     call_stream: Generator[StreamMessage, None, None],
     followups: Optional[List[dict]] = None,
+    trace_url: Optional[str] = None,
 ):
     try:
         for message in call_stream:
@@ -97,6 +98,7 @@ def stream_chat_formatter(
                     "conversation_history": message.data.get("messages"),
                     "follow_up_actions": followups,
                     "metadata": message.data.get("metadata") or {},
+                    "trace_url": trace_url,
                 }
 
                 yield create_sse_message(StreamEvents.ANSWER_END.value, response_data)
@@ -105,6 +107,7 @@ def stream_chat_formatter(
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
                     "follow_up_actions": followups,
+                    "trace_url": trace_url,
                 }
 
                 response_data["requires_approval"] = True

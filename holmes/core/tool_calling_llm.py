@@ -728,11 +728,14 @@ class ToolCallingLLM:
         msgs: Optional[list[dict]] = None,
         enable_tool_approval: bool = False,
         tool_decisions: List[ToolApprovalDecision] | None = None,
+        trace_span=None,
     ):
         """
         This function DOES NOT call llm.completion(stream=true).
         This function streams holmes one iteration at a time instead of waiting for all iterations to complete.
         """
+        if trace_span is None:
+            trace_span = DummySpan()
 
         # Process tool decisions if provided
         if msgs and tool_decisions:
@@ -873,7 +876,7 @@ class ToolCallingLLM:
                         self._invoke_llm_tool_call,
                         tool_to_call=t,  # type: ignore
                         previous_tool_calls=tool_calls,
-                        trace_span=DummySpan(),  # Streaming mode doesn't support tracing yet
+                        trace_span=trace_span,
                         tool_number=tool_number,
                     )
                     futures.append(future)

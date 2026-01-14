@@ -273,6 +273,38 @@ class BraintrustTracer:
         return WrappedLiteLLM(llm_module)
 
 
+class TracingConfigError(Exception):
+    """Raised when tracing is requested but required configuration is missing."""
+
+    pass
+
+
+def validate_trace_config(trace_type: Optional[str]) -> None:
+    """Validate that required environment variables are set for the requested trace type.
+
+    Args:
+        trace_type: Type of tracing ('braintrust', etc.)
+
+    Raises:
+        TracingConfigError: If trace is requested but required env vars are missing.
+    """
+    if not trace_type:
+        return
+
+    if trace_type.lower() == "braintrust":
+        if not BRAINTRUST_AVAILABLE:
+            raise TracingConfigError(
+                "Braintrust tracing requested but braintrust package is not installed. "
+                "Install it with: pip install braintrust"
+            )
+        if not BRAINTRUST_API_KEY:
+            raise TracingConfigError(
+                "Braintrust tracing requested but BRAINTRUST_API_KEY environment variable is not set"
+            )
+    else:
+        raise TracingConfigError(f"Unknown trace type: {trace_type}. Supported: 'braintrust'")
+
+
 class TracingFactory:
     """Factory for creating tracer instances."""
 
