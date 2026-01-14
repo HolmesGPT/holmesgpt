@@ -40,11 +40,11 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
    - **All repositories**, or
    - **Only select repositories** (for restricted access)
 6. Under **Permissions** → **Repository permissions**, set:
-   - **Actions**: Read-only
-   - **Contents**: Read-only
+   - **Actions**: Read and write (to view and trigger workflows)
+   - **Contents**: Read and write (to push code changes)
    - **Commit statuses**: Read-only
-   - **Issues**: Read and write (for Copilot delegation)
-   - **Pull requests**: Read-only
+   - **Issues**: Read and write (to create issues and delegate to Copilot)
+   - **Pull requests**: Read and write (to create PRs and request reviews)
    - **Metadata**: Read-only (automatically selected)
 7. Click **Generate token**
 8. **Copy the token immediately** - it won't be shown again
@@ -110,16 +110,14 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
               limits:
                 memory: "512Mi"
             readinessProbe:
-              httpGet:
-                path: /sse
+              tcpSocket:
                 port: 8000
-              initialDelaySeconds: 20
+              initialDelaySeconds: 5
               periodSeconds: 10
             livenessProbe:
-              httpGet:
-                path: /sse
+              tcpSocket:
                 port: 8000
-              initialDelaySeconds: 30
+              initialDelaySeconds: 10
               periodSeconds: 30
     ---
     apiVersion: v1
@@ -255,55 +253,46 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ## Available Tools
 
-By default, the GitHub MCP server enables 24 tools organized into five categories. These defaults cover troubleshooting, investigation, code changes, and Copilot integration.
+By default, the GitHub MCP server enables 4 toolsets that provide comprehensive access to GitHub functionality:
 
-### Repository & Code Tools
+| Toolset | Tools | Description |
+|---------|-------|-------------|
+| `repos` | ~24 | Repository operations, file access, commits, branches, code search |
+| `issues` | ~11 | Issue management, labels, comments, Copilot delegation |
+| `pull_requests` | ~10 | PR operations, reviews, comments, merging |
+| `actions` | ~14 | Workflow runs, job logs, artifacts, CI/CD management |
 
-| Tool | Description |
-|------|-------------|
-| `get_file_contents` | Get contents of a file in a repository |
-| `get_repository_tree` | Get the file/directory structure of a repository |
-| `list_commits` | List commits in a repository |
-| `get_commit` | Get details of a specific commit including diff |
-| `search_code` | Search for code across repositories |
-| `search_repositories` | Search for repositories |
+### Key Tools by Category
 
-### Pull Request & Code Change Tools
+**Repository & Code:**
 
-| Tool | Description |
-|------|-------------|
-| `list_pull_requests` | List pull requests in a repository |
-| `pull_request_read` | Get details of a PR including diff, comments, reviews |
-| `create_pull_request` | Create a new pull request |
-| `create_branch` | Create a new branch |
-| `push_files` | Push file changes to a branch |
-| `create_or_update_file` | Create or update a file in a repository |
+- `get_file_contents` - Get contents of a file in a repository
+- `get_repository_tree` - Get the file/directory structure
+- `list_commits` / `get_commit` - View commit history and details
+- `search_code` / `search_repositories` - Search across GitHub
 
-### GitHub Actions Tools
+**Pull Requests:**
 
-| Tool | Description |
-|------|-------------|
-| `list_workflows` | List available workflow definitions in a repository |
-| `list_workflow_runs` | List workflow runs for a repository |
-| `get_workflow_run` | Get details of a specific workflow run |
-| `get_workflow_run_logs` | Get complete logs from an entire workflow run |
-| `list_workflow_jobs` | List jobs in a workflow run |
-| `get_job_logs` | Get logs from a specific job (critical for debugging) |
+- `list_pull_requests` / `pull_request_read` - View PR details, diffs, reviews
+- `create_pull_request` - Create new pull requests
+- `create_branch` / `push_files` - Create branches and push changes
+- `request_copilot_review` - Request Copilot to review a PR
 
-### Issue & Copilot Tools
+**GitHub Actions:**
 
-| Tool | Description |
-|------|-------------|
-| `list_issues` | List issues in a repository |
-| `search_issues` | Search for issues across repositories |
-| `issue_write` | Create or update an issue |
-| `add_issue_comment` | Add a comment to an issue |
-| `assign_copilot_to_issue` | Delegate a task to GitHub Copilot |
-| `request_copilot_review` | Request Copilot to review a pull request |
+- `list_workflows` - List workflow definitions
+- `list_workflow_runs` / `get_workflow_run` - View workflow run status
+- `get_workflow_run_logs` / `get_job_logs` - Get CI/CD logs for debugging
 
-### Customizing Tools
+**Issues & Copilot:**
 
-To use a different set of tools, override the `config.tools` value with a comma-separated list:
+- `list_issues` / `search_issues` - Find and view issues
+- `issue_write` / `add_issue_comment` - Create and update issues
+- `assign_copilot_to_issue` - Delegate tasks to GitHub Copilot
+
+### Customizing Toolsets
+
+To use a different set of toolsets, override `config.toolsets`:
 
 ```yaml
 mcpAddons:
@@ -312,11 +301,25 @@ mcpAddons:
     auth:
       secretName: "github-mcp-token"
     config:
-      # Only enable read-only tools (no issue writing)
-      tools: "get_file_contents,list_commits,get_commit,search_code,list_pull_requests,pull_request_read,list_workflow_runs,get_workflow_run,list_workflow_jobs,get_job_logs,list_issues,search_issues"
+      # Only enable specific toolsets
+      toolsets: "pull_requests,actions"
 ```
 
-For the full list of available tools, see the [GitHub MCP Server documentation](https://github.com/github/github-mcp-server).
+For fine-grained control, you can also specify individual tools with `config.tools`:
+
+```yaml
+mcpAddons:
+  github:
+    enabled: true
+    auth:
+      secretName: "github-mcp-token"
+    config:
+      toolsets: ""  # Disable toolsets
+      # Only enable specific tools
+      tools: "get_file_contents,list_commits,list_workflow_runs,get_job_logs"
+```
+
+For the full list of available tools and toolsets, see the [GitHub MCP Server documentation](https://github.com/github/github-mcp-server).
 
 ## Testing the Connection
 
@@ -445,7 +448,7 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 **Problem:** Holmes reports a tool is not available
 
-**Solution:** Verify the `config.tools` setting includes the tool you need, or remove the setting to use the default 24 tools.
+**Solution:** Verify the `config.toolsets` setting includes the toolset containing your tool. The default toolsets are `repos,issues,pull_requests,actions`. For individual tool control, use `config.tools`.
 
 ## Security Best Practices
 
