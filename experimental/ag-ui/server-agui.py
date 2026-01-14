@@ -209,7 +209,8 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     event_type = "unknown"
                     logging.debug(f"Streaming chunk: {chunk}")
                 # Handle LLM iteration events for proper span hierarchy
-                if event_type == StreamEvents.LLM_ITERATION_START:
+                # NOTE: event_type is a string (e.g., "llm_iteration_start"), so compare with .value
+                if event_type == StreamEvents.LLM_ITERATION_START.value:
                     # End any existing chat span before starting new one
                     if current_chat_span is not None:
                         current_chat_span.end()
@@ -228,7 +229,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     iteration_count = current_iteration
                     continue
 
-                elif event_type == StreamEvents.LLM_ITERATION_COMPLETE:
+                elif event_type == StreamEvents.LLM_ITERATION_COMPLETE.value:
                     if current_chat_span is not None and hasattr(chunk, "data"):
                         # Set token usage and cost attributes on chat span
                         prompt_tokens = chunk.data.get("prompt_tokens", 0)
@@ -373,15 +374,15 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         "tool_name", chunk.data.get("name", "Tool")
                     )
                     if event_type in (
-                        StreamEvents.AI_MESSAGE,
-                        StreamEvents.ANSWER_END,
+                        StreamEvents.AI_MESSAGE.value,
+                        StreamEvents.ANSWER_END.value,
                         "unknown",
                     ):
                         async for event in _stream_agui_text_message_event(
                             message=str(chunk.data.get("content", ""))
                         ):
                             yield encoder.encode(event)
-                    elif event_type == StreamEvents.START_TOOL:
+                    elif event_type == StreamEvents.START_TOOL.value:
                         # Record tool start time for duration calculation
                         tool_call_count += 1
                         tool_call_id = chunk.data.get(
@@ -392,7 +393,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             message=f"🔧 Using Agent tool: `{tool_name}`..."
                         ):
                             yield encoder.encode(event)
-                    elif event_type == StreamEvents.TOOL_RESULT:
+                    elif event_type == StreamEvents.TOOL_RESULT.value:
                         logging.debug(
                             f"🔧 TOOL_RESULT received - tool_name: {tool_name}"
                         )
