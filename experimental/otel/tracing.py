@@ -4,25 +4,27 @@ Based on patterns from ml-commons AgentTracer.java
 """
 
 import atexit
+import hashlib
 import logging
 import os
 from typing import Optional
 from urllib.parse import urlparse
 
-import hashlib
-
 import boto3
 import requests
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-
 from opentelemetry import trace
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider, ReadableSpan
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanProcessor, SpanExportResult
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.trace import Tracer, Status, StatusCode
 from opentelemetry.context import Context
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import (
+    BatchSpanProcessor,
+    SpanExportResult,
+    SpanProcessor,
+)
+from opentelemetry.trace import Status, StatusCode, Tracer
 
 # Global tracer provider
 _tracer_provider: Optional[TracerProvider] = None
@@ -40,7 +42,9 @@ class LoggingSpanProcessor(SpanProcessor):
     def __init__(self, wrapped_processor: SpanProcessor):
         self._wrapped = wrapped_processor
 
-    def on_start(self, span: ReadableSpan, parent_context: Optional[Context] = None) -> None:
+    def on_start(
+        self, span: ReadableSpan, parent_context: Optional[Context] = None
+    ) -> None:
         if _get_otel_debug():
             logging.info(
                 f"[OTEL] Span STARTED: name='{span.name}' "
@@ -51,7 +55,11 @@ class LoggingSpanProcessor(SpanProcessor):
 
     def on_end(self, span: ReadableSpan) -> None:
         if _get_otel_debug():
-            duration_ms = (span.end_time - span.start_time) / 1_000_000 if span.end_time and span.start_time else 0
+            duration_ms = (
+                (span.end_time - span.start_time) / 1_000_000
+                if span.end_time and span.start_time
+                else 0
+            )
             logging.info(
                 f"[OTEL] Span ENDED: name='{span.name}' "
                 f"trace_id={format(span.context.trace_id, '032x')} "
@@ -133,6 +141,30 @@ def _get_otel_aws_service() -> str:
     Default is 'osis'. Try 'osis-pipelines' or 'es' if auth fails.
     """
     return os.environ.get("OTEL_AWS_SERVICE", "osis")
+
+
+def needs_aws_auth(endpoint: str) -> bool:
+    """Determine if an endpoint requires AWS SigV4 authentication.
+
+    Returns True if:
+    - OTEL_AWS_PROFILE is set (explicit AWS auth requested)
+    - Endpoint URL contains '.osis.' (AWS OpenSearch Ingestion Service)
+    - Endpoint URL contains '.es.' (AWS OpenSearch/Elasticsearch Service)
+
+    This centralizes the AWS detection logic for use across tracing, metrics,
+    and logging modules.
+
+    Args:
+        endpoint: The OTLP endpoint URL
+
+    Returns:
+        True if AWS authentication is needed
+    """
+    if _get_otel_aws_profile():
+        return True
+    if ".osis." in endpoint or ".es." in endpoint:
+        return True
+    return False
 
 
 def _extract_region_from_endpoint(endpoint: str) -> str:
@@ -351,16 +383,21 @@ def init_otel_tracer() -> bool:
             }
         )
 
-        # Create OTLP HTTP exporter with AWS SigV4 auth for OSIS
-        # Endpoint should be like: https://your-osis-pipeline/v1/traces
-        osis_session = _create_osis_session(otel_endpoint)
-        if osis_session:
-            exporter = OTLPSpanExporter(endpoint=otel_endpoint, session=osis_session)
+        # Create OTLP HTTP exporter (with AWS SigV4 auth for OSIS if needed)
+        if needs_aws_auth(otel_endpoint):
+            osis_session = _create_osis_session(otel_endpoint)
+            if osis_session:
+                exporter = OTLPSpanExporter(
+                    endpoint=otel_endpoint, session=osis_session
+                )
+            else:
+                # Fall back to unauthenticated exporter (may fail with OSIS)
+                logging.warning(
+                    "AWS auth requested but OSIS session creation failed, using unauthenticated exporter"
+                )
+                exporter = OTLPSpanExporter(endpoint=otel_endpoint)
         else:
-            # Fall back to unauthenticated exporter (may fail with OSIS)
-            logging.warning(
-                "OSIS session creation failed, using unauthenticated exporter"
-            )
+            # Standard unauthenticated OTLP exporter
             exporter = OTLPSpanExporter(endpoint=otel_endpoint)
 
         # Wrap exporter with logging if debug enabled
@@ -438,7 +475,7 @@ def set_span_error(span: trace.Span, error: Exception) -> None:
         span: The span to set error on
         error: The exception that occurred
     """
-    from experimental.otel.attributes import ERROR_TYPE, ERROR_MESSAGE
+    from experimental.otel.attributes import ERROR_MESSAGE, ERROR_TYPE
 
     span.set_status(Status(StatusCode.ERROR, str(error)))
     span.set_attribute(ERROR_TYPE, type(error).__name__)

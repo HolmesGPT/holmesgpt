@@ -216,7 +216,7 @@ with tracer.start_trace("my_operation", SpanType.TASK) as span:
 
 ## AWS OSIS Integration
 
-For AWS OpenSearch Ingestion Service (OSIS), the implementation:
+For [AWS OpenSearch Ingestion Service (OSIS)](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ingestion.html), the implementation:
 
 1. Automatically detects OSIS endpoints (`.osis.` in URL)
 2. Uses AWS SigV4 request signing

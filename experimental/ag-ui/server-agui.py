@@ -226,6 +226,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     current_chat_span.set_attribute(otel_attr.OPERATION_NAME, "chat")
                     current_chat_span.set_attribute(otel_attr.MODEL, iteration_model)
                     current_chat_span.set_attribute(otel_attr.AGENT_ITERATION, current_iteration)
+                    # Propagate correlation attributes to child spans for querying
+                    current_chat_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
+                    current_chat_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
                     iteration_count = current_iteration
                     continue
 
@@ -280,6 +283,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         )
                         invoke_span.set_attribute(otel_attr.TOOL_NAME, tool_name)
                         invoke_span.set_attribute(otel_attr.TOOL_CALL_ID, tool_call_id)
+                        # Propagate correlation attributes
+                        invoke_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
+                        invoke_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
                         if chunk.data.get("tool_arguments"):
                             invoke_span.set_attribute(
                                 otel_attr.TOOL_INPUT,
@@ -312,6 +318,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         otel_attr.SPAN_PARSE_RESPONSE,
                         context=trace.set_span_in_context(parent_span),
                     )
+                    # Propagate correlation attributes
+                    parse_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
+                    parse_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
                     tool_start_times["parse_response"] = parse_span
                     continue
 
@@ -331,6 +340,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         otel_attr.SPAN_CHECK_CONTEXT_LIMITS,
                         context=trace.set_span_in_context(root_span),
                     )
+                    # Propagate correlation attributes
+                    context_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
+                    context_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
                     tool_start_times["context_check"] = context_span
                     continue
 
@@ -353,6 +365,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         otel_attr.SPAN_HANDLE_LLM_ERROR,
                         context=trace.set_span_in_context(parent_span),
                     )
+                    # Propagate correlation attributes
+                    error_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
+                    error_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
                     if hasattr(chunk, "data"):
                         if chunk.data.get("error_type"):
                             error_span.set_attribute(otel_attr.ERROR_TYPE, chunk.data.get("error_type"))
@@ -422,6 +437,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             otel_attr.TOOL_OUTPUT,
                             otel_attr.truncate(str(chunk.data.get("result", {}))),
                         )
+                        # Propagate correlation attributes
+                        tool_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
+                        tool_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
                         tool_span.end()
 
                         # Record tool execution metrics

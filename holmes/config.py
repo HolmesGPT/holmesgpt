@@ -197,7 +197,7 @@ class Config(RobustaBaseConfig):
         config_file = Path(DEFAULT_CONFIG_LOCATION)
         config_from_file: Optional[Config] = None
         if config_file.exists():
-            logging.debug(f"Loading config from {config_file}")
+            logging.info(f"Loading config from {config_file}")
             config_from_file = load_model_from_file(cls, config_file)
 
         # Collect environment variable overrides

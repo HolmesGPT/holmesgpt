@@ -62,13 +62,29 @@ from holmes.utils.stream import stream_chat_formatter, stream_investigate_format
 
 
 def init_otel():
-    """Initialize OTEL tracing for production observability if enabled."""
+    """Initialize OTEL tracing and metrics for production observability if enabled."""
     if os.environ.get("OTEL_ENABLED", "").lower() == "true":
-        if TracingFactory.init_otel():
+        # Initialize tracing
+        tracing_ok = TracingFactory.init_otel()
+        if tracing_ok:
             logging.info("OTEL tracing enabled for Holmes server")
-            return True
         else:
             logging.warning("OTEL tracing initialization failed")
+
+        # Initialize metrics
+        try:
+            from experimental.otel.metrics import init_otel_metrics
+
+            metrics_ok = init_otel_metrics()
+            if metrics_ok:
+                logging.info("OTEL metrics enabled for Holmes server")
+            else:
+                logging.warning("OTEL metrics initialization failed")
+        except ImportError:
+            logging.warning("OTEL metrics module not available")
+            metrics_ok = False
+
+        return tracing_ok or metrics_ok
     return False
 
 

@@ -2,7 +2,7 @@ import json
 import logging
 from enum import Enum
 from functools import partial
-from typing import Generator, List, Optional, Union
+from typing import Any, Generator, List, Optional, Union
 
 import litellm
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
@@ -213,7 +213,9 @@ def build_stream_event_tool_invoke_start(
     }
     if tool_arguments is not None:
         # Truncate arguments to prevent large payloads
-        data["tool_arguments"] = tool_arguments[:8192] if len(tool_arguments) > 8192 else tool_arguments
+        data["tool_arguments"] = (
+            tool_arguments[:8192] if len(tool_arguments) > 8192 else tool_arguments
+        )
     return StreamMessage(
         event=StreamEvents.TOOL_INVOKE_START,
         data=data,
@@ -266,8 +268,12 @@ def build_stream_event_parse_response(
         tool_call_count: Number of tool calls found (only for end event)
         finish_reason: LLM finish reason (only for end event)
     """
-    event = StreamEvents.PARSE_RESPONSE_START if is_start else StreamEvents.PARSE_RESPONSE_END
-    data = {}
+    event = (
+        StreamEvents.PARSE_RESPONSE_START
+        if is_start
+        else StreamEvents.PARSE_RESPONSE_END
+    )
+    data: dict[str, Any] = {}
     if not is_start:
         if tool_call_count is not None:
             data["tool_call_count"] = tool_call_count
@@ -290,7 +296,9 @@ def build_stream_event_context_check(
         tokens_limit: Token limit (only for end event)
         compaction_needed: Whether history compaction was needed (only for end event)
     """
-    event = StreamEvents.CONTEXT_CHECK_START if is_start else StreamEvents.CONTEXT_CHECK_END
+    event = (
+        StreamEvents.CONTEXT_CHECK_START if is_start else StreamEvents.CONTEXT_CHECK_END
+    )
     data = {}
     if not is_start:
         if tokens_used is not None:
@@ -316,12 +324,18 @@ def build_stream_event_error_handling(
         error_message: Error message
         will_retry: Whether the operation will be retried
     """
-    event = StreamEvents.ERROR_HANDLING_START if is_start else StreamEvents.ERROR_HANDLING_END
-    data = {}
+    event = (
+        StreamEvents.ERROR_HANDLING_START
+        if is_start
+        else StreamEvents.ERROR_HANDLING_END
+    )
+    data: dict[str, Any] = {}
     if error_type is not None:
         data["error_type"] = error_type
     if error_message is not None:
-        data["error_message"] = error_message[:1024] if len(error_message) > 1024 else error_message
+        data["error_message"] = (
+            error_message[:1024] if len(error_message) > 1024 else error_message
+        )
     if will_retry is not None:
         data["will_retry"] = will_retry
     return StreamMessage(event=event, data=data)

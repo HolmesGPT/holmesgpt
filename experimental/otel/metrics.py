@@ -53,7 +53,10 @@ def init_otel_metrics(service_name: str = "holmesgpt") -> bool:
         True if metrics were initialized, False otherwise
     """
     global _meter, _meter_provider
-    global _token_usage_histogram, _operation_duration_histogram, _tool_duration_histogram
+    global \
+        _token_usage_histogram, \
+        _operation_duration_histogram, \
+        _tool_duration_histogram
     global _agent_iterations_counter, _tool_calls_counter, _error_counter
 
     if not _get_otel_enabled() or not _get_metrics_enabled():
@@ -74,9 +77,10 @@ def init_otel_metrics(service_name: str = "holmesgpt") -> bool:
             OTLPMetricExporter,
         )
 
-        # Check if AWS SigV4 auth is needed (same as tracing)
-        aws_profile = os.environ.get("OTEL_AWS_PROFILE")
-        if aws_profile or ".osis." in endpoint or ".es." in endpoint:
+        # Check if AWS SigV4 auth is needed (centralized logic from tracing module)
+        from experimental.otel.tracing import needs_aws_auth
+
+        if needs_aws_auth(endpoint):
             # Use AWS SigV4 authentication - reuse session creation from tracing
             from experimental.otel.tracing import _create_osis_session
 

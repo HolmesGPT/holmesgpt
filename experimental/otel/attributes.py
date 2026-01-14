@@ -29,7 +29,6 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_USAGE_OUTPUT_TOKENS,
     GenAiOperationNameValues,
 )
-from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
 
 # ============ Re-export library constants with short names for convenience ============
 # These provide backward compatibility and shorter import paths
@@ -91,7 +90,7 @@ TOOL_CALL_COUNT = "gen_ai.tool.call_count"
 RESULT_SUCCESS = "result.success"
 RESULT_OUTPUT = "result.output"
 ERROR_MESSAGE = "error.message"
-# ERROR_TYPE is imported from library above
+ERROR_TYPE = "error.type"
 
 # ============ Span Names ============
 # Use library enum values for Gen AI semantic convention span names
@@ -159,7 +158,8 @@ TRUNCATION_MARKER = "...[TRUNCATED]"
 def truncate(value: Optional[str], max_size: int = MAX_ATTRIBUTE_SIZE) -> str:
     """Truncate a string value to prevent OTEL payload size errors.
 
-    Based on ml-commons AgentTracer.truncate() pattern.
+    Based on OTEL best practices for attribute size limits.
+    See: https://opentelemetry.io/docs/specs/otel/common/#attribute-limits
 
     Args:
         value: The string to truncate (can be None)
