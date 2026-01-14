@@ -9,6 +9,8 @@ This MCP server provides access to GitHub repositories, pull requests, issues, w
 
 IMPORTANT: When you see stack traces, exceptions, or error messages that reference code files, functions, classes, or line numbers - you MUST use this MCP server to look up the relevant code and investigate. Do not just report the error; find and analyze the actual code.
 
+IMPORTANT: After diagnosing an issue, always suggest how to fix it. If you can implement the fix, offer to create a branch and PR. If you need help, offer to create a GitHub issue or delegate to Copilot.
+
 ## When to Use This MCP Server
 
 **Always use it when you see:**
