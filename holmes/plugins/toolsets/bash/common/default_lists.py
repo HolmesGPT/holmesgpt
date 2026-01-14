@@ -46,7 +46,6 @@ DEFAULT_ALLOW_LIST: List[str] = [
     "ls",
     "find",
     "stat",
-    "file",
     "du",
     "df",
     # Archive inspection
@@ -57,11 +56,6 @@ DEFAULT_ALLOW_LIST: List[str] = [
     "gzip -l",
     "zcat",
     "zgrep",
-    # System monitoring
-    "ps",
-    "top -b",
-    "free",
-    "uptime",
     # Process/system info
     "id",
     "whoami",
