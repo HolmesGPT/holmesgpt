@@ -28,7 +28,7 @@ import time
 from litellm.exceptions import AuthenticationError
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
+from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter, TimingTracker
 from holmes.common.env_vars import (
     ENABLE_CONNECTION_KEEPALIVE,
     HOLMES_HOST,
@@ -187,6 +187,9 @@ def stream_investigate_issues(req: InvestigateRequest):
             investigation.get_investigation_context(req, dal, config)
         )
 
+        # Initialize timing tracker for this request
+        timing_tracker = TimingTracker()
+
         return StreamingResponse(
             stream_investigate_formatter(
                 ai.call_stream(
@@ -194,8 +197,10 @@ def stream_investigate_issues(req: InvestigateRequest):
                     user_prompt=user_prompt,
                     response_format=response_format,
                     sections=sections,
+                    timing_tracker=timing_tracker,
                 ),
                 runbooks,
+                timing_tracker=timing_tracker,
             ),
             media_type="text/event-stream",
         )
@@ -349,9 +354,30 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
+        # Initialize timing tracker early if streaming
+        timing_tracker = TimingTracker() if chat_request.stream else None
+
+        # Track config/toolset loading
+        if timing_tracker:
+            timing_tracker.record_config_load_start()
+
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
+
+        if timing_tracker:
+            timing_tracker.record_config_load_end(num_toolsets=len(ai.tool_executor.toolsets) if ai.tool_executor else 0)
+
+        # Track DAL operations
+        dal_start = time.time()
         global_instructions = dal.get_global_instructions_for_account()
+        if timing_tracker:
+            timing_tracker.record_dal_operation("get_global_instructions", (time.time() - dal_start) * 1000)
+
+        # Track message building
+        if timing_tracker:
+            timing_tracker.record_message_build_start()
+            timing_tracker.record_prompt_construction_start()
+
         messages = build_chat_messages(
             chat_request.ask,
             chat_request.conversation_history,
@@ -361,6 +387,10 @@ def chat(chat_request: ChatRequest):
             additional_system_prompt=chat_request.additional_system_prompt,
             runbooks=runbooks,
         )
+
+        if timing_tracker:
+            timing_tracker.record_message_build_end(num_messages=len(messages))
+            timing_tracker.record_prompt_construction_end(num_runbooks=len(runbooks.catalog) if runbooks else 0)
 
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):
@@ -392,8 +422,10 @@ def chat(chat_request: ChatRequest):
                         msgs=messages,
                         enable_tool_approval=chat_request.enable_tool_approval or False,
                         tool_decisions=chat_request.tool_decisions,
+                        timing_tracker=timing_tracker,
                     ),
                     [f.model_dump() for f in follow_up_actions],
+                    timing_tracker=timing_tracker,
                 ),
                 media_type="text/event-stream",
             )

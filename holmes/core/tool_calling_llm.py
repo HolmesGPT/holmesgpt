@@ -728,6 +728,7 @@ class ToolCallingLLM:
         msgs: Optional[list[dict]] = None,
         enable_tool_approval: bool = False,
         tool_decisions: List[ToolApprovalDecision] | None = None,
+        timing_tracker = None,  # TimingTracker instance for tracking timing events
     ):
         """
         This function DOES NOT call llm.completion(stream=true).
@@ -763,6 +764,10 @@ class ToolCallingLLM:
             tools = None if i == max_steps else tools
             tool_choice = "auto" if tools else None
 
+            # Track context window limiting
+            if timing_tracker:
+                timing_tracker.record_context_window_limiting_start()
+
             limit_result = limit_input_context_window(
                 llm=self.llm, messages=messages, tools=tools
             )
@@ -770,14 +775,29 @@ class ToolCallingLLM:
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
 
+            if timing_tracker:
+                tokens_before = limit_result.metadata.get("tokens_before_compaction")
+                tokens_after = limit_result.metadata.get("tokens_after_compaction")
+                timing_tracker.record_context_window_limiting_end(
+                    tokens_before=tokens_before,
+                    tokens_after=tokens_after
+                )
+
             if (
                 limit_result.conversation_history_compacted
                 and RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION
             ):
                 tool_calls = []
+                # Record conversation history compaction
+                if timing_tracker:
+                    timing_tracker.record_history_compaction()
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
             try:
+                # Record LLM call start
+                if timing_tracker:
+                    timing_tracker.record_llm_call_start(model=self.llm.model, iteration=i)
+
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
                     tools=tools,
@@ -787,6 +807,10 @@ class ToolCallingLLM:
                     stream=False,
                     drop_params=True,
                 )
+
+                # Record LLM call end
+                if timing_tracker:
+                    timing_tracker.record_llm_call_end(model=self.llm.model, iteration=i)
 
                 # Log cost information for this iteration (no accumulation in streaming)
                 _process_cost_info(full_response, log_prefix="LLM iteration")
@@ -866,8 +890,13 @@ class ToolCallingLLM:
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
                 futures = []
+                futures_tool_info = {}  # Track tool info for each future
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index
+
+                    # Record tool call start
+                    if timing_tracker:
+                        timing_tracker.record_tool_call_start(tool_name=t.function.name, tool_id=t.id)
 
                     future = executor.submit(
                         self._invoke_llm_tool_call,
@@ -877,6 +906,7 @@ class ToolCallingLLM:
                         tool_number=tool_number,
                     )
                     futures.append(future)
+                    futures_tool_info[future] = {"tool_name": t.function.name, "tool_id": t.id}
                     yield StreamMessage(
                         event=StreamEvents.START_TOOL,
                         data={"tool_name": t.function.name, "id": t.id},
@@ -884,6 +914,14 @@ class ToolCallingLLM:
 
                 for future in concurrent.futures.as_completed(futures):
                     tool_call_result: ToolCallResult = future.result()
+
+                    # Record tool call end
+                    if timing_tracker and future in futures_tool_info:
+                        tool_info = futures_tool_info[future]
+                        timing_tracker.record_tool_call_end(
+                            tool_name=tool_info["tool_name"],
+                            tool_id=tool_info["tool_id"]
+                        )
 
                     if (
                         tool_call_result.result.status
