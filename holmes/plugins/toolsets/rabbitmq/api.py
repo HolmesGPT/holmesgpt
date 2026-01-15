@@ -5,7 +5,7 @@ from urllib.parse import urljoin, urlparse
 
 import backoff
 import requests  # type: ignore
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from requests.auth import HTTPBasicAuth  # type: ignore
 
 # --- Enums and Pydantic Models (Mostly Unchanged) ---
@@ -17,6 +17,8 @@ class ClusterConnectionStatus(str, Enum):
 
 
 class RabbitMQClusterConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     id: str = Field(
         default="rabbitmq",
         description="Unique identifier for this cluster",
@@ -40,10 +42,27 @@ class RabbitMQClusterConfig(BaseModel):
         default=30,
         description="Request timeout in seconds",
     )
-    verify_certs: bool = Field(
+    verify_ssl: bool = Field(
         default=True,
         description="Whether to verify SSL certificates",
     )
+
+    @model_validator(mode="after")
+    def handle_deprecated_fields(self):
+        extra = self.model_extra or {}
+        deprecated = []
+
+        # Map old name to new name
+        if "verify_certs" in extra:
+            self.verify_ssl = extra["verify_certs"]
+            deprecated.append("verify_certs -> verify_ssl")
+
+        if deprecated:
+            logging.warning(
+                f"RabbitMQ config uses deprecated field names: {', '.join(deprecated)}. "
+                "Please update your configuration."
+            )
+        return self
 
     # For internal use
     connection_status: Optional[ClusterConnectionStatus] = None
@@ -132,7 +151,7 @@ def make_request(
             params=params,
             json=data,
             timeout=config.request_timeout_seconds,
-            verify=config.verify_certs,
+            verify=config.verify_ssl,
         )
         response.raise_for_status()
         return response.json()

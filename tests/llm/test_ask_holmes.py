@@ -59,6 +59,7 @@ def test_ask_holmes(
     caplog,
     request,
     mock_generation_config: MockGenerationConfig,
+    additional_system_prompt,
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
@@ -109,6 +110,7 @@ def test_ask_holmes(
                     tracer,  # positional arg
                     eval_span,  # positional arg
                     mock_generation_config,  # positional arg
+                    additional_system_prompt=additional_system_prompt,
                     request=request,
                     retry_enabled=retry_enabled,
                     test_id=test_case.id,
@@ -169,6 +171,7 @@ def ask_holmes(
     tracer,
     eval_span,
     mock_generation_config,
+    additional_system_prompt,
     request=None,
 ) -> LLMResult:
     with eval_span.start_span(
@@ -222,9 +225,12 @@ def ask_holmes(
                 None,
                 ai.tool_executor,
                 runbooks,
+                system_prompt_additions=additional_system_prompt,
             )
     else:
-        chat_request = ChatRequest(ask=test_case.user_prompt)
+        chat_request = ChatRequest(
+            ask=test_case.user_prompt, additional_system_prompt=additional_system_prompt
+        )
         config = Config()
         if test_case.cluster_name:
             config.cluster_name = test_case.cluster_name
@@ -242,6 +248,7 @@ def ask_holmes(
             config=config,
             global_instructions=global_instructions,
             runbooks=runbooks,
+            additional_system_prompt=additional_system_prompt,
         )
 
     # Create LLM completion trace within current context

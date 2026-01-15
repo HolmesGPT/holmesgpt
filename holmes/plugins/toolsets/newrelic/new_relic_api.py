@@ -122,3 +122,44 @@ class NewRelicAPI:
             raise Exception(
                 f"Failed to extract results from NewRelic response: {e}"
             ) from e
+
+    def get_organization_accounts(self) -> list:
+        """Get all accounts accessible in the organization.
+
+        Returns:
+            list: List of account dictionaries with id and name
+
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails
+            Exception: If GraphQL returns errors
+        """
+        graphql_query = {
+            "query": """
+            query GetOrganizationAccounts {
+                actor {
+                    organization {
+                        accountManagement {
+                            managedAccounts {
+                                id
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+            """
+        }
+
+        logger.info("Querying organization accounts")
+        response = self._make_request(graphql_query)
+
+        # Extract accounts from the nested response
+        try:
+            accounts = response["data"]["actor"]["organization"]["accountManagement"][
+                "managedAccounts"
+            ]
+            return accounts
+        except (KeyError, TypeError) as e:
+            raise Exception(
+                f"Failed to extract accounts from NewRelic response: {e}"
+            ) from e

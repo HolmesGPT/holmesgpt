@@ -1,10 +1,6 @@
-import datetime
-import json
 from typing import Dict, Optional
 
 from pydantic import BaseModel, Field
-
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
 class GrafanaConfig(BaseModel):
@@ -35,6 +31,10 @@ class GrafanaConfig(BaseModel):
     external_url: Optional[str] = Field(
         default=None,
         description="External URL for linking to Grafana UI",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates",
     )
 
 

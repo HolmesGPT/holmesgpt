@@ -67,7 +67,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
         modelList:
           claude-sonnet:
             api_key: "{{ env.ANTHROPIC_API_KEY }}"
-            model: anthropic/claude-3-5-sonnet-20241022
+            model: anthropic/claude-sonnet-4-20250514
             temperature: 0
         ```
 
@@ -119,7 +119,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
             temperature: 0
           claude-sonnet:
             api_key: "{{ env.ANTHROPIC_API_KEY }}"
-            model: anthropic/claude-3-5-sonnet-20241022
+            model: anthropic/claude-sonnet-4-20250514
             temperature: 0
           gpt-5:
             api_key: "{{ env.OPENAI_API_KEY }}"
