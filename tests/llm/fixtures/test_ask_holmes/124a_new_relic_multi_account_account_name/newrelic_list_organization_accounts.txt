@@ -1,0 +1,3 @@
+{"toolset_name":"newrelic","tool_name":"newrelic_list_organization_accounts","match_params":{}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "url": "https://one.newrelic.com/admin-portal/organizations/organization-detail", "invocation": null, "params": {}, "icon_url": null}
+{"accounts":[{"id":6358011,"name":"Account 6358011"},{"id":7481230,"name":"test env"},{"id":7481278,"name":"account-3"}],"total_count":3,"is_eu":false}

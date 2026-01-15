@@ -5,7 +5,7 @@ from urllib.parse import urljoin, urlparse
 
 import backoff
 import requests  # type: ignore
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 from requests.auth import HTTPBasicAuth  # type: ignore
 
 # --- Enums and Pydantic Models (Mostly Unchanged) ---
@@ -17,12 +17,31 @@ class ClusterConnectionStatus(str, Enum):
 
 
 class RabbitMQClusterConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     id: str = "rabbitmq"  # must be unique
     management_url: str  # e.g., http://rabbitmq-service:15672
     username: Optional[str] = None
     password: Optional[str] = None
     request_timeout_seconds: int = 30
-    verify_certs: bool = True
+    verify_ssl: bool = True
+
+    @model_validator(mode="after")
+    def handle_deprecated_fields(self):
+        extra = self.model_extra or {}
+        deprecated = []
+
+        # Map old name to new name
+        if "verify_certs" in extra:
+            self.verify_ssl = extra["verify_certs"]
+            deprecated.append("verify_certs -> verify_ssl")
+
+        if deprecated:
+            logging.warning(
+                f"RabbitMQ config uses deprecated field names: {', '.join(deprecated)}. "
+                "Please update your configuration."
+            )
+        return self
 
     # For internal use
     connection_status: Optional[ClusterConnectionStatus] = None
@@ -111,7 +130,7 @@ def make_request(
             params=params,
             json=data,
             timeout=config.request_timeout_seconds,
-            verify=config.verify_certs,
+            verify=config.verify_ssl,
         )
         response.raise_for_status()
         return response.json()
