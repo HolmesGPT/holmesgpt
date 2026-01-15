@@ -341,8 +341,8 @@ class ToolCallingLLM:
             # Deep copy response_format to prevent mutation by litellm/provider
             response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
 
-            if response_format:
-                logging.debug(f"response_format BEFORE llm.completion: {response_format}")
+            # Snapshot original for mutation detection
+            response_format_snapshot = copy.deepcopy(response_format) if response_format else None
 
             try:
                 full_response = self.llm.completion(
@@ -354,8 +354,12 @@ class ToolCallingLLM:
                     drop_params=True,
                 )
 
-                if response_format:
-                    logging.debug(f"response_format AFTER llm.completion: {response_format}")
+                # Detect if response_format was mutated
+                if response_format and response_format_snapshot:
+                    if response_format != response_format_snapshot:
+                        logging.info(f"response_format MUTATED by LLM call! Before: {response_format_snapshot}, After: {response_format}")
+                    else:
+                        logging.debug("response_format unchanged after LLM call")
 
                 logging.debug(f"got response {full_response.to_json()}")  # type: ignore
 
@@ -788,13 +792,11 @@ class ToolCallingLLM:
                 tool_calls = []
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
-            logging.info(f"call_stream: response_format={response_format}")
-
             # Deep copy response_format to prevent mutation by litellm/provider
             response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
 
-            if response_format:
-                logging.debug(f"response_format BEFORE llm.completion: {response_format}")
+            # Snapshot original for mutation detection
+            response_format_snapshot = copy.deepcopy(response_format) if response_format else None
 
             try:
                 full_response = self.llm.completion(
@@ -807,8 +809,12 @@ class ToolCallingLLM:
                     drop_params=True,
                 )
 
-                if response_format:
-                    logging.debug(f"response_format AFTER llm.completion: {response_format}")
+                # Detect if response_format was mutated
+                if response_format and response_format_snapshot:
+                    if response_format != response_format_snapshot:
+                        logging.info(f"response_format MUTATED by LLM call! Before: {response_format_snapshot}, After: {response_format}")
+                    else:
+                        logging.debug("response_format unchanged after LLM call")
 
                 # Log cost information for this iteration (no accumulation in streaming)
                 _process_cost_info(full_response, log_prefix="LLM iteration")
