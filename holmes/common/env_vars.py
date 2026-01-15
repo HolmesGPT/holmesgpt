@@ -81,6 +81,10 @@ TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS = load_bool(
     "TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS", False
 )
 
+# Deep copy response_format before each LLM call to prevent mutation by litellm/provider
+# Set to False to disable copying (may cause structured output issues with some providers)
+DEEP_COPY_RESPONSE_FORMAT = load_bool("DEEP_COPY_RESPONSE_FORMAT", True)
+
 MAX_OUTPUT_TOKEN_RESERVATION = int(
     os.environ.get("MAX_OUTPUT_TOKEN_RESERVATION", 16384)
 )  ## 16k

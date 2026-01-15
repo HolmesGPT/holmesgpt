@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 
 from holmes.common.env_vars import (
+    DEEP_COPY_RESPONSE_FORMAT,
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
@@ -338,7 +339,7 @@ class ToolCallingLLM:
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
             # Deep copy response_format to prevent mutation by litellm/provider
-            response_format_copy = copy.deepcopy(response_format) if response_format else None
+            response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
 
             try:
                 full_response = self.llm.completion(
@@ -783,7 +784,7 @@ class ToolCallingLLM:
             logging.info(f"call_stream: response_format={response_format}")
 
             # Deep copy response_format to prevent mutation by litellm/provider
-            response_format_copy = copy.deepcopy(response_format) if response_format else None
+            response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
 
             try:
                 full_response = self.llm.completion(
