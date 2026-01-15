@@ -1,4 +1,5 @@
 import concurrent.futures
+import copy
 import json
 import logging
 import textwrap
@@ -336,13 +337,16 @@ class ToolCallingLLM:
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
+            # Deep copy response_format to prevent mutation by litellm/provider
+            response_format_copy = copy.deepcopy(response_format) if response_format else None
+
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),
                     tools=tools,
                     tool_choice=tool_choice,
                     temperature=TEMPERATURE,
-                    response_format=response_format,
+                    response_format=response_format_copy,
                     drop_params=True,
                 )
                 logging.debug(f"got response {full_response.to_json()}")  # type: ignore
@@ -777,12 +781,16 @@ class ToolCallingLLM:
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
             logging.info(f"call_stream: response_format={response_format}")
+
+            # Deep copy response_format to prevent mutation by litellm/provider
+            response_format_copy = copy.deepcopy(response_format) if response_format else None
+
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
                     tools=tools,
                     tool_choice=tool_choice,
-                    response_format=response_format,
+                    response_format=response_format_copy,
                     temperature=TEMPERATURE,
                     stream=False,
                     drop_params=True,
