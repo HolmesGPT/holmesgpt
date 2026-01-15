@@ -1,5 +1,4 @@
 import concurrent.futures
-import copy
 import json
 import logging
 import textwrap
@@ -14,7 +13,6 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 
 from holmes.common.env_vars import (
-    DEEP_COPY_RESPONSE_FORMAT,
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
@@ -338,29 +336,15 @@ class ToolCallingLLM:
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
-            # Deep copy response_format to prevent mutation by litellm/provider
-            response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
-
-            # Snapshot original for mutation detection
-            response_format_snapshot = copy.deepcopy(response_format) if response_format else None
-
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),
                     tools=tools,
                     tool_choice=tool_choice,
                     temperature=TEMPERATURE,
-                    response_format=response_format_copy,
+                    response_format=response_format,
                     drop_params=True,
                 )
-
-                # Detect if response_format was mutated
-                if response_format and response_format_snapshot:
-                    if response_format != response_format_snapshot:
-                        logging.info(f"response_format MUTATED by LLM call! Before: {response_format_snapshot}, After: {response_format}")
-                    else:
-                        logging.debug("response_format unchanged after LLM call")
-
                 logging.debug(f"got response {full_response.to_json()}")  # type: ignore
 
                 # Extract and accumulate cost information
@@ -792,29 +776,17 @@ class ToolCallingLLM:
                 tool_calls = []
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
-            # Deep copy response_format to prevent mutation by litellm/provider
-            response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
-
-            # Snapshot original for mutation detection
-            response_format_snapshot = copy.deepcopy(response_format) if response_format else None
 
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
                     tools=tools,
                     tool_choice=tool_choice,
-                    response_format=response_format_copy,
+                    response_format=response_format,
                     temperature=TEMPERATURE,
                     stream=False,
                     drop_params=True,
                 )
-
-                # Detect if response_format was mutated
-                if response_format and response_format_snapshot:
-                    if response_format != response_format_snapshot:
-                        logging.info(f"response_format MUTATED by LLM call! Before: {response_format_snapshot}, After: {response_format}")
-                    else:
-                        logging.debug("response_format unchanged after LLM call")
 
                 # Log cost information for this iteration (no accumulation in streaming)
                 _process_cost_info(full_response, log_prefix="LLM iteration")
