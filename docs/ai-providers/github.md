@@ -16,18 +16,18 @@ Get a [GitHub Personal Access Token](https://github.com/settings/tokens){:target
     **Using Environment Variables:**
     ```bash
     export GITHUB_API_KEY="your-github-token"
-    holmes ask "what pods are failing?" --model="github/Phi-4"
+    holmes ask "what pods are failing?" --model="github/gpt-5.2"
     ```
 
     **Using Command Line Parameters:**
 
     You can also pass the API key directly as a command-line parameter:
     ```bash
-    holmes ask "what pods are failing?" --model="github/Phi-4" --api-key="your-github-token"
+    holmes ask "what pods are failing?" --model="github/gpt-5.2" --api-key="your-github-token"
     ```
 
     !!! note "Model Naming"
-        Use `github/` prefix followed by the model name, ignoring company prefixes. For example, `meta/Llama-3.2-11B-Vision-Instruct` becomes `github/Llama-3.2-11B-Vision-Instruct`.
+        Use `github/` prefix followed by the model name, ignoring company prefixes. For example, `openai/gpt-5.2` becomes `github/gpt-5.2`.
 
 === "Holmes Helm Chart"
 
@@ -50,19 +50,14 @@ Get a [GitHub Personal Access Token](https://github.com/settings/tokens){:target
 
     # Configure at least one model using modelList
     modelList:
-      phi-4:
+      gpt-5-2:
         api_key: "{{ env.GITHUB_API_KEY }}"
-        model: github/Phi-4
-        temperature: 0
-
-      llama-vision:
-        api_key: "{{ env.GITHUB_API_KEY }}"
-        model: github/Llama-3.2-11B-Vision-Instruct
+        model: github/gpt-5.2
         temperature: 0
 
     # Optional: Set default model (use modelList key name)
     config:
-      model: "phi-4"  # This refers to the key name in modelList above
+      model: "gpt-5-2"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -87,61 +82,33 @@ Get a [GitHub Personal Access Token](https://github.com/settings/tokens){:target
 
       # Configure at least one model using modelList
       modelList:
-        phi-4:
+        gpt-5-2:
           api_key: "{{ env.GITHUB_API_KEY }}"
-          model: github/Phi-4
-          temperature: 0
-
-        llama-vision:
-          api_key: "{{ env.GITHUB_API_KEY }}"
-          model: github/Llama-3.2-11B-Vision-Instruct
+          model: github/gpt-5.2
           temperature: 0
 
       # Optional: Set default model (use modelList key name)
       config:
-        model: "phi-4"  # This refers to the key name in modelList above
+        model: "gpt-5-2"  # This refers to the key name in modelList above
     ```
 
 ## Available Models
 
-GitHub Models provides access to various models from different providers. Common examples include:
+GitHub Models provides access to various models from different providers. Example:
 
-**Meta Llama Models:**
-
-- `github/Llama-3.1-8b-Instant`
-- `github/Llama-3.1-70b-Versatile`
-- `github/Llama-3.2-11B-Vision-Instruct`
-
-**Microsoft Phi Models:**
-
-- `github/Phi-4`
-
-**Mistral Models:**
-
-- `github/Mixtral-8x7b-32768`
+- `github/gpt-5.2`
 
 !!! tip "Model Names"
-    When using GitHub Models, omit the company prefix from the model name. For example, `meta/Llama-3.2-11B-Vision-Instruct` becomes `github/Llama-3.2-11B-Vision-Instruct`.
+    When using GitHub Models, omit the company prefix from the model name. For example, `openai/gpt-5.2` becomes `github/gpt-5.2`.
 
 ## Features
 
-**Tool Calling:**
-GitHub Models supports tool/function calling for compatible models, making it suitable for HolmesGPT's investigation capabilities.
-
-**Cost:**
-GitHub Models offers competitive pricing through GitHub's marketplace. Check the [GitHub Models documentation](https://github.com/marketplace/models){:target="_blank"} for current pricing.
+GitHub Models supports tool/function calling for compatible models.
 
 ## Example Usage
 
 ```bash
-# Using Phi-4 model
-holmes ask "analyze pod failures in namespace production" --model="github/Phi-4"
-
-# Using Llama model with vision capabilities
-holmes ask "what issues do you see?" --model="github/Llama-3.2-11B-Vision-Instruct"
-
-# Using Mixtral for complex investigations
-holmes ask "investigate high memory usage" --model="github/Mixtral-8x7b-32768"
+holmes ask "what pods are failing?" --model="github/gpt-5.2"
 ```
 
 ## Additional Resources
