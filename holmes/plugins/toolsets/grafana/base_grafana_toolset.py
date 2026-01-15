@@ -62,6 +62,5 @@ class BaseGrafanaToolset(Toolset):
         example_config = GrafanaConfig(
             api_key="YOUR API KEY",
             url="YOUR GRAFANA URL",
-            grafana_datasource_uid="UID OF DATASOURCE IN GRAFANA",
         )
         return example_config.model_dump()

@@ -1,0 +1,12 @@
+description: "Test that holmes gets an account name in the user prompt and successfuly get the ID using tool, expects env var NEW_RELIC_LICENSE_KEY"
+
+
+user_prompt:
+  - fetch error logs for app crashpod from newrelic from account account-3 from the last 24 hours.
+
+expected_output:
+  -  holmes finds the account-3 ID number and finds exception logs for crashpod in the account - account-3 
+
+tags:
+  - newrelic
+  - logs

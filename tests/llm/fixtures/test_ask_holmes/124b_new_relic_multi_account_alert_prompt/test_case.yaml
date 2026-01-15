@@ -1,0 +1,523 @@
+description: "Test that holmes gets the correct account_id from new relic alert and investigates KEDA operator scale_handler issue, expects env var NEW_RELIC_LICENSE_KEY"
+
+
+user_prompt: |
+  find relevant logs and root cause from this alert.
+  - {
+  "account_id": "70f8c722-5a0a-488b-bc75-3563192c192c",
+  "title": "KEDA operator pod keda-operator-7ccb48657b-8rg4r experiencing scale_handler errors",
+  "description": "Policy: 'Kubernetes Operations'. Condition: 'KEDA scale handler errors detected'",
+  "source": "newrelic",
+  "priority": "CRITICAL",
+  "aggregation_key": "KEDA scale handler errors detected",
+  "starts_at": "2026-01-04 10:15:00 UTC",
+  "ends_at": null,
+  "cluster": "production",
+  "raw_alert_data": {
+    "closedIncidentsCount": "0",
+    "accumulations": {
+      "nrqlQuery": [
+        "SELECT count(*) from Log where pod_name = 'keda-operator-7ccb48657b-8rg4r' AND message LIKE '%scale_handler%' AND message LIKE '%error%'"
+      ],
+      "conditionProduct": [
+        "NRQL"
+      ],
+      "tag": {
+        "nr": {
+          "endpoint": [
+            "sit-aem.ryanair.com"
+          ],
+          "alerts": {
+            "enabled": [
+              "true"
+            ],
+            "type": [
+              "NRQL Query"
+            ],
+
+            "policyId": [
+
+              "6592808"
+
+            ],
+
+            "conditionId": [
+
+              "54829525"
+
+            ]
+
+          },
+
+          "tracing": [
+
+            "standard"
+
+          ],
+
+          "logEventType": [
+
+            "Log"
+
+          ],
+
+          "logAccountId": [
+
+            "6358011"
+
+          ]
+
+        },
+
+        "accountId": [
+
+          "6358011"
+
+        ],
+
+        "trustedAccountId": [
+
+          "6358011"
+
+        ],
+
+        "policyId": [
+
+          "6592808"
+
+        ],
+
+        "agentVersion": [
+
+          "10.34.1.0"
+
+        ],
+
+        "language": [
+
+          "dotnet"
+
+        ],
+
+        "nerdEnabled": [
+
+          "false"
+
+        ],
+
+        "instrumentation": {
+
+          "name": [
+
+            "apm"
+
+          ],
+
+          "provider": [
+
+            "newRelic"
+
+          ]
+
+        },
+
+        "dataAccountId": [
+
+          "6358011"
+
+        ],
+
+        "enabled": [
+
+          "true"
+
+        ],
+
+        "type": [
+
+          "NRQL Query"
+
+        ],
+
+        "id": [
+
+          "54829525"
+
+        ]
+
+      },
+
+      "dataAccountIds": [
+
+        "6358011"
+
+      ],
+
+      "conditionFamilyId": [
+
+        "54829525"
+
+      ],
+
+      "origins": [
+
+        "newrelic"
+
+      ],
+
+      "sources": [
+
+        "newrelic"
+
+      ],
+
+      "evaluation": {
+
+        "evaluationType": [
+
+          "threshold"
+
+        ],
+
+        "thresholdDurationSeconds": [
+
+          "180"
+
+        ]
+
+      },
+
+      "policy": {
+
+        "rollupStrategy": [
+
+          "PER_CONDITION_AND_TARGET"
+
+        ]
+
+      },
+
+      "conditionName": [
+
+        "KEDA scale handler errors detected"
+
+      ],
+
+      "metadata_entity_name": [
+
+        "keda-operator-7ccb48657b-8rg4r"
+
+      ],
+
+      "signalId": [
+
+        "d45ea8d2-4abc-608b-0fb6-2aab648e1c0d"
+
+      ],
+
+      "nrqlEventType": [
+
+        "Log"
+
+      ],
+
+      "metadata_entity_type": [
+
+        "POD"
+
+      ],
+
+      "targetName": [
+
+        "keda-operator pod logs"
+
+      ],
+
+      "deepLinkUrl": [
+
+        https://insights.newrelic.com/accounts/6358011/query?query=SELECT%20count%28%2A%29%20from%20Log%20where%20pod_name%20%3D%20%27keda-operator-7ccb48657b-8rg4r%27%20AND%20message%20LIKE%20%27%25scale_handler%25%27%20TIMESERIES%201%20MINUTE%20SINCE%20%272026-01-04%2010%3A00%3A00%27
+
+      ],
+
+      "policyName": [
+
+        "Kubernetes Operations"
+
+      ],
+
+      "rawTag": {
+
+        "nr.endpoint": [
+
+          "sit-aem.ryanair.com"
+
+        ],
+        "accountId": [
+
+          "6358011"
+        ],
+        "trustedAccountId": [
+          "6358011"
+        ],
+        "nr.alerts.enabled": [
+          "true"
+        ],
+        "nr.tracing": [
+          "standard"
+        ],
+        "nr.logEventType": [
+          "Log"
+        ],
+        "nr.alerts.type": [
+          "NRQL Query"
+        ],
+        "policyId": [
+          "6592808"
+        ],
+        "agentVersion": [
+          "10.34.1.0"
+        ],
+        "language": [
+          "dotnet"
+
+        ],
+
+        "nerdEnabled": [
+
+          "false"
+
+        ],
+
+        "instrumentation.name": [
+
+          "apm"
+
+        ],
+
+        "dataAccountId": [
+
+          "6358011"
+
+        ],
+
+        "nr.logAccountId": [
+
+          "6358011"
+
+        ],
+
+        "nr.alerts.policyId": [
+
+          "6592808"
+
+        ],
+
+        "enabled": [
+
+          "true"
+
+        ],
+
+        "instrumentation.provider": [
+
+          "newRelic"
+
+        ],
+
+        "type": [
+
+          "NRQL Query"
+
+        ],
+
+        "id": [
+
+          "54829525"
+
+        ],
+
+        "nr.alerts.conditionId": [
+
+          "54829525"
+
+        ]
+
+      },
+
+      "source": [
+
+        "newrelic"
+
+      ]
+
+    },
+
+    "aggregationKeys": [
+
+      "a4dba7117377f5dc34ae01a45e79cc6d7bf2987e"
+
+    ],
+
+    "state": "ACTIVATED",
+
+    "priority": "CRITICAL",
+
+    "labels": {
+
+      "accountIds": [
+
+        "6358011"
+
+      ],
+
+      "policyIds": [
+
+        "6592808"
+
+      ],
+
+      "conditionFamilyId": [
+
+        "54829525"
+
+      ],
+
+      "conditionId": [
+
+        "54829525"
+
+      ],
+
+      "aggregationKeys": [
+
+        "a4dba7117377f5dc34ae01a45e79cc6d7bf2987e"
+
+      ],
+
+      "priority": [
+
+        "3"
+
+      ],
+
+      "violationId": [
+
+        "1765886645092039"
+
+      ],
+
+      "originalAccountIds": [
+
+        "6358011"
+
+      ],
+
+      "targetId": [
+
+        "DotrezPaymentTransactions"
+
+      ],
+
+      "nrIncidentId": [
+
+        "1765886645092039"
+
+      ]
+
+    },
+
+    "triggerEvent": "STATE_CHANGE",
+
+    "entitiesData": {
+
+      "entities": [
+
+        {
+
+          "id": "NjQ4MzQzM3xLVUJFUk5FVEVTX1BPRHw3NzAwOTgzOA",
+
+          "name": "keda-operator-7ccb48657b-8rg4r",
+
+          "type": "Pod"
+
+        }
+
+      ],
+      "kinds": null
+
+    },
+
+    "incidentIds": [
+
+      "cc7f5bdf-f3c7-4ff2-a4e2-9da9993a5c8d"
+
+    ],
+
+    "status": "OPEN",
+
+    "nrAccountId": "6358011",
+    "activatedAt": "1735986900000",
+    "priorityOrder": "3",
+    "dynamicTitle": "KEDA operator pod keda-operator-7ccb48657b-8rg4r experiencing scale_handler errors",
+    "pipelineTimestamp": "1735986900000",
+    "mutingState": "NOT_MUTED",
+    "totalIncidents": "1",
+    "incidentIdsEventId": "21ddd2ea-8ca7-4d0e-b6c1-91ccbf351798",
+    "isCorrelated": "false",
+    "mergeReason": "",
+    "realIssueCount": "1",
+    "createdAt": "1735986900000",
+    "isIint": "false",
+    "triggeredAt": "1735986900000",
+    "updatedAt": "1735986900000",
+    "isAcknowledged": "false",
+    "isIdle": "false",
+    "routingKey": "a4dba7117377f5dc34ae01a45e79cc6d7bf2987e",
+    "openIncidentsCount": "1",
+    "issueId": "76b89733-b878-493f-b923-6d052c19b759",
+
+    "workflowName": "Kubernetes Operations workflow",
+
+    "issueCreatedAt": "2026-01-04T10:15:00.000Z",
+
+    "issueUpdatedAt": "2026-01-04T10:15:00.000Z",
+
+    "issueActivatedAt": "2026-01-04T10:15:00.000Z",
+
+    "issueTitle": "KEDA operator pod keda-operator-7ccb48657b-8rg4r experiencing scale_handler errors",
+
+    "impactedEntitiesCount": 1,
+
+    "stateText": "active (opened)",
+
+    "issueTitleText": "active (opened)",
+
+    "priorityText": "Critical",
+
+    "hasMoreIncidentsFlag": false,
+
+    "hasMoreImpactedEntitiesFlag": false,
+
+    "issueDurationMs": 7785,
+
+    "issueDurationText": "7.785s",
+
+    "durationInMinutes": 0,
+
+    "policyUrl": https://one.newrelic.com/alerts/condition-builder/policy-entity/NjQ4MzQzM3xBSU9QU3xQT0xJQ1l8NjU5MjgwOA,
+
+    "violationChartUrl": https://gorgon.nr-assets.net/image/1ecbf586-4d5c-4d22-8712-3c92e0b05087?config.legend.enabled=false&width=400&height=210,
+
+    "issueEventType": "ISSUE_ACTIVATED",
+
+    "__context": true
+  }
+
+
+expected_output:
+  - holmes mentions DNS Resolution Failure 
+
+
+tags:
+  - newrelic
+  - logs
