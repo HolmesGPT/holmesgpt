@@ -1643,14 +1643,3 @@ class PrometheusToolset(Toolset):
                 False,
                 f"Failed to initialize using url={url}. Unexpected error: {str(e)}",
             )
-
-    def get_example_config(self):
-        example_config = PrometheusConfig(
-            prometheus_url="http://prometheus-server.monitoring.svc.cluster.local:9090",
-            headers={"Authorization": "Basic <base64_encoded_credentials>"},
-            discover_metrics_from_last_hours=1,
-            query_timeout_seconds_default=20,
-            query_timeout_seconds_hard_max=180,
-            verify_ssl=True,
-        )
-        return example_config.model_dump()

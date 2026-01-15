@@ -43,8 +43,7 @@ def mock_config():
 
 
 class SampleToolset(Toolset):
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
+    pass
 
 
 @pytest.fixture

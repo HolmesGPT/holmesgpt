@@ -32,10 +32,6 @@ from holmes.plugins.toolsets.utils import get_param_or_raise
 class BaseBashExecutorToolset(Toolset):
     config: Optional[BashExecutorConfig] = None
 
-    def get_example_config(self):
-        example_config = BashExecutorConfig()
-        return example_config.model_dump()
-
 
 class BaseBashTool(Tool):
     toolset: BaseBashExecutorToolset

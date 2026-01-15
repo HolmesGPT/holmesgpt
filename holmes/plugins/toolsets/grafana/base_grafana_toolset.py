@@ -57,11 +57,3 @@ class BaseGrafanaToolset(Toolset):
             Tuple[bool, str]: (True, "") on success, (False, "error message") on failure.
         """
         raise NotImplementedError("Subclasses must implement health_check()")
-
-    def get_example_config(self):
-        example_config = GrafanaConfig(
-            api_key="YOUR API KEY",
-            url="YOUR GRAFANA URL",
-            grafana_datasource_uid="UID OF DATASOURCE IN GRAFANA",
-        )
-        return example_config.model_dump()

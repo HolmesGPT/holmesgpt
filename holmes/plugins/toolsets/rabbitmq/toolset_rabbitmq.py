@@ -221,15 +221,3 @@ class RabbitMQToolset(Toolset):
                 return (False, "\n".join([f"- {error}" for error in errors]))
         else:
             return (True, "")
-
-    def get_example_config(self):
-        example_config = RabbitMQConfig(
-            clusters=[
-                RabbitMQClusterConfig(
-                    management_url="http://<your-rabbitmq-server-or-service>:15672",
-                    username="holmes_user",
-                    password="holmes_password",
-                )
-            ]
-        )
-        return example_config.model_dump()

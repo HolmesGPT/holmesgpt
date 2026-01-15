@@ -319,11 +319,3 @@ class TestDatadogMetricsToolset:
 
         assert success is False
         assert "Failed to parse Datadog configuration" in error_msg
-
-    def test_get_example_config(self):
-        example = self.toolset.get_example_config()
-
-        assert "dd_api_key" in example
-        assert "dd_app_key" in example
-        assert "site_api_url" in example
-        assert example["site_api_url"] == "https://api.datadoghq.com/"

@@ -750,10 +750,6 @@ class Toolset(BaseModel):
 
         logger.info(f"✅ Toolset {self.name}")
 
-    @abstractmethod
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
     def get_config_schema(self) -> Optional[Dict[str, Any]]:
         """Returns JSON Schema for the toolset's configuration.
 
@@ -789,9 +785,6 @@ class YAMLToolset(Toolset):
         if self.llm_instructions:
             self._load_llm_instructions(self.llm_instructions)
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
 
 class ToolsetYamlFromConfig(Toolset):
     """
@@ -821,9 +814,6 @@ class ToolsetYamlFromConfig(Toolset):
     installation_instructions: Optional[str] = None
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
 
 
 class ToolsetDBModel(BaseModel):

@@ -252,11 +252,6 @@ class InternetBaseToolset(Toolset):
         self.additional_headers = config.get("additional_headers", {})
         return True, ""
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {
-            "additional_headers": {"Authorization": "Basic <base_64_encoded_string>"}
-        }
-
 
 class InternetToolset(InternetBaseToolset):
     additional_headers: Dict[str, str] = {}

@@ -139,15 +139,6 @@ class DatadogLogsToolset(Toolset):
             logging.exception("Failed to set up Datadog toolset")
             return (False, f"Failed to parse Datadog configuration: {str(e)}")
 
-    def get_example_config(self) -> Dict[str, Any]:
-        """Get example configuration for this toolset."""
-        example_config = DatadogLogsConfig(
-            dd_api_key="<your_datadog_api_key>",
-            dd_app_key="<your_datadog_app_key>",
-            site_api_url=AnyUrl("https://api.datadoghq.com"),
-        )
-        return example_config.model_dump(mode="json")
-
     def _reload_instructions(self):
         """Load Datadog logs specific troubleshooting instructions."""
         template_file_path = os.path.abspath(

@@ -96,15 +96,6 @@ class ElasticsearchBaseToolset(Toolset):
     def elasticsearch_config(self) -> ElasticsearchConfig:
         return self.config  # type: ignore
 
-    def get_example_config(self) -> Dict[str, Any]:
-        """Return an example configuration for this toolset."""
-        return {
-            "url": "https://your-cluster.es.cloud.io",
-            "api_key": "{{ env.ELASTICSEARCH_API_KEY }}",
-            "verify_ssl": True,
-            "timeout": 10,
-        }
-
     def _get_headers(self) -> Dict[str, str]:
         """Build request headers with authentication."""
         headers = {

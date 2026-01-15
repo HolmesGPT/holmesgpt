@@ -281,11 +281,3 @@ class RemoteMCPToolset(Toolset):
     async def _get_server_tools(self):
         async with get_initialized_mcp_session(self) as session:
             return await session.list_tools()
-
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = MCPConfig(
-            url=AnyUrl("http://example.com:8000/mcp/messages"),
-            mode=MCPMode.STREAMABLE_HTTP,
-            headers={"Authorization": "Bearer YOUR_TOKEN"},
-        )
-        return example_config.model_dump()

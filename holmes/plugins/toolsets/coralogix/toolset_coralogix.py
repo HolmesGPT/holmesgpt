@@ -199,12 +199,6 @@ class CoralogixToolset(Toolset):
                 jinja_template=f"file://{os.path.abspath(template_path)}"
             )
 
-    def get_example_config(self):
-        example_config = CoralogixConfig(
-            api_key="<cxuw_...>", team_hostname="my-team", domain="eu2.coralogix.com"
-        )
-        return example_config.model_dump()
-
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         if not config:
             return False, TOOLSET_CONFIG_MISSING_ERROR

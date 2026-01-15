@@ -77,9 +77,6 @@ class MongoDBAtlasToolset(Toolset):
             )
             return False, "Invalid Atlas config"
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
 
 class MongoDBAtlasBaseTool(Tool):
     toolset: MongoDBAtlasToolset

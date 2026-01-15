@@ -98,9 +98,6 @@ class GitToolset(Toolset):
             logging.exception("GitHub prerequisites failed.")
             return False, ""
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
     def list_open_prs(self) -> List[Dict[str, Any]]:
         """Helper method to list all open PRs in the repository."""
         headers = {"Authorization": f"token {self.git_credentials}"}

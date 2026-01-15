@@ -3,8 +3,6 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import yaml  # type: ignore
-
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetDBModel
@@ -107,10 +105,6 @@ def render_default_installation_instructions_for_toolset(toolset: Toolset) -> st
         "env_vars": env_vars if env_vars else [],
         "toolset_name": toolset.name,
     }
-
-    example_config = toolset.get_example_config()
-    if example_config:
-        context["example_config"] = yaml.dump(example_config)
 
     installation_instructions = load_and_render_prompt(
         "file://holmes/utils/default_toolset_installation_guide.jinja2", context

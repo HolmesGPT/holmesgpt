@@ -280,16 +280,6 @@ class DatadogGeneralToolset(Toolset):
             logging.exception("Failed during Datadog general API healthcheck")
             return False, f"Healthcheck failed with exception: {str(e)}"
 
-    def get_example_config(self) -> Dict[str, Any]:
-        """Get example configuration for this toolset."""
-        return {
-            "dd_api_key": "your-datadog-api-key",
-            "dd_app_key": "your-datadog-application-key",
-            "site_api_url": "https://api.datadoghq.com",
-            "max_response_size": MAX_RESPONSE_SIZE,
-            "allow_custom_endpoints": False,
-        }
-
 
 def is_endpoint_allowed(
     endpoint: str, method: str = "GET", allow_custom: bool = False

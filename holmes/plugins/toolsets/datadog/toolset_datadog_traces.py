@@ -130,14 +130,6 @@ class DatadogTracesToolset(Toolset):
             logging.exception("Failed during Datadog traces healthcheck")
             return False, f"Healthcheck failed with exception: {str(e)}"
 
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = DatadogTracesConfig(
-            dd_api_key="<your_datadog_api_key>",
-            dd_app_key="<your_datadog_app_key>",
-            site_api_url=AnyUrl("https://api.datadoghq.com"),
-        )
-        return example_config.model_dump(mode="json")
-
 
 class BaseDatadogTracesTool(Tool):
     """Base class for Datadog traces tools."""

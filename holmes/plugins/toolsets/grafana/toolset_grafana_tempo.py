@@ -136,14 +136,6 @@ def _build_grafana_explore_tempo_url(
 class BaseGrafanaTempoToolset(BaseGrafanaToolset):
     config_class = GrafanaTempoConfig
 
-    def get_example_config(self):
-        example_config = GrafanaTempoConfig(
-            api_key="YOUR API KEY",
-            url="YOUR GRAFANA URL",
-            grafana_datasource_uid="<UID of the tempo datasource to use>",
-        )
-        return example_config.model_dump()
-
     @property
     def grafana_config(self) -> GrafanaTempoConfig:
         return cast(GrafanaTempoConfig, self._grafana_config)

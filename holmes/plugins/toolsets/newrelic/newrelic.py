@@ -217,10 +217,3 @@ class NewRelicToolset(Toolset):
         except Exception as e:
             logging.exception("Failed to set up New Relic toolset")
             return False, str(e)
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {
-            "nr_api_key": "NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX",
-            "nr_account_id": "1234567",
-            "is_eu_datacenter": False,
-        }

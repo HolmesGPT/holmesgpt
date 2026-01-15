@@ -629,23 +629,3 @@ class KafkaToolset(Toolset):
         except Exception as e:
             logging.exception("Failed to set up Kafka toolset")
             return False, str(e)
-
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = KafkaConfig(
-            kafka_clusters=[
-                KafkaClusterConfig(
-                    name="us-west-kafka",
-                    kafka_broker="broker1.example.com:9092,broker2.example.com:9092",
-                    kafka_security_protocol="SASL_SSL",
-                    kafka_sasl_mechanism="PLAIN",
-                    kafka_username="{{ env.KAFKA_USERNAME }}",
-                    kafka_password="{{ env.KAFKA_PASSWORD }}",
-                ),
-                KafkaClusterConfig(
-                    name="eu-central-kafka",
-                    kafka_broker="broker3.example.com:9092",
-                    kafka_security_protocol="SSL",
-                ),
-            ]
-        )
-        return example_config.model_dump()

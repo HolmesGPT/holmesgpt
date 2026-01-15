@@ -106,14 +106,6 @@ class ServiceNowTablesToolset(Toolset):
     def servicenow_config(self) -> ServiceNowTablesConfig:
         return cast(ServiceNowTablesConfig, self.config)
 
-    def get_example_config(self) -> Dict[str, Any]:
-        """Return an example configuration for this toolset."""
-        example_config = ServiceNowTablesConfig(
-            api_key="now_1234567890abcdef",
-            instance_url="https://your-instance.service-now.com",
-        )
-        return example_config.model_dump()
-
     def _make_api_request(
         self,
         endpoint: str,
