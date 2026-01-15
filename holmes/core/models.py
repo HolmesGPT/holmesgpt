@@ -273,12 +273,11 @@ class WorkloadHealthChatRequest(ChatRequestBaseModel):
     resource: dict
 
 
-# TODO: deprecate workload_health_structured_output
 workload_health_structured_output = {
     "type": "json_schema",
     "json_schema": {
         "name": "WorkloadHealthResult",
-        "strict": False,  # TODO: remove when deprecated - let ensure_strict_response_format handle it
+        "strict": False,
         "schema": {
             "type": "object",
             "properties": {
