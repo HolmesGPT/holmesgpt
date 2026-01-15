@@ -58,6 +58,70 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## CORS Configuration
+
+Cross-Origin Resource Sharing (CORS) can be enabled to allow the HolmesGPT API to be accessed from web applications running on different origins.
+
+### CORS_ENABLED
+**Default:** `false`
+
+When set to `true`, enables CORS middleware on the FastAPI server.
+
+**Example:**
+```bash
+export CORS_ENABLED=true
+```
+
+### CORS_ALLOW_ORIGINS
+**Default:** `"*"`
+
+Comma-separated list of origins that are allowed to make cross-origin requests. Use specific origins in production for security.
+
+**Example:**
+```bash
+# Allow specific origins
+export CORS_ALLOW_ORIGINS="https://myapp.example.com,https://admin.example.com"
+
+# Allow all origins (not recommended for production)
+export CORS_ALLOW_ORIGINS="*"
+```
+
+### CORS_ALLOW_CREDENTIALS
+**Default:** `true`
+
+Whether to allow credentials (cookies, authorization headers) in cross-origin requests.
+
+**Example:**
+```bash
+export CORS_ALLOW_CREDENTIALS=true
+```
+
+### CORS_ALLOW_METHODS
+**Default:** `"*"`
+
+Comma-separated list of HTTP methods allowed for cross-origin requests.
+
+**Example:**
+```bash
+export CORS_ALLOW_METHODS="GET,POST,PUT,DELETE"
+```
+
+### CORS_ALLOW_HEADERS
+**Default:** `"*"`
+
+Comma-separated list of HTTP headers allowed in cross-origin requests.
+
+**Example:**
+```bash
+export CORS_ALLOW_HEADERS="Content-Type,Authorization,X-Custom-Header"
+```
+
+!!! warning "Security Note"
+    In production environments, always specify explicit origins rather than using `"*"`. 
+
+!!! note "Automatic Credential Adjustment"
+    If `CORS_ALLOW_ORIGINS="*"` (wildcard) is used with `CORS_ALLOW_CREDENTIALS=true`, the server will automatically set `allow_credentials` to `false` and log a warning. This is because browsers reject this combination for security reasons.
+
 ## HolmesGPT Configuration
 
 ### HOLMES_CONFIG_PATH

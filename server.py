@@ -27,6 +27,7 @@ import time
 
 from litellm.exceptions import AuthenticationError
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
 from holmes.common.env_vars import (
@@ -38,6 +39,11 @@ from holmes.common.env_vars import (
     ENABLE_TELEMETRY,
     DEVELOPMENT_MODE,
     SENTRY_TRACES_SAMPLE_RATE,
+    CORS_ENABLED,
+    CORS_ALLOW_ORIGINS,
+    CORS_ALLOW_CREDENTIALS,
+    CORS_ALLOW_METHODS,
+    CORS_ALLOW_HEADERS,
 )
 from holmes.config import Config
 from holmes.core.conversations import (
@@ -137,6 +143,32 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+
+# Add CORS middleware if enabled
+if CORS_ENABLED:
+    # Parse comma-separated values into lists
+    origins = [o.strip() for o in CORS_ALLOW_ORIGINS.split(",") if o.strip()]
+    methods = [m.strip() for m in CORS_ALLOW_METHODS.split(",") if m.strip()]
+    headers = [h.strip() for h in CORS_ALLOW_HEADERS.split(",") if h.strip()]
+    allow_credentials = CORS_ALLOW_CREDENTIALS
+
+    # Validate CORS configuration: wildcard origin with credentials is invalid
+    if "*" in origins and allow_credentials:
+        logging.warning(
+            "CORS: wildcard origin '*' with credentials=true is invalid. "
+            "Automatically setting allow_credentials to false."
+        )
+        allow_credentials = False
+
+    logging.info(f"CORS enabled with origins: {origins}, credentials: {allow_credentials}")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=allow_credentials,
+        allow_methods=methods,
+        allow_headers=headers,
+    )
+
 
 if LOG_PERFORMANCE:
 
