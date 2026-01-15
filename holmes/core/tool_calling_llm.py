@@ -341,6 +341,9 @@ class ToolCallingLLM:
             # Deep copy response_format to prevent mutation by litellm/provider
             response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
 
+            if response_format:
+                logging.debug(f"response_format BEFORE llm.completion: {response_format}")
+
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),
@@ -350,6 +353,10 @@ class ToolCallingLLM:
                     response_format=response_format_copy,
                     drop_params=True,
                 )
+
+                if response_format:
+                    logging.debug(f"response_format AFTER llm.completion: {response_format}")
+
                 logging.debug(f"got response {full_response.to_json()}")  # type: ignore
 
                 # Extract and accumulate cost information
@@ -786,6 +793,9 @@ class ToolCallingLLM:
             # Deep copy response_format to prevent mutation by litellm/provider
             response_format_copy = copy.deepcopy(response_format) if (DEEP_COPY_RESPONSE_FORMAT and response_format) else response_format
 
+            if response_format:
+                logging.debug(f"response_format BEFORE llm.completion: {response_format}")
+
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
@@ -796,6 +806,9 @@ class ToolCallingLLM:
                     stream=False,
                     drop_params=True,
                 )
+
+                if response_format:
+                    logging.debug(f"response_format AFTER llm.completion: {response_format}")
 
                 # Log cost information for this iteration (no accumulation in streaming)
                 _process_cost_info(full_response, log_prefix="LLM iteration")
