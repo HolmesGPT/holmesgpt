@@ -89,14 +89,23 @@ def test_sync_toolsets_no_cluster_name(mock_dal):
     mock_dal.sync_toolsets.assert_not_called()
 
 
-@patch(
-    "holmes.utils.holmes_sync_toolsets.render_default_installation_instructions_for_toolset"
-)
+@patch("subprocess.run")
 def test_sync_toolsets_with_installation_instructions(
-    mock_render, mock_dal, mock_config, sample_toolset
+    mock_subprocess_run, mock_dal, mock_config
 ):
-    mock_render.return_value = "Test installation instructions"
-    mock_config.create_tool_executor.return_value = Mock(toolsets=[sample_toolset])
+    mock_subprocess_run.return_value = Mock(stdout="success", returncode=0)
+
+    # Create a toolset with custom installation instructions
+    toolset = SampleToolset(
+        name="test-toolset",
+        description="Test toolset",
+        enabled=True,
+        installation_instructions="Custom installation instructions for testing",
+        tools=[YAMLTool(name="tool1", description="Tool 1", command="echo test")],
+        tags=[ToolsetTag.CORE],
+    )
+    toolset.check_prerequisites()
+    mock_config.create_tool_executor.return_value = Mock(toolsets=[toolset])
 
     holmes_sync_toolsets_status(mock_dal, mock_config)
 
@@ -105,9 +114,8 @@ def test_sync_toolsets_with_installation_instructions(
 
     # installation_instructions is now wrapped in JSON with config_schema
     wrapped = json.loads(toolset_data["installation_instructions"])
-    assert wrapped["instructions"] == "Test installation instructions"
+    assert wrapped["instructions"] == "Custom installation instructions for testing"
     assert wrapped["config_schema"] is None  # sample toolset has no config_class
-    mock_render.assert_called_once_with(sample_toolset)
 
 
 @patch("subprocess.run")

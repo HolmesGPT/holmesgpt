@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetDBModel
-from holmes.plugins.prompts import load_and_render_prompt
 
 
 def log_toolsets_statuses(toolsets: List[Toolset]):
@@ -28,15 +27,15 @@ def _json_serializer(obj: Any) -> Any:
 
 
 def wrap_installation_instructions_with_schema(
-    instructions: str,
+    instructions: Optional[str],
     config_schema: Optional[Dict[str, Any]],
 ) -> str:
     """Wraps installation instructions with config schema as JSON.
 
     The frontend can parse this to extract:
-    - instructions: The markdown installation instructions
+    - instructions: Custom markdown installation instructions (if any)
     - config_schema: JSON Schema for the toolset's configuration
-      (includes examples via Field annotations in Pydantic models)
+      (includes defaults, descriptions, and examples via Field annotations)
 
     For backwards compatibility, frontend should check if the string
     is valid JSON with an "instructions" key, otherwise treat as plain string.
@@ -74,9 +73,6 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         # hiding disabled experimental toolsets from the docs
         if toolset.experimental and not toolset.enabled:
             continue
-        if not toolset.installation_instructions:
-            instructions = render_default_installation_instructions_for_toolset(toolset)
-            toolset.installation_instructions = instructions
 
         # Wrap installation_instructions with config schema for frontend
         config_schema = toolset.get_config_schema()
@@ -97,16 +93,3 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)
     log_toolsets_statuses(tool_executor.toolsets)
-
-
-def render_default_installation_instructions_for_toolset(toolset: Toolset) -> str:
-    env_vars = toolset.get_environment_variables()
-    context: dict[str, Any] = {
-        "env_vars": env_vars if env_vars else [],
-        "toolset_name": toolset.name,
-    }
-
-    installation_instructions = load_and_render_prompt(
-        "file://holmes/utils/default_toolset_installation_guide.jinja2", context
-    )
-    return installation_instructions
