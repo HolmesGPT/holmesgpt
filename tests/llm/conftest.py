@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from typing import Optional
 
 import pytest
-import requests
+import requests  # type: ignore
 from pytest_shared_session_scope import (
     CleanupToken,
     SetupToken,

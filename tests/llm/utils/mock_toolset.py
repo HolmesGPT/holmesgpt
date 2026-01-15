@@ -302,7 +302,8 @@ class MockFileManager:
 
         # Prepare structured output without data field
         structured_output = result.model_dump()
-        content = structured_output.pop("data", None)
+        content = result.get_stringified_data()
+        structured_output.pop("data", None)
 
         mock_file_path = self._get_mock_file_path(tool_name, params)
 
