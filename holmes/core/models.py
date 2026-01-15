@@ -235,7 +235,7 @@ class ChatRequest(ChatRequestBaseModel):
     ask: str
     response_format: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Optional JSON schema for structured output. Format: {'type': 'json_schema', 'json_schema': {'name': 'ResultName', 'schema': {...}}}. Strict mode is automatically enabled.",
+        description="Optional JSON schema for structured output. Format: {'type': 'json_schema', 'json_schema': {'name': 'ResultName', 'strict': true, 'schema': {...}}}",
     )
 
 
