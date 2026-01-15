@@ -315,3 +315,63 @@ mcpAddons:
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
+
+  # GitHub MCP Server Configuration
+  # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
+  # Uses a prebuilt image that bundles GitHub MCP server with Supergateway for HTTP transport
+  #
+  # AUTHENTICATION:
+  # Create a GitHub Personal Access Token (PAT) with appropriate permissions:
+  # - repo: Full control of private repositories (or public_repo for public only)
+  # - workflow: Update GitHub Action workflows (for CI/CD debugging)
+  # Then create a Kubernetes secret:
+  #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
+  #
+  # GITHUB ENTERPRISE:
+  # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
+  #
+  # CUSTOM IMAGE (optional):
+  # To build your own image, see: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/github
+  github:
+    enabled: false
+
+    image: "github-mcp:1.0.0"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: IfNotPresent
+
+    # Authentication - PAT from Kubernetes secret
+    auth:
+      secretName: ""      # Required: name of K8s secret containing the GitHub PAT
+      secretKey: "token"  # Key in secret (default: "token")
+
+    config:
+      # GitHub Enterprise hostname (leave empty for github.com)
+      # Example: "github.mycompany.com"
+      host: ""
+
+      # Toolsets to enable (comma-separated list of toolset names)
+      # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
+      # Default: repos, issues, pull_requests, actions (covers most investigation needs)
+      toolsets: "repos,issues,pull_requests,actions"
+
+      # Individual tools to enable (comma-separated, optional)
+      # Use this for fine-grained control. Leave empty to use all tools from enabled toolsets.
+      # Example: "get_file_contents,list_commits,list_workflow_runs"
+      tools: ""
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
