@@ -49,7 +49,7 @@ def get_output_format_for_investigation(
         "json_schema": {
             "name": "InvestigationResult",
             "schema": schema,
-            "strict": False,
+            "strict": False,  # TODO: remove explicit False - let ensure_strict_response_format handle it
         },
     }
 

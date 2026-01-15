@@ -38,7 +38,6 @@ from holmes.common.env_vars import (
     ENABLE_TELEMETRY,
     DEVELOPMENT_MODE,
     SENTRY_TRACES_SAMPLE_RATE,
-    STRUCTURED_OUTPUT_STRICT_MODE,
 )
 from holmes.config import Config
 from holmes.core.conversations import (
@@ -347,52 +346,9 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
     return False
 
 
-def ensure_strict_response_format(response_format: Optional[dict]) -> Optional[dict]:
-    """
-    Ensure response_format has strict: true if json_schema is provided.
-    Controlled by STRUCTURED_OUTPUT_STRICT_MODE env var (default: True).
-    """
-    if response_format is None:
-        logging.debug("Structured output: No response_format provided")
-        return None
-
-    logging.debug(
-        f"Structured output: Received response_format with type={response_format.get('type')}, "
-        f"STRUCTURED_OUTPUT_STRICT_MODE={STRUCTURED_OUTPUT_STRICT_MODE}"
-    )
-
-    if (
-        STRUCTURED_OUTPUT_STRICT_MODE
-        and response_format.get("type") == "json_schema"
-        and "json_schema" in response_format
-    ):
-        # Create a copy to avoid mutating the original
-        result = response_format.copy()
-        result["json_schema"] = response_format["json_schema"].copy()
-        result["json_schema"]["strict"] = True
-        schema_name = result["json_schema"].get("name", "unknown")
-        logging.debug(
-            f"Structured output: Enabled strict mode for schema '{schema_name}'"
-        )
-        return result
-
-    if response_format.get("type") == "json_schema":
-        schema_name = response_format.get("json_schema", {}).get("name", "unknown")
-        logging.debug(
-            f"Structured output: Strict mode DISABLED (env var), schema '{schema_name}'"
-        )
-
-    return response_format
-
-
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
-        logging.debug(
-            f"/api/chat request: stream={chat_request.stream}, "
-            f"has_response_format={chat_request.response_format is not None}, "
-            f"model={chat_request.model}"
-        )
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
@@ -405,9 +361,6 @@ def chat(chat_request: ChatRequest):
             additional_system_prompt=chat_request.additional_system_prompt,
             runbooks=runbooks,
         )
-
-        # Enable strict mode for structured output (drop_params handles unsupported models)
-        response_format = ensure_strict_response_format(chat_request.response_format)
 
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):
@@ -433,36 +386,22 @@ def chat(chat_request: ChatRequest):
             ]
 
         if chat_request.stream:
-            logging.debug(
-                f"Structured output: Calling call_stream with response_format={response_format is not None}"
-            )
-            if response_format:
-                logging.debug(
-                    f"Structured output: Full response_format={response_format}"
-                )
             return StreamingResponse(
                 stream_chat_formatter(
                     ai.call_stream(
                         msgs=messages,
                         enable_tool_approval=chat_request.enable_tool_approval or False,
                         tool_decisions=chat_request.tool_decisions,
-                        response_format=response_format,
+                        response_format=chat_request.response_format,
                     ),
                     [f.model_dump() for f in follow_up_actions],
                 ),
                 media_type="text/event-stream",
             )
         else:
-            logging.debug(
-                f"Structured output: Calling messages_call with response_format={response_format is not None}"
-            )
-            if response_format:
-                logging.debug(
-                    f"Structured output: Full response_format={response_format}"
-                )
             llm_call = ai.messages_call(
                 messages=messages,
-                response_format=response_format,
+                response_format=chat_request.response_format,
             )
 
             # For non-streaming, we need to handle approvals differently

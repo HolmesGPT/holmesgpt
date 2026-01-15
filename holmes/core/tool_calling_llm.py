@@ -15,6 +15,7 @@ from rich.console import Console
 from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
+    STRUCTURED_OUTPUT_STRICT_MODE,
     TEMPERATURE,
 )
 from holmes.core.investigation_structured_output import (
@@ -65,6 +66,39 @@ from holmes.utils.tags import parse_messages_tags
 
 # Create a named logger for cost tracking
 cost_logger = logging.getLogger("holmes.costs")
+
+
+def ensure_strict_response_format(
+    response_format: Optional[Union[dict, Type[BaseModel]]],
+) -> Optional[Union[dict, Type[BaseModel]]]:
+    """
+    Enable strict mode for structured output if not already specified.
+    Controlled by STRUCTURED_OUTPUT_STRICT_MODE env var (default: True).
+    Only modifies dict response_format with json_schema; passes through BaseModel types unchanged.
+    """
+    if response_format is None or not isinstance(response_format, dict):
+        return response_format
+
+    if response_format.get("type") != "json_schema" or "json_schema" not in response_format:
+        return response_format
+
+    json_schema = response_format.get("json_schema", {})
+
+    # If strict is already explicitly set, respect it
+    if "strict" in json_schema:
+        return response_format
+
+    # Apply strict mode if enabled
+    if STRUCTURED_OUTPUT_STRICT_MODE:
+        result = response_format.copy()
+        result["json_schema"] = json_schema.copy()
+        result["json_schema"]["strict"] = True
+        logging.debug(
+            f"Structured output: Enabled strict mode for schema '{json_schema.get('name', 'unknown')}'"
+        )
+        return result
+
+    return response_format
 
 
 class LLMCosts(BaseModel):
@@ -304,6 +338,7 @@ class ToolCallingLLM:
         trace_span=DummySpan(),
         tool_number_offset: int = 0,
     ) -> LLMResult:
+        response_format = ensure_strict_response_format(response_format)
         tool_calls: list[
             dict
         ] = []  # Used for preventing repeated tool calls. potentially reset after compaction
@@ -733,6 +768,7 @@ class ToolCallingLLM:
         This function DOES NOT call llm.completion(stream=true).
         This function streams holmes one iteration at a time instead of waiting for all iterations to complete.
         """
+        response_format = ensure_strict_response_format(response_format)
 
         # Process tool decisions if provided
         if msgs and tool_decisions:
