@@ -411,6 +411,7 @@ class DefaultLLM(LLM):
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
+        logging.info(f"llm.completion: response_format={response_format}, model={litellm_model_name}")
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,

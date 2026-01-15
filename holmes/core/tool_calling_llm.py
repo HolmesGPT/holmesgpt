@@ -776,6 +776,7 @@ class ToolCallingLLM:
                 tool_calls = []
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
+            logging.info(f"call_stream: response_format={response_format}")
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
