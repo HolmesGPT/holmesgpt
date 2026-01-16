@@ -90,17 +90,16 @@ def test_sync_toolsets_no_cluster_name(mock_dal):
 
 
 @patch("subprocess.run")
-def test_sync_toolsets_with_installation_instructions(
+def test_sync_toolsets_with_config_schema(
     mock_subprocess_run, mock_dal, mock_config
 ):
     mock_subprocess_run.return_value = Mock(stdout="success", returncode=0)
 
-    # Create a toolset with custom installation instructions
+    # Create a toolset without config_class - should have null schema
     toolset = SampleToolset(
         name="test-toolset",
         description="Test toolset",
         enabled=True,
-        installation_instructions="Custom installation instructions for testing",
         tools=[YAMLTool(name="tool1", description="Tool 1", command="echo test")],
         tags=[ToolsetTag.CORE],
     )
@@ -112,10 +111,8 @@ def test_sync_toolsets_with_installation_instructions(
     mock_dal.sync_toolsets.assert_called_once()
     toolset_data = mock_dal.sync_toolsets.call_args[0][0][0]
 
-    # installation_instructions is now wrapped in JSON with config_schema
-    wrapped = json.loads(toolset_data["installation_instructions"])
-    assert wrapped["instructions"] == "Custom installation instructions for testing"
-    assert wrapped["config_schema"] is None  # sample toolset has no config_class
+    # installation_instructions contains config_schema JSON (null for toolsets without config_class)
+    assert toolset_data["installation_instructions"] is None
 
 
 @patch("subprocess.run")

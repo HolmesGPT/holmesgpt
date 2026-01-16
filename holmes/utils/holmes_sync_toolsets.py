@@ -26,29 +26,6 @@ def _json_serializer(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-def wrap_installation_instructions_with_schema(
-    instructions: Optional[str],
-    config_schema: Optional[Dict[str, Any]],
-) -> str:
-    """Wraps installation instructions with config schema as JSON.
-
-    The frontend can parse this to extract:
-    - instructions: Custom markdown installation instructions (if any)
-    - config_schema: JSON Schema for the toolset's configuration
-      (includes defaults, descriptions, and examples via Field annotations)
-
-    For backwards compatibility, frontend should check if the string
-    is valid JSON with an "instructions" key, otherwise treat as plain string.
-    """
-    return json.dumps(
-        {
-            "instructions": instructions,
-            "config_schema": config_schema,
-        },
-        default=_json_serializer,
-    )
-
-
 def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
     """
     Method for synchronizing toolsets with the database:
@@ -74,21 +51,22 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if toolset.experimental and not toolset.enabled:
             continue
 
-        # Wrap installation_instructions with config schema for frontend
+        # Get config schema for frontend form generation
         config_schema = toolset.get_config_schema()
-        wrapped_instructions = wrap_installation_instructions_with_schema(
-            instructions=toolset.installation_instructions,
-            config_schema=config_schema,
+        config_schema_json = (
+            json.dumps(config_schema, default=_json_serializer)
+            if config_schema
+            else None
         )
 
         db_toolsets.append(
             ToolsetDBModel(
-                **toolset.model_dump(exclude_none=True, exclude={"installation_instructions"}),
+                **toolset.model_dump(exclude_none=True),
                 toolset_name=toolset.name,
                 cluster_id=config.cluster_name,
                 account_id=dal.account_id,
                 updated_at=updated_at,
-                installation_instructions=wrapped_instructions,
+                installation_instructions=config_schema_json,
             ).model_dump()
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)
