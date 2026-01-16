@@ -14,6 +14,7 @@ from holmes.common.env_vars import (
 from holmes.core.tools import (
     ApprovalRequirement,
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -21,6 +22,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
@@ -229,6 +231,8 @@ class RunBashCommand(BaseBashTool):
 
 
 class BashExecutorToolset(BaseBashExecutorToolset):
+    config_class: ClassVar[Type[BashExecutorConfig]] = BashExecutorConfig
+
     def __init__(self):
         super().__init__(
             name="bash",

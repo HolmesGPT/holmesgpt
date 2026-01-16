@@ -1,26 +1,47 @@
 from typing import Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from holmes.core.tools import Tool, Toolset
+from holmes.core.tools import ClassVar, Tool, Toolset, Type
 from holmes.plugins.toolsets.azure_sql.apis.azure_sql_api import AzureSQLAPIClient
 
 
 class AzureSQLDatabaseConfig(BaseModel):
-    subscription_id: str
-    resource_group: str
-    server_name: str
-    database_name: str
+    subscription_id: str = Field(
+        description="Azure subscription ID",
+    )
+    resource_group: str = Field(
+        description="Azure resource group name",
+    )
+    server_name: str = Field(
+        description="Azure SQL server name",
+    )
+    database_name: str = Field(
+        description="Azure SQL database name",
+    )
 
 
 class AzureSQLConfig(BaseModel):
-    database: AzureSQLDatabaseConfig
-    tenant_id: Optional[str]
-    client_id: Optional[str]
-    client_secret: Optional[str]
+    database: AzureSQLDatabaseConfig = Field(
+        description="Azure SQL database connection details",
+    )
+    tenant_id: Optional[str] = Field(
+        default=None,
+        description="Azure AD tenant ID (required for service principal auth)",
+    )
+    client_id: Optional[str] = Field(
+        default=None,
+        description="Azure AD client/application ID (required for service principal auth)",
+    )
+    client_secret: Optional[str] = Field(
+        default=None,
+        description="Azure AD client secret (required for service principal auth)",
+    )
 
 
 class BaseAzureSQLToolset(Toolset):
+    config_class: ClassVar[Type[AzureSQLConfig]] = AzureSQLConfig
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
     _api_client: Optional[AzureSQLAPIClient] = None
     _database_config: Optional[AzureSQLDatabaseConfig] = None

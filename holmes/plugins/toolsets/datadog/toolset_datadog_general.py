@@ -9,6 +9,7 @@ from urllib.parse import urlencode, urlparse
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -16,6 +17,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
@@ -197,6 +199,8 @@ WHITELISTED_POST_ENDPOINTS = [
 
 class DatadogGeneralToolset(Toolset):
     """General-purpose Datadog API toolset for read-only operations not covered by specialized toolsets."""
+
+    config_class: ClassVar[Type[DatadogGeneralConfig]] = DatadogGeneralConfig
 
     dd_config: Optional[DatadogGeneralConfig] = None
     openapi_spec: Optional[Dict[str, Any]] = None

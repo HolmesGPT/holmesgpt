@@ -4,10 +4,11 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests  # type: ignore
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -15,18 +16,32 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class GitHubConfig(BaseModel):
-    git_repo: str
-    git_credentials: str
-    git_branch: str = "main"
-    git_url: str = "https://api.github.com"
+    git_repo: str = Field(
+        description="GitHub repository in owner/repo format",
+        examples=["robusta-dev/holmesgpt"],
+    )
+    git_credentials: str = Field(
+        description="GitHub personal access token for authentication",
+    )
+    git_branch: str = Field(
+        default="main",
+        description="Default branch to use for operations",
+    )
+    git_url: str = Field(
+        default="https://api.github.com",
+        description="GitHub API URL",
+    )
 
 
 class GitToolset(Toolset):
+    config_class: ClassVar[Type[GitHubConfig]] = GitHubConfig
+
     git_repo: Optional[str] = None
     git_url: Optional[str] = None
     git_credentials: Optional[str] = None

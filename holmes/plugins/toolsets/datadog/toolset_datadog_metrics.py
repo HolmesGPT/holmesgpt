@@ -8,6 +8,7 @@ from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -15,6 +16,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import (
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
@@ -655,6 +657,8 @@ class ListMetricTags(BaseDatadogMetricsTool):
 
 
 class DatadogMetricsToolset(Toolset):
+    config_class: ClassVar[Type[DatadogMetricsConfig]] = DatadogMetricsConfig
+
     dd_config: Optional[DatadogMetricsConfig] = None
 
     def __init__(self):

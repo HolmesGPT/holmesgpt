@@ -25,6 +25,7 @@ from holmes.plugins.toolsets.datadog.datadog_models import (
     DatadogLogsConfig,
 )
 from holmes.plugins.toolsets.datadog.datadog_url_utils import generate_datadog_logs_url
+from holmes.core.tools import ClassVar, Type
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_LOG_LIMIT,
     DEFAULT_TIME_SPAN_SECONDS,
@@ -61,6 +62,8 @@ def format_logs(raw_logs: list[dict]) -> str:
 
 class DatadogLogsToolset(Toolset):
     """Toolset for working with Datadog logs data."""
+
+    config_class: ClassVar[Type[DatadogLogsConfig]] = DatadogLogsConfig
 
     dd_config: Optional[DatadogLogsConfig] = None
 

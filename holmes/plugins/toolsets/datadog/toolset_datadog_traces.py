@@ -11,6 +11,7 @@ from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -18,6 +19,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.datadog.datadog_api import (
@@ -46,6 +48,8 @@ PERCENTILE_AGGREGATIONS = ["pc75", "pc90", "pc95", "pc98", "pc99"]
 
 class DatadogTracesToolset(Toolset):
     """Toolset for working with Datadog traces/APM data."""
+
+    config_class: ClassVar[Type[DatadogTracesConfig]] = DatadogTracesConfig
 
     dd_config: Optional[DatadogTracesConfig] = None
 
