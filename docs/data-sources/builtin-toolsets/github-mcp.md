@@ -450,11 +450,7 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 **Problem:** Getting SSL certificate verification errors when connecting to GitHub Enterprise with self-signed or internal CA certificates
 
-There are two solutions:
-
-#### Option 1: Custom CA Certificate (Recommended)
-
-Provide your organization's CA certificate to properly validate the connection:
+**Solution:** Provide your organization's CA certificate to properly validate the connection:
 
 **Step 1:** Create a Kubernetes secret with your CA certificate:
 
@@ -529,57 +525,6 @@ kubectl create secret generic github-ca-cert \
           secretName: github-ca-cert
           defaultMode: 420
     ```
-
-#### Option 2: Disable SSL Verification (Less Secure)
-
-If you don't have access to the CA certificate, you can disable SSL verification:
-
-=== "Holmes Helm Chart"
-
-    ```yaml
-    mcpAddons:
-      github:
-        enabled: true
-        auth:
-          secretName: "github-mcp-token"
-        config:
-          host: "github.mycompany.com"
-          insecure: true  # Disable SSL verification
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        github:
-          enabled: true
-          auth:
-            secretName: "github-mcp-token"
-          config:
-            host: "github.mycompany.com"
-            insecure: true  # Disable SSL verification
-    ```
-
-=== "Holmes CLI (Manual Deployment)"
-
-    Add the `GITHUB_INSECURE` environment variable to your deployment:
-
-    ```yaml
-    env:
-    - name: GITHUB_PERSONAL_ACCESS_TOKEN
-      valueFrom:
-        secretKeyRef:
-          name: github-mcp-token
-          key: token
-    - name: GITHUB_HOST
-      value: "github.mycompany.com"
-    - name: GITHUB_INSECURE
-      value: "true"
-    ```
-
-!!! warning "Security Consideration"
-    Disabling SSL verification reduces security by making the connection vulnerable to man-in-the-middle attacks. Only use `insecure: true` when connecting to trusted internal GitHub Enterprise servers and you don't have access to the CA certificate. Using a custom CA certificate (Option 1) is always preferred.
 
 ### Tool Not Found Errors
 

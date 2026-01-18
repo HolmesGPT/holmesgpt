@@ -97,10 +97,6 @@ spec:
         - name: GITHUB_HOST
           value: {{ .Values.mcpAddons.github.config.host | quote }}
         {{- end }}
-        {{- if .Values.mcpAddons.github.config.insecure }}
-        - name: GITHUB_INSECURE
-          value: "true"
-        {{- end }}
         {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
         - name: SSL_CERT_FILE
           value: /etc/ssl/certs/{{ .Values.mcpAddons.github.config.customCACert.secretKey | default "ca.crt" }}
