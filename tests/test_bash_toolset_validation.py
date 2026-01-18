@@ -25,7 +25,7 @@ from holmes.plugins.toolsets.bash.validation import (
     match_prefix_for_deny,
     parse_command_segments,
     validate_command,
-    validate_prefix_for_segment,
+    validate_segment,
 )
 
 
@@ -275,14 +275,13 @@ class TestGetEffectiveLists:
         assert len(DEFAULT_DENY_LIST) == 0
 
 
-class TestValidatePrefixForSegment:
+class TestValidateSegment:
     """Tests for single segment validation."""
 
     def test_allowed_command(self):
         """Test that allowed commands pass."""
-        result = validate_prefix_for_segment(
+        result = validate_segment(
             "kubectl get pods",
-            "kubectl get",
             allow_list=["kubectl get"],
             deny_list=[],
         )
@@ -290,9 +289,8 @@ class TestValidatePrefixForSegment:
 
     def test_denied_command(self):
         """Test that denied commands are blocked."""
-        result = validate_prefix_for_segment(
+        result = validate_segment(
             "kubectl get secret my-secret",
-            "kubectl get secret",
             allow_list=["kubectl get"],
             deny_list=["kubectl get secret"],
         )
@@ -301,31 +299,18 @@ class TestValidatePrefixForSegment:
 
     def test_hardcoded_block(self):
         """Test that hardcoded blocks are always blocked."""
-        result = validate_prefix_for_segment(
+        result = validate_segment(
             "sudo kubectl get pods",
-            "sudo",
             allow_list=["sudo"],  # Even if in allow list
             deny_list=[],
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.HARDCODED_BLOCK
 
-    def test_prefix_mismatch(self):
-        """Test that mismatched prefixes are rejected."""
-        result = validate_prefix_for_segment(
-            "kubectl delete pod my-pod",
-            "kubectl get",  # Wrong prefix
-            allow_list=["kubectl get"],
-            deny_list=[],
-        )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.PREFIX_MISMATCH
-
     def test_approval_required(self):
         """Test that non-listed commands require approval."""
-        result = validate_prefix_for_segment(
+        result = validate_segment(
             "kubectl delete pod my-pod",
-            "kubectl delete",
             allow_list=["kubectl get"],
             deny_list=[],
         )
@@ -388,18 +373,18 @@ class TestValidateCommand:
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
 
-    def test_prefix_count_mismatch(self):
-        """Test that prefix count must match segment count."""
+    def test_prefix_count_does_not_need_to_match_segment_count(self):
+        """Test that prefix count doesn't need to match segment count."""
         config = BashExecutorConfig(allow=["kubectl get", "grep"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get pods | grep error",
-            ["kubectl get"],  # Only 1 prefix for 2 segments
+            ["kubectl get"],  # Only 1 prefix for 2 segments - this is OK
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.PREFIX_COUNT_MISMATCH
+        # Command is allowed because all segments are in the allow list
+        assert result.status == ValidationStatus.ALLOWED
 
     def test_hardcoded_block_in_pipe(self):
         """Test that hardcoded blocks are caught in piped commands."""
@@ -426,6 +411,33 @@ class TestValidateCommand:
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         assert result.prefixes_needing_approval == ["kubectl delete"]
+
+    def test_prefix_not_in_command_rejected(self):
+        """Test that prefixes not appearing in the command are rejected."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods",
+            ["totally-fabricated-prefix"],  # Does not appear in command
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.PREFIX_NOT_IN_COMMAND
+
+    def test_already_allowed_prefixes_filtered_from_approval(self):
+        """Test that prefixes already in allow list are filtered from prefixes_needing_approval."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods | custom-tool --flag",
+            ["kubectl get", "custom-tool"],  # kubectl get is already allowed
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        # Only custom-tool should need approval, kubectl get is already allowed
+        assert result.prefixes_needing_approval == ["custom-tool"]
 
 
 class TestValidationOrder:

@@ -339,7 +339,7 @@ class RunBashCommand(BaseBashTool):
                     params={
                         "command": command_str,
                         "suggested_prefixes": validation_result.prefixes_needing_approval
-                        or suggested_prefixes,
+                        or None,
                     },
                     invocation=command_str,
                 )
@@ -371,11 +371,8 @@ class RunBashCommand(BaseBashTool):
         elif validation_result.deny_reason == DenyReason.PARSE_ERROR:
             return f"Parse error: {validation_result.message}"
 
-        elif validation_result.deny_reason == DenyReason.PREFIX_MISMATCH:
-            return f"Invalid prefixes: {validation_result.message}"
-
-        elif validation_result.deny_reason == DenyReason.PREFIX_COUNT_MISMATCH:
-            return f"Invalid prefixes: {validation_result.message}"
+        elif validation_result.deny_reason == DenyReason.PREFIX_NOT_IN_COMMAND:
+            return f"Invalid prefix: {validation_result.message}"
 
         else:
             return validation_result.message or "Command denied."

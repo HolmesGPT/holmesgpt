@@ -15,7 +15,7 @@ metadata:
   namespace: app-205
 spec:
   serviceName: order-processor
-  replicas: 100
+  replicas: 30
   podManagementPolicy: Parallel
   selector:
     matchLabels:
@@ -32,22 +32,34 @@ spec:
           args:
             - |
               POD_ID=$(hostname)
-              # Pod 79 has a different error message
-              if [ "$POD_ID" = "order-processor-79" ]; then
+              i=0
+              # Pod 27 has a different error message
+              if [ "$POD_ID" = "order-processor-27" ]; then
                 ERROR_MSG="ERROR: Database connection refused from $POD_ID"
               else
                 ERROR_MSG="ERROR: Connection timeout from $POD_ID"
               fi
-              # Burst phase: generate 5000 INFO logs quickly
-              i=0
+              # Burst phase: generate 5000 logs quickly (5% errors)
+              # 30 pods × 5000 = 150K logs (~12MB) - too much for LLM to read all
+              # But 30 pods × 250 errors = 7500 error logs (~600KB) - manageable with grep
               while [ $i -lt 5000 ]; do
                 i=$((i+1))
-                echo "INFO: Processing request from $POD_ID"
+                if [ $((i % 20)) -eq 0 ]; then
+                  echo "$ERROR_MSG"
+                else
+                  echo "INFO: Processing request from $POD_ID"
+                fi
               done
-              # End with exactly ONE error log
-              echo "$ERROR_MSG"
-              # Keep container running
-              sleep infinity
+              # Steady phase: slower logs
+              while true; do
+                i=$((i+1))
+                if [ $((i % 20)) -eq 0 ]; then
+                  echo "$ERROR_MSG"
+                else
+                  echo "INFO: Processing request from $POD_ID"
+                fi
+                sleep 5
+              done
           resources:
             limits:
               memory: "32Mi"

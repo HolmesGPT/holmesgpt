@@ -42,8 +42,7 @@ class DenyReason(Enum):
     SUBSHELL_DETECTED = "subshell_detected"
     COMPOUND_STATEMENT = "compound_statement"
     PARSE_ERROR = "parse_error"
-    PREFIX_MISMATCH = "prefix_mismatch"
-    PREFIX_COUNT_MISMATCH = "prefix_count_mismatch"
+    PREFIX_NOT_IN_COMMAND = "fabricated_prefix"
 
 
 @dataclass
@@ -275,11 +274,11 @@ def match_prefix_for_deny(segment: str, prefix: str) -> bool:
     return False
 
 
-def validate_prefix_for_segment(
-    segment: str, prefix: str, allow_list: List[str], deny_list: List[str]
+def validate_segment(
+    segment: str, allow_list: List[str], deny_list: List[str]
 ) -> ValidationResult:
     """
-    Validate a single command segment against its suggested prefix.
+    Validate a single command segment against allow/deny lists.
 
     Validation order:
     1. Hardcoded blocks -> DENIED
@@ -296,14 +295,6 @@ def validate_prefix_for_segment(
             message=f"Command contains '{blocked}' which is permanently blocked for security reasons and cannot be overridden.",
         )
 
-    # Verify prefix actually matches the segment
-    if not match_prefix(segment, prefix):
-        return ValidationResult(
-            status=ValidationStatus.DENIED,
-            deny_reason=DenyReason.PREFIX_MISMATCH,
-            message=f"Suggested prefix '{prefix}' does not match command segment '{segment}'.",
-        )
-
     # Step 2: Check deny list (using stricter matching)
     for deny_prefix in deny_list:
         if match_prefix_for_deny(segment, deny_prefix):
@@ -313,7 +304,7 @@ def validate_prefix_for_segment(
                 message=f"Command matches deny list pattern '{deny_prefix}'. This command is blocked by configuration.",
             )
 
-    # Step 3: Check allow list (using prefix)
+    # Step 3: Check allow list
     for allow_prefix in allow_list:
         if match_prefix(segment, allow_prefix):
             return ValidationResult(status=ValidationStatus.ALLOWED)
@@ -321,8 +312,7 @@ def validate_prefix_for_segment(
     # Step 4: Not in any list -> needs approval
     return ValidationResult(
         status=ValidationStatus.APPROVAL_REQUIRED,
-        message=f"Command prefix '{prefix}' is not in the allow list.",
-        prefixes_needing_approval=[prefix],
+        message=f"Command segment '{segment}' is not in the allow list.",
     )
 
 
@@ -344,7 +334,16 @@ def validate_command(
     Returns:
         ValidationResult with status and details
     """
-    # Check for subshells first
+    # Verify all suggested prefixes actually appear in the command
+    for prefix in suggested_prefixes:
+        if prefix not in command:
+            return ValidationResult(
+                status=ValidationStatus.DENIED,
+                deny_reason=DenyReason.PREFIX_NOT_IN_COMMAND,
+                message=f"Suggested prefix '{prefix}' does not appear in the command.",
+            )
+
+    # Check for subshells
     if detect_subshells(command):
         return ValidationResult(
             status=ValidationStatus.DENIED,
@@ -369,35 +368,30 @@ def validate_command(
             message="Failed to parse command: no valid command segments found.",
         )
 
-    # Verify prefix count matches segment count
-    if len(suggested_prefixes) != len(segments):
-        return ValidationResult(
-            status=ValidationStatus.DENIED,
-            deny_reason=DenyReason.PREFIX_COUNT_MISMATCH,
-            message=f"Number of suggested prefixes ({len(suggested_prefixes)}) does not match number of command segments ({len(segments)}). Each pipe/operator segment needs its own prefix.",
-        )
-
     # Validate each segment
-    prefixes_needing_approval: List[str] = []
+    any_needs_approval = False
 
-    for segment, prefix in zip(segments, suggested_prefixes):
-        result = validate_prefix_for_segment(segment, prefix, allow_list, deny_list)
+    for segment in segments:
+        result = validate_segment(segment, allow_list, deny_list)
 
         # If any segment is denied, the whole command is denied
         if result.status == ValidationStatus.DENIED:
             return result
 
-        # Collect prefixes needing approval
         if result.status == ValidationStatus.APPROVAL_REQUIRED:
-            if result.prefixes_needing_approval:
-                prefixes_needing_approval.extend(result.prefixes_needing_approval)
+            any_needs_approval = True
 
-    # If any prefixes need approval, return APPROVAL_REQUIRED
-    if prefixes_needing_approval:
+    # If any segments need approval, filter suggested_prefixes to only those not already allowed
+    if any_needs_approval:
+        prefixes_needing_approval = [
+            prefix
+            for prefix in suggested_prefixes
+            if not any(match_prefix(prefix, allowed) for allowed in allow_list)
+        ]
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message="Command not in allow list.",
-            prefixes_needing_approval=prefixes_needing_approval,
+            prefixes_needing_approval=prefixes_needing_approval or suggested_prefixes,
         )
 
     # All segments validated and allowed

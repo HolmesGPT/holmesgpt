@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: order-processor
-  namespace: app-205
+  namespace: app-206
 spec:
   clusterIP: None
   selector:
@@ -12,7 +12,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: order-processor
-  namespace: app-205
+  namespace: app-206
 spec:
   serviceName: order-processor
   replicas: 100
