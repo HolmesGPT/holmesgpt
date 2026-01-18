@@ -103,9 +103,8 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
             # Uncomment for GitHub Enterprise:
             # - name: GITHUB_HOST
             #   value: "github.mycompany.com"
-            # Uncomment for self-signed certificates:
-            # - name: GITHUB_INSECURE
-            #   value: "true"
+            # For self-signed certs, use custom CA (preferred) or insecure mode.
+            # See "SSL Certificate Verification Errors" in Troubleshooting section.
             resources:
               requests:
                 memory: "256Mi"
@@ -449,9 +448,23 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 ### SSL Certificate Verification Errors
 
-**Problem:** Getting SSL certificate verification errors when connecting to GitHub Enterprise with self-signed certificates
+**Problem:** Getting SSL certificate verification errors when connecting to GitHub Enterprise with self-signed or internal CA certificates
 
-**Solution:** Disable SSL certificate verification by setting `insecure: true`:
+There are two solutions:
+
+#### Option 1: Custom CA Certificate (Recommended)
+
+Provide your organization's CA certificate to properly validate the connection:
+
+**Step 1:** Create a Kubernetes secret with your CA certificate:
+
+```bash
+kubectl create secret generic github-ca-cert \
+  --from-file=ca.crt=/path/to/your/ca-certificate.crt \
+  -n <NAMESPACE>
+```
+
+**Step 2:** Configure the GitHub MCP addon to use the CA certificate:
 
 === "Holmes Helm Chart"
 
@@ -463,7 +476,10 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
           secretName: "github-mcp-token"
         config:
           host: "github.mycompany.com"
-          insecure: true  # Disable SSL verification for self-signed certificates
+          customCACert:
+            enabled: true
+            secretName: "github-ca-cert"
+            secretKey: "ca.crt"  # Key in secret (default: "ca.crt")
     ```
 
 === "Robusta Helm Chart"
@@ -477,7 +493,72 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
             secretName: "github-mcp-token"
           config:
             host: "github.mycompany.com"
-            insecure: true  # Disable SSL verification for self-signed certificates
+            customCACert:
+              enabled: true
+              secretName: "github-ca-cert"
+              secretKey: "ca.crt"
+    ```
+
+=== "Holmes CLI (Manual Deployment)"
+
+    Add volume, volumeMount, and environment variables to your deployment:
+
+    ```yaml
+    spec:
+      containers:
+      - name: github-mcp
+        env:
+        - name: GITHUB_PERSONAL_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-mcp-token
+              key: token
+        - name: GITHUB_HOST
+          value: "github.mycompany.com"
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/certs/ca.crt
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/ssl/certs
+          readOnly: true
+      volumes:
+      - name: ca-cert
+        secret:
+          secretName: github-ca-cert
+          defaultMode: 420
+    ```
+
+#### Option 2: Disable SSL Verification (Less Secure)
+
+If you don't have access to the CA certificate, you can disable SSL verification:
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "github-mcp-token"
+        config:
+          host: "github.mycompany.com"
+          insecure: true  # Disable SSL verification
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            secretName: "github-mcp-token"
+          config:
+            host: "github.mycompany.com"
+            insecure: true  # Disable SSL verification
     ```
 
 === "Holmes CLI (Manual Deployment)"
@@ -498,7 +579,7 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
     ```
 
 !!! warning "Security Consideration"
-    Disabling SSL verification reduces security by making the connection vulnerable to man-in-the-middle attacks. Only use `insecure: true` when connecting to trusted internal GitHub Enterprise servers with self-signed certificates.
+    Disabling SSL verification reduces security by making the connection vulnerable to man-in-the-middle attacks. Only use `insecure: true` when connecting to trusted internal GitHub Enterprise servers and you don't have access to the CA certificate. Using a custom CA certificate (Option 1) is always preferred.
 
 ### Tool Not Found Errors
 

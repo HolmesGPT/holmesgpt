@@ -353,6 +353,15 @@ mcpAddons:
       # Only use this when connecting to GitHub Enterprise with self-signed certificates
       insecure: false
 
+      # Custom CA certificate bundle for GitHub Enterprise with internal CA
+      # Preferred over 'insecure: true' when you have access to the CA certificate
+      customCACert:
+        enabled: false
+        # Name of Kubernetes secret containing the CA certificate
+        secretName: ""
+        # Key in the secret containing the CA certificate (default: "ca.crt")
+        secretKey: "ca.crt"
+
       # Toolsets to enable (comma-separated list of toolset names)
       # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
       # Default: repos, issues, pull_requests, actions (covers most investigation needs)
