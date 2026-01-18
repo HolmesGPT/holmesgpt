@@ -1,0 +1,61 @@
+user_prompt: "Get all error logs from deployment my-deployment in namespace app-205"
+
+expected_output:
+  - "Holmes retrieves error logs from all 30 pods in the deployment"
+  - "Errors mention 'Connection timeout'"
+
+description: |
+  Tests that Holmes can retrieve logs from ALL 30 pods in a deployment.
+  This test is expected to fail with kubernetes/logs toolset (which samples only a few pods)
+  and succeed with bash toolset using kubectl logs -l or kubectl logs deployment/.
+
+tags:
+  - kubernetes
+  - logs
+  - question-answer
+  - benchmark
+
+before_test: |
+  kubectl create namespace app-205 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  # Wait for all 30 pods to be ready
+  PODS_READY=false
+  for i in {1..120}; do
+    READY_COUNT=$(kubectl get pods -n app-205 -l app=log-generator --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    echo "Attempt $i: $READY_COUNT/30 pods ready"
+    if [ "$READY_COUNT" -ge 30 ]; then
+      echo "All 30 pods ready!"
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$PODS_READY" = false ]; then
+    echo "Not all pods ready"
+    kubectl get pods -n app-205
+    exit 1
+  fi
+
+  # Verify ERROR logs exist from ALL 30 pods using label selector with max-log-requests
+  LOGS_READY=false
+  for i in {1..120}; do
+    POD_COUNT=$(kubectl logs -l app=log-generator -n app-205 --all-containers --prefix --max-log-requests=30 2>/dev/null | grep "ERROR:" | cut -d'[' -f2 | cut -d']' -f1 | sort -u | wc -l | tr -d ' ')
+    echo "Attempt $i: ERROR logs from $POD_COUNT/30 unique pods"
+    if [ "$POD_COUNT" -ge 30 ]; then
+      echo "ERROR logs from all 30 pods!"
+      LOGS_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$LOGS_READY" = false ]; then
+    echo "Not all 30 pods generated ERROR logs"
+    kubectl logs -l app=log-generator -n app-205 --all-containers --prefix --max-log-requests=30 | grep "ERROR:" | cut -d'[' -f2 | cut -d']' -f1 | sort -u
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-205 --ignore-not-found

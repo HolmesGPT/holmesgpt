@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-deployment
+  namespace: app-205
+spec:
+  replicas: 30
+  selector:
+    matchLabels:
+      app: log-generator
+  template:
+    metadata:
+      labels:
+        app: log-generator
+    spec:
+      containers:
+        - name: logger
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              POD_ID=$(hostname)
+              i=0
+              while true; do
+                i=$((i+1))
+                if [ $((i % 10)) -eq 0 ]; then
+                  echo "ERROR: Connection timeout from $POD_ID request_id=$i"
+                else
+                  echo "INFO: Processing request from $POD_ID request_id=$i"
+                fi
+                sleep 2
+              done
+          resources:
+            limits:
+              memory: "32Mi"
+              cpu: "10m"
