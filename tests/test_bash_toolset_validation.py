@@ -4,6 +4,8 @@ Unit tests for the bash toolset validation module.
 Tests prefix-based command validation, subshell detection, and allow/deny list handling.
 """
 
+import pytest
+
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,
@@ -13,6 +15,7 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     DEFAULT_DENY_LIST,
 )
 from holmes.plugins.toolsets.bash.validation import (
+    CompoundStatementError,
     DenyReason,
     ValidationStatus,
     check_hardcoded_blocks,
@@ -155,11 +158,11 @@ class TestParseCommandSegments:
         segments = parse_command_segments("sleep 10 & echo done")
         assert segments == ["sleep 10", "echo done"]
 
-    def test_empty_segments_filtered(self):
-        """Test that empty segments are filtered out."""
-        segments = parse_command_segments("  |  kubectl get pods  |  ")
-        assert "kubectl get pods" in segments
-        assert "" not in segments
+    def test_invalid_pipe_syntax_rejected(self):
+        """Test that invalid pipe syntax (empty segments) is rejected."""
+        # Invalid bash: pipe with no left side
+        with pytest.raises(CompoundStatementError):
+            parse_command_segments("  |  kubectl get pods  |  ")
 
 
 class TestDetectSubshells:
@@ -515,3 +518,266 @@ class TestUserConfiguredDenyList:
             deny_list,
         )
         assert result.status == ValidationStatus.ALLOWED
+
+
+class TestCompoundStatements:
+    """Tests for compound statement detection and rejection.
+
+    Only simple one-liner commands are supported. Compound statements like
+    for loops, while loops, if statements, etc. are NOT supported.
+    """
+
+    # ==================== SUPPORTED: Simple one-liner commands ====================
+
+    def test_simple_command_allowed(self):
+        """Simple single command is allowed."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods -n default",
+            ["kubectl get"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_pipe_command_allowed(self):
+        """Pipe command (|) is allowed."""
+        config = BashExecutorConfig(allow=["kubectl get", "grep"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods | grep Running",
+            ["kubectl get", "grep"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_multiple_pipes_allowed(self):
+        """Multiple pipes are allowed."""
+        config = BashExecutorConfig(allow=["kubectl get", "grep", "head"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods | grep Running | head -5",
+            ["kubectl get", "grep", "head"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_and_operator_allowed(self):
+        """AND operator (&&) is allowed."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods && kubectl get services",
+            ["kubectl get", "kubectl get"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_or_operator_allowed(self):
+        """OR operator (||) is allowed."""
+        config = BashExecutorConfig(allow=["kubectl get", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods || echo 'no pods'",
+            ["kubectl get", "echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_semicolon_operator_allowed(self):
+        """Semicolon operator (;) is allowed."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods; kubectl get services",
+            ["kubectl get", "kubectl get"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_background_operator_allowed(self):
+        """Background operator (&) is allowed."""
+        config = BashExecutorConfig(allow=["sleep", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "sleep 5 & echo done",
+            ["sleep", "echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_env_vars_in_command_allowed(self):
+        """Environment variables in commands are allowed."""
+        config = BashExecutorConfig(allow=["echo", "ls"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "echo $HOME && ls ${HOME}/projects",
+            ["echo", "ls"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    # ==================== NOT SUPPORTED: Compound statements ====================
+
+    def test_for_loop_rejected(self):
+        """For loop is NOT supported."""
+        config = BashExecutorConfig(allow=["for", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            'for i in 1 2 3 4 5; do echo "Iteration: $i"; done',
+            ["for"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+
+    def test_for_loop_with_command_rejected(self):
+        """For loop iterating over command output is NOT supported."""
+        config = BashExecutorConfig(allow=["for", "kubectl"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "for pod in pod1 pod2; do kubectl logs $pod; done",
+            ["for"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+
+    def test_while_loop_rejected(self):
+        """While loop is NOT supported."""
+        config = BashExecutorConfig(allow=["while", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "while true; do echo 'running'; sleep 1; done",
+            ["while"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+
+    def test_until_loop_rejected(self):
+        """Until loop is NOT supported."""
+        config = BashExecutorConfig(allow=["until", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "until false; do echo 'running'; done",
+            ["until"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+
+    def test_if_statement_rejected(self):
+        """If statement is NOT supported."""
+        config = BashExecutorConfig(allow=["if", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "if [ -f /tmp/test ]; then echo 'exists'; fi",
+            ["if"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+
+    def test_if_else_statement_rejected(self):
+        """If-else statement is NOT supported."""
+        config = BashExecutorConfig(allow=["if", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "if [ -f /tmp/test ]; then echo 'yes'; else echo 'no'; fi",
+            ["if"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+
+    def test_case_statement_rejected(self):
+        """Case statement is NOT supported."""
+        config = BashExecutorConfig(allow=["case", "echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "case $x in 1) echo one;; 2) echo two;; esac",
+            ["case"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+
+    # ==================== NOT SUPPORTED: Subshells ====================
+
+    def test_command_substitution_dollar_paren_rejected(self):
+        """Command substitution $() is NOT supported."""
+        config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "echo $(whoami)",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
+
+    def test_command_substitution_backticks_rejected(self):
+        """Command substitution with backticks is NOT supported."""
+        config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "echo `whoami`",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
+
+    def test_process_substitution_rejected(self):
+        """Process substitution <() and >() is NOT supported."""
+        config = BashExecutorConfig(allow=["diff", "cat"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "diff <(cat file1) <(cat file2)",
+            ["diff"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
+
+    # ==================== Error detection via parse_command_segments ====================
+
+    def test_parse_command_segments_raises_on_for_loop(self):
+        """parse_command_segments raises CompoundStatementError for for loops."""
+        import pytest
+
+        with pytest.raises(CompoundStatementError):
+            parse_command_segments('for i in 1 2 3; do echo "$i"; done')
+
+    def test_parse_command_segments_raises_on_while_loop(self):
+        """parse_command_segments raises CompoundStatementError for while loops."""
+        import pytest
+
+        with pytest.raises(CompoundStatementError):
+            parse_command_segments("while true; do sleep 1; done")
+
+    def test_parse_command_segments_raises_on_if_statement(self):
+        """parse_command_segments raises CompoundStatementError for if statements."""
+        import pytest
+
+        with pytest.raises(CompoundStatementError):
+            parse_command_segments("if [ -f file ]; then cat file; fi")

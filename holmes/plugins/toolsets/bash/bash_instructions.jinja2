@@ -1,8 +1,28 @@
 # Bash Tool
 
-Use the `bash` tool to execute shell commands. You must provide:
+Use the `bash` tool to execute simple one-liner shell commands. You must provide:
 1. `command`: The bash command to execute
 2. `suggested_prefixes`: Array of prefixes, one per command segment
+
+## Supported Command Types
+
+**SUPPORTED** - Simple one-liner commands:
+- Single commands: `kubectl get pods -n default`
+- Pipes (`|`): `kubectl get pods | grep Running | head -5`
+- AND operator (`&&`): `kubectl get pods && kubectl get services`
+- OR operator (`||`): `kubectl get pods || echo 'no pods found'`
+- Semicolon (`;`): `kubectl get pods; kubectl get services`
+- Background (`&`): `sleep 5 & echo done`
+- Environment variables: `echo $HOME`, `ls ${HOME}/projects`
+
+**NOT SUPPORTED** - Compound statements:
+- `for` loops: `for i in 1 2 3; do echo $i; done`
+- `while` loops: `while true; do sleep 1; done`
+- `until` loops: `until false; do echo running; done`
+- `if` statements: `if [ -f file ]; then cat file; fi`
+- `case` statements: `case $x in 1) echo one;; esac`
+- Command substitution: `echo $(whoami)` or `` echo `whoami` ``
+- Process substitution: `diff <(cat file1) <(cat file2)`
 
 ## Command Structure
 
@@ -57,3 +77,4 @@ These commands are blocked and cannot be executed:
 - `sudo` (always blocked)
 - `su` (always blocked)
 - Subshells `$(...)` and backticks (always blocked)
+- Compound statements: `for`, `while`, `until`, `if`, `case` (always blocked)

@@ -12,6 +12,7 @@ from enum import Enum
 from typing import List, Optional, Tuple
 
 import bashlex
+from bashlex import ast
 
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
@@ -39,6 +40,7 @@ class DenyReason(Enum):
     HARDCODED_BLOCK = "hardcoded_block"
     DENY_LIST = "deny_list"
     SUBSHELL_DETECTED = "subshell_detected"
+    COMPOUND_STATEMENT = "compound_statement"
     PARSE_ERROR = "parse_error"
     PREFIX_MISMATCH = "prefix_mismatch"
     PREFIX_COUNT_MISMATCH = "prefix_count_mismatch"
@@ -104,76 +106,86 @@ def detect_subshells(command: str) -> bool:
     return False
 
 
-def _extract_command_text(node, command: str) -> str:
-    """Extract the original command text for a bashlex node."""
-    return command[node.pos[0] : node.pos[1]]
+class CompoundStatementError(Exception):
+    """Raised when a compound statement (for, while, if, etc.) is detected."""
+
+    def __init__(self, kind: str):
+        self.kind = kind
+        super().__init__(f"Compound statement detected: {kind}")
 
 
-def _parse_with_bashlex(command: str) -> List[str]:
+# Keywords that indicate compound statements (checked when bashlex can't parse)
+COMPOUND_KEYWORDS = {"for", "while", "until", "if", "case", "select", "function"}
+COMPOUND_END_KEYWORDS = {"done", "fi", "esac"}
+
+
+def _detect_compound_keywords(command: str) -> Optional[str]:
     """
-    Parse a command using bashlex to extract command segments.
+    Detect compound statement keywords in a command string.
+
+    This is a fallback check for when bashlex can't parse the command
+    (e.g., case statements which bashlex doesn't fully support).
 
     Returns:
-        List of command segments
+        The detected keyword if found, None otherwise
     """
-    segments: List[str] = []
-
-    try:
-        parts = bashlex.parse(command)
-    except bashlex.errors.ParsingError as e:
-        logger.debug(f"bashlex failed to parse command: {e}")
-        # Fall back to regex if bashlex fails
-        return _parse_with_regex(command)
-
-    def visit_node(node):
-        """Recursively visit nodes to find command segments."""
-        if node.kind == "command":
-            # Extract the command text
-            cmd_text = _extract_command_text(node, command)
-            segments.append(cmd_text.strip())
-        elif node.kind in ("pipeline", "list", "compound"):
-            # Recurse into compound structures
-            for part in node.parts:
-                visit_node(part)
-        elif hasattr(node, "parts"):
-            for part in node.parts:
-                visit_node(part)
-
-    for part in parts:
-        visit_node(part)
-
-    return segments
+    words = re.findall(r"\b(\w+)\b", command)
+    for word in words:
+        if word in COMPOUND_KEYWORDS or word in COMPOUND_END_KEYWORDS:
+            return word
+    return None
 
 
-def _parse_with_regex(command: str) -> List[str]:
+class CommandSegmentExtractor(ast.nodevisitor):
     """
-    Fallback regex-based command parsing.
+    Bashlex AST visitor that extracts command segments.
 
-    Used when bashlex fails to parse the command.
+    Raises CompoundStatementError when compound statements are encountered.
     """
-    # Split by shell operators, preserving the command parts
-    segments = re.split(r"\s*(?:\|{1,2}|&&|;|&)\s*", command)
-    # Filter empty segments and strip whitespace
-    return [seg.strip() for seg in segments if seg.strip()]
+
+    def __init__(self, command: str):
+        self.command = command
+        self.segments: List[str] = []
+
+    def visitcommand(self, node, *args, **kwargs):
+        """Extract the command text for simple commands."""
+        cmd_text = self.command[node.pos[0] : node.pos[1]].strip()
+        self.segments.append(cmd_text)
+
+    def visitcompound(self, node, *args, **kwargs):
+        """Reject compound statements (for, while, if, case, etc.)."""
+        raise CompoundStatementError(node.kind)
 
 
 def parse_command_segments(command: str) -> List[str]:
     """
     Parse a command into segments separated by |, &&, ||, ;, &.
 
-    Uses bashlex for proper shell parsing, with regex fallback.
+    Uses bashlex AST visitor for proper shell parsing.
 
     Returns:
         List of command segments
+
+    Raises:
+        CompoundStatementError: If command contains compound statements
     """
-    # Try bashlex first
-    segments = _parse_with_bashlex(command)
+    try:
+        parts = bashlex.parse(command)
+    except (bashlex.errors.ParsingError, NotImplementedError) as e:
+        logger.debug(f"bashlex failed to parse command: {e}")
+        # Check for compound keywords when bashlex can't parse
+        # (catches cases like `case` statements that bashlex doesn't fully support)
+        keyword = _detect_compound_keywords(command)
+        if keyword:
+            raise CompoundStatementError(keyword)
+        # If no compound keywords found, re-raise the parse error
+        raise CompoundStatementError(f"parse_error: {e}")
 
-    # Fall back to regex if bashlex returned no segments
-    if not segments:
-        segments = _parse_with_regex(command)
+    extractor = CommandSegmentExtractor(command)
+    for part in parts:
+        extractor.visit(part)
 
-    return segments
+    return extractor.segments
 
 
 def check_hardcoded_blocks(command: str) -> Optional[str]:
@@ -340,8 +352,15 @@ def validate_command(
             message="Command contains subshell constructs ($(), ``, <(), >()) which are not allowed for security reasons.",
         )
 
-    # Parse command into segments
-    segments = parse_command_segments(command)
+    # Parse command into segments (may raise CompoundStatementError)
+    try:
+        segments = parse_command_segments(command)
+    except CompoundStatementError:
+        return ValidationResult(
+            status=ValidationStatus.DENIED,
+            deny_reason=DenyReason.COMPOUND_STATEMENT,
+            message="Compound statements (for, while, if, case, etc.) are not supported. Only simple one-liner commands are allowed.",
+        )
 
     if not segments:
         return ValidationResult(

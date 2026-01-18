@@ -213,10 +213,10 @@ class RunBashCommand(BaseBashTool):
         super().__init__(
             name="bash",
             description=(
-                "Executes a bash command and returns its output. "
-                "Commands are validated against an allow list using prefix matching. "
-                "You must provide suggested_prefixes - one prefix per command segment "
-                "(segments are separated by |, &&, ||, ;, &). "
+                "Executes a simple one-liner bash command and returns its output. "
+                "Only supports: single commands, pipes (|), && , ||, ;, &. "
+                "NOT supported: for/while/until loops, if/case statements, subshells $() or backticks. "
+                "You must provide suggested_prefixes - one prefix per command segment. "
                 "Example: for 'kubectl get pods | grep error', provide "
                 "suggested_prefixes=['kubectl get', 'grep']."
             ),
