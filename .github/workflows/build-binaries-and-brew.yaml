@@ -34,6 +34,7 @@ jobs:
     - name: Install dependencies
       if: matrix.os == 'windows-latest'
       run: |
+        git config --system core.longpaths true
         python -m pip install --upgrade pip setuptools pyinstaller
         curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
         C:\Users\runneradmin\AppData\Roaming\Python\Scripts\poetry config virtualenvs.create false
