@@ -1,4 +1,4 @@
-user_prompt: "Get all error logs from deployment my-deployment in namespace app-205"
+user_prompt: "Get all error logs from all the pods of deployment my-deployment in namespace app-205"
 
 expected_output:
   - "Holmes retrieves error logs from all 30 pods in the deployment"

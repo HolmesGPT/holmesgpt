@@ -233,6 +233,7 @@ class RunBashCommand(BaseBashTool):
                         "Do NOT include resource names, namespaces, or flag values."
                     ),
                     type="array",
+                    items=ToolParameter(type="string"),
                     required=True,
                 ),
                 "timeout": ToolParameter(

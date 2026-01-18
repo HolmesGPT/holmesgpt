@@ -1,6 +1,4 @@
 # Bash toolset test - prefix with resource type
-# Enable bash with only 'kubectl get pod' in allow list (not 'kubectl get')
-# AI must provide 'kubectl get pod' as suggested_prefix, not just 'kubectl get'
 toolsets:
   kubernetes/core:
     enabled: false
