@@ -97,6 +97,10 @@ spec:
         - name: GITHUB_HOST
           value: {{ .Values.mcpAddons.github.config.host | quote }}
         {{- end }}
+        {{- if .Values.mcpAddons.github.config.insecure }}
+        - name: GITHUB_INSECURE
+          value: "true"
+        {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
         readinessProbe:

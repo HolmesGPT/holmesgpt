@@ -349,6 +349,10 @@ mcpAddons:
       # Example: "github.mycompany.com"
       host: ""
 
+      # Disable SSL certificate verification (for self-signed certificates)
+      # Only use this when connecting to GitHub Enterprise with self-signed certificates
+      insecure: false
+
       # Toolsets to enable (comma-separated list of toolset names)
       # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
       # Default: repos, issues, pull_requests, actions (covers most investigation needs)

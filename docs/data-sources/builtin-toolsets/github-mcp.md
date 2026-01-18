@@ -103,6 +103,9 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
             # Uncomment for GitHub Enterprise:
             # - name: GITHUB_HOST
             #   value: "github.mycompany.com"
+            # Uncomment for self-signed certificates:
+            # - name: GITHUB_INSECURE
+            #   value: "true"
             resources:
               requests:
                 memory: "256Mi"
@@ -443,6 +446,59 @@ curl -H "Authorization: token <YOUR_GITHUB_PAT>" https://api.github.com/user
 kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
   curl -I https://github.mycompany.com/api/v3
 ```
+
+### SSL Certificate Verification Errors
+
+**Problem:** Getting SSL certificate verification errors when connecting to GitHub Enterprise with self-signed certificates
+
+**Solution:** Disable SSL certificate verification by setting `insecure: true`:
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "github-mcp-token"
+        config:
+          host: "github.mycompany.com"
+          insecure: true  # Disable SSL verification for self-signed certificates
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            secretName: "github-mcp-token"
+          config:
+            host: "github.mycompany.com"
+            insecure: true  # Disable SSL verification for self-signed certificates
+    ```
+
+=== "Holmes CLI (Manual Deployment)"
+
+    Add the `GITHUB_INSECURE` environment variable to your deployment:
+
+    ```yaml
+    env:
+    - name: GITHUB_PERSONAL_ACCESS_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: github-mcp-token
+          key: token
+    - name: GITHUB_HOST
+      value: "github.mycompany.com"
+    - name: GITHUB_INSECURE
+      value: "true"
+    ```
+
+!!! warning "Security Consideration"
+    Disabling SSL verification reduces security by making the connection vulnerable to man-in-the-middle attacks. Only use `insecure: true` when connecting to trusted internal GitHub Enterprise servers with self-signed certificates.
 
 ### Tool Not Found Errors
 
