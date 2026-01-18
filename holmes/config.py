@@ -283,6 +283,25 @@ class Config(RobustaBaseConfig):
 
         return self._server_tool_executor
 
+    def refresh_server_tool_executor(
+        self, dal: Optional["SupabaseDal"]
+    ) -> list[tuple[str, str, str]]:
+        if not self._server_tool_executor:
+            self.create_tool_executor(dal)
+            return []
+
+        current_toolsets = self._server_tool_executor.toolsets
+        new_toolsets, changes = (
+            self.toolset_manager.refresh_server_toolsets_and_get_changes(
+                current_toolsets, dal
+            )
+        )
+
+        if changes:
+            self._server_tool_executor = ToolExecutor(new_toolsets)
+
+        return [(name, old.value, new.value) for name, old, new in changes]
+
     def create_console_toolcalling_llm(
         self,
         dal: Optional["SupabaseDal"] = None,

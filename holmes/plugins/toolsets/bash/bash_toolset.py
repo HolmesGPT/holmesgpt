@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 import sentry_sdk
 
 from holmes.core.tools import (
+    ApprovalRequirement,
     CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -248,6 +249,65 @@ class RunBashCommand(BaseBashTool):
             toolset=toolset,
         )
 
+    def _validate_command(
+        self, command_str: str, suggested_prefixes: list, context: ToolInvokeContext
+    ):
+        """Validate command against effective allow/deny lists."""
+        # Refresh CLI-approved prefixes (in case user approved new ones this session)
+        if hasattr(self.toolset, "_merge_cli_approved_prefixes"):
+            self.toolset._merge_cli_approved_prefixes()
+
+        config = self.toolset.config or BashExecutorConfig()
+        allow_list, deny_list = get_effective_lists(config)
+
+        # Merge session-approved prefixes from conversation history (server flow)
+        if context.session_approved_prefixes:
+            existing = set(allow_list)
+            for prefix in context.session_approved_prefixes:
+                if prefix not in existing:
+                    allow_list.append(prefix)
+
+        return validate_command(command_str, suggested_prefixes, allow_list, deny_list)
+
+    def requires_approval(
+        self, params: Dict[str, Any], context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        """
+        Check if bash command requires approval based on prefix-based validation.
+
+        This method is called BEFORE _invoke() to determine if user approval is needed.
+        It can be called multiple times (e.g., to re-check after a previous approval
+        updated the allow list).
+        """
+        command_str = params.get("command", "")
+        suggested_prefixes = params.get("suggested_prefixes", [])
+
+        if not command_str or not suggested_prefixes:
+            return None  # Let _invoke() handle validation errors
+
+        validation_result = self._validate_command(
+            command_str, suggested_prefixes, context
+        )
+
+        if validation_result.status == ValidationStatus.DENIED:
+            # Denied commands don't need approval - they'll be rejected in _invoke()
+            return None
+
+        if validation_result.status == ValidationStatus.APPROVAL_REQUIRED:
+            logging.info(f"Bash command requires approval: {command_str}")
+            prefixes_to_save = (
+                validation_result.prefixes_needing_approval or suggested_prefixes
+            )
+            prefixes_display = ", ".join(prefixes_to_save)
+            return ApprovalRequirement(
+                needs_approval=True,
+                reason=f"Command prefix(es) not in allow list: {prefixes_display}",
+                prefixes_to_save=prefixes_to_save,
+            )
+
+        # ALLOWED - no approval needed
+        return None
+
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         command_str = params.get("command")
         suggested_prefixes = params.get("suggested_prefixes", [])
@@ -282,48 +342,13 @@ class RunBashCommand(BaseBashTool):
                 params=params,
             )
 
-        # Refresh CLI-approved prefixes (in case user approved new ones this session)
-        if hasattr(self.toolset, "_merge_cli_approved_prefixes"):
-            self.toolset._merge_cli_approved_prefixes()
-
-        # Get config (default if not set)
-        config = self.toolset.config or BashExecutorConfig()
-
-        # Build the effective allow/deny lists (copies, not references to shared config)
-        allow_list, deny_list = get_effective_lists(config)
-
-        # Merge session-approved prefixes from conversation history (server flow)
-        # This modifies our local copy, not the shared config
-        if context.session_approved_prefixes:
-            existing = set(allow_list)
-            for prefix in context.session_approved_prefixes:
-                if prefix not in existing:
-                    allow_list.append(prefix)
-            logging.debug(
-                f"Merged {len(context.session_approved_prefixes)} session-approved prefixes"
-            )
-
-        # Validate command unless user has already approved
+        # If not user_approved, validate the command
         if not context.user_approved:
-            validation_result = validate_command(
-                command_str, suggested_prefixes, allow_list, deny_list
+            validation_result = self._validate_command(
+                command_str, suggested_prefixes, context
             )
 
             if validation_result.status == ValidationStatus.DENIED:
-                sentry_sdk.capture_event(
-                    {
-                        "message": f"Bash command denied: {validation_result.deny_reason}",
-                        "level": "warning",
-                        "extra": {
-                            "command": command_str,
-                            "suggested_prefixes": suggested_prefixes,
-                            "deny_reason": validation_result.deny_reason.value
-                            if validation_result.deny_reason
-                            else None,
-                            "message": validation_result.message,
-                        },
-                    }
-                )
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
                     error=self._build_deny_error_message(validation_result),
@@ -332,15 +357,15 @@ class RunBashCommand(BaseBashTool):
                 )
 
             if validation_result.status == ValidationStatus.APPROVAL_REQUIRED:
-                logging.info(f"Bash command requires approval: {command_str}")
+                # This shouldn't happen - requires_approval() should have been called first
+                logging.warning(
+                    f"Unexpected APPROVAL_REQUIRED in _invoke() for command: {command_str}. "
+                    "This indicates requires_approval() was bypassed."
+                )
                 return StructuredToolResult(
-                    status=StructuredToolResultStatus.APPROVAL_REQUIRED,
-                    error="Command not in allow list.",
-                    params={
-                        "command": command_str,
-                        "suggested_prefixes": validation_result.prefixes_needing_approval
-                        or None,
-                    },
+                    status=StructuredToolResultStatus.ERROR,
+                    error="Command requires approval but was not approved. This may be a bug.",
+                    params=params,
                     invocation=command_str,
                 )
 
