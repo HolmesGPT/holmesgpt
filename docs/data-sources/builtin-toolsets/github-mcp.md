@@ -103,8 +103,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
             # Uncomment for GitHub Enterprise:
             # - name: GITHUB_HOST
             #   value: "github.mycompany.com"
-            # For self-signed certs, use custom CA (preferred) or insecure mode.
-            # See "SSL Certificate Verification Errors" in Troubleshooting section.
+            # For self-signed certs, see "SSL Certificate Verification Errors" in Troubleshooting.
             resources:
               requests:
                 memory: "256Mi"
@@ -474,8 +473,8 @@ kubectl create secret generic github-ca-cert \
           host: "github.mycompany.com"
           customCACert:
             enabled: true
-            secretName: "github-ca-cert"
-            secretKey: "ca.crt"  # Key in secret (default: "ca.crt")
+            # secretName: "github-ca-cert"  # default
+            # secretKey: "ca.crt"           # default
     ```
 
 === "Robusta Helm Chart"
@@ -491,8 +490,6 @@ kubectl create secret generic github-ca-cert \
             host: "github.mycompany.com"
             customCACert:
               enabled: true
-              secretName: "github-ca-cert"
-              secretKey: "ca.crt"
     ```
 
 === "Holmes CLI (Manual Deployment)"

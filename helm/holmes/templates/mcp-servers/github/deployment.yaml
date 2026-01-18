@@ -99,7 +99,7 @@ spec:
         {{- end }}
         {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
         - name: SSL_CERT_FILE
-          value: /etc/ssl/certs/{{ .Values.mcpAddons.github.config.customCACert.secretKey | default "ca.crt" }}
+          value: /etc/ssl/certs/{{ .Values.mcpAddons.github.config.customCACert.secretKey }}
         - name: SSL_CERT_DIR
           value: /etc/ssl/certs
         {{- end }}
@@ -125,7 +125,7 @@ spec:
       volumes:
       - name: ca-cert
         secret:
-          secretName: {{ required "mcpAddons.github.config.customCACert.secretName is required when customCACert is enabled" .Values.mcpAddons.github.config.customCACert.secretName }}
+          secretName: {{ .Values.mcpAddons.github.config.customCACert.secretName }}
           defaultMode: 420
       {{- end }}
 ---
