@@ -1245,6 +1245,8 @@ def run_interactive_loop(
             elif not user_input.strip():
                 continue
 
+            ai.reset_interaction_state()
+
             if messages is None:
                 messages = build_initial_ask_messages(
                     console,

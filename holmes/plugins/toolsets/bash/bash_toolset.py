@@ -12,6 +12,7 @@ from holmes.common.env_vars import (
     BASH_TOOL_UNSAFE_ALLOW_ALL,
 )
 from holmes.core.tools import (
+    ApprovalRequirement,
     CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -162,6 +163,35 @@ class RunBashCommand(BaseBashTool):
             toolset=toolset,
         )
 
+    def requires_approval(
+        self, params: Dict[str, Any], context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        """Check if bash command requires approval based on safety validation."""
+        command_str = params.get("command", "")
+
+        if not command_str:
+            return None  # Let _invoke() handle validation error
+
+        try:
+            make_command_safe(command_str, self.toolset.config)
+            return None  # Command passed safety check, no approval needed
+        except (argparse.ArgumentError, ValueError) as e:
+            # Report to Sentry for monitoring unsafe command attempts
+            with sentry_sdk.configure_scope() as scope:
+                scope.set_extra("command", command_str)
+                scope.set_extra("error", str(e))
+                scope.set_extra("unsafe_allow_all", BASH_TOOL_UNSAFE_ALLOW_ALL)
+                sentry_sdk.capture_exception(e)
+
+            if BASH_TOOL_UNSAFE_ALLOW_ALL:
+                return None  # UNSAFE_ALLOW_ALL bypasses approval
+
+            logging.info(f"Refusing LLM tool call {command_str}")
+            return ApprovalRequirement(
+                needs_approval=True,
+                reason=f"Refusing to execute bash command. {str(e)}",
+            )
+
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         command_str = params.get("command")
         timeout = params.get("timeout", 60)
@@ -180,29 +210,17 @@ class RunBashCommand(BaseBashTool):
                 params=params,
             )
 
-        command_to_execute = command_str
-
-        # Only run the safety check if user has NOT approved the command
-        if not context.user_approved:
+        if context.user_approved:
+            command_to_execute = command_str
+        else:
             try:
                 command_to_execute = make_command_safe(command_str, self.toolset.config)
-
             except (argparse.ArgumentError, ValueError) as e:
-                with sentry_sdk.configure_scope() as scope:
-                    scope.set_extra("command", command_str)
-                    scope.set_extra("error", str(e))
-                    scope.set_extra("unsafe_allow_all", BASH_TOOL_UNSAFE_ALLOW_ALL)
-                    sentry_sdk.capture_exception(e)
-
-                if not BASH_TOOL_UNSAFE_ALLOW_ALL:
-                    logging.info(f"Refusing LLM tool call {command_str}")
-
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.APPROVAL_REQUIRED,
-                        error=f"Refusing to execute bash command. {str(e)}",
-                        params=params,
-                        invocation=command_str,
-                    )
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=f"Command failed safety validation: {e}",
+                    params=params,
+                )
 
         return execute_bash_command(
             cmd=command_to_execute, timeout=timeout, params=params

@@ -41,7 +41,7 @@ spec:
       containers:
       - name: holmes
         image: "{{ .Values.registry }}/{{ .Values.image }}"
-        imagePullPolicy: Always
+        imagePullPolicy: {{ .Values.imagePullPolicy }}
         command: ["python3", "-u", "server.py"]
         ports:
         - containerPort: 5050
