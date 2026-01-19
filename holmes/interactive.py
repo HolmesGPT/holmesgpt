@@ -51,6 +51,7 @@ from holmes.utils.colors import (
 )
 from holmes.utils.console.consts import agent_name
 from holmes.utils.file_utils import write_json_file
+from holmes.utils.image_utils import validate_image_file
 from holmes.version import check_version_async
 
 
@@ -1242,8 +1243,6 @@ def run_interactive_loop(
                     handle_feedback_command(style, console, feedback, feedback_callback)
                     continue
                 elif original_input.startswith("/attach-image "):
-                    from holmes.utils.image_utils import validate_image_file
-
                     image_path_str = original_input[14:].strip()  # Remove "/attach-image "
                     image_path = Path(image_path_str)
 

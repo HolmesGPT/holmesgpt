@@ -24,10 +24,11 @@ def test_get_image_mime_type():
     assert get_image_mime_type(Path("test.JPG")) == "image/jpeg"  # Case insensitive
 
 
-def test_validate_image_file_missing():
+def test_validate_image_file_missing(tmp_path):
     """Test validation fails for missing file."""
+    missing_file = tmp_path / "missing.jpg"
     with pytest.raises(ValueError, match="not found"):
-        validate_image_file(Path("/nonexistent/image.jpg"))
+        validate_image_file(missing_file)
 
 
 def test_validate_image_file_unsupported(tmp_path):

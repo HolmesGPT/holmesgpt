@@ -134,9 +134,10 @@ markers = [
     "frontend: Run frontend tests",
     "grafana-dashboard: Tests involving Grafana dashboard interactions",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
+    "integration: Integration tests requiring external services (e.g., running server, real APIs)",
     # REGRESSION TEST SELECTION CRITERIA:
     # - Must pass 30+ iterations reliably with Sonnet-4.5 model
-    # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)  
+    # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)
     # - Tests core HolmesGPT functionality that should never regress
     # - Fast execution to avoid slowing CI/CD pipelines
     "regression: Critical regression tests that must always pass",

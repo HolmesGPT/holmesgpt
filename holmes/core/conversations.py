@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import sentry_sdk
 
@@ -18,6 +18,16 @@ from holmes.utils.global_instructions import (
 )
 
 DEFAULT_TOOL_SIZE = 10000
+
+
+class InvalidImageDictError(ValueError):
+    """Raised when an image dict is missing required keys or is malformed."""
+
+    def __init__(self, provided_keys: List[str]):
+        self.provided_keys = provided_keys
+        super().__init__(
+            f"Image dict must contain a 'url' key. Got keys: {provided_keys}"
+        )
 
 
 @sentry_sdk.trace
@@ -331,7 +341,7 @@ def build_chat_messages(
     global_instructions: Optional[Instructions] = None,
     additional_system_prompt: Optional[str] = None,
     runbooks: Optional[RunbookCatalog] = None,
-    images: Optional[List[str]] = None,
+    images: Optional[List[Union[str, Dict[str, Any]]]] = None,
 ) -> List[dict]:
     """
     This function generates a list of messages for general chat conversation and ensures that the message sequence adheres to the model's context window limitations
@@ -416,9 +426,7 @@ def build_chat_messages(
                 # Dict with url, detail, format fields (full LiteLLM format)
                 # Validate that the dict contains a "url" key
                 if "url" not in image_item:
-                    raise ValueError(
-                        f"Image dict must contain a 'url' key. Got keys: {list(image_item.keys())}"
-                    )
+                    raise InvalidImageDictError(list(image_item.keys()))
                 image_url_obj = {"url": image_item["url"]}
                 # Add optional detail parameter (OpenAI-specific: low/high/auto)
                 if "detail" in image_item:
