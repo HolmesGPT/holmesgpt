@@ -800,21 +800,15 @@ class TestCompoundStatements:
 
     def test_parse_command_segments_raises_on_for_loop(self):
         """parse_command_segments raises CompoundStatementError for for loops."""
-        import pytest
-
         with pytest.raises(CompoundStatementError):
             parse_command_segments('for i in 1 2 3; do echo "$i"; done')
 
     def test_parse_command_segments_raises_on_while_loop(self):
         """parse_command_segments raises CompoundStatementError for while loops."""
-        import pytest
-
         with pytest.raises(CompoundStatementError):
             parse_command_segments("while true; do sleep 1; done")
 
     def test_parse_command_segments_raises_on_if_statement(self):
         """parse_command_segments raises CompoundStatementError for if statements."""
-        import pytest
-
         with pytest.raises(CompoundStatementError):
             parse_command_segments("if [ -f file ]; then cat file; fi")

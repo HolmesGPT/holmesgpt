@@ -40,6 +40,12 @@ from holmes.core.prompt import build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
 from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    enable_cli_mode,
+)
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    save_cli_approved_prefixes as _save_approved_prefixes,
+)
 from holmes.utils.colors import (
     AI_COLOR,
     ERROR_COLOR,
@@ -617,45 +623,6 @@ def prompt_for_llm_sharing(
     return None
 
 
-def _load_approved_prefixes() -> list[str]:
-    """Load approved prefixes from ~/.holmes/bash_approved_prefixes.yaml."""
-    import yaml
-
-    prefixes_file = os.path.join(config_path_dir, "bash_approved_prefixes.yaml")
-    if os.path.exists(prefixes_file):
-        try:
-            with open(prefixes_file, "r") as f:
-                data = yaml.safe_load(f)
-                if isinstance(data, dict) and "approved_prefixes" in data:
-                    return data["approved_prefixes"]
-        except Exception as e:
-            logging.warning(f"Failed to load approved prefixes: {e}")
-    return []
-
-
-def _save_approved_prefixes(prefixes: list[str]) -> None:
-    """Save approved prefixes to ~/.holmes/bash_approved_prefixes.yaml."""
-    import yaml
-
-    prefixes_file = os.path.join(config_path_dir, "bash_approved_prefixes.yaml")
-    os.makedirs(config_path_dir, exist_ok=True)
-
-    # Load existing prefixes and merge
-    existing = set(_load_approved_prefixes())
-    updated = sorted(set(prefixes) | existing)
-
-    try:
-        with open(prefixes_file, "w") as f:
-            yaml.safe_dump({"approved_prefixes": updated}, f, default_flow_style=False)
-    except Exception as e:
-        logging.error(f"Failed to save approved prefixes: {e}")
-
-
-def get_cli_approved_prefixes() -> list[str]:
-    """Get the list of CLI-approved prefixes. Used by bash toolset to merge with config."""
-    return _load_approved_prefixes()
-
-
 def _run_inline_menu(options: list[str], console: Console) -> Optional[int]:
     """
     Run an inline menu with arrow key navigation.
@@ -1137,6 +1104,9 @@ def run_interactive_loop(
     bash_always_deny: bool = False,
     bash_always_allow: bool = False,
 ) -> None:
+    # Enable CLI mode for bash prefix loading (server mode doesn't call this)
+    enable_cli_mode()
+
     # Initialize tracer - use DummyTracer if no tracer provided
     if tracer is None:
         tracer = DummyTracer()

@@ -22,6 +22,7 @@ from holmes.core.tools import (
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
+from holmes.plugins.toolsets.bash.common.cli_prefixes import load_cli_approved_prefixes
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
@@ -80,19 +81,7 @@ def bash_result_to_structured(
     )
 
 
-class BaseBashExecutorToolset(Toolset):
-    config: Optional[BashExecutorConfig] = None
-
-    def get_example_config(self):
-        example_config = BashExecutorConfig()
-        return example_config.model_dump()
-
-
-class BaseBashTool(Tool):
-    toolset: BaseBashExecutorToolset
-
-
-class RunBashCommand(BaseBashTool):
+class RunBashCommand(Tool):
     """
     Tool for executing bash commands with prefix-based validation.
 
@@ -100,7 +89,9 @@ class RunBashCommand(BaseBashTool):
     parameter. Each command segment (separated by |, &&, etc.) requires its own prefix.
     """
 
-    def __init__(self, toolset: BaseBashExecutorToolset):
+    toolset: "BashExecutorToolset"
+
+    def __init__(self, toolset: "BashExecutorToolset"):
         super().__init__(
             name="bash",
             description=(
@@ -136,16 +127,15 @@ class RunBashCommand(BaseBashTool):
                     required=False,
                 ),
             },
-            toolset=toolset,
         )
+        self.toolset = toolset
 
     def _validate_command(
         self, command_str: str, suggested_prefixes: list, context: ToolInvokeContext
     ):
         """Validate command against effective allow/deny lists."""
-        # Refresh CLI-approved prefixes (in case user approved new ones this session)
-        if hasattr(self.toolset, "_merge_cli_approved_prefixes"):
-            self.toolset._merge_cli_approved_prefixes()
+        # Refresh CLI-approved prefixes (no-op in server mode due to CLI mode flag)
+        self.toolset._merge_cli_approved_prefixes()
 
         config = self.toolset.config or BashExecutorConfig()
         allow_list, deny_list = get_effective_lists(config)
@@ -298,13 +288,19 @@ class RunBashCommand(BaseBashTool):
         return display_command
 
 
-class BashExecutorToolset(BaseBashExecutorToolset):
+class BashExecutorToolset(Toolset):
     """
     Toolset for executing bash commands with prefix-based validation.
 
     Commands are validated against allow/deny lists. Users can approve
     commands on-the-fly and build their trusted command set over time.
     """
+
+    config: Optional[BashExecutorConfig] = None
+
+    def get_example_config(self):
+        example_config = BashExecutorConfig()
+        return example_config.model_dump()
 
     def __init__(self):
         super().__init__(
@@ -359,10 +355,7 @@ class BashExecutorToolset(BaseBashExecutorToolset):
 
     def _merge_cli_approved_prefixes(self) -> None:
         """Merge CLI-approved prefixes from ~/.holmes/bash_approved_prefixes.yaml."""
-        # Import here to avoid circular import (interactive -> tool_calling_llm -> ... -> bash_toolset)
-        from holmes.interactive import get_cli_approved_prefixes
-
-        cli_prefixes = get_cli_approved_prefixes()
+        cli_prefixes = load_cli_approved_prefixes()
         if cli_prefixes and self.config:
             # Build new list instead of mutating (preserves order, dedupes)
             merged = list(dict.fromkeys(self.config.allow + cli_prefixes))
