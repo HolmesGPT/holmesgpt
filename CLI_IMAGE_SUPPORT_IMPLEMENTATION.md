@@ -34,7 +34,7 @@ include_image: Optional[List[Path]] = typer.Option(
     [],
     "--image",
     "-img",
-    help="Image file to analyze (jpg, png, gif, webp). Can specify multiple times to add multiple images",
+    help="Image file to analyze (jpg, jpeg, png, gif, webp). Can specify multiple times to add multiple images",
 ),
 ```
 
@@ -680,7 +680,7 @@ holmes ask "Analyze this diagram" --image diagram.png --model claude-3.5-sonnet
 - [ ] Add tests for `image_utils.py`
 - [ ] Add integration tests for messages with images
 - [ ] Update CLI help text / documentation
-- [ ] Test with different image formats (jpg, png, gif, webp)
+- [ ] Test with different image formats (jpg, jpeg, png, gif, webp)
 - [ ] Test with multiple models (OpenAI, Anthropic, etc.)
 
 ## Notes

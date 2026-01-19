@@ -196,7 +196,7 @@ def ask(
         [],
         "--image",
         "-img",
-        help="Image file to analyze (jpg, png, gif, webp). Can specify multiple times to add multiple images",
+        help="Image file to analyze (jpg, jpeg, png, gif, webp). Can specify multiple times to add multiple images",
     ),
     json_output_file: Optional[str] = opt_json_output_file,
     echo_request: bool = opt_echo_request,
