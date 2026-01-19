@@ -244,6 +244,10 @@ class ChatRequest(ChatRequestBaseModel):
             "  - format (optional): MIME type like 'image/jpeg' (for providers that need it)"
         ),
     )
+    response_format: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional JSON schema for structured output. Format: {'type': 'json_schema', 'json_schema': {'name': 'ResultName', 'strict': true, 'schema': {...}}}",
+    )
 
 
 class FollowUpAction(BaseModel):

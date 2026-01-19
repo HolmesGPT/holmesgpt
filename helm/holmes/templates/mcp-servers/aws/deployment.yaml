@@ -14,6 +14,19 @@ metadata:
 data:
   AWS_REGION: {{ .Values.mcpAddons.aws.config.region | quote }}
   READ_OPERATIONS_ONLY: {{ .Values.mcpAddons.aws.config.readOnlyMode | quote }}
+  {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
+  accounts.yaml: |
+    region: {{ .Values.mcpAddons.aws.config.region | quote }}
+    profiles:
+      {{- range $profile, $config := .Values.mcpAddons.aws.multiAccount.profiles }}
+      {{ $profile }}:
+        account_id: {{ $config.account_id | quote }}
+        role_arn: {{ $config.role_arn | quote }}
+        {{- if $config.region }}
+        region: {{ $config.region | quote }}
+        {{- end }}
+      {{- end }}
+  {{- end }}
 ---
 {{- if .Values.mcpAddons.aws.serviceAccount.create }}
 apiVersion: v1
@@ -27,7 +40,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
-  {{- if .Values.mcpAddons.aws.serviceAccount.annotations }}
+  {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) }}
   annotations:
     {{- toYaml .Values.mcpAddons.aws.serviceAccount.annotations | nindent 4 }}
   {{- end }}
@@ -75,9 +88,29 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.aws.affinity | nindent 8 }}
       {{- end }}
+      {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
+      volumes:
+      - name: aws-accounts
+        configMap:
+          name: {{ .Release.Name }}-aws-mcp-config
+          items:
+          - key: accounts.yaml
+            path: accounts.yaml
+      - name: eks-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 86400
+              audience: sts.amazonaws.com
+      {{- end }}
       containers:
       - name: aws-mcp
+        {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.image }}
+        image: "{{ .Values.mcpAddons.aws.registry }}/{{ .Values.mcpAddons.aws.multiAccount.image }}"
+        {{- else }}
         image: "{{ .Values.mcpAddons.aws.registry }}/{{ .Values.mcpAddons.aws.image }}"
+        {{- end }}
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -99,6 +132,15 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-aws-mcp-config
               key: READ_OPERATIONS_ONLY
+        {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
+        volumeMounts:
+        - name: aws-accounts
+          mountPath: /etc/aws
+          readOnly: true
+        - name: eks-token
+          mountPath: /var/run/secrets/eks.amazonaws.com/serviceaccount
+          readOnly: true
+        {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.aws.resources | nindent 10 }}
         readinessProbe:

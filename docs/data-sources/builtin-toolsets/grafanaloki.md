@@ -70,29 +70,30 @@ toolsets:
 
 ## Advanced Configuration
 
-### Search Labels
+### SSL Verification
 
-You can tweak the labels used by the toolset to identify Kubernetes resources. This is only needed if your Loki logs settings for `pod` and `namespace` differ from the defaults.
+For self-signed certificates, you can disable SSL verification:
 
 ```yaml-toolset-config
 toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: ...
-      labels:
-          pod: "pod"
-          namespace: "namespace"
+      url: https://loki.internal
+      verify_ssl: false  # Disable SSL verification (default: true)
 ```
 
-Use the following commands to list Loki's labels and determine which ones to use:
+### External URL
 
-```bash
-# Make Loki accessible locally
-kubectl port-forward svc/loki 3100:3100
+If HolmesGPT accesses Loki through an internal URL but you want clickable links in results to use a different URL:
 
-# List all labels. You may have to add the -H 'X-Scope-OrgID:<org id>' option with a valid org id
-curl http://localhost:3100/loki/api/v1/labels
+```yaml-toolset-config
+toolsets:
+  grafana/loki:
+    enabled: true
+    config:
+      url: http://loki.internal:3100  # Internal URL for API calls
+      external_url: https://loki.example.com  # URL for links in results
 ```
 
 ## Capabilities

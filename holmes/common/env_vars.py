@@ -129,3 +129,9 @@ ENABLE_CONNECTION_KEEPALIVE = load_bool("ENABLE_CONNECTION_KEEPALIVE", False)
 KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))
 KEEPALIVE_INTVL = int(os.environ.get("KEEPALIVE_INTVL", 2))
 KEEPALIVE_CNT = int(os.environ.get("KEEPALIVE_CNT", 5))
+
+# Periodic refresh interval for toolset status in server mode (in seconds)
+# Set to 0 to disable periodic refresh
+TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
+    os.environ.get("TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS", 300)
+)

@@ -7,10 +7,15 @@ from urllib.parse import urljoin
 
 import dateutil.parser
 import requests  # type: ignore
+from prometrix.auth import PrometheusAuthorization
 from prometrix.connect.aws_connect import AWSPrometheusConnect
+from prometrix.models.prometheus_config import (
+    AzurePrometheusConfig as PrometrixAzureConfig,
+)
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from requests import RequestException
+from requests.exceptions import SSLError  # type: ignore
 
 from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
 from holmes.common.openshift import load_openshift_token
@@ -50,6 +55,20 @@ DEFAULT_METADATA_TIMEOUT_SECONDS = 20
 MAX_METADATA_TIMEOUT_SECONDS = 60
 # Default time window for metadata APIs (in hours)
 DEFAULT_METADATA_TIME_WINDOW_HRS = 1
+
+
+def format_ssl_error_message(prometheus_url: str, error: SSLError) -> str:
+    """Format a clear SSL error message with remediation steps."""
+    return (
+        f"SSL certificate verification failed when connecting to Prometheus at {prometheus_url}. "
+        f"Error: {str(error)}. "
+        f"To disable SSL verification, set 'verify_ssl: false' in your configuration. "
+        f"For Helm deployments, add this to your values.yaml:\n"
+        f"  toolsets:\n"
+        f"    prometheus/metrics:\n"
+        f"      config:\n"
+        f"        verify_ssl: false"
+    )
 
 
 class PrometheusConfig(BaseModel):
@@ -212,12 +231,155 @@ class AMPConfig(PrometheusConfig):
         return self._aws_client
 
 
+class AzurePrometheusConfig(PrometheusConfig):
+    azure_resource: Optional[str] = None
+    azure_metadata_endpoint: Optional[str] = None
+    azure_token_endpoint: Optional[str] = None
+    azure_use_managed_id: bool = False
+    azure_client_id: Optional[str] = None
+    azure_client_secret: Optional[str] = None
+    azure_tenant_id: Optional[str] = None
+    verify_ssl: bool = True
+
+    # Refresh the Azure bearer token every N seconds (default: 15 minutes)
+    refresh_interval_seconds: int = 900
+
+    _prometrix_config: Optional[PrometrixAzureConfig] = None
+    _token_created_at: float = 0.0
+
+    @staticmethod
+    def _load_from_env_or_default(
+        config_value: Optional[str], env_var: str, default: Optional[str] = None
+    ) -> Optional[str]:
+        """Load value from config, environment variable, or use default."""
+        if config_value:
+            return config_value
+        return os.environ.get(env_var, default)
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Load from environment variables if not provided in config
+        self.azure_client_id = self._load_from_env_or_default(
+            self.azure_client_id, "AZURE_CLIENT_ID"
+        )
+        self.azure_tenant_id = self._load_from_env_or_default(
+            self.azure_tenant_id, "AZURE_TENANT_ID"
+        )
+        self.azure_client_secret = self._load_from_env_or_default(
+            self.azure_client_secret, "AZURE_CLIENT_SECRET"
+        )
+
+        # Set defaults from environment if not provided
+        self.azure_resource = self._load_from_env_or_default(
+            self.azure_resource,
+            "AZURE_RESOURCE",
+            "https://prometheus.monitor.azure.com",
+        )
+        # from https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-to-use-vm-token
+        self.azure_metadata_endpoint = self._load_from_env_or_default(
+            self.azure_metadata_endpoint,
+            "AZURE_METADATA_ENDPOINT",
+            "http://169.254.169.254/metadata/identity/oauth2/token",
+        )
+        self.azure_token_endpoint = self._load_from_env_or_default(
+            self.azure_token_endpoint, "AZURE_TOKEN_ENDPOINT"
+        )
+        if not self.azure_token_endpoint and self.azure_tenant_id:
+            self.azure_token_endpoint = (
+                f"https://login.microsoftonline.com/{self.azure_tenant_id}/oauth2/token"
+            )
+
+        # Check if managed identity should be used
+        if not self.azure_use_managed_id:
+            self.azure_use_managed_id = os.environ.get(
+                "AZURE_USE_MANAGED_ID", "false"
+            ).lower() in ("true", "1")
+
+        # Convert None to empty string for prometrix compatibility (prometrix checks != "")
+        azure_client_id = self.azure_client_id or ""
+        azure_tenant_id = self.azure_tenant_id or ""
+        azure_client_secret = self.azure_client_secret or ""
+        azure_resource = self.azure_resource or ""
+        azure_metadata_endpoint = self.azure_metadata_endpoint or ""
+        azure_token_endpoint = self.azure_token_endpoint or ""
+
+        # Create prometrix Azure config
+        self._prometrix_config = PrometrixAzureConfig(
+            url=self.prometheus_url,
+            azure_resource=azure_resource,
+            azure_metadata_endpoint=azure_metadata_endpoint,
+            azure_token_endpoint=azure_token_endpoint,
+            azure_use_managed_id=self.azure_use_managed_id,
+            azure_client_id=azure_client_id,
+            azure_client_secret=azure_client_secret,
+            azure_tenant_id=azure_tenant_id,
+            disable_ssl=not self.verify_ssl,
+            additional_labels=self.additional_labels,
+        )
+        # Ensure promtrix gets a real bool (not string) for managed identity
+        # fixing internal prometrix config issue
+        object.__setattr__(
+            self._prometrix_config,
+            "azure_use_managed_id",
+            bool(self.azure_use_managed_id),
+        )
+
+        PrometheusAuthorization.azure_authorization(self._prometrix_config)
+
+    @staticmethod
+    def is_azure_config(config: dict[str, Any]) -> bool:
+        """Check if config dict or environment variables indicate Azure Prometheus config."""
+        # Check for explicit Azure fields in config
+        if (
+            "azure_client_id" in config
+            or "azure_tenant_id" in config
+            or "azure_use_managed_id" in config
+        ):
+            return True
+
+        # Check for Azure environment variables
+        if os.environ.get("AZURE_CLIENT_ID") or os.environ.get("AZURE_TENANT_ID"):
+            return True
+
+        return False
+
+    def is_amp(self) -> bool:
+        return False
+
+    def _should_refresh_token(self) -> bool:
+        if not PrometheusAuthorization.bearer_token:
+            return True
+        return (time.time() - self._token_created_at) >= self.refresh_interval_seconds
+
+    def request_new_token(self) -> bool:
+        """Request a new Azure access token using prometrix."""
+        success = PrometheusAuthorization.request_new_token(self._prometrix_config)
+        if success:
+            self._token_created_at = time.time()
+        return success
+
+    def get_authorization_headers(self) -> Dict[str, str]:
+        # Request new token if needed
+        if self._should_refresh_token():
+            if not self.request_new_token():
+                logging.error("Failed to request new Azure access token")
+                return {}
+            self._token_created_at = time.time()
+
+        headers = PrometheusAuthorization.get_authorization_headers(
+            self._prometrix_config
+        )
+        if not headers.get("Authorization"):
+            logging.warning("No authorization header generated for Azure Prometheus")
+        return headers
+
+
 class BasePrometheusTool(Tool):
     toolset: "PrometheusToolset"
 
 
 def do_request(
-    config,  # PrometheusConfig | AMPConfig
+    config,  # PrometheusConfig | AMPConfig | AzurePrometheusConfig
     url: str,
     params: Optional[Dict] = None,
     data: Optional[Dict] = None,
@@ -229,6 +391,7 @@ def do_request(
     """
     Route a request through either:
       - AWSPrometheusConnect (SigV4) when config is AMPConfig
+      - Azure bearer token auth when config is AzurePrometheusConfig
       - plain requests otherwise
 
     method defaults to GET so callers can omit it for reads.
@@ -251,7 +414,21 @@ def do_request(
             headers=headers,
         )
 
-    # Non-AMP: plain HTTP
+    if isinstance(config, AzurePrometheusConfig):
+        # Merge Azure authorization headers with provided headers
+        azure_headers = config.get_authorization_headers()
+        headers = {**azure_headers, **headers}
+        return requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            params=params,
+            data=data,
+            timeout=timeout,
+            verify=verify,
+        )
+
+    # Non-AMP, Non-Azure: plain HTTP
     return requests.request(
         method=method,
         url=url,
@@ -526,6 +703,13 @@ class ListPrometheusRules(BasePrometheusTool):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error="Request timed out while fetching rules",
+                params=params,
+            )
+        except SSLError as e:
+            logging.warning("SSL error while fetching prometheus rules", exc_info=True)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=format_ssl_error_message(self.toolset.config.prometheus_url, e),
                 params=params,
             )
         except RequestException as e:
@@ -1250,6 +1434,13 @@ class ExecuteInstantQuery(BasePrometheusTool):
                 params=params,
             )
 
+        except SSLError as e:
+            logging.warning("SSL error while executing Prometheus query", exc_info=True)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=format_ssl_error_message(self.toolset.config.prometheus_url, e),
+                params=params,
+            )
         except RequestException as e:
             logging.info("Failed to connect to Prometheus", exc_info=True)
             return StructuredToolResult(
@@ -1494,6 +1685,15 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 params=params,
             )
 
+        except SSLError as e:
+            logging.warning(
+                "SSL error while executing Prometheus range query", exc_info=True
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=format_ssl_error_message(self.toolset.config.prometheus_url, e),
+                params=params,
+            )
         except RequestException as e:
             logging.info("Failed to connect to Prometheus", exc_info=True)
             return StructuredToolResult(
@@ -1515,7 +1715,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
 
 
 class PrometheusToolset(Toolset):
-    config: Optional[Union[PrometheusConfig, AMPConfig]] = None
+    config: Optional[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]] = None
 
     def __init__(self):
         super().__init__(
@@ -1548,16 +1748,36 @@ class PrometheusToolset(Toolset):
 
     def determine_prometheus_class(
         self, config: dict[str, Any]
-    ) -> Type[Union[PrometheusConfig, AMPConfig]]:
+    ) -> Type[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]]:
         has_aws_fields = "aws_region" in config
-        return AMPConfig if has_aws_fields else PrometheusConfig
+        if has_aws_fields:
+            return AMPConfig
+
+        # Check for Azure config using static method
+        is_azure = AzurePrometheusConfig.is_azure_config(config)
+        if is_azure:
+            logging.info("Detected Azure Managed Prometheus configuration")
+        return AzurePrometheusConfig if is_azure else PrometheusConfig
+
+    def _disable_azure_incompatible_tools(self):
+        """
+        Azure Managed Prometheus does not support some APIs.
+        Remove unsupported tools.
+        """
+        incompatible = {
+            "get_label_values",
+            "get_metric_metadata",
+            "list_prometheus_rules",
+        }
+        self.tools = [t for t in self.tools if t.name not in incompatible]
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         try:
             if config:
                 config_cls = self.determine_prometheus_class(config)
                 self.config = config_cls(**config)  # type: ignore
-
+                if isinstance(self.config, AzurePrometheusConfig):
+                    self._disable_azure_incompatible_tools()
                 self._reload_llm_instructions()
                 return self._is_healthy()
         except Exception:
