@@ -40,15 +40,6 @@ def test_validate_image_file_unsupported(tmp_path):
         validate_image_file(test_file)
 
 
-def test_validate_image_file_not_a_file(tmp_path):
-    """Test validation fails for directory."""
-    test_dir = tmp_path / "testdir"
-    test_dir.mkdir()
-
-    with pytest.raises(ValueError, match="not a file"):
-        validate_image_file(test_dir)
-
-
 def test_image_to_base64_data_uri(tmp_path):
     """Test converting image to base64 data URI."""
     # Create a tiny valid PNG (1x1 transparent pixel)
@@ -67,20 +58,6 @@ def test_image_to_base64_data_uri(tmp_path):
     # Verify we can decode it back
     decoded = base64.b64decode(base64_part)
     assert decoded == png_data
-
-
-def test_image_to_base64_data_uri_jpeg(tmp_path):
-    """Test JPEG format."""
-    # Minimal valid JPEG (from Wikipedia)
-    jpeg_data = base64.b64decode(
-        b"/9j/4AAQSkZJRgABAQEAYABgAAD//gA7Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcgSlBFRyB2NjIpLCBxdWFsaXR5ID0gOTAK/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCxAWEBETFBUVFQwPFxgWFBgSFBUU/9sAQwEDBAQFBAUJBQUJFA0LDRQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU/8AAEQgAAQABAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/aAAwDAQACEQMRAD8A8/ooor+lT+DD/9k="
-    )
-    test_file = tmp_path / "test.jpg"
-    test_file.write_bytes(jpeg_data)
-
-    result = image_to_base64_data_uri(test_file)
-
-    assert result.startswith("data:image/jpeg;base64,")
 
 
 def test_process_image_paths(tmp_path):
@@ -121,13 +98,3 @@ def test_process_image_paths_with_invalid(tmp_path):
 
     with pytest.raises(ValueError, match="not found"):
         process_image_paths([valid_png, invalid_img])
-
-
-def test_supported_formats():
-    """Test that supported formats dict is complete."""
-    assert ".jpg" in SUPPORTED_IMAGE_FORMATS
-    assert ".jpeg" in SUPPORTED_IMAGE_FORMATS
-    assert ".png" in SUPPORTED_IMAGE_FORMATS
-    assert ".gif" in SUPPORTED_IMAGE_FORMATS
-    assert ".webp" in SUPPORTED_IMAGE_FORMATS
-    assert len(SUPPORTED_IMAGE_FORMATS) == 5

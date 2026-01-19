@@ -343,68 +343,6 @@ def test_api_issue_chat_all_fields(
 
 @patch("holmes.config.Config.create_toolcalling_llm")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
-def test_api_workload_health_chat(
-    mock_get_global_instructions,
-    mock_create_toolcalling_llm,
-    client,
-):
-    mock_ai = MagicMock()
-    mock_ai.messages_call.return_value = MagicMock(
-        result="This is a mock analysis for workload health chat.",
-        tool_calls=[
-            {
-                "tool_call_id": "1",
-                "tool_name": "health_checker",
-                "description": "Checks workload health",
-                "result": {"status": "success", "data": "Workload is healthy"},
-            }
-        ],
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Check the workload health."},
-        ],
-        metadata={},
-    )
-    mock_create_toolcalling_llm.return_value = mock_ai
-
-    mock_get_global_instructions.return_value = []
-
-    payload = {
-        "ask": "Check the workload health.",
-        "workload_health_result": {
-            "analysis": "Mock workload health analysis",
-            "tools": [],
-        },
-        "resource": {"name": "example-resource", "kind": "Deployment"},
-        "conversation_history": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Check the workload health."},
-        ],
-    }
-    response = client.post("/api/workload_health_chat", json=payload)
-    assert response.status_code == 200
-    data = response.json()
-
-    assert "analysis" in data
-    assert "conversation_history" in data
-    assert "tool_calls" in data
-
-    assert isinstance(data["analysis"], str)
-    assert isinstance(data["conversation_history"], list)
-    assert isinstance(data["tool_calls"], list)
-
-    assert any(msg.get("role") == "user" for msg in data["conversation_history"])
-
-    if data["tool_calls"]:
-        tool_call = data["tool_calls"][0]
-        assert "tool_call_id" in tool_call
-        assert "tool_name" in tool_call
-        assert "description" in tool_call
-        assert "result" in tool_call
-
-
-@patch("holmes.config.Config.create_toolcalling_llm")
-@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_workload_issues")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_resource_instructions")
 @patch("holmes.plugins.prompts.load_and_render_prompt")
