@@ -102,7 +102,8 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
                   key: token
             # Uncomment for GitHub Enterprise:
             # - name: GITHUB_HOST
-            #   value: "github.mycompany.com"
+            #   value: "https://github.mycompany.com"
+            # For self-signed certs, see "SSL Certificate Verification Errors" in Troubleshooting.
             resources:
               requests:
                 memory: "256Mi"
@@ -200,7 +201,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
         auth:
           secretName: "github-mcp-token"
         config:
-          host: "github.mycompany.com"
+          host: "https://github.mycompany.com"
     ```
 
     Then deploy or upgrade your Holmes installation:
@@ -242,7 +243,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
           auth:
             secretName: "github-mcp-token"
           config:
-            host: "github.mycompany.com"
+            host: "https://github.mycompany.com"
     ```
 
     Then deploy or upgrade your Robusta installation:
@@ -443,6 +444,84 @@ curl -H "Authorization: token <YOUR_GITHUB_PAT>" https://api.github.com/user
 kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
   curl -I https://github.mycompany.com/api/v3
 ```
+
+### SSL Certificate Verification Errors
+
+**Problem:** Getting SSL certificate verification errors when connecting to GitHub Enterprise with self-signed or internal CA certificates
+
+**Solution:** Provide your organization's CA certificate to properly validate the connection:
+
+**Step 1:** Create a Kubernetes secret with your CA certificate:
+
+```bash
+kubectl create secret generic github-ca-cert \
+  --from-file=ca.crt=/path/to/your/ca-certificate.crt \
+  -n <NAMESPACE>
+```
+
+**Step 2:** Configure the GitHub MCP addon to use the CA certificate:
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "github-mcp-token"
+        config:
+          host: "https://github.mycompany.com"
+          customCACert:
+            enabled: true
+            # secretName: "github-ca-cert"  # default
+            # secretKey: "ca.crt"           # default
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            secretName: "github-mcp-token"
+          config:
+            host: "https://github.mycompany.com"
+            customCACert:
+              enabled: true
+    ```
+
+=== "Holmes CLI (Manual Deployment)"
+
+    Add volume, volumeMount, and environment variables to your deployment:
+
+    ```yaml
+    spec:
+      containers:
+      - name: github-mcp
+        env:
+        - name: GITHUB_PERSONAL_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-mcp-token
+              key: token
+        - name: GITHUB_HOST
+          value: "https://github.mycompany.com"
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/certs/ca.crt
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/ssl/certs
+          readOnly: true
+      volumes:
+      - name: ca-cert
+        secret:
+          secretName: github-ca-cert
+          defaultMode: 420
+    ```
 
 ### Tool Not Found Errors
 
