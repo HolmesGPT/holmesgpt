@@ -1,0 +1,23 @@
+checks:
+  - name: "Pod Running Check"
+    description: "Check if nginx pod is running"
+    query: "Is there a pod named 'nginx' in the default namespace that is in Running state?"
+    tags: ["kubernetes", "easy"]
+
+expected_results:
+  "Pod Running Check": "pass"
+
+expected_output: "All health checks passed"
+
+before_test: |
+  kubectl run nginx --image=nginx:latest --restart=Never
+  kubectl wait --for=condition=Ready pod/nginx --timeout=60s
+
+after_test: |
+  kubectl delete pod nginx --ignore-not-found=true
+
+tags:
+  - kubernetes
+  - easy
+
+description: "Basic test to verify pod health check works correctly"

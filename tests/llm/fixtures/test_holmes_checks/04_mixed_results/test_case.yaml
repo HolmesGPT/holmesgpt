@@ -1,0 +1,37 @@
+checks:
+  - name: "Good Pod Check"
+    description: "Check if good pod is running"
+    query: "Is the pod 'good-pod' in namespace 'app-04' running successfully?"
+    tags: ["kubernetes"]
+
+  - name: "Bad Pod Check"
+    description: "Check if bad pod is healthy (it's not)"
+    query: "Is the pod 'bad-pod' in namespace 'app-04' running without any errors or restarts?"
+    tags: ["kubernetes"]
+
+  - name: "Service Check"
+    description: "Check if service has endpoints"
+    query: "Does the service 'test-service' in namespace 'app-04' have at least one endpoint?"
+    tags: ["kubernetes", "service"]
+
+expected_results:
+  "Good Pod Check": "pass"
+  "Bad Pod Check": "fail"
+  "Service Check": "pass"
+
+expected_output: "Mixed results - some checks passed, some failed"
+
+before_test: |
+  kubectl create namespace app-04 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  sleep 15
+
+after_test: |
+  kubectl delete -f manifest.yaml --ignore-not-found=true
+  kubectl delete namespace app-04 --ignore-not-found=true
+
+tags:
+  - kubernetes
+  - easy
+
+description: "Test with mixed pass/fail results"
