@@ -222,6 +222,17 @@ class TestCheckHardcodedBlocks:
         """Test that blocking is case-insensitive."""
         assert check_hardcoded_blocks("SUDO apt-get install") == "sudo"
 
+    def test_no_false_positives_from_substring(self):
+        """Test that commands containing 'su' as substring are NOT blocked."""
+        # These should NOT be blocked - 'su' appears as substring, not command
+        assert check_hardcoded_blocks("echo issue") is None
+        assert check_hardcoded_blocks("echo result") is None
+        assert check_hardcoded_blocks("sum 1 2 3") is None
+        assert check_hardcoded_blocks("sudo_wrapper ls") is None  # not a word boundary
+        # But these SHOULD be blocked - 'su' is the actual command
+        assert check_hardcoded_blocks("su") == "su"
+        assert check_hardcoded_blocks("su -") == "su"
+
 
 class TestGetEffectiveLists:
     """Tests for effective allow/deny list computation."""

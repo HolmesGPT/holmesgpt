@@ -359,19 +359,12 @@ class BashExecutorToolset(BaseBashExecutorToolset):
 
     def _merge_cli_approved_prefixes(self) -> None:
         """Merge CLI-approved prefixes from ~/.holmes/bash_approved_prefixes.yaml."""
-        try:
-            from holmes.interactive import get_cli_approved_prefixes
+        # Import here to avoid circular import (interactive -> tool_calling_llm -> ... -> bash_toolset)
+        from holmes.interactive import get_cli_approved_prefixes
 
-            cli_prefixes = get_cli_approved_prefixes()
-            if cli_prefixes and self.config:
-                # Merge without duplicates
-                existing = set(self.config.allow)
-                for prefix in cli_prefixes:
-                    if prefix not in existing:
-                        self.config.allow.append(prefix)
-                logging.debug(f"Merged {len(cli_prefixes)} CLI-approved prefixes")
-        except ImportError:
-            # interactive module may not be available in all contexts
-            pass
-        except Exception as e:
-            logging.warning(f"Failed to load CLI-approved prefixes: {e}")
+        cli_prefixes = get_cli_approved_prefixes()
+        if cli_prefixes and self.config:
+            # Build new list instead of mutating (preserves order, dedupes)
+            merged = list(dict.fromkeys(self.config.allow + cli_prefixes))
+            self.config.allow = merged
+            logging.debug(f"Merged {len(cli_prefixes)} CLI-approved prefixes")

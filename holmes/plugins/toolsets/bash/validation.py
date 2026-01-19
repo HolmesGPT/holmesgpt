@@ -187,18 +187,20 @@ def parse_command_segments(command: str) -> List[str]:
     return extractor.segments
 
 
-def check_hardcoded_blocks(command: str) -> Optional[str]:
+def check_hardcoded_blocks(segment: str) -> Optional[str]:
     """
-    Check if command matches any hardcoded block patterns.
+    Check if segment matches any hardcoded block patterns.
+    Uses same matching logic as deny list for consistency.
+
+    Args:
+        segment: A single command segment (already parsed)
 
     Returns:
         The matched block pattern if found, None otherwise
     """
-    command_lower = command.lower()
-
+    segment_lower = segment.lower()
     for block in HARDCODED_BLOCKS:
-        # Check if block pattern appears in command
-        if block in command_lower:
+        if match_prefix_for_deny(segment_lower, block):
             return block
 
     return None
