@@ -127,8 +127,8 @@ class RunBashCommand(Tool):
                     required=False,
                 ),
             },
+            toolset=toolset,  # type: ignore[call-arg]
         )
-        self.toolset = toolset
 
     def _validate_command(
         self, command_str: str, suggested_prefixes: list, context: ToolInvokeContext
