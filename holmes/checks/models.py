@@ -37,7 +37,7 @@ class Check(BaseModel):
     query: str
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    mode: CheckMode = CheckMode.ALERT
+    mode: CheckMode = CheckMode.MONITOR
     destinations: List[str] = Field(default_factory=list)
     timeout: int = 30
     schedule: Optional[str] = None  # cron format for future implementation
