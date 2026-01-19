@@ -439,6 +439,20 @@ class TestValidateCommand:
         # Only custom-tool should need approval, kubectl get is already allowed
         assert result.prefixes_needing_approval == ["custom-tool"]
 
+    def test_duplicate_prefixes_deduplicated(self):
+        """Test that duplicate prefixes in suggested_prefixes are deduplicated."""
+        config = BashExecutorConfig(allow=[])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "custom-tool --flag | custom-tool --other",
+            ["custom-tool", "custom-tool"],  # Same prefix twice
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        # Should only appear once in prefixes_needing_approval
+        assert result.prefixes_needing_approval == ["custom-tool"]
+
 
 class TestValidationOrder:
     """Tests to verify the validation order is correct."""

@@ -382,12 +382,15 @@ def validate_command(
             any_needs_approval = True
 
     # If any segments need approval, filter suggested_prefixes to only those not already allowed
+    # Use dict.fromkeys to deduplicate while preserving order
     if any_needs_approval:
-        prefixes_needing_approval = [
-            prefix
-            for prefix in suggested_prefixes
-            if not any(match_prefix(prefix, allowed) for allowed in allow_list)
-        ]
+        prefixes_needing_approval = list(
+            dict.fromkeys(
+                prefix
+                for prefix in suggested_prefixes
+                if not any(match_prefix(prefix, allowed) for allowed in allow_list)
+            )
+        )
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message="Command not in allow list.",
