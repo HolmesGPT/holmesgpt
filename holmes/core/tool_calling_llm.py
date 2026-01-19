@@ -353,18 +353,6 @@ class ToolCallingLLM:
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
-            # Log if messages contain images
-            for msg_idx, msg in enumerate(messages):
-                if isinstance(msg.get("content"), list):
-                    content_items = msg["content"]
-                    image_items = [item for item in content_items if item.get("type") == "image_url"]
-                    if image_items:
-                        logging.info(f"LLM call iteration {i}: Message {msg_idx} contains {len(image_items)} image(s)")
-                        for img_idx, img_item in enumerate(image_items):
-                            img_url = img_item.get("image_url", {}).get("url", "")
-                            url_preview = img_url[:60] + "..." if len(img_url) > 60 else img_url
-                            logging.info(f"  Image {img_idx + 1}: {url_preview}")
-
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),

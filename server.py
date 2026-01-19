@@ -383,17 +383,13 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 def chat(chat_request: ChatRequest):
     try:
         # Log incoming request details
-        logging.info(f"Received /api/chat request with model: {chat_request.model}")
-        if chat_request.images:
-            logging.info(f"Request includes {len(chat_request.images)} image(s)")
-            for idx, img in enumerate(chat_request.images):
-                if isinstance(img, str):
-                    img_preview = img[:60] + "..." if len(img) > 60 else img
-                    logging.info(f"  Image {idx + 1}: string format - {img_preview}")
-                elif isinstance(img, dict):
-                    logging.info(f"  Image {idx + 1}: dict format with keys: {list(img.keys())}")
-        else:
-            logging.info("Request has no images")
+        has_images = bool(chat_request.images)
+        has_structured_output = bool(chat_request.response_format)
+        logging.info(
+            f"Received /api/chat request: model={chat_request.model}, "
+            f"images={has_images}, structured_output={has_structured_output}, "
+            f"streaming={chat_request.stream}"
+        )
 
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
@@ -432,14 +428,7 @@ def chat(chat_request: ChatRequest):
                 ),
             ]
 
-        # Log message summary before LLM call
-        logging.info(f"Calling LLM with {len(messages)} messages (streaming={chat_request.stream})")
-        image_messages = [msg for msg in messages if isinstance(msg.get("content"), list)]
-        if image_messages:
-            logging.info(f"  Found {len(image_messages)} message(s) with structured content (potentially including images)")
-
         if chat_request.stream:
-            logging.info("Starting streaming response")
             return StreamingResponse(
                 stream_chat_formatter(
                     ai.call_stream(
@@ -453,12 +442,10 @@ def chat(chat_request: ChatRequest):
                 media_type="text/event-stream",
             )
         else:
-            logging.info("Starting non-streaming response")
             llm_call = ai.messages_call(
                 messages=messages,
                 response_format=chat_request.response_format,
             )
-            logging.info(f"LLM call completed successfully, result length: {len(llm_call.result) if llm_call.result else 0}")
 
             # For non-streaming, we need to handle approvals differently
             # This is a simplified version - in practice, non-streaming with approvals
