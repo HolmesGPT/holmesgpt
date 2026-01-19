@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Optional, Union
 
 import sentry_sdk
@@ -415,12 +416,15 @@ def build_chat_messages(
 
     # Build user message with optional images
     if images:
+        logging.info(f"build_chat_messages: Processing {len(images)} image(s) for vision model")
         # For vision models, content is an array of content items
         content = [{"type": "text", "text": ask}]
-        for image_item in images:
+        for idx, image_item in enumerate(images):
             # Support both simple string and dict format
             if isinstance(image_item, str):
                 # Simple URL or data URI string
+                img_preview = image_item[:80] + "..." if len(image_item) > 80 else image_item
+                logging.info(f"  Image {idx + 1}: Adding string image - {img_preview}")
                 content.append({"type": "image_url", "image_url": {"url": image_item}})
             else:
                 # Dict with url, detail, format fields (full LiteLLM format)
@@ -428,15 +432,21 @@ def build_chat_messages(
                 if "url" not in image_item:
                     raise InvalidImageDictError(list(image_item.keys()))
                 image_url_obj = {"url": image_item["url"]}
+                url_preview = image_item["url"][:80] + "..." if len(image_item["url"]) > 80 else image_item["url"]
+                logging.info(f"  Image {idx + 1}: Adding dict image - url={url_preview}, keys={list(image_item.keys())}")
                 # Add optional detail parameter (OpenAI-specific: low/high/auto)
                 if "detail" in image_item:
                     image_url_obj["detail"] = image_item["detail"]
+                    logging.info(f"    - detail: {image_item['detail']}")
                 # Add optional format parameter (MIME type)
                 if "format" in image_item:
                     image_url_obj["format"] = image_item["format"]
+                    logging.info(f"    - format: {image_item['format']}")
                 content.append({"type": "image_url", "image_url": image_url_obj})
         user_message = {"role": "user", "content": content}
+        logging.info(f"build_chat_messages: Built user message with {len(content)} content items (1 text + {len(content) - 1} images)")
     else:
+        logging.info("build_chat_messages: No images, using standard text-only message")
         # Standard text-only message
         user_message = {"role": "user", "content": ask}
 
