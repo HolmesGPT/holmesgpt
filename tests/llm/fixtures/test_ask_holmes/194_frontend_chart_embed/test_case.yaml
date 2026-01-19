@@ -1,0 +1,23 @@
+description: POC test for additional system prompt feature. Validates that the additional system prompt is correctly wired in evals, using chart embed generation as the validator.
+
+user_prompt:
+  - Show me a chart embed comparing namespaces that start with app-194, showing how many start with app-194-kube versus those that don't
+
+expected_output:
+  - 'Includes a block embed such as <<{ "type": "chart", "data": JSON, "title": "namespace app-194 substring comparison" }>>'
+  - The embed must start with <<{ and end with }>>
+  - The embed type is exactly equal to "chart"
+  - The embed includes the count or percentage for each group
+  - The embed doesn't contain any line-break characters
+  - The `data` JSON doesn't contain fields that their values are js scriptable. It should only contain fixed values!
+
+tags:
+  - frontend
+
+before_test: |
+  kubectl create namespace app-194-kube || true
+  kubectl create namespace app-194-sphere || true
+
+after_test: |
+  kubectl delete namespace app-194-kube --ignore-not-found
+  kubectl delete namespace app-194-sphere --ignore-not-found

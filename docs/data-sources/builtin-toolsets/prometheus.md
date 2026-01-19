@@ -79,24 +79,22 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: http://<prometheus-host>:9090
-      healthcheck: "/api/v1/query?query=up"  # Default path for health checking.
+      prometheus_url: http://prometheus-server.monitoring.svc.cluster.local:9090
       headers:
-        Authorization: "Basic <base_64_encoded_string>"
+        Authorization: "Basic <base64_encoded_credentials>"
 
-      # Time windows and limits
-      default_metadata_time_window_hrs: 1  # Time window for metadata APIs (default: 1 hour)
-      query_response_size_limit: 20000  # Max characters in query response (default: 20000)
+      # Discovery settings
+      discover_metrics_from_last_hours: 1  # Only return metrics with data in last N hours (default: 1)
 
       # Timeout configuration
-      default_query_timeout_seconds: 20  # Default timeout for PromQL queries (default: 20)
-      max_query_timeout_seconds: 180  # Maximum allowed timeout for PromQL queries (default: 180)
-      default_metadata_timeout_seconds: 20  # Default timeout for metadata/discovery APIs (default: 20)
-      max_metadata_timeout_seconds: 60  # Maximum allowed timeout for metadata APIs (default: 60)
+      query_timeout_seconds_default: 20  # Default timeout for PromQL queries (default: 20)
+      query_timeout_seconds_hard_max: 180  # Maximum allowed timeout for PromQL queries (default: 180)
+      metadata_timeout_seconds_default: 20  # Default timeout for metadata/discovery APIs (default: 20)
+      metadata_timeout_seconds_hard_max: 60  # Maximum allowed timeout for metadata APIs (default: 60)
 
       # Other options
       rules_cache_duration_seconds: 1800  # Cache duration for Prometheus rules (default: 30 minutes)
-      prometheus_ssl_enabled: true  # Enable SSL verification (default: true)
+      verify_ssl: true  # Enable SSL verification (default: true)
       tool_calls_return_data: true  # If false, disables returning Prometheus data (default: true)
       additional_labels:  # Additional labels to add to all queries
         cluster: "production"
@@ -105,16 +103,14 @@ toolsets:
 **Config option explanations:**
 
 - `prometheus_url`: The base URL for Prometheus. Should include protocol and port.
-- `healthcheck`: Path used for health checking Prometheus or Mimir/Cortex endpoint. Defaults to `"/api/v1/query?query=up"`.
 - `headers`: Extra headers for all Prometheus HTTP requests (e.g., for authentication).
-- `default_metadata_time_window_hrs`: Time window (in hours) for metadata/discovery APIs to look for active metrics. Default: 1 hour.
-- `query_response_size_limit`: Maximum number of characters in a query response before truncation. Set to `null` to disable. Default: 20000.
-- `default_query_timeout_seconds`: Default timeout for PromQL queries. Can be overridden per query. Default: 20.
-- `max_query_timeout_seconds`: Maximum allowed timeout for PromQL queries. Default: 180.
-- `default_metadata_timeout_seconds`: Default timeout for metadata/discovery API calls. Default: 20.
-- `max_metadata_timeout_seconds`: Maximum allowed timeout for metadata API calls. Default: 60.
+- `discover_metrics_from_last_hours`: Only return metrics that have data in the last N hours when using discovery APIs (get_metric_names, get_label_values, etc.). Default: 1 hour. Increase if you have metrics that report infrequently.
+- `query_timeout_seconds_default`: Default timeout for PromQL queries. Can be overridden per query. Default: 20.
+- `query_timeout_seconds_hard_max`: Maximum allowed timeout for PromQL queries. Default: 180.
+- `metadata_timeout_seconds_default`: Default timeout for metadata/discovery API calls. Default: 20.
+- `metadata_timeout_seconds_hard_max`: Maximum allowed timeout for metadata API calls. Default: 60.
 - `rules_cache_duration_seconds`: How long to cache Prometheus rules. Set to `null` to disable caching. Default: 1800 (30 minutes).
-- `prometheus_ssl_enabled`: Enable SSL certificate verification. Default: true.
+- `verify_ssl`: Enable SSL certificate verification. Default: true.
 - `tool_calls_return_data`: If `false`, disables returning Prometheus data to HolmesGPT (useful if you hit token limits). Default: true.
 - `additional_labels`: Dictionary of labels to add to all queries (currently only implemented for AWS/AMP).
 
@@ -162,7 +158,7 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
             prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
             headers:
               token: "{{ env.CORALOGIX_API_KEY }}"
-            default_metadata_time_window_hrs: 72  # Look back 72 hours for metrics
+            discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
             tool_calls_return_data: true
     ```
 
@@ -196,6 +192,63 @@ holmes:
 - Credentials refresh automatically based on `refresh_interval_seconds`
 
 ---
+
+## Google Managed Prometheus Configuration
+
+Before configuring Holmes, make sure you have:
+
+* Google Managed Prometheus enabled
+* A Prometheus Frontend endpoint accessible from your cluster
+  (If you don’t already have one, you can create it following the instructions
+  [here](https://docs.cloud.google.com/stackdriver/docs/managed-prometheus/query-api-ui#ui-prometheus) )
+
+To connect HolmesGPT to Google Cloud Managed Prometheus:
+
+```yaml
+holmes:
+  toolsets:
+    prometheus/metrics:
+      enabled: true
+      config:
+        # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
+        prometheus_url: http://frontend.default.svc.cluster.local:9090
+```
+
+**Notes:**
+
+* Authentication is handled automatically via Google Cloud (Workload Identity or default service account in the frontend deployed app)
+* No additional headers or credentials are required
+* The Prometheus Frontend endpoint must be accessible from the cluster
+
+## Azure Managed Prometheus Configuration
+
+Before configuring Holmes, make sure you have:
+
+* An Azure Monitor workspace with Managed Prometheus enabled
+* A service principal (or managed identity) that has access to the workspace
+
+### Using a service principal (client secret)
+
+```yaml
+holmes:
+  toolsets:
+    prometheus/metrics:
+      enabled: true
+      config:
+        prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+  additionalEnvVars:
+    - name: AZURE_CLIENT_ID
+      value: "<your-app-client-id>"
+    - name: AZURE_TENANT_ID
+      value: "<your-tenant-id>"
+    - name: AZURE_CLIENT_SECRET
+      value: "<your-client-secret>"
+```
+
+**Notes:**
+- `prometheus_url` must point to the Azure Managed Prometheus workspace endpoint (include the trailing slash).
+- No extra headers are required; authentication is handled through Azure AD (service principal or managed identity).
+- SSL is enabled by default (`verify_ssl: true`). Disable only if you know you need to trust a custom cert.
 
 ## Grafana Cloud (Mimir) Configuration
 

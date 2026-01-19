@@ -7,6 +7,7 @@ imagePullSecrets: []
 podAnnotations: {}
 
 replicas: 1
+imagePullPolicy: IfNotPresent
 
 autoscaling:
   enabled: false
@@ -19,8 +20,7 @@ autoscaling:
 image: holmes:0.0.0
 registry: robustadev
 
-sentryDSN: https://51f9cd9bd2fdee16144db08fc423cd3b@o1120648.ingest.us.sentry.io/4508799804702720
-enableTelemetry: true
+sentryDSN: https://aa95c183188a6ddf134ebfffe85fd108@o4510692373299200.ingest.de.sentry.io/4510707946094672
 
 enableAccountsCreate: true
 revisionHistoryLimit: 10
@@ -42,8 +42,6 @@ crdPermissions:
   velero: true
   externalSecrets: true
 
-enablePostProcessing: false
-postProcessingPrompt: "builtin://generic_post_processing.jinja2"
 openshift: false
 
 affinity: {}
@@ -66,6 +64,8 @@ toolsets:
   prometheus/metrics:
     enabled: true
   runbook:
+    enabled: true
+  connectivity_check:
     enabled: true
 mcp_servers: {}
 
@@ -111,6 +111,15 @@ mcpAddons:
       readOnlyMode: true   # Set to false to allow write operations (use with caution)
       namespace: ""        # Kubernetes namespace (defaults to release namespace if empty)
 
+    # Multi-account configuration
+    # When multiAccount.profiles is defined, the chart will use EKS token projection
+    multiAccount:
+      enabled: false  # Set to true to enable multi-account access
+      image: "multi-aws-api-mcp-server:2.0.0"
+      # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
+      profiles: {}
+      llm_account_descriptions: ""
+      
     # Network policy to restrict access to MCP server
     networkPolicy:
       enabled: true  # Enable network isolation (recommended)
@@ -127,7 +136,7 @@ mcpAddons:
   mariadb:
     enabled: false
 
-    image: "mariadb-http-mcp-minimal:1.0.3"
+    image: "mariadb-http-mcp-minimal:1.0.5"
     registry: "me-west1-docker.pkg.dev/robusta-development/development"
 
     config:
@@ -158,6 +167,212 @@ mcpAddons:
     llmInstructions: ""
 
     annotations: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # Google Cloud Platform MCP addon - provides access to GCP services
+  # Docker images and deployment scripts: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
+  #
+  # AUTHENTICATION:
+  # The recommended method is using a service account key file:
+  # 1. Create a service account key:
+  #    gcloud iam service-accounts keys create key.json \
+  #      --iam-account=YOUR_SA@PROJECT.iam.gserviceaccount.com
+  # 2. Create a Kubernetes secret:
+  #    kubectl create secret generic gcp-sa-key \
+  #      --from-file=key.json=key.json -n YOUR_NAMESPACE
+  # 3. Set serviceAccountKey.secretName below to "gcp-sa-key"
+  #
+  # MULTI-PROJECT SUPPORT:
+  # The gcloud MCP can query multiple GCP projects. To enable:
+  # 1. Grant the service account permissions in all target projects:
+  #    gcloud projects add-iam-policy-binding PROJECT_ID \
+  #      --member="serviceAccount:SA_EMAIL" --role="roles/viewer"
+  # 2. Holmes will automatically query across projects when you specify --project flag
+  gcp:
+    enabled: false
+
+    # Service account key authentication (recommended)
+    serviceAccountKey:
+      secretName: ""  # Name of K8s secret containing the service account key (e.g., "gcp-sa-key")
+                     # Secret must have a key named "key.json" with the service account JSON key
+
+    # Kubernetes service account (for Workload Identity - currently not working with gcloud CLI)
+    serviceAccount:
+      create: true
+      name: "gcp-mcp-sa"
+      annotations: {}  # Add GKE Workload Identity annotations if needed
+
+    # Container registry for GCP MCP images
+    # Build images from: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: "IfNotPresent"
+
+    # Workload Identity configuration (works for observability/storage MCPs, not gcloud)
+    workloadIdentity:
+      enabled: false  # Set to true for observability/storage MCPs
+
+    networkPolicy:
+      enabled: true
+
+    config:
+      project: ""            # Primary GCP project ID (optional - can query any project with --project flag)
+      projectNumber: ""      # GCP project number (only needed if using Workload Identity)
+      region: "us-central1"  # Default GCP region (can override with --region flag)
+      namespace: ""          # MCP server installation namespace (defaults to release namespace if empty)
+
+    # Individual MCP server toggles and configurations
+    # gcloud MCP - General GCP management via gcloud CLI
+    gcloud:
+      enabled: true
+      image: "gcloud-cli-mcp:1.0.7"
+      port: 8000
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "1Gi"
+
+    # Observability MCP - Cloud Logging, Monitoring, Trace, Error Reporting
+    observability:
+      enabled: true
+      image: "gcloud-observability-mcp:1.0.0"
+      port: 8001
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+    # Storage MCP - Cloud Storage operations
+    storage:
+      enabled: true
+      image: "gcloud-storage-mcp:1.0.0"
+      port: 8002
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          
+    # Custom LLM instructions (optional) - These will override the default instructions for each of the gcp MCPs
+    # Leave empty to use default instructions
+    llmInstructions:
+      gcloud: ""
+      observability: ""
+      storage: ""
+
+  # Azure MCP Server Configuration
+  azure:
+    enabled: false
+    # Service account configuration for Azure Workload Identity
+    serviceAccount:
+      create: true
+      name: "azure-api-mcp-sa"
+      annotations: {}  # Add workload identity annotations here
+        # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
+        # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
+
+    image: "azure-cli-mcp:1.0.1"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: "IfNotPresent"
+
+    config:
+      tenantId: ""                      # Azure tenant ID (required for workload identity)
+      subscriptionId: ""                # Default Azure subscription ID
+      clientId: ""                      # Azure client ID (required for workload-identity and managed-identity)
+      readOnlyMode: false               # read-only mode blocks any post requests. Limit the Azure roles to read-only
+      authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
+      enableSecurityPolicy: false       # Enable additional security policies
+      timeout: "120"                    # Command execution timeout in seconds
+      namespace: ""                     # MCP installation namespace (defaults to release namespace if empty)
+
+    # Secret name for service principal authentication (if using service-principal auth)
+    secretName: "azure-mcp-creds"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    service:
+      port: 8000
+
+    networkPolicy:
+      enabled: false
+      additionalIngressRules: []
+      additionalEgressRules: []
+
+    additionalEnvVars: []
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+  # GitHub MCP Server Configuration
+  # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
+  # Uses a prebuilt image that bundles GitHub MCP server with Supergateway for HTTP transport
+  #
+  # AUTHENTICATION:
+  # Create a GitHub Personal Access Token (PAT) with appropriate permissions:
+  # - repo: Full control of private repositories (or public_repo for public only)
+  # - workflow: Update GitHub Action workflows (for CI/CD debugging)
+  # Then create a Kubernetes secret:
+  #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
+  #
+  # GITHUB ENTERPRISE:
+  # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
+  #
+  # CUSTOM IMAGE (optional):
+  # To build your own image, see: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/github
+  github:
+    enabled: false
+
+    image: "github-mcp:1.0.0"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: IfNotPresent
+
+    # Authentication - PAT from Kubernetes secret
+    auth:
+      secretName: ""      # Required: name of K8s secret containing the GitHub PAT
+      secretKey: "token"  # Key in secret (default: "token")
+
+    config:
+      # GitHub Enterprise hostname (leave empty for github.com)
+      # Example: "github.mycompany.com"
+      host: ""
+
+      # Toolsets to enable (comma-separated list of toolset names)
+      # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
+      # Default: repos, issues, pull_requests, actions (covers most investigation needs)
+      toolsets: "repos,issues,pull_requests,actions"
+
+      # Individual tools to enable (comma-separated, optional)
+      # Use this for fine-grained control. Leave empty to use all tools from enabled toolsets.
+      # Example: "get_file_contents,list_commits,list_workflow_runs"
+      tools: ""
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
     nodeSelector: {}
     tolerations: []
     affinity: {}

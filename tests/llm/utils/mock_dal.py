@@ -1,17 +1,17 @@
 # type: ignore
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import TypeAdapter
 
-from holmes.core.supabase_dal import SupabaseDal, FindingType
 from holmes.core.resource_instruction import ResourceInstructions
+from holmes.core.supabase_dal import FindingType, SupabaseDal
 from holmes.plugins.runbooks import RobustaRunbookInstruction
 from holmes.utils.global_instructions import Instructions
 from tests.llm.utils.test_case_utils import read_file
-from datetime import datetime, timezone
 
 
 class MockSupabaseDal(SupabaseDal):

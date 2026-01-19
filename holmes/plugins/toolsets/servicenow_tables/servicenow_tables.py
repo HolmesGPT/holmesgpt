@@ -1,6 +1,6 @@
 import os
 from abc import ABC
-from typing import Dict, Optional, cast, Type, ClassVar, Tuple, Any
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, cast
 from urllib.parse import urljoin
 
 import requests  # type: ignore

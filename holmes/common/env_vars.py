@@ -1,5 +1,6 @@
-import os
 import json
+import os
+import platform
 from typing import Optional
 
 # Recommended models for different providers
@@ -35,7 +36,6 @@ STORE_URL = os.environ.get("STORE_URL", "")
 STORE_API_KEY = os.environ.get("STORE_API_KEY", "")
 STORE_EMAIL = os.environ.get("STORE_EMAIL", "")
 STORE_PASSWORD = os.environ.get("STORE_PASSWORD", "")
-HOLMES_POST_PROCESSING_PROMPT = os.environ.get("HOLMES_POST_PROCESSING_PROMPT", "")
 ROBUSTA_AI = load_bool("ROBUSTA_AI", None)
 LOAD_ALL_ROBUSTA_MODELS = load_bool("LOAD_ALL_ROBUSTA_MODELS", True)
 ROBUSTA_API_ENDPOINT = os.environ.get("ROBUSTA_API_ENDPOINT", "https://api.robusta.dev")
@@ -52,7 +52,15 @@ EXTRA_HEADERS = os.environ.get("EXTRA_HEADERS", "")
 THINKING = os.environ.get("THINKING", "")
 REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "").strip().lower()
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.00000001"))
-TOOL_MEMORY_LIMIT_MB = int(os.environ.get("TOOL_MEMORY_LIMIT_MB", 800))
+
+# Set default memory limit based on CPU architecture
+# ARM architectures typically need more memory
+_default_memory_limit = (
+    1500 if platform.machine().lower() in ("arm64", "aarch64", "arm") else 800
+)
+TOOL_MEMORY_LIMIT_MB = int(
+    os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
+)
 
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)
@@ -121,3 +129,9 @@ ENABLE_CONNECTION_KEEPALIVE = load_bool("ENABLE_CONNECTION_KEEPALIVE", False)
 KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))
 KEEPALIVE_INTVL = int(os.environ.get("KEEPALIVE_INTVL", 2))
 KEEPALIVE_CNT = int(os.environ.get("KEEPALIVE_CNT", 5))
+
+# Periodic refresh interval for toolset status in server mode (in seconds)
+# Set to 0 to disable periodic refresh
+TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
+    os.environ.get("TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS", 300)
+)

@@ -4,6 +4,7 @@ tags:
   - context_window
   - datetime
   - medium
+  - benchmark
 expected_output:
   - Cron scheduler pod experienced issues between 03:00-03:05 when it could not connect to an external API possibly due to a maintenance window
   - Answer MUST include the time window of the issue (03:00-03:05)

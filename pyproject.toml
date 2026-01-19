@@ -56,6 +56,8 @@ httpx = {version = "<0.28", extras = ["socks"]}
 ag-ui-protocol = "^0.1.9"
 google-cloud-aiplatform = ">=1.38"
 
+jq = "^1.10.0"
+
 [tool.poetry.group.dev]
 optional = true
 
@@ -129,13 +131,16 @@ markers = [
     "one-test: Runs only one simple eval",
     "loki: Loki toolset",
     "coralogix: Runs coralogix evals",
+    "frontend: Run frontend tests",
     "grafana-dashboard: Tests involving Grafana dashboard interactions",
+    "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
     # REGRESSION TEST SELECTION CRITERIA:
     # - Must pass 30+ iterations reliably with Sonnet-4.5 model
     # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)  
     # - Tests core HolmesGPT functionality that should never regress
     # - Fast execution to avoid slowing CI/CD pipelines
-    "regression: Critical regression tests that must always pass"
+    "regression: Critical regression tests that must always pass",
+    "benchmark: Challenging tests for evaluating and benchmarking model capabilities"
 ]
 
 addopts = [

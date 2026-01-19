@@ -1,0 +1,3 @@
+{"toolset_name":"connectivity_check","tool_name":"tcp_check","match_params":{"host":"prometheus-server.default.svc.cluster.local","port":9090}}
+{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "url": null, "invocation": null, "params": {"host": "prometheus-server.default.svc.cluster.local", "port": 9090}, "icon_url": null}
+{"ok":false,"error":"[Errno 8] nodename nor servname provided, or not known"}

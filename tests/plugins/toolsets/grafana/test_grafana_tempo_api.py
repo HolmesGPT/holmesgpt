@@ -1,12 +1,13 @@
 """Tests for the Grafana Tempo API wrapper."""
 
 import os
-import pytest
 from unittest.mock import MagicMock, patch
-from requests.exceptions import RequestException, HTTPError  # type: ignore
 
-from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI
+import pytest
+from requests.exceptions import HTTPError, RequestException  # type: ignore
+
 from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
+from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI
 
 # Test constants
 TEST_SERVICE_NAME = "checkout-service"
@@ -54,6 +55,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/echo",
             headers=api.headers,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -83,6 +85,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params={"start": "1000", "end": "2000"},
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -101,6 +104,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params={},
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -136,6 +140,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params=expected_params,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -167,6 +172,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params=expected_params,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -200,6 +206,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params=expected_params,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -234,6 +241,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params=expected_params,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -263,6 +271,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params=expected_params,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -298,6 +307,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params=expected_params,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -321,6 +331,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params=expected_params,
             timeout=30,
+            verify=True,
         )
 
     @patch("requests.get")
@@ -370,6 +381,7 @@ class TestGrafanaTempoAPI:
             headers=api.headers,
             params={},
             timeout=30,
+            verify=True,
         )
 
 

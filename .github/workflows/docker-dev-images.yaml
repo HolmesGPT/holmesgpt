@@ -24,10 +24,19 @@ jobs:
     - name: Check if PR is from fork
       id: fork_check
       run: |
-        if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
+        HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+        BASE_REPO="${{ github.repository }}"
+
+        if [ -z "$HEAD_REPO" ]; then
+          # Head repo data is unavailable (repo may have been deleted)
+          # Treat as fork to avoid attempting authenticated pushes
+          echo "⚠️ Head repo data is unavailable - skipping authenticated push"
           echo "is_fork=true" >> $GITHUB_OUTPUT
-          echo "📌 PR is from a fork - will build but not push"
+        elif [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          echo "📌 PR is from a fork ($HEAD_REPO != $BASE_REPO) - will build but not push"
+          echo "is_fork=true" >> $GITHUB_OUTPUT
         else
+          echo "✅ PR is from the same repo ($HEAD_REPO)"
           echo "is_fork=false" >> $GITHUB_OUTPUT
         fi
 

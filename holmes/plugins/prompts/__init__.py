@@ -1,8 +1,9 @@
 import os
 import os.path
-from typing import Optional
-from jinja2 import Environment, FileSystemLoader
 from datetime import datetime, timezone
+from typing import Optional
+
+from jinja2 import Environment, FileSystemLoader
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 

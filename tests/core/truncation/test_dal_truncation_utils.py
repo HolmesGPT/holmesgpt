@@ -1,4 +1,5 @@
 from unittest.mock import patch
+
 from holmes.core.truncation.dal_truncation_utils import (
     truncate_evidences_entities_if_necessary,
 )

@@ -2,8 +2,8 @@ import re
 from typing import Any, Optional
 
 from holmes.common.env_vars import (
-    TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS,
     LLMS_WITH_STRICT_TOOL_CALLS,
+    TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS,
 )
 from holmes.utils.llms import model_matches_list
 

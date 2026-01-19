@@ -130,6 +130,14 @@ runs:
           exit 1
         fi
         
+        # Wait for the CRD to be fully established
+        echo "Waiting for Installation CRD to be established..."
+        if ! kubectl wait --for=condition=Established --timeout=60s crd/installations.operator.tigera.io; then
+          echo "❌ Installation CRD failed to become established"
+          kubectl get crd installations.operator.tigera.io -o yaml
+          exit 1
+        fi
+        
         # Create custom resource for Calico installation optimized for KIND
         echo "Creating Calico installation resource..."
         if ! cat <<EOF | kubectl create -f -
