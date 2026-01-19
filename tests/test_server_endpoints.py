@@ -90,7 +90,7 @@ def test_api_chat_with_images(
     # Capture the messages passed to the LLM
     captured_messages = []
 
-    def capture_messages(messages):
+    def capture_messages(messages, **kwargs):
         captured_messages.append(messages)
         return MagicMock(
             result="This is an analysis of the provided image.",
@@ -164,7 +164,7 @@ def test_api_chat_with_images_advanced_format(
     # Capture the messages passed to the LLM
     captured_messages = []
 
-    def capture_messages(messages):
+    def capture_messages(messages, **kwargs):
         captured_messages.append(messages)
         return MagicMock(
             result="Detailed analysis of high-resolution image.",
