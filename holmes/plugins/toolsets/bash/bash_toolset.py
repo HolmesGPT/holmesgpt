@@ -312,7 +312,7 @@ class BashExecutorToolset(BaseBashExecutorToolset):
             enabled=True,
             description="Execute bash commands validated against prefix-based allow/deny lists, with user approval for unknown commands.",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/bash/",
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/d/da/GNOME_Terminal_icon_2019.svg",
+            icon_url="https://raw.githubusercontent.com/Templarian/MaterialDesign/master/svg/console.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[RunBashCommand(self)],
             tags=[ToolsetTag.CORE],
