@@ -102,7 +102,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
                   key: token
             # Uncomment for GitHub Enterprise:
             # - name: GITHUB_HOST
-            #   value: "github.mycompany.com"
+            #   value: "https://github.mycompany.com"
             # For self-signed certs, see "SSL Certificate Verification Errors" in Troubleshooting.
             resources:
               requests:
@@ -201,7 +201,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
         auth:
           secretName: "github-mcp-token"
         config:
-          host: "github.mycompany.com"
+          host: "https://github.mycompany.com"
     ```
 
     Then deploy or upgrade your Holmes installation:
@@ -243,7 +243,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
           auth:
             secretName: "github-mcp-token"
           config:
-            host: "github.mycompany.com"
+            host: "https://github.mycompany.com"
     ```
 
     Then deploy or upgrade your Robusta installation:
@@ -470,7 +470,7 @@ kubectl create secret generic github-ca-cert \
         auth:
           secretName: "github-mcp-token"
         config:
-          host: "github.mycompany.com"
+          host: "https://github.mycompany.com"
           customCACert:
             enabled: true
             # secretName: "github-ca-cert"  # default
@@ -487,7 +487,7 @@ kubectl create secret generic github-ca-cert \
           auth:
             secretName: "github-mcp-token"
           config:
-            host: "github.mycompany.com"
+            host: "https://github.mycompany.com"
             customCACert:
               enabled: true
     ```
@@ -507,7 +507,7 @@ kubectl create secret generic github-ca-cert \
               name: github-mcp-token
               key: token
         - name: GITHUB_HOST
-          value: "github.mycompany.com"
+          value: "https://github.mycompany.com"
         - name: SSL_CERT_FILE
           value: /etc/ssl/certs/ca.crt
         - name: SSL_CERT_DIR

@@ -346,7 +346,7 @@ mcpAddons:
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)
-      # Example: "github.mycompany.com"
+      # Example: "https://github.mycompany.com"
       host: ""
 
       # Custom CA certificate bundle for GitHub Enterprise with internal CA
