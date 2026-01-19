@@ -156,6 +156,8 @@ class KubectlRunToolset(Toolset):
             icon_url="https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[KubectlRunImageCommand(self)],
+            llm_instructions="""The tool `kubectl_run_image` will run an image:
+- `kubectl run <name> --image=<image> --rm --attach --restart=Never --i --tty -- <command>`""",
             # Not a default toolset - must be explicitly enabled
         )
 
