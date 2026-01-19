@@ -247,6 +247,43 @@ def test_api_chat_with_images_advanced_format(
 
 @patch("holmes.config.Config.create_toolcalling_llm")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_with_images_missing_url_key(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """Test /api/chat endpoint raises error when image dict missing 'url' key."""
+    mock_ai = MagicMock()
+    mock_ai.messages_call.return_value = MagicMock(
+        result="This should not be reached.",
+        tool_calls=[],
+        messages=[],
+        metadata={},
+    )
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "Analyze this",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "model": "gpt-4o",
+        "images": [
+            # Dict missing required "url" key
+            {"detail": "high", "format": "image/jpeg"}
+        ],
+    }
+    response = client.post("/api/chat", json=payload)
+
+    # Should return 500 error with clear message
+    assert response.status_code == 500
+    data = response.json()
+    assert "Image dict must contain a 'url' key" in data["detail"]
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
 def test_api_issue_chat_all_fields(
     mock_get_global_instructions,
     mock_create_toolcalling_llm,

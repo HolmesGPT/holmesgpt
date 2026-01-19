@@ -414,6 +414,11 @@ def build_chat_messages(
                 content.append({"type": "image_url", "image_url": {"url": image_item}})
             else:
                 # Dict with url, detail, format fields (full LiteLLM format)
+                # Validate that the dict contains a "url" key
+                if "url" not in image_item:
+                    raise ValueError(
+                        f"Image dict must contain a 'url' key. Got keys: {list(image_item.keys())}"
+                    )
                 image_url_obj = {"url": image_item["url"]}
                 # Add optional detail parameter (OpenAI-specific: low/high/auto)
                 if "detail" in image_item:
