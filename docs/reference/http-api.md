@@ -155,6 +155,76 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 }
 ```
 
+#### Image Analysis
+
+The `/api/chat` endpoint supports image analysis with vision-enabled models. Include images as URLs or base64 data URIs in the `images` field.
+
+**Image Formats:**
+
+Images can be provided as:
+- **Simple strings**: URLs or base64 data URIs
+- **Dict format**: Objects with `url`, `detail`, and `format` fields for advanced control
+
+**Example with Image URL:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "What is in this image?",
+    "model": "gpt-4o",
+    "images": [
+      "https://example.com/screenshot.png"
+    ]
+  }'
+```
+
+**Example with Base64 Data URI:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Analyze this diagram",
+    "model": "claude-3.5-sonnet",
+    "images": [
+      "data:image/png;base64,iVBORw0KGgoAAAANS..."
+    ]
+  }'
+```
+
+**Example with Advanced Format:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Compare these images",
+    "model": "gpt-4o",
+    "images": [
+      "https://example.com/before.png",
+      {
+        "url": "https://example.com/after.png",
+        "detail": "high"
+      }
+    ]
+  }'
+```
+
+**Vision Model Support:**
+
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-vision-preview`
+- Anthropic: `claude-3.5-sonnet`, `claude-3-opus`, `claude-3-haiku`
+- Google: `gemini-1.5-pro`, `gemini-1.5-flash`
+
+**Advanced Parameters (dict format only):**
+
+| Field  | Type   | Description                                              |
+|--------|--------|----------------------------------------------------------|
+| url    | string | Image URL or base64 data URI (required)                |
+| detail | string | OpenAI-specific: `low`, `high`, or `auto` for resolution control |
+| format | string | MIME type (e.g., `image/jpeg`) for providers that need explicit format |
+
 ---
 
 ### `/api/investigate` (POST)
