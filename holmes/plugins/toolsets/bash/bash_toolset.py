@@ -439,6 +439,9 @@ class BashExecutorToolset(BaseBashExecutorToolset):
 
         # Compute effective lists (includes defaults if include_default_allow_deny_list is True)
         config = self.config or BashExecutorConfig()
+        logging.info(
+            f"Loading bash toolset with include_default_allow_deny_list: {config.include_default_allow_deny_list}"
+        )
         effective_allow, effective_deny = get_effective_lists(config)
 
         # Create a config-like dict with effective lists for the template
@@ -454,10 +457,7 @@ class BashExecutorToolset(BaseBashExecutorToolset):
         )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> tuple[bool, str]:
-        if config:
-            self.config = BashExecutorConfig(**config)
-        else:
-            self.config = BashExecutorConfig()
+        self.config = BashExecutorConfig(**config)
 
         # Load CLI-approved prefixes and merge with allow list
         self._merge_cli_approved_prefixes()
