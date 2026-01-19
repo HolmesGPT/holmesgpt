@@ -7,12 +7,7 @@ Commands are validated against allow/deny lists using prefix matching.
 
 import logging
 import os
-import random
-import re
-import string
 from typing import Any, Dict, Optional
-
-import sentry_sdk
 
 from holmes.core.tools import (
     ApprovalRequirement,
@@ -28,15 +23,12 @@ from holmes.core.tools import (
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
-from holmes.plugins.toolsets.bash.kubectl.constants import SAFE_NAMESPACE_PATTERN
-from holmes.plugins.toolsets.bash.kubectl.kubectl_run import validate_image_and_commands
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
     ValidationStatus,
     get_effective_lists,
     validate_command,
 )
-from holmes.plugins.toolsets.utils import get_param_or_raise
 
 
 def bash_result_to_structured(
@@ -98,108 +90,6 @@ class BaseBashExecutorToolset(Toolset):
 
 class BaseBashTool(Tool):
     toolset: BaseBashExecutorToolset
-
-
-class KubectlRunImageCommand(BaseBashTool):
-    """Tool for running a container image via kubectl run."""
-
-    def __init__(self, toolset: BaseBashExecutorToolset):
-        super().__init__(
-            name="kubectl_run_image",
-            description=(
-                "Executes `kubectl run <name> --image=<image> ... -- <command>` return the result"
-            ),
-            parameters={
-                "image": ToolParameter(
-                    description="The image to run",
-                    type="string",
-                    required=True,
-                ),
-                "command": ToolParameter(
-                    description="The command to execute on the deployed pod",
-                    type="string",
-                    required=True,
-                ),
-                "namespace": ToolParameter(
-                    description="The namespace in which to deploy the temporary pod",
-                    type="string",
-                    required=False,
-                ),
-                "timeout": ToolParameter(
-                    description=(
-                        "Optional timeout in seconds for the command execution. "
-                        "Defaults to 60s."
-                    ),
-                    type="integer",
-                    required=False,
-                ),
-            },
-            toolset=toolset,
-        )
-
-    def _build_kubectl_command(self, params: dict, pod_name: str) -> str:
-        namespace = params.get("namespace", "default")
-        image = get_param_or_raise(params, "image")
-        command_str = get_param_or_raise(params, "command")
-        return f"kubectl run {pod_name} --image={image} --namespace={namespace} --rm --attach --restart=Never -i -- {command_str}"
-
-    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        timeout = params.get("timeout", 60)
-
-        image = get_param_or_raise(params, "image")
-        command_str = get_param_or_raise(params, "command")
-
-        namespace = params.get("namespace")
-
-        if namespace and not re.match(SAFE_NAMESPACE_PATTERN, namespace):
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR,
-                error=f"Error: The namespace is invalid. Valid namespaces must match the following regexp: {SAFE_NAMESPACE_PATTERN}",
-                params=params,
-            )
-
-        try:
-            validate_image_and_commands(
-                image=image, container_command=command_str, config=self.toolset.config
-            )
-        except ValueError as e:
-            # Report unsafe kubectl run command attempt to Sentry
-            sentry_sdk.capture_event(
-                {
-                    "message": f"Unsafe kubectl run command attempted: {image}",
-                    "level": "warning",
-                    "extra": {
-                        "image": image,
-                        "command": command_str,
-                        "namespace": namespace,
-                        "error": str(e),
-                    },
-                }
-            )
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR,
-                error=str(e),
-                params=params,
-            )
-
-        pod_name = (
-            "holmesgpt-debug-pod-"
-            + "".join(random.choices(string.ascii_letters, k=8)).lower()
-        )
-        full_kubectl_command = self._build_kubectl_command(params, pod_name)
-        try:
-            result = execute_bash_command(cmd=full_kubectl_command, timeout=timeout)
-        except FileNotFoundError:
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR,
-                error="Error: Bash executable not found. Ensure /bin/bash is available.",
-                params=params,
-                invocation=full_kubectl_command,
-            )
-        return bash_result_to_structured(result, full_kubectl_command, timeout, params)
-
-    def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
-        return self._build_kubectl_command(params, "<pod_name>")
 
 
 class RunBashCommand(BaseBashTool):
@@ -424,7 +314,7 @@ class BashExecutorToolset(BaseBashExecutorToolset):
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/bash/",
             icon_url="https://upload.wikimedia.org/wikipedia/commons/d/da/GNOME_Terminal_icon_2019.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            tools=[RunBashCommand(self), KubectlRunImageCommand(self)],
+            tools=[RunBashCommand(self)],
             tags=[ToolsetTag.CORE],
             is_default=True,
         )

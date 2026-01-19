@@ -65,6 +65,7 @@ nav:
                 - "Internet": data-sources/builtin-toolsets/internet.md
                 - "Kafka": data-sources/builtin-toolsets/kafka.md
                 - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
+                - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
                 - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md

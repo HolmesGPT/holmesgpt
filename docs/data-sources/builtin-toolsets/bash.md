@@ -117,16 +117,3 @@ Executes a shell command.
 | command | string | Yes | The command to execute |
 | suggested_prefixes | array | Yes | Prefixes for validation (one per command segment) |
 | timeout | integer | No | Timeout in seconds (default: 30) |
-
-### kubectl_run_image
-
-Runs a command in a temporary Kubernetes pod. Useful for network debugging, DNS checks, and running diagnostic tools not available on the cluster.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| image | string | Yes | Container image to use |
-| command | string | Yes | Command to run in the container |
-| namespace | string | No | Namespace for the pod (default: default) |
-| timeout | integer | No | Timeout in seconds (default: 60) |
-
-The temporary pod is automatically deleted after the command completes.
