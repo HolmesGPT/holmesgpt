@@ -55,7 +55,7 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         config_schema = toolset.get_config_schema()
         config_schema_json = (
             json.dumps(config_schema, default=_json_serializer)
-            if config_schema is not None
+            if config_schema
             else None
         )
 

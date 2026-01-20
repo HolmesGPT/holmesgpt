@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple
 
 from pydantic import AnyUrl
 
@@ -25,6 +25,7 @@ from holmes.plugins.toolsets.datadog.datadog_models import (
     DatadogLogsConfig,
 )
 from holmes.plugins.toolsets.datadog.datadog_url_utils import generate_datadog_logs_url
+from holmes.core.tools import ClassVar, Type
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_LOG_LIMIT,
     DEFAULT_TIME_SPAN_SECONDS,

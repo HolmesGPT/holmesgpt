@@ -2,12 +2,13 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple
 
 from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -15,6 +16,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import (
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,

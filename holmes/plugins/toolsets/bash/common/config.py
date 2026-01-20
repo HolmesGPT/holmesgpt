@@ -14,7 +14,7 @@ class KubectlImageConfig(BaseModel):
 
 class KubectlConfig(BaseModel):
     allowed_images: list[KubectlImageConfig] = Field(
-        default_factory=list,
+        default=[],
         description="List of allowed container images for kubectl run",
     )
 
