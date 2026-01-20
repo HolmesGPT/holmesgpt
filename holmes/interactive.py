@@ -51,7 +51,6 @@ from holmes.utils.colors import (
 )
 from holmes.utils.console.consts import agent_name
 from holmes.utils.file_utils import write_json_file
-from holmes.utils.image_utils import validate_image_file
 from holmes.version import check_version_async
 
 
@@ -999,7 +998,6 @@ def run_interactive_loop(
     check_version: bool = True,
     feedback_callback: Optional[FeedbackCallback] = None,
     json_output_file: Optional[str] = None,
-    include_images: Optional[List[Path]] = None,
 ) -> None:
     # Initialize tracer - use DummyTracer if no tracer provided
     if tracer is None:
@@ -1142,7 +1140,6 @@ def run_interactive_loop(
     all_tool_calls_history: List[
         ToolCallResult
     ] = []  # Track all tool calls throughout conversation
-    attached_images: List[Path] = list(include_images) if include_images else []
 
     while True:
         try:
@@ -1242,23 +1239,6 @@ def run_interactive_loop(
                 ):
                     handle_feedback_command(style, console, feedback, feedback_callback)
                     continue
-                elif original_input.startswith("/attach-image "):
-                    image_path_str = original_input[14:].strip()  # Remove "/attach-image "
-                    image_path = Path(image_path_str)
-
-                    try:
-                        validate_image_file(image_path)
-                        attached_images.append(image_path)
-                        console.print(f"[bold green]✓ Attached image:[/bold green] {image_path}")
-                        console.print(f"[dim]Total images: {len(attached_images)}[/dim]")
-                    except ValueError as e:
-                        console.print(f"[bold {ERROR_COLOR}]Error:[/bold {ERROR_COLOR}] {e}")
-                    continue
-                elif command == "/clear-images":
-                    count = len(attached_images)
-                    attached_images.clear()
-                    console.print(f"[bold green]✓ Cleared {count} attached image(s)[/bold green]")
-                    continue
                 else:
                     console.print(f"Unknown command: {command}")
                     continue
@@ -1275,20 +1255,9 @@ def run_interactive_loop(
                     ai.tool_executor,
                     runbooks,
                     system_prompt_additions,
-                    image_paths=attached_images if attached_images else None,
                 )
             else:
-                # Handle images in follow-up messages
-                if attached_images:
-                    from holmes.utils.image_utils import process_image_paths
-
-                    image_data_uris = process_image_paths(attached_images, console)
-                    content = [{"type": "text", "text": user_input}]
-                    for data_uri in image_data_uris:
-                        content.append({"type": "image_url", "image_url": {"url": data_uri}})
-                    messages.append({"role": "user", "content": content})
-                else:
-                    messages.append({"role": "user", "content": user_input})
+                messages.append({"role": "user", "content": user_input})
 
             console.print(f"\n[bold {AI_COLOR}]Thinking...[/bold {AI_COLOR}]\n")
 

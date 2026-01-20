@@ -78,7 +78,6 @@ def build_initial_ask_messages(
     tool_executor: Any,  # ToolExecutor type
     runbooks: Union[RunbookCatalog, Dict, None] = None,
     system_prompt_additions: Optional[str] = None,
-    image_paths: Optional[List[Path]] = None,
 ) -> List[Dict]:
     """Build the initial messages for the AI call.
 
@@ -89,10 +88,7 @@ def build_initial_ask_messages(
         tool_executor: The tool executor with available toolsets
         runbooks: Optional runbook catalog
         system_prompt_additions: Optional additional system prompt content
-        image_paths: Optional list of image files to analyze
     """
-    from holmes.utils.image_utils import process_image_paths
-
     # Load and render system prompt internally
     system_prompt_template = "builtin://generic_ask.jinja2"
     template_context = {
@@ -119,24 +115,9 @@ def build_initial_ask_messages(
         runbooks_ctx,
     )
 
-    # Process images if provided
-    if image_paths:
-        image_data_uris = process_image_paths(image_paths, console)
-
-        # Build content array with text and images
-        content = [{"type": "text", "text": user_prompt_with_files}]
-        for data_uri in image_data_uris:
-            content.append({"type": "image_url", "image_url": {"url": data_uri}})
-
-        messages = [
-            {"role": "system", "content": system_prompt_rendered},
-            {"role": "user", "content": content},  # Array format for vision
-        ]
-    else:
-        # Standard text-only format
-        messages = [
-            {"role": "system", "content": system_prompt_rendered},
-            {"role": "user", "content": user_prompt_with_files},
-        ]
+    messages = [
+        {"role": "system", "content": system_prompt_rendered},
+        {"role": "user", "content": user_prompt_with_files},
+    ]
 
     return messages

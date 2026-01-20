@@ -192,12 +192,6 @@ def ask(
         "-f",
         help="File to append to prompt (can specify -f multiple times to add multiple files)",
     ),
-    include_image: Optional[List[Path]] = typer.Option(
-        [],
-        "--image",
-        "-img",
-        help="Image file to analyze (jpg, jpeg, png, gif, webp). Can specify multiple times to add multiple images",
-    ),
     json_output_file: Optional[str] = opt_json_output_file,
     echo_request: bool = opt_echo_request,
     interactive: bool = typer.Option(
@@ -302,7 +296,6 @@ def ask(
             config.get_runbook_catalog(),
             system_prompt_additions,
             json_output_file=json_output_file,
-            include_images=include_image,
         )
         return
 
@@ -313,7 +306,6 @@ def ask(
         ai.tool_executor,
         config.get_runbook_catalog(),
         system_prompt_additions,
-        image_paths=include_image,
     )
 
     with tracer.start_trace(
