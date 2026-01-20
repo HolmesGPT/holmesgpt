@@ -1,0 +1,18 @@
+# Toolset configuration for Confluence runbook fetch test
+# This is a cloud-only test, no Kubernetes required
+# The YAML toolset uses env vars directly: CONFLUENCE_USER, CONFLUENCE_API_KEY, CONFLUENCE_BASE_URL
+toolsets:
+  confluence:
+    enabled: true
+
+  # Disable K8s-dependent toolsets (not needed for this test)
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  robusta:
+    enabled: false
+  connectivity_check:
+    enabled: false

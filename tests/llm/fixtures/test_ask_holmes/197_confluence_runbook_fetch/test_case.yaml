@@ -1,0 +1,28 @@
+# Test: Fetch runbook from Confluence (must use Confluence toolset, not internal runbook tool)
+# Tests that when user explicitly asks to fetch a runbook from Confluence,
+# Holmes uses the Confluence toolset and NOT the internal fetch_runbook_from_url tool.
+#
+# Requirements:
+#   CONFLUENCE_USER - Email/username for Confluence
+#   CONFLUENCE_API_KEY - Atlassian API token
+#   CONFLUENCE_BASE_URL - e.g., https://robusta-dev.atlassian.net
+#
+# Note: Update URL to match an existing runbook page in your Confluence instance.
+
+user_prompt: |
+  I have a runbook stored in Confluence at this URL: https://robusta-dev.atlassian.net/wiki/spaces/MFS/pages/196614/Database+Recovery+Runbook
+
+  Please fetch this runbook from Confluence and summarize its contents.
+
+expected_output:
+  - "Must call a Confluence tool to retrieve the runbook"
+  - "Must NOT use fetch_url tool"
+  - "Must NOT use fetch_runbook_from_url or any internal runbook fetching tool"
+  - "Must provide a summary or description of the runbook content"
+
+include_tool_calls: true
+
+tags:
+  - confluence
+  - question-answer
+  - medium
