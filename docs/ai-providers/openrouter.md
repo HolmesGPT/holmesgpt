@@ -10,7 +10,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."  # your OpenRouter key
-holmes ask "hello" --model="openrouter/anthropic/claude-3.5-sonnet" --no-interactive
+holmes ask "hello" --model="openrouter/anthropic/claude-opus-4.5" --no-interactive
 ```
 
 **Optional environment variables:**
@@ -26,14 +26,14 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
 ```bash
 export OPENAI_API_BASE="https://openrouter.ai/api/v1"
 export OPENAI_API_KEY="sk-or-..."  # your OpenRouter key
-holmes ask "hello" --model="openrouter/anthropic/claude-3.5-sonnet" --no-interactive
+holmes ask "hello" --model="openrouter/anthropic/claude-opus-4.5" --no-interactive
 ```
 
 ## Available Models
 
 You can use any model available on OpenRouter by using the `openrouter/` prefix followed by the model ID. For example:
 
-- `openrouter/anthropic/claude-3.5-sonnet`
+- `openrouter/anthropic/claude-opus-4.5`
 - `openrouter/openai/gpt-4o`
 - `openrouter/google/gemini-pro`
 - `openrouter/meta-llama/llama-3-70b-instruct`
