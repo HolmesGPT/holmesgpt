@@ -64,9 +64,19 @@ class RabbitMQClusterConfig(BaseModel):
             )
         return self
 
-    # For internal use
-    connection_status: Optional[ClusterConnectionStatus] = None
-    connection_error: Optional[str] = None
+    # For internal use (excluded from serialization; not part of user config)
+    connection_status: Optional[ClusterConnectionStatus] = Field(
+        default=None,
+        exclude=True,
+        description="(internal) Connection status set by toolset health check",
+        json_schema_extra={"readOnly": True},
+    )
+    connection_error: Optional[str] = Field(
+        default=None,
+        exclude=True,
+        description="(internal) Connection error message set by toolset health check",
+        json_schema_extra={"readOnly": True},
+    )
 
 
 class Partition(BaseModel):

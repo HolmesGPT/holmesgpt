@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -36,12 +36,30 @@ class ElasticsearchConfig(BaseModel):
     ```
     """
 
-    url: str
-    api_key: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    verify_ssl: bool = True
-    timeout: int = 10  # Default timeout in seconds
+    url: str = Field(
+        description="Elasticsearch/OpenSearch base URL",
+        examples=["https://your-cluster.es.cloud.io"],
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="API key for authentication (preferred over basic auth when available)",
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="Username for basic auth authentication (used if api_key is not provided)",
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="Password for basic auth authentication (used if api_key is not provided)",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates",
+    )
+    timeout: int = Field(
+        default=10,
+        description="Default request timeout in seconds",
+    )
 
 
 class ElasticsearchBaseToolset(Toolset):

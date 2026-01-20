@@ -118,17 +118,38 @@ class PrometheusConfig(BaseModel):
         description="Maximum allowed timeout for metadata APIs",
     )
 
-    tool_calls_return_data: bool = True
-    headers: Dict = Field(default_factory=dict)
-    rules_cache_duration_seconds: Optional[int] = 1800  # 30 minutes
-    additional_labels: Optional[Dict[str, str]] = None
-    verify_ssl: bool = True
+    tool_calls_return_data: bool = Field(
+        default=True,
+        description="Whether tools should return the queried data (set false if you only want summaries)",
+    )
+    headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional HTTP headers to include in Prometheus requests",
+        examples=[{"Authorization": "Bearer <token>"}],
+    )
+    rules_cache_duration_seconds: Optional[int] = Field(
+        default=1800,
+        description="Cache duration for Prometheus rules endpoint (seconds)",
+    )
+    additional_labels: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Additional label filters to apply to queries (exact-match labels)",
+        examples=[{"cluster": "prod", "namespace": "default"}],
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates when connecting to Prometheus",
+    )
 
     # Custom limit to the max number of tokens that a query result can take to proactively
     #   prevent token limit issues. Expressed in % of the model's context window.
     # This limit only overrides the global limit for all tools  (TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT)
     #   if it is lower.
-    query_response_size_limit_pct: Optional[int] = None
+    query_response_size_limit_pct: Optional[int] = Field(
+        default=None,
+        description="Optional per-toolset max response size limit, as % of model context window (lower overrides global limit)",
+        examples=[10, 20, 30],
+    )
 
     @field_validator("prometheus_url")
     def ensure_trailing_slash(cls, v: Optional[str]) -> Optional[str]:
