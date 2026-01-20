@@ -777,6 +777,7 @@ jobs:
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
