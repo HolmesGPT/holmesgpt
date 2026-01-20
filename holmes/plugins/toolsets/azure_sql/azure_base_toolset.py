@@ -9,15 +9,19 @@ from holmes.plugins.toolsets.azure_sql.apis.azure_sql_api import AzureSQLAPIClie
 class AzureSQLDatabaseConfig(BaseModel):
     subscription_id: str = Field(
         description="Azure subscription ID",
+        examples=["12345678-1234-1234-1234-123456789012"],
     )
     resource_group: str = Field(
         description="Azure resource group name",
+        examples=["my-resource-group"],
     )
     server_name: str = Field(
         description="Azure SQL server name",
+        examples=["myserver"],
     )
     database_name: str = Field(
         description="Azure SQL database name",
+        examples=["mydatabase"],
     )
 
 
@@ -28,14 +32,17 @@ class AzureSQLConfig(BaseModel):
     tenant_id: Optional[str] = Field(
         default=None,
         description="Azure AD tenant ID (required for service principal auth)",
+        examples=["{{ env.AZURE_TENANT_ID }}"],
     )
     client_id: Optional[str] = Field(
         default=None,
         description="Azure AD client/application ID (required for service principal auth)",
+        examples=["{{ env.AZURE_CLIENT_ID }}"],
     )
     client_secret: Optional[str] = Field(
         default=None,
         description="Azure AD client secret (required for service principal auth)",
+        examples=["{{ env.AZURE_CLIENT_SECRET }}"],
     )
 
 

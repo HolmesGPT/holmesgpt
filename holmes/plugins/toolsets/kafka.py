@@ -40,26 +40,37 @@ from holmes.plugins.toolsets.utils import get_param_or_raise, toolset_name_for_o
 
 
 class KafkaClusterConfig(BaseModel):
-    name: str = Field(description="Name identifier for this Kafka cluster")
+    name: str = Field(
+        description="Name identifier for this Kafka cluster",
+        examples=["us-west-kafka", "eu-central-kafka"],
+    )
     kafka_broker: str = Field(
         description="Kafka broker address",
-        examples=["kafka.default.svc:9092"],
+        examples=[
+            "broker1.example.com:9092,broker2.example.com:9092",
+            "broker3.example.com:9092",
+            "kafka.default.svc:9092",
+        ],
     )
     kafka_security_protocol: Optional[str] = Field(
         default=None,
         description="Security protocol (e.g., PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)",
+        examples=["SASL_SSL", "SSL", "PLAINTEXT"],
     )
     kafka_sasl_mechanism: Optional[str] = Field(
         default=None,
         description="SASL mechanism (e.g., PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)",
+        examples=["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"],
     )
     kafka_username: Optional[str] = Field(
         default=None,
         description="Username for SASL authentication",
+        examples=["{{ env.KAFKA_USERNAME }}"],
     )
     kafka_password: Optional[str] = Field(
         default=None,
         description="Password for SASL authentication",
+        examples=["{{ env.KAFKA_PASSWORD }}"],
     )
     kafka_client_id: Optional[str] = Field(
         default="holmes-kafka-client",

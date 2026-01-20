@@ -227,9 +227,11 @@ class ListOrganizationAccounts(Tool):
 class NewrelicConfig(BaseModel):
     nr_api_key: str = Field(
         description="New Relic API key for authentication",
+        examples=["NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX"],
     )
     nr_account_id: str = Field(
         description="New Relic account ID",
+        examples=["1234567"],
     )
     is_eu_datacenter: Optional[bool] = Field(
         default=False,

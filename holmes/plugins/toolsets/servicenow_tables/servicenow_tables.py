@@ -30,6 +30,7 @@ class ServiceNowTablesConfig(BaseModel):
 
     api_key: str = Field(
         description="ServiceNow API key for authentication",
+        examples=["now_1234567890abcdef"],
     )
     instance_url: str = Field(
         description="ServiceNow instance base URL",

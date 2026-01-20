@@ -28,6 +28,15 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 class RabbitMQConfig(BaseModel):
     clusters: List[RabbitMQClusterConfig] = Field(
         description="List of RabbitMQ clusters to connect to",
+        examples=[
+            [
+                {
+                    "management_url": "http://<your-rabbitmq-server-or-service>:15672",
+                    "username": "holmes_user",
+                    "password": "holmes_password",
+                }
+            ]
+        ],
     )
 
 

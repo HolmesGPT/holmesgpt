@@ -98,9 +98,11 @@ class DatadogBaseConfig(BaseModel):
 
     dd_api_key: str = Field(
         description="Datadog API key for authentication",
+        examples=["<your_datadog_api_key>"],
     )
     dd_app_key: str = Field(
         description="Datadog application key for authentication",
+        examples=["<your_datadog_app_key>"],
     )
     site_api_url: AnyUrl = Field(
         description="Datadog site API base URL",

@@ -26,7 +26,10 @@ class RabbitMQClusterConfig(BaseModel):
     )
     management_url: str = Field(
         description="RabbitMQ Management API URL",
-        examples=["http://rabbitmq.default.svc:15672"],
+        examples=[
+            "http://<your-rabbitmq-server-or-service>:15672",
+            "http://rabbitmq.default.svc:15672",
+        ],
     )
     username: Optional[str] = Field(
         default=None,
@@ -36,7 +39,7 @@ class RabbitMQClusterConfig(BaseModel):
     password: Optional[str] = Field(
         default=None,
         description="Password for authentication",
-        examples=["your-password"],
+        examples=["holmes_password", "your-password"],
     )
     request_timeout_seconds: int = Field(
         default=30,

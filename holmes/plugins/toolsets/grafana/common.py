@@ -13,11 +13,12 @@ class GrafanaConfig(BaseModel):
 
     url: str = Field(
         description="Grafana URL or direct datasource URL",
-        examples=["http://grafana.monitoring.svc:3000"],
+        examples=["YOUR GRAFANA URL", "http://grafana.monitoring.svc:3000"],
     )
     api_key: Optional[str] = Field(
         default=None,
         description="Grafana API key for authentication",
+        examples=["YOUR API KEY"],
     )
     headers: Optional[Dict[str, str]] = Field(
         default=None,

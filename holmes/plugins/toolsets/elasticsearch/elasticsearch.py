@@ -43,6 +43,7 @@ class ElasticsearchConfig(BaseModel):
     api_key: Optional[str] = Field(
         default=None,
         description="API key for authentication (preferred over basic auth when available)",
+        examples=["{{ env.ELASTICSEARCH_API_KEY }}"],
     )
     username: Optional[str] = Field(
         default=None,

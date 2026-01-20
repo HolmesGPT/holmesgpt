@@ -92,7 +92,10 @@ class PrometheusConfig(BaseModel):
     prometheus_url: Optional[str] = Field(
         default=None,
         description="Prometheus server URL. Can also be set via PROMETHEUS_URL env var",
-        examples=["http://prometheus.monitoring.svc:9090"],
+        examples=[
+            "http://prometheus-server.monitoring.svc.cluster.local:9090",
+            "http://prometheus.monitoring.svc:9090",
+        ],
     )
 
     discover_metrics_from_last_hours: int = Field(
@@ -125,7 +128,10 @@ class PrometheusConfig(BaseModel):
     headers: Dict[str, str] = Field(
         default_factory=dict,
         description="Additional HTTP headers to include in Prometheus requests",
-        examples=[{"Authorization": "Bearer <token>"}],
+        examples=[
+            {"Authorization": "Basic <base64_encoded_credentials>"},
+            {"Authorization": "Bearer <token>"},
+        ],
     )
     rules_cache_duration_seconds: Optional[int] = Field(
         default=1800,
