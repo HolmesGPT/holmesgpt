@@ -22,6 +22,7 @@ Choose one of the following methods:
 ### Option 1: Through Grafana (Recommended)
 
 **Required:**
+
 - [Grafana service account token](https://grafana.com/docs/grafana/latest/administration/service-accounts/) with Viewer role
 - Loki datasource UID from Grafana
 

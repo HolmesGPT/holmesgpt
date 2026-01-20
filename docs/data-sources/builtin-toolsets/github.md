@@ -94,6 +94,7 @@ This tool modifies files line-by-line and can create or update pull requests. It
 2. Then run with `dry_run=false` to commit changes
 
 **Key Parameters:**
+
 - `line`: Line number where the change occurs
 - `command`: Operation type (`insert`, `update`, or `remove`)
 - `commit_pr`: Either a PR title (for new PRs) or PR number like `#123` (for updating existing PRs)

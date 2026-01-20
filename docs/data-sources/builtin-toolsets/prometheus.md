@@ -23,20 +23,9 @@ toolsets:
 
 
 💡 **Alternative**: Set environment variables instead of using the config file:
+
 - `PROMETHEUS_URL`: The Prometheus server URL
 - `PROMETHEUS_AUTH_HEADER`: Optional authorization header value (e.g., "Bearer token123")
-
-## Validation
-
-To test your connection, run:
-
-```bash
-holmes ask "Show me the CPU usage for the last hour"
-```
-
-## Troubleshooting
-
-
 
 ### Finding your Prometheus URL
 
@@ -63,7 +52,15 @@ kubectl get svc --all-namespaces -o jsonpath='{range .items[*]}{.metadata.name}{
 
 This will print all possible Prometheus service URLs in your cluster. Pick the one that matches your deployment.
 
-### Common Issues
+## Validation
+
+To test your connection, run:
+
+```bash
+holmes ask "Show me the CPU usage for the last hour"
+```
+
+## Troubleshooting
 
 - **Connection refused**: Check if the Prometheus URL is accessible from HolmesGPT.
 - **Authentication errors**: Verify the headers configuration for secured Prometheus endpoints.
