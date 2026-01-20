@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Annotated, Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
 
 import typer
 from benedict import benedict  # type: ignore
@@ -9,6 +9,12 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
 from holmes.plugins.prompts import load_prompt
 
 PromptField = Annotated[str, BeforeValidator(lambda v: load_prompt(v))]
+
+try:
+    # pydantic v2
+    from pydantic_core import PydanticUndefined  # type: ignore
+except Exception:  # pragma: no cover
+    PydanticUndefined = object()  # type: ignore
 
 
 class RobustaBaseConfig(BaseModel):
@@ -52,3 +58,87 @@ def load_model_from_file(
             fg="red",
         )
         sys.exit()
+
+def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
+    """
+    Build a JSON-serializable example object for a Pydantic model.
+
+    Logic (in order):
+    1) Keys are derived from the field/variable name.
+    2) Use default or default_factory to generate the example value.
+    3) If the example value is None, use the first value from the field's examples array.
+    4) If still None and the field type extends BaseModel, recurse to build nested object example.
+    5) Otherwise, use "your_<variable_name>".
+    """
+
+    model_cls: Type[BaseModel] = model if isinstance(model, type) else model.__class__
+
+    out: Dict[str, Any] = {}
+    for field_name, field_info in model_cls.model_fields.items():
+        example_value: Any = None
+
+        default = getattr(field_info, "default", PydanticUndefined)
+        default_factory = getattr(field_info, "default_factory", None)
+
+        if default is not PydanticUndefined:
+            example_value = default
+        elif default_factory is not None:
+            try:
+                example_value = default_factory()
+            except Exception:
+                # If a default factory can't be executed without context, fall back to other strategies.
+                example_value = None
+
+        if example_value is None:
+            examples = getattr(field_info, "examples", None)
+            if examples is None:
+                json_schema_extra = getattr(field_info, "json_schema_extra", None) or {}
+                examples = json_schema_extra.get("examples")
+
+            if isinstance(examples, list) and len(examples) > 0:
+                example_value = examples[0]
+
+        if example_value is None:
+            annotation = getattr(field_info, "annotation", None)
+            nested_model_cls = _extract_base_model_subclass(annotation)
+            if nested_model_cls is not None:
+                example_value = build_config_example(nested_model_cls)
+
+        if example_value is None:
+            example_value = f"your_{field_name}"
+
+        out[field_name] = example_value
+
+    return out
+
+def _extract_base_model_subclass(annotation: Any) -> Optional[Type[BaseModel]]:
+    """
+    Best-effort extraction of a BaseModel subclass from an annotation.
+
+    Supports:
+    - T where issubclass(T, BaseModel)
+    - Optional[T] / Union[T, None]
+    - Annotated[T, ...]
+    """
+    if annotation is None:
+        return None
+
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        if args:
+            return _extract_base_model_subclass(args[0])
+
+    if origin is Union:
+        args = [a for a in get_args(annotation) if a is not type(None)]  # noqa: E721
+        if len(args) == 1:
+            return _extract_base_model_subclass(args[0])
+        return None
+
+    try:
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            return annotation
+    except Exception:
+        return None
+
+    return None
