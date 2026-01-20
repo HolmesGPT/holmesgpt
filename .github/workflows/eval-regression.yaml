@@ -779,6 +779,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
+          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}

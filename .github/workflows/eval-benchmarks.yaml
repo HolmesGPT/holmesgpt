@@ -92,7 +92,7 @@ jobs:
           echo "benchmark_type=$BENCHMARK_TYPE" >> $GITHUB_OUTPUT
 
       - name: Run evaluation benchmarks
-        env:  
+        env:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
@@ -101,6 +101,8 @@ jobs:
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
         run: |
           echo "Running: ${{ steps.build-command.outputs.command }}"
