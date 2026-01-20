@@ -15,7 +15,7 @@ on:
       models:
         description: 'Comma-separated list of models to test'
         required: false
-        default: 'azure/gpt-4.1'
+        default: 'bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0,bedrock/eu.anthropic.claude-opus-4-5-20251101-v1:0,bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0,openai/gpt-5.2'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
@@ -101,6 +101,7 @@ jobs:
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
@@ -129,7 +130,7 @@ jobs:
           git config --local user.name "github-actions[bot]"
 
           # Create timestamped branch
-          BRANCH_NAME="automated/benchmark-$(date +%Y%m%d)"
+          BRANCH_NAME="automated/benchmark-$(date +%Y%m%d_%H%M%S)"
           git checkout -b "$BRANCH_NAME"
 
           # Add all evaluation results
@@ -143,11 +144,11 @@ jobs:
 
           # Commit and push
           BENCHMARK_TYPE="${{ steps.build-command.outputs.benchmark_type }}"
-          git commit -m "Update ${BENCHMARK_TYPE:-benchmark} results [skip ci]"
+          git commit -m "Update ${BENCHMARK_TYPE:-benchmark} results"
           git push origin "$BRANCH_NAME" --force
 
           # Create PR (or update existing)
-          PR_TITLE="Weekly Benchmark Results $(date +%Y-%m-%d)"
+          PR_TITLE="Weekly Benchmark Results $(date +%Y-%m-%d_%H-%M)"
           PR_BODY="Automated weekly benchmark results from CI.
 
           **Benchmark Type**: ${BENCHMARK_TYPE:-custom}
