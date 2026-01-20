@@ -21,21 +21,28 @@ holmes ask "hello" --model="openrouter/anthropic/claude-opus-4.5" --no-interacti
 
 ### Method 2: OpenAI-Compatible Endpoint
 
-Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting the base URL and using `OPENAI_API_KEY`.
+Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting the base URL and using `OPENAI_API_KEY`. Note the `openai/` prefix instead of `openrouter/`.
 
 ```bash
 export OPENAI_API_BASE="https://openrouter.ai/api/v1"
 export OPENAI_API_KEY="sk-or-..."  # your OpenRouter key
-holmes ask "hello" --model="openrouter/anthropic/claude-opus-4.5" --no-interactive
+holmes ask "hello" --model="openai/anthropic/claude-opus-4.5" --no-interactive
 ```
 
 ## Available Models
 
-You can use any model available on OpenRouter by using the `openrouter/` prefix followed by the model ID. For example:
+You can use any model available on OpenRouter. The model prefix depends on which method you use:
+
+**Method 1 (Native):** Use `openrouter/` prefix
 
 - `openrouter/anthropic/claude-opus-4.5`
 - `openrouter/openai/gpt-4o`
 - `openrouter/google/gemini-pro`
-- `openrouter/meta-llama/llama-3-70b-instruct`
+
+**Method 2 (OpenAI-Compatible):** Use `openai/` prefix
+
+- `openai/anthropic/claude-opus-4.5`
+- `openai/openai/gpt-4o`
+- `openai/google/gemini-pro`
 
 See the [OpenRouter models page](https://openrouter.ai/models) for a complete list of available models.
