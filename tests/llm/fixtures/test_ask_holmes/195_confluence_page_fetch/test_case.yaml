@@ -1,110 +1,18 @@
 user_prompt: |
-  First, read the file /tmp/confluence_test_page_id to get a Confluence page ID.
-  Then use the Confluence toolset to fetch that page's content.
-  Tell me the verification code found in the page content.
+  Fetch the Confluence page with ID 196614 and tell me what the page is about.
 
 expected_output:
-  - "Must report the verification code: HOLMES-EVAL-7x9k2m4p"
+  - "Must mention that this is a test page or HolmesGPT eval page"
 
 tags:
   - confluence
   - question-answer
   - medium
 
-setup_timeout: 120
-
 # Required env vars:
 #   CONFLUENCE_USER - Email/username for Confluence (required)
 #   CONFLUENCE_API_KEY - Atlassian API token (required)
 #   CONFLUENCE_BASE_URL - e.g., https://robusta-llm-test.atlassian.net (required)
-
-before_test: |
-  set -e
-
-  # Hardcoded space key for the test instance
-  CONFLUENCE_SPACE_KEY="MFS"
-
-  # Validate required environment variables
-  if [ -z "$CONFLUENCE_API_KEY" ]; then
-    echo "CONFLUENCE_API_KEY environment variable is not set"
-    exit 1
-  fi
-  if [ -z "$CONFLUENCE_BASE_URL" ]; then
-    echo "CONFLUENCE_BASE_URL environment variable is not set"
-    exit 1
-  fi
-  if [ -z "$CONFLUENCE_USER" ]; then
-    echo "CONFLUENCE_USER environment variable is not set"
-    exit 1
-  fi
-
-  echo "Creating test page in Confluence..."
-  echo "   Base URL: $CONFLUENCE_BASE_URL"
-  echo "   Space: $CONFLUENCE_SPACE_KEY"
-  echo "   User: $CONFLUENCE_USER"
-
-  # Use a fixed verification code that is included in expected_output
-  # The LLM cannot see expected_output, so this is safe from cheating
-  VERIFICATION_CODE="HOLMES-EVAL-7x9k2m4p"
-  PAGE_TITLE="HolmesGPT Eval Test Page"
-
-  PAGE_JSON="{
-    \"type\": \"page\",
-    \"title\": \"${PAGE_TITLE}\",
-    \"space\": {\"key\": \"${CONFLUENCE_SPACE_KEY}\"},
-    \"body\": {
-      \"storage\": {
-        \"value\": \"<p>This is an automated test page for HolmesGPT evaluation.</p><p>Verification Code: <strong>${VERIFICATION_CODE}</strong></p><p>This page will be automatically cleaned up after the test.</p>\",
-        \"representation\": \"storage\"
-      }
-    }
-  }"
-
-  # Create the page using Confluence REST API
-  RESPONSE=$(curl -sf -X POST \
-    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
-    -H "Content-Type: application/json" \
-    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
-    -d "$PAGE_JSON")
-
-  if [ $? -ne 0 ]; then
-    echo "Failed to create Confluence page"
-    echo "Response: $RESPONSE"
-    exit 1
-  fi
-
-  # Extract the page ID from the response
-  PAGE_ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-  if [ -z "$PAGE_ID" ]; then
-    echo "Failed to extract page ID from response"
-    echo "Response: $RESPONSE"
-    exit 1
-  fi
-
-  # Save the page ID for Holmes to read and for cleanup
-  echo "$PAGE_ID" > /tmp/confluence_test_page_id
-
-  echo "Created Confluence page with ID: $PAGE_ID"
-  echo "Page title: $PAGE_TITLE"
-
-after_test: |
-  set -e
-
-  echo "Cleaning up test page..."
-
-  if [ -f /tmp/confluence_test_page_id ]; then
-    PAGE_ID=$(cat /tmp/confluence_test_page_id)
-
-    if [ -n "$PAGE_ID" ]; then
-      curl -sf -X DELETE \
-        -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
-        "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/${PAGE_ID}" 2>&1 || true
-
-      echo "Deleted Confluence page with ID: $PAGE_ID"
-    fi
-
-    rm -f /tmp/confluence_test_page_id
-  else
-    echo "No page ID file found, skipping cleanup"
-  fi
+#
+# Note: Page ID 196614 should be a pre-existing test page in the Confluence instance.
+# Update the page ID if using a different Confluence instance.
