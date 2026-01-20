@@ -1,14 +1,13 @@
 # Toolset configuration for Confluence page fetch test
 # This is a cloud-only test, no Kubernetes required
-# This test uses Bearer Auth (service account tokens) by default
-# To use Basic Auth (personal tokens), add: username: "{{ env.CONFLUENCE_USERNAME }}"
+# The old YAML toolset uses env vars directly: CONFLUENCE_USER, CONFLUENCE_API_KEY, CONFLUENCE_BASE_URL
 toolsets:
   confluence:
     enabled: true
-    config:
-      url: "{{ env.CONFLUENCE_BASE_URL }}"
-      api_key: "{{ env.CONFLUENCE_API_KEY }}"
-      # No username = Bearer Auth for service accounts
+
+  # Enable bash so Holmes can read the page ID from /tmp
+  bash:
+    enabled: true
 
   # Disable K8s-dependent toolsets (not needed for this test)
   kubernetes/core:

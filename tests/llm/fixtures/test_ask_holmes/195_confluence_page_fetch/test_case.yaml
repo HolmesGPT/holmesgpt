@@ -1,5 +1,6 @@
 user_prompt: |
-  Find and fetch the contents of the test page titled "HolmesGPT Eval Test Page" in Confluence.
+  First, read the file /tmp/confluence_test_page_id to get a Confluence page ID.
+  Then use the Confluence toolset to fetch that page's content.
   Tell me the verification code found in the page content.
 
 expected_output:
@@ -13,13 +14,9 @@ tags:
 setup_timeout: 120
 
 # Required env vars:
+#   CONFLUENCE_USER - Email/username for Confluence (required)
 #   CONFLUENCE_API_KEY - Atlassian API token (required)
 #   CONFLUENCE_BASE_URL - e.g., https://robusta-llm-test.atlassian.net (required)
-#   CONFLUENCE_USERNAME - Email for Atlassian Cloud (optional - omit for service accounts)
-#
-# Auth modes:
-#   - With CONFLUENCE_USERNAME: Uses Basic Auth (personal API tokens)
-#   - Without CONFLUENCE_USERNAME: Uses Bearer Auth (service account tokens)
 
 before_test: |
   set -e
@@ -29,27 +26,22 @@ before_test: |
 
   # Validate required environment variables
   if [ -z "$CONFLUENCE_API_KEY" ]; then
-    echo "❌ CONFLUENCE_API_KEY environment variable is not set"
+    echo "CONFLUENCE_API_KEY environment variable is not set"
     exit 1
   fi
   if [ -z "$CONFLUENCE_BASE_URL" ]; then
-    echo "❌ CONFLUENCE_BASE_URL environment variable is not set"
+    echo "CONFLUENCE_BASE_URL environment variable is not set"
+    exit 1
+  fi
+  if [ -z "$CONFLUENCE_USER" ]; then
+    echo "CONFLUENCE_USER environment variable is not set"
     exit 1
   fi
 
-  echo "⏳ Creating test page in Confluence..."
+  echo "Creating test page in Confluence..."
   echo "   Base URL: $CONFLUENCE_BASE_URL"
   echo "   Space: $CONFLUENCE_SPACE_KEY"
-
-  # Auto-discover cloud_id for Atlassian Cloud API gateway
-  CLOUD_ID=$(curl -sf "${CONFLUENCE_BASE_URL}/_edge/tenant_info" | grep -o '"cloudId":"[^"]*"' | cut -d'"' -f4)
-  if [ -z "$CLOUD_ID" ]; then
-    echo "❌ Failed to discover cloud_id from ${CONFLUENCE_BASE_URL}/_edge/tenant_info"
-    exit 1
-  fi
-  API_GATEWAY_URL="https://api.atlassian.com/ex/confluence/${CLOUD_ID}"
-  echo "   Cloud ID: $CLOUD_ID"
-  echo "   API Gateway: $API_GATEWAY_URL"
+  echo "   User: $CONFLUENCE_USER"
 
   # Use a fixed verification code that is included in expected_output
   # The LLM cannot see expected_output, so this is safe from cheating
@@ -68,26 +60,15 @@ before_test: |
     }
   }"
 
-  # Create the page using Confluence REST API via API Gateway
-  # Use appropriate auth method based on whether username is provided
-  if [ -n "$CONFLUENCE_USERNAME" ]; then
-    echo "   Auth: Basic Auth (personal token)"
-    RESPONSE=$(curl -sf -X POST \
-      -u "${CONFLUENCE_USERNAME}:${CONFLUENCE_API_KEY}" \
-      -H "Content-Type: application/json" \
-      "${API_GATEWAY_URL}/wiki/rest/api/content" \
-      -d "$PAGE_JSON")
-  else
-    echo "   Auth: Bearer Auth (service account)"
-    RESPONSE=$(curl -sf -X POST \
-      -H "Authorization: Bearer ${CONFLUENCE_API_KEY}" \
-      -H "Content-Type: application/json" \
-      "${API_GATEWAY_URL}/wiki/rest/api/content" \
-      -d "$PAGE_JSON")
-  fi
+  # Create the page using Confluence REST API
+  RESPONSE=$(curl -sf -X POST \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
+    -d "$PAGE_JSON")
 
   if [ $? -ne 0 ]; then
-    echo "❌ Failed to create Confluence page"
+    echo "Failed to create Confluence page"
     echo "Response: $RESPONSE"
     exit 1
   fi
@@ -96,44 +77,34 @@ before_test: |
   PAGE_ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
   if [ -z "$PAGE_ID" ]; then
-    echo "❌ Failed to extract page ID from response"
+    echo "Failed to extract page ID from response"
     echo "Response: $RESPONSE"
     exit 1
   fi
 
-  # Save the page ID and cloud_id for cleanup
+  # Save the page ID for Holmes to read and for cleanup
   echo "$PAGE_ID" > /tmp/confluence_test_page_id
-  echo "$CLOUD_ID" > /tmp/confluence_test_cloud_id
 
-  echo "✅ Created Confluence page with ID: $PAGE_ID"
-  echo "✅ Page title: $PAGE_TITLE"
+  echo "Created Confluence page with ID: $PAGE_ID"
+  echo "Page title: $PAGE_TITLE"
 
 after_test: |
   set -e
 
-  echo "⏳ Cleaning up test page..."
+  echo "Cleaning up test page..."
 
-  if [ -f /tmp/confluence_test_page_id ] && [ -f /tmp/confluence_test_cloud_id ]; then
+  if [ -f /tmp/confluence_test_page_id ]; then
     PAGE_ID=$(cat /tmp/confluence_test_page_id)
-    CLOUD_ID=$(cat /tmp/confluence_test_cloud_id)
-    API_GATEWAY_URL="https://api.atlassian.com/ex/confluence/${CLOUD_ID}"
 
-    if [ -n "$PAGE_ID" ] && [ -n "$CLOUD_ID" ]; then
-      # Use appropriate auth method based on whether username is provided
-      if [ -n "$CONFLUENCE_USERNAME" ]; then
-        curl -sf -X DELETE \
-          -u "${CONFLUENCE_USERNAME}:${CONFLUENCE_API_KEY}" \
-          "${API_GATEWAY_URL}/wiki/rest/api/content/${PAGE_ID}" 2>&1 || true
-      else
-        curl -sf -X DELETE \
-          -H "Authorization: Bearer ${CONFLUENCE_API_KEY}" \
-          "${API_GATEWAY_URL}/wiki/rest/api/content/${PAGE_ID}" 2>&1 || true
-      fi
+    if [ -n "$PAGE_ID" ]; then
+      curl -sf -X DELETE \
+        -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+        "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/${PAGE_ID}" 2>&1 || true
 
-      echo "✅ Deleted Confluence page with ID: $PAGE_ID"
+      echo "Deleted Confluence page with ID: $PAGE_ID"
     fi
 
-    rm -f /tmp/confluence_test_page_id /tmp/confluence_test_cloud_id
+    rm -f /tmp/confluence_test_page_id
   else
-    echo "⚠️ No page ID or cloud_id file found, skipping cleanup"
+    echo "No page ID file found, skipping cleanup"
   fi

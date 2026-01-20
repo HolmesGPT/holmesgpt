@@ -16,7 +16,6 @@ from holmes.core.tools import Toolset, ToolsetType, ToolsetYamlFromConfig, YAMLT
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
-from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
@@ -107,7 +106,6 @@ def load_python_toolsets(
         ServiceNowTablesToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
-        ConfluenceToolset(),
     ]
 
     if not DISABLE_PROMETHEUS_TOOLSET:
