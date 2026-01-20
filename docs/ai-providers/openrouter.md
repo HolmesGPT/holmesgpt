@@ -6,7 +6,7 @@ Configure HolmesGPT to use [OpenRouter](https://openrouter.ai/) for access to mu
 
 ### Method 1: Native LiteLLM OpenRouter Provider (Recommended)
 
-The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER_API_KEY` is required.
+The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER_API_KEY` is required. This method is preferred because HolmesGPT can automatically determine token limits and context window sizes for each model.
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."  # your OpenRouter key
@@ -22,6 +22,9 @@ holmes ask "hello" --model="openrouter/anthropic/claude-opus-4.5" --no-interacti
 ### Method 2: OpenAI-Compatible Endpoint
 
 Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting the base URL and using `OPENAI_API_KEY`. Note the `openai/` prefix instead of `openrouter/`.
+
+!!! warning "Token Limits"
+    With this method, HolmesGPT cannot automatically determine token limits for the model. You may need to set `OVERRIDE_MAX_CONTENT_SIZE` and `OVERRIDE_MAX_OUTPUT_TOKEN` environment variables manually.
 
 ```bash
 export OPENAI_API_BASE="https://openrouter.ai/api/v1"
