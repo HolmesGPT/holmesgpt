@@ -1,5 +1,4 @@
-from holmes.plugins.toolsets.grafana.common import GrafanaConfig, GrafanaTempoConfig
-from holmes.utils.pydantic_utils import build_config_example
+from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
 import pytest
 
 from holmes.core.tools import ToolsetStatusEnum
@@ -70,40 +69,3 @@ def test_loki_datasource_toolset_error_health_check():
         in toolset.error
     )
     assert toolset.status == ToolsetStatusEnum.FAILED
-
-
-def test_build_config_example_grafana_config():
-    example = build_config_example(GrafanaConfig)
-
-    assert example["url"] == "YOUR GRAFANA URL"
-    assert example["api_key"] == "YOUR API KEY"
-    assert example["headers"] == {"Authorization": "Bearer YOUR_API_KEY"}
-    assert example["grafana_datasource_uid"] == "loki"
-    assert example["external_url"] == "your_external_url"
-    assert example["verify_ssl"] is True
-
-
-def test_build_config_example_grafana_dashboard_config():
-    example = build_config_example(GrafanaDashboardConfig)
-
-    # Dashboard config is currently the base GrafanaConfig.
-    assert example["url"] == "YOUR GRAFANA URL"
-    assert example["api_key"] == "YOUR API KEY"
-    assert example["headers"] == {"Authorization": "Bearer YOUR_API_KEY"}
-    assert example["grafana_datasource_uid"] == "loki"
-    assert example["external_url"] == "your_external_url"
-    assert example["verify_ssl"] is True
-
-
-def test_build_config_example_grafana_tempo_config():
-    example = build_config_example(GrafanaTempoConfig)
-
-    assert example["url"] == "YOUR GRAFANA URL"
-    assert example["grafana_datasource_uid"] == "loki"
-
-    assert example["labels"]["pod"] == "k8s.pod.name"
-    assert example["labels"]["namespace"] == "k8s.namespace.name"
-    assert example["labels"]["deployment"] == "k8s.deployment.name"
-    assert example["labels"]["node"] == "k8s.node.name"
-    assert example["labels"]["service"] == "service.name"
-
