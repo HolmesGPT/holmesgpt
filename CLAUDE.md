@@ -318,6 +318,14 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Pre-commit hooks enforce quality checks
 - **ALWAYS place Python imports at the top of the file**, not inside functions or methods
 
+**Documentation Examples**:
+- **ALWAYS use the latest model versions** in code examples and documentation:
+  - OpenAI: `gpt-4o` (latest GPT-4o version)
+  - Anthropic: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101` (Claude 4.5 family)
+  - Google: `gemini-1.5-pro` or latest Gemini version
+- Check current model versions before adding new examples
+- Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
+
 **Testing Requirements**:
 - All new features require unit tests
 - New toolsets require integration tests

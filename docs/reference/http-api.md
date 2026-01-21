@@ -186,7 +186,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "ask": "Analyze this diagram",
-    "model": "claude-3.5-sonnet",
+    "model": "anthropic/claude-sonnet-4-5-20250929",
     "images": [
       "data:image/png;base64,iVBORw0KGgoAAAANS..."
     ]
