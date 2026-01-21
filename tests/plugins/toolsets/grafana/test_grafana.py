@@ -1,11 +1,10 @@
-from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
 import pytest
 
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import (
     GrafanaLokiToolset,
 )
-from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaDashboardConfig, GrafanaToolset
+from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
 from tests.plugins.toolsets.grafana.conftest import check_service_running
 
 # Skip all tests in this module if Grafana and loki are not running. use loki/docker-compose.yaml

@@ -2,7 +2,7 @@ from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.utils.pydantic_utils import build_config_example
 
 
-def test_build_config_example_bash_executor_config():
+def test_build_config_example_bash_executor_config() -> None:
     example = build_config_example(BashExecutorConfig)
 
     assert "kubectl" in example
