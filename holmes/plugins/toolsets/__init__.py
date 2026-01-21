@@ -45,6 +45,7 @@ from holmes.plugins.toolsets.investigator.core_investigation import (
     CoreInvestigationToolset,
 )
 from holmes.plugins.toolsets.kafka import KafkaToolset
+from holmes.plugins.toolsets.kubernetes_get import KubernetesGetToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
@@ -113,6 +114,7 @@ def load_python_toolsets(
 
         toolsets.append(PrometheusToolset())
 
+    toolsets.append(KubernetesGetToolset())
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
 

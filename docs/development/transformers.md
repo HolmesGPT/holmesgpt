@@ -36,9 +36,9 @@ Tools can declare transformers in their definitions:
 
 ```yaml
 # Basic summarization with defaults
-- name: "kubectl_get_by_kind_in_namespace"
-  description: "Get all resources of a type in a namespace"
-  command: "kubectl get --show-labels -o wide {{ kind }} -n {{ namespace }}"
+- name: "kubernetes_get_resources"
+  description: "List resources of a type in a namespace"
+  command: "kubectl get {{ kind }} -n {{ namespace }} -o json"
   transformers:
     - name: llm_summarize
       config: {}

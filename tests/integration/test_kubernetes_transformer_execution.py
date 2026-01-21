@@ -274,8 +274,8 @@ Events:
                 large_log_output
             )  # Should be shorter due to summarization
 
-    def test_kubectl_get_cluster_with_transformer(self):
-        """Test kubectl_get_by_kind_in_cluster applies transformer for large output."""
+    def test_kubectl_describe_with_transformer(self):
+        """Test kubectl_describe applies transformer for large output."""
         # Load the actual kubernetes.yaml file
         current_dir = os.path.dirname(os.path.abspath(__file__))
         kubernetes_yaml_path = os.path.join(
@@ -284,43 +284,26 @@ Events:
 
         toolsets = load_toolsets_from_file(kubernetes_yaml_path)
         kubernetes_core = next(ts for ts in toolsets if ts.name == "kubernetes/core")
-        kubectl_get_cluster = next(
-            tool
-            for tool in kubernetes_core.tools
-            if tool.name == "kubectl_get_by_kind_in_cluster"
-        )
+        kubectl_describe = next(tool for tool in kubernetes_core.tools if tool.name == "kubectl_describe")
 
-        # Create large kubectl get output
-        large_get_output = (
-            """
-NAMESPACE     NAME                                    READY   STATUS    RESTARTS   AGE     IP           NODE     NOMINATED NODE   READINESS GATES   LABELS
-kube-system   coredns-558bd4d5db-abc123              1/1     Running   0          10d     10.244.0.2   node-1   <none>           <none>            k8s-app=kube-dns,pod-template-hash=558bd4d5db
-kube-system   coredns-558bd4d5db-def456              1/1     Running   0          10d     10.244.0.3   node-1   <none>           <none>            k8s-app=kube-dns,pod-template-hash=558bd4d5db
-kube-system   etcd-node-1                            1/1     Running   0          10d     10.0.1.5     node-1   <none>           <none>            component=etcd,tier=control-plane
-kube-system   kube-apiserver-node-1                  1/1     Running   0          10d     10.0.1.5     node-1   <none>           <none>            component=kube-apiserver,tier=control-plane
-default       nginx-deployment-abc123                1/1     Running   0          5d      10.244.1.5   node-2   <none>           <none>            app=nginx,pod-template-hash=abc123
-default       nginx-deployment-def456                1/1     Running   0          5d      10.244.1.6   node-2   <none>           <none>            app=nginx,pod-template-hash=def456
-default       redis-master-789                       1/1     Running   0          3d      10.244.1.7   node-2   <none>           <none>            app=redis,role=master
-monitoring    prometheus-server-xyz                  1/1     Running   0          2d      10.244.1.8   node-2   <none>           <none>            app=prometheus,component=server
-"""
-            * 5
-        )  # Repeat to make it large enough
+        # Create large kubectl describe output
+        large_describe_output = ("Status: Running\n" + "Environment=VALUE\n" * 5000)
 
         # Mock the subprocess execution
         with patch.object(
-            kubectl_get_cluster, "_YAMLTool__execute_subprocess"
+            kubectl_describe, "_YAMLTool__execute_subprocess"
         ) as mock_subprocess:
-            mock_subprocess.return_value = (large_get_output, 0)
+            mock_subprocess.return_value = (large_describe_output, 0)
 
             # Execute the tool
             context = create_mock_tool_invoke_context()
-            result = kubectl_get_cluster.invoke({"kind": "pods"}, context)
+            result = kubectl_describe.invoke({"kind": "pod", "name": "demo", "namespace": "default"}, context)
 
             # Should have applied transformation
             assert result.status == StructuredToolResultStatus.SUCCESS
             assert result.data is not None
             assert "SUMMARIZED:" in result.data
-            assert len(result.data) < len(large_get_output)
+            assert len(result.data) < len(large_describe_output)
 
     def test_transformer_failure_handling(self):
         """Test that tool execution continues gracefully when transformer fails."""

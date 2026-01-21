@@ -1,0 +1,55 @@
+user_prompt: |
+  In the stress-configmap namespace, count how many ConfigMaps have the label stress-test=true and shard=even.
+expected_output:
+  - There are 150 ConfigMaps labeled stress-test=true and shard=even in the stress-configmap namespace.
+before_test: |
+  set -euo pipefail
+  NAMESPACE="stress-configmap"
+  COUNT="${CONFIGMAP_STRESS_COUNT:-300}"
+  SIZE_BYTES="${CONFIGMAP_STRESS_SIZE_BYTES:-65536}"
+
+  kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+  python - <<'PY'
+  import os
+  import subprocess
+  import textwrap
+
+  namespace = os.environ.get("NAMESPACE", "stress-configmap")
+  count = int(os.environ.get("COUNT", "300"))
+  size_bytes = int(os.environ.get("SIZE_BYTES", "65536"))
+
+  payload = "a" * size_bytes
+
+  for i in range(count):
+      shard_label = "even" if i % 2 == 0 else "odd"
+      manifest = textwrap.dedent(
+          f"""
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: stress-cm-{i:05d}
+            namespace: {namespace}
+            labels:
+              stress-test: "true"
+              shard: {shard_label}
+              batch: "{i // 100}"
+          data:
+            payload: "{payload}"
+          """
+      )
+      subprocess.run(["kubectl", "apply", "-f", "-"], input=manifest.encode(), check=True)
+  PY
+
+after_test: |
+  kubectl delete namespace stress-configmap --ignore-not-found
+
+notes: |
+  The default setup creates 300 ConfigMaps at ~64KiB each (~20MB total) to keep CI stable while still exercising chunked pagination.
+  Set CONFIGMAP_STRESS_COUNT=10000 and CONFIGMAP_STRESS_SIZE_BYTES=1048576 in a dedicated environment to generate the requested 10k ConfigMaps of ~1MiB each.
+  Expect half the ConfigMaps to carry shard=even and half shard=odd; the expected answer counts only the even ones.
+tags:
+  - kubernetes
+  - question-answer
+  - stress
+  - counting

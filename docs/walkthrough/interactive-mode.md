@@ -35,7 +35,7 @@ Running tool #1 kubectl_find_resource: kubectl get -A --show-labels -o wide depl
 Running tool #2 kubectl_describe: kubectl describe deployment payment-service -n production
   Finished #2 in 1.45s, output length: 2,341 characters - /show 2 to view contents
 
-Running tool #3 kubectl_get_by_kind_in_namespace: kubectl get pod -n production -o wide --show-labels | grep -E 'NAME|payment'
+Running tool #3 kubernetes_get_resources: kubectl get pod -n production -o json
   Finished #3 in 1.28s, output length: 456 characters - /show 3 to view contents
 
 Running tool #4 fetch_pod_logs: Fetching logs for pod payment-service-7b9c5d4-xyz in namespace production
@@ -60,7 +60,7 @@ Running tool #1 kubectl_describe: kubectl describe pvc payment-db-pvc-0 -n produ
 Running tool #2 kubectl_get: kubectl get storageclass fast-ssd -o yaml
   Finished #2 in 1.14s, output length: 134 characters - /show 2 to view contents
 
-Running tool #3 kubectl_get_by_kind_in_namespace: kubectl get storageclass
+Running tool #3 kubernetes_get_resources: kubectl get storageclass -A -o json
   Finished #3 in 1.23s, output length: 456 characters - /show 3 to view contents
 
 The PVC is pending because the requested StorageClass doesn't exist:
@@ -82,7 +82,7 @@ In this example, the human provides additional context and runs commands the AI 
 ```bash
 holmes ask "users are reporting intermittent 502 errors on the checkout page but I don't see any pod failures"
 
-Running tool #1 kubectl_get_by_kind_in_namespace: kubectl get pod -n production -o wide --show-labels
+Running tool #1 kubernetes_get_resources: kubectl get pod -n production -o json
   Finished #1 in 1.41s, output length: 3,234 characters - /show 1 to view contents
 
 Running tool #2 kubectl_top_pods: kubectl top pods -n production --containers

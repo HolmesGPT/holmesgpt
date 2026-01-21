@@ -57,34 +57,6 @@ class TestKubernetesYAMLTransformers:
         assert kubectl_describe.transformers[0].name == "llm_summarize"
         assert kubectl_describe.transformers[0].config["input_threshold"] == 1000
 
-        # Test kubectl_get_by_kind_in_namespace has transformer config
-        kubectl_get_namespace = None
-        for tool in kubernetes_core.tools:
-            if tool.name == "kubectl_get_by_kind_in_namespace":
-                kubectl_get_namespace = tool
-                break
-
-        assert (
-            kubectl_get_namespace is not None
-        ), "kubectl_get_by_kind_in_namespace tool not found"
-        assert kubectl_get_namespace.transformers is not None
-        assert len(kubectl_get_namespace.transformers) == 1
-        assert kubectl_get_namespace.transformers[0].name == "llm_summarize"
-
-        # Test kubectl_get_by_kind_in_cluster has transformer config
-        kubectl_get_cluster = None
-        for tool in kubernetes_core.tools:
-            if tool.name == "kubectl_get_by_kind_in_cluster":
-                kubectl_get_cluster = tool
-                break
-
-        assert (
-            kubectl_get_cluster is not None
-        ), "kubectl_get_by_kind_in_cluster tool not found"
-        assert kubectl_get_cluster.transformers is not None
-        assert len(kubectl_get_cluster.transformers) == 1
-        assert kubectl_get_cluster.transformers[0].name == "llm_summarize"
-
     def test_load_kubernetes_logs_yaml_with_transformers(self):
         """Test loading the kubernetes_logs.yaml file with transformers."""
         # Ensure transformer registry is properly initialized
@@ -531,21 +503,6 @@ class TestKubernetesTransformerPrompts:
         assert kubectl_describe is not None, "kubectl_describe tool not found"
         assert kubectl_describe.transformers is not None
         assert kubectl_describe.transformers[0].config["input_threshold"] == 1000
-
-        # kubectl get tools should have threshold of 1000
-        kubectl_get_ns = next(
-            (
-                tool
-                for tool in kubernetes_core.tools
-                if tool.name == "kubectl_get_by_kind_in_namespace"
-            ),
-            None,
-        )
-        assert (
-            kubectl_get_ns is not None
-        ), "kubectl_get_by_kind_in_namespace tool not found"
-        assert kubectl_get_ns.transformers is not None
-        assert kubectl_get_ns.transformers[0].config["input_threshold"] == 1000
 
         # Test kubernetes logs tools (higher threshold for logs)
         kubernetes_logs_yaml_path = os.path.join(

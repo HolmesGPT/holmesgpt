@@ -21,15 +21,12 @@ holmes:
 | Tool Name | Description |
 |-----------|-------------|
 | kubectl_describe | Run kubectl describe command on a specific resource |
-| kubectl_get_by_name | Get details of a specific resource with labels |
-| kubectl_get_by_kind_in_namespace | List all resources of a given type in a namespace |
-| kubectl_get_by_kind_in_cluster | List all resources of a given type across the cluster |
+| kubernetes_get_resources | List resources with optional client-side filtering and paging |
 | kubectl_find_resources | Search for resources matching a keyword |
 | kubectl_get_yaml | Get YAML definition of a resource |
 | kubectl_events | Get events for a specific resource |
 | kubectl_memory_requests_all_namespaces | Get memory requests for all pods across all namespaces in MiB |
 | kubectl_memory_requests_namespace | Get memory requests for all pods in a specific namespace in MiB |
-| kubernetes_jq_query | Query Kubernetes resources using jq filters |
 
 ## Logs ✓
 

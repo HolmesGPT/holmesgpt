@@ -28,10 +28,10 @@ def create_kubernetes_toolset():
         ],
     )
 
-    kubectl_get = YAMLTool(
-        name="kubectl_get_by_kind_in_namespace",
-        description="Run kubectl get",
-        command="kubectl get {{ kind }} -n {{ namespace }}",
+    kubectl_list = YAMLTool(
+        name="kubernetes_get_resources",
+        description="List resources with client-side filtering",
+        command="kubectl get {{ kind }} -n {{ namespace }} -o json",
         transformers=[
             Transformer(
                 name="llm_summarize",
@@ -48,7 +48,7 @@ def create_kubernetes_toolset():
         name="kubernetes/core",
         tags=[ToolsetTag.CORE],
         description="Kubernetes toolset",
-        tools=[kubectl_describe, kubectl_get],
+        tools=[kubectl_describe, kubectl_list],
     )
 
 
@@ -281,22 +281,22 @@ def test_toolset_with_only_tool_level_transformers_gets_fast_model():
     Test that toolsets with ONLY tool-level transformers (no toolset-level transformers)
     DO receive global fast-model settings with the new simplified injection approach.
 
-    This test verifies the fix for the issue where kubernetes_jq_query didn't get fast_model.
+    This test verifies the fix for the issue where Kubernetes tools with only tool-level transformers didn't get fast_model.
     """
     # Global fast_model from CLI --fast-model
     global_fast_model = "gpt-4o-mini"
 
-    # Create a tool with transformers (like kubernetes_jq_query)
-    jq_query_tool = YAMLTool(
-        name="kubernetes_jq_query",
-        description="Query Kubernetes Resources with jq",
-        command="kubectl get {{ kind }} --all-namespaces -o json | jq -r {{ jq_expr }}",
+    # Create a tool with transformers (like kubernetes_get_resources)
+    get_tool = YAMLTool(
+        name="kubernetes_get_resources",
+        description="List Kubernetes resources with filtering",
+        command="kubectl get {{ kind }} --all-namespaces -o json",
         transformers=[
             Transformer(
                 name="llm_summarize",
                 config={
                     "input_threshold": 1000,
-                    "prompt": "Summarize jq query output focusing on patterns...",
+                    "prompt": "Summarize kubectl output focusing on patterns...",
                 },
             )
         ],
@@ -307,7 +307,7 @@ def test_toolset_with_only_tool_level_transformers_gets_fast_model():
         name="kubernetes/core",
         tags=[ToolsetTag.CORE],
         description="Kubernetes toolset with only tool-level transformers",
-        tools=[jq_query_tool],
+        tools=[get_tool],
         # Note: NO transformers defined at toolset level
     )
 
@@ -320,10 +320,10 @@ def test_toolset_with_only_tool_level_transformers_gets_fast_model():
         result_toolset = toolsets[0]
 
         # The tool SHOULD now receive the global fast_model via injection
-        jq_tool = next(
-            t for t in result_toolset.tools if t.name == "kubernetes_jq_query"
+        get_tool_result = next(
+            t for t in result_toolset.tools if t.name == "kubernetes_get_resources"
         )
-        config_dict = {t.name: t.config for t in jq_tool.transformers}
+        config_dict = {t.name: t.config for t in get_tool_result.transformers}
 
         # This assertion should now PASS, proving the issue is fixed
         assert "global_fast_model" in config_dict["llm_summarize"], (
@@ -334,7 +334,7 @@ def test_toolset_with_only_tool_level_transformers_gets_fast_model():
 
         # Tool should still have its original config
         assert config_dict["llm_summarize"]["input_threshold"] == 1000
-        assert "Summarize jq query output" in config_dict["llm_summarize"]["prompt"]
+        assert "Summarize kubectl output" in config_dict["llm_summarize"]["prompt"]
 
 
 def test_toolset_with_toolset_level_transformers_works():
