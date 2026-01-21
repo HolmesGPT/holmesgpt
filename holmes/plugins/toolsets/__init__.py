@@ -35,7 +35,6 @@ from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
 from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
     OpenSearchQueryAssistToolset,
 )
-from holmes.plugins.toolsets.git import GitToolset
 from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import GrafanaLokiToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import GrafanaTempoToolset
@@ -98,7 +97,6 @@ def load_python_toolsets(
         OpenSearchQueryAssistToolset(),
         CoralogixToolset(),
         RabbitMQToolset(),
-        GitToolset(),
         BashExecutorToolset(),
         MongoDBAtlasToolset(),
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
