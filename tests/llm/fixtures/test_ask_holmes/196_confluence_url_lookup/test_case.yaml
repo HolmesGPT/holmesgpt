@@ -1,24 +1,19 @@
 # Test: Fetch Confluence page from URL (no page ID provided)
-# Tests that Holmes can fetch a page when given a full URL instead of page ID.
-# Should FAIL with current toolset until URL parsing is implemented.
 #
 # Requirements:
 #   CONFLUENCE_USER - Email/username for Confluence
 #   CONFLUENCE_API_KEY - Atlassian API token
-#   CONFLUENCE_BASE_URL - e.g., https://robusta-dev.atlassian.net
-#
-# Note: Update URL to match an existing page in your Confluence instance.
+#   CONFLUENCE_BASE_URL - e.g., https://robusta-llm-test.atlassian.net
 
 user_prompt: |
-  I have a Confluence page at this URL: https://robusta-dev.atlassian.net/wiki/spaces/MFS/pages/196614/Test+Page
+  I have a Confluence page at this URL: https://robusta-llm-test.atlassian.net/wiki/spaces/MFS/pages/2424833/AWS+Account+ID
 
-  Please fetch the contents of this page and tell me what it's about.
+  Please fetch the contents of this page and tell me the AWS account ID mentioned on it.
 
 expected_output:
-  - "Must call a Confluence tool to retrieve the page"
-  - "FAIL if fetch_url tool was called - this tool must never be used, even if Confluence tool was also called"
-  - "FAIL if fetch_runbook_from_url or any runbook fetching tool was called - these must never be used, even if Confluence tool was also called"
-  - "Must describe the page content or topic"
+  - "FAIL if fetch_webpage tool was called - this tool must never be used for Confluence pages"
+  - "FAIL if fetch_runbook tool was called - this tool must never be used for Confluence pages"
+  - "Must report the AWS account ID: 938401784103"
 
 include_tool_calls: true
 
