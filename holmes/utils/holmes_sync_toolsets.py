@@ -48,7 +48,6 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if not toolset.installation_instructions:
             instructions = render_default_installation_instructions_for_toolset(toolset)
             toolset.installation_instructions = instructions
-                    
         db_toolsets.append(
             ToolsetDBModel(
                 **toolset.model_dump(exclude_none=True),
@@ -56,7 +55,6 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
                 cluster_id=config.cluster_name,
                 account_id=dal.account_id,
                 updated_at=updated_at,
-                installation_instructions=toolset.installation_instructions,
             ).model_dump()
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)
@@ -73,10 +71,6 @@ def render_default_installation_instructions_for_toolset(toolset: Toolset) -> st
     example_config = toolset.get_config_example()
     if example_config:
         context["example_config"] = yaml.dump(example_config)
-
-    schema_config = toolset.get_config_schema()
-    if schema_config:
-        context["schema_config"] = yaml.dump(schema_config)
 
     installation_instructions = load_and_render_prompt(
         "file://holmes/utils/default_toolset_installation_guide.jinja2", context

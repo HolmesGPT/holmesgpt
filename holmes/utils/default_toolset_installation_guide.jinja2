@@ -16,10 +16,6 @@ holmes:
       config:
         {{ example_config | indent(8) }}
       {% endif %}
-    {% if schema_config %}
-      schema:
-        {{ schema_config | indent(8) }}
-      {% endif %}
 ```
 And deploy the updated configuration using Helm:
 ```bash
