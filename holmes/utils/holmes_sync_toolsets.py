@@ -1,4 +1,4 @@
-import json
+import yaml
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetDBModel
+from holmes.plugins.prompts import load_and_render_prompt
 
 
 def log_toolsets_statuses(toolsets: List[Toolset]):
@@ -17,13 +18,6 @@ def log_toolsets_statuses(toolsets: List[Toolset]):
     ]
     logging.info(f"Enabled toolsets: {enabled_toolsets}")
     logging.info(f"Disabled toolsets: {disabled_toolsets}")
-
-
-def _json_serializer(obj: Any) -> Any:
-    """Custom JSON serializer for objects not serializable by default json code."""
-    if hasattr(obj, "__str__"):
-        return str(obj)
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
@@ -51,21 +45,10 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if toolset.experimental and not toolset.enabled:
             continue
 
-        # Get config schema for frontend form generation
-        config_schema = toolset.get_config_schema()
-        config_schema_json = (
-            json.dumps(config_schema, default=_json_serializer)
-            if config_schema
-            else None
-        )
-
-        config_example = toolset.get_config_example()
-        config_example_json = (
-            json.dumps(config_example, default=_json_serializer)
-            if config_example
-            else None
-        )
-
+        if not toolset.installation_instructions:
+            instructions = render_default_installation_instructions_for_toolset(toolset)
+            toolset.installation_instructions = instructions
+                    
         db_toolsets.append(
             ToolsetDBModel(
                 **toolset.model_dump(exclude_none=True),
@@ -73,8 +56,29 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
                 cluster_id=config.cluster_name,
                 account_id=dal.account_id,
                 updated_at=updated_at,
-                installation_instructions=config_example_json,
+                installation_instructions=toolset.installation_instructions,
             ).model_dump()
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)
     log_toolsets_statuses(tool_executor.toolsets)
+
+
+def render_default_installation_instructions_for_toolset(toolset: Toolset) -> str:
+    env_vars = toolset.get_environment_variables()
+    context: dict[str, Any] = {
+        "env_vars": env_vars if env_vars else [],
+        "toolset_name": toolset.name,
+    }
+
+    example_config = toolset.get_config_example()
+    if example_config:
+        context["example_config"] = yaml.dump(example_config)
+
+    schema_config = toolset.get_config_schema()
+    if schema_config:
+        context["schema_config"] = yaml.dump(schema_config)
+
+    installation_instructions = load_and_render_prompt(
+        "file://holmes/utils/default_toolset_installation_guide.jinja2", context
+    )
+    return installation_instructions

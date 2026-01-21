@@ -1,0 +1,27 @@
+To enable/disable this integration, update the Helm values for Robusta (`generated_values.yaml`):
+
+```yaml
+holmes:
+{% if env_vars %}
+  additionalEnvVars:
+{% for env in env_vars %}
+    - name: {{ env }}
+      value: <{{ env }}>
+{% endfor %}
+{% endif %}
+  toolsets:
+    {{toolset_name}}:
+      enabled: true
+      {% if example_config %}
+      config:
+        {{ example_config | indent(8) }}
+      {% endif %}
+    {% if schema_config %}
+      schema:
+        {{ schema_config | indent(8) }}
+      {% endif %}
+```
+And deploy the updated configuration using Helm:
+```bash
+helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+```
