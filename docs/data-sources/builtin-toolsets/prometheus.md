@@ -5,7 +5,7 @@ Connect HolmesGPT to Prometheus for metrics analysis and query generation. This 
 ## Prerequisites
 
 - A running and accessible Prometheus server
-- Ensure HolmesGPT can connect to the Prometheus endpoint
+- Ensure HolmesGPT can connect to the Prometheus endpoint (see [Finding your Prometheus URL](#finding-your-prometheus-url))
 
 ## Configuration
 
