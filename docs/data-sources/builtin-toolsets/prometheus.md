@@ -52,15 +52,15 @@ kubectl get svc --all-namespaces -o jsonpath='{range .items[*]}{.metadata.name}{
 
 This will print all possible Prometheus service URLs in your cluster. Pick the one that matches your deployment.
 
-### Validation
+### Test your connection
 
-**For CLI:**
+**CLI users:**
 
 ```bash
 holmes ask "Show me the CPU usage for the last hour"
 ```
 
-**For Helm (in-cluster HTTP API):**
+**Helm users (HTTP API):**
 
 ```bash
 # Port forward to Holmes service
