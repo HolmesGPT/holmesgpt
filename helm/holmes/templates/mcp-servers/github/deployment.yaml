@@ -97,6 +97,12 @@ spec:
         - name: GITHUB_HOST
           value: {{ .Values.mcpAddons.github.config.host | quote }}
         {{- end }}
+        {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/certs/{{ .Values.mcpAddons.github.config.customCACert.secretKey }}
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs
+        {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
         readinessProbe:
@@ -109,6 +115,19 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
+        {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/ssl/certs
+          readOnly: true
+        {{- end }}
+      {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
+      volumes:
+      - name: ca-cert
+        secret:
+          secretName: {{ .Values.mcpAddons.github.config.customCACert.secretName }}
+          defaultMode: 420
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

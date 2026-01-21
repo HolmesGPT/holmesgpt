@@ -347,8 +347,14 @@ mcpAddons:
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)
-      # Example: "github.mycompany.com"
+      # Example: "https://github.mycompany.com"
       host: ""
+
+      # Custom CA certificate bundle for GitHub Enterprise with internal CA
+      customCACert:
+        enabled: false
+        secretName: "github-ca-cert"
+        secretKey: "ca.crt"
 
       # Toolsets to enable (comma-separated list of toolset names)
       # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.

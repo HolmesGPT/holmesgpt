@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import httpx
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -29,6 +30,31 @@ _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
 
 
+def create_mcp_http_client_factory(verify_ssl: bool = True):
+    """Create a factory function for httpx clients with configurable SSL verification."""
+
+    def factory(
+        headers: Dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        kwargs: Dict[str, Any] = {
+            "follow_redirects": True,
+            "verify": verify_ssl,
+        }
+        if timeout is None:
+            kwargs["timeout"] = httpx.Timeout(SSE_READ_TIMEOUT)
+        else:
+            kwargs["timeout"] = timeout
+        if headers is not None:
+            kwargs["headers"] = headers
+        if auth is not None:
+            kwargs["auth"] = auth
+        return httpx.AsyncClient(**kwargs)
+
+    return factory
+
+
 def get_server_lock(url: str) -> threading.Lock:
     """Get or create a lock for a specific MCP server URL."""
     with _locks_lock:
@@ -47,6 +73,7 @@ class MCPConfig(BaseModel):
     url: AnyUrl
     mode: MCPMode = MCPMode.SSE
     headers: Optional[Dict[str, str]] = None
+    verify_ssl: bool = True
 
     def get_lock_string(self) -> str:
         return str(self.url)
@@ -82,8 +109,12 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
                 yield session
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
+        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
         async with sse_client(
-            url, toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
+            url,
+            toolset._mcp_config.headers,
+            sse_read_timeout=SSE_READ_TIMEOUT,
+            httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
@@ -93,8 +124,12 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
                 yield session
     else:
         url = str(toolset._mcp_config.url)
+        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
         async with streamablehttp_client(
-            url, headers=toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
+            url,
+            headers=toolset._mcp_config.headers,
+            sse_read_timeout=SSE_READ_TIMEOUT,
+            httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
@@ -292,5 +327,6 @@ class RemoteMCPToolset(Toolset):
             url=AnyUrl("http://example.com:8000/mcp/messages"),
             mode=MCPMode.STREAMABLE_HTTP,
             headers={"Authorization": "Bearer YOUR_TOKEN"},
+            verify_ssl=False,  # Set to False for local/development servers without SSL
         )
         return example_config.model_dump()

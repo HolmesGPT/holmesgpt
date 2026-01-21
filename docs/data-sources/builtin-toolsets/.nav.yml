@@ -12,10 +12,9 @@ nav:
   - Connectivity Check: connectivity-check.md
   - Coralogix: coralogix-logs.md
   - DataDog: datadog.md
-  - Datetime: datetime.md
   - Docker: docker.md
+  - Elasticsearch / OpenSearch: elasticsearch.md
   - GCP (MCP): gcp.md
-  - GitHub: github.md
   - GitHub (MCP): github-mcp.md
   - Grafana Dashboards: grafanadashboards.md
   - Loki: grafanaloki.md
@@ -28,8 +27,6 @@ nav:
   - MongoDB Atlas: mongodb-atlas.md
   - New Relic: newrelic.md
   - Notion: notion.md
-  - OpenSearch logs: opensearch-logs.md
-  - OpenSearch status: opensearch-status.md
   - OpenShift: openshift.md
   - Prometheus: prometheus.md
   - RabbitMQ: rabbitmq.md

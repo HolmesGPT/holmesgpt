@@ -54,8 +54,6 @@ jobs:
 
       - name: Run tests
         shell: bash
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           poetry run pytest -m "not llm"
 
