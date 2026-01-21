@@ -51,6 +51,55 @@ from tests.llm.utils.test_results import TestResult
 # Configuration constants
 DEBUG_SEPARATOR = "=" * 80
 LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate"]
+DEFAULT_SYSTEM_PROMPT_URL = (
+    "https://platform.robusta.dev/api/additional-system-prompt.json"
+)
+
+
+def _fetch_additional_system_prompt(url: str) -> Optional[str]:
+    """Fetch optional additional system prompt from a URL."""
+
+    if not url:
+        return None
+
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+
+    # Parse JSON
+    try:
+        data = response.json()
+    except ValueError as e:
+        raise ValueError(f"Failed to parse JSON from {url}: {e}") from e
+
+    # Validate structure
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Invalid format from {url}. Expected JSON dict, got: {type(data).__name__}"
+        )
+
+    if "additional_system_prompt" not in data:
+        raise ValueError(f"Missing 'additional_system_prompt' field in JSON from {url}")
+
+    prompt = data["additional_system_prompt"]
+    if not isinstance(prompt, str):
+        raise ValueError(
+            f"'additional_system_prompt' field must be a string in JSON from {url}, got: {type(prompt).__name__}"
+        )
+
+    return prompt
+
+
+def _has_frontend_tests(session: pytest.Session) -> bool:
+    """Check collected items to see if any test is tagged as frontend.
+
+    Note: This checks session.items which contains tests that will actually run
+    after pytest's collection and filtering (e.g., -k, -m) is applied.
+    """
+
+    for item in getattr(session, "items", []):
+        if item.get_closest_marker("frontend"):
+            return True
+    return False
 
 
 def is_llm_test(nodeid: str) -> bool:
