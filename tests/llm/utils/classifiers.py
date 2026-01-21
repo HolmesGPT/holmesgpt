@@ -52,19 +52,25 @@ def get_classifier_model_params() -> ClassifierModelParams:
         elif OPENAI_API_KEY:
             client_api_key = OPENAI_API_KEY
             client_base_url = OPENAI_API_BASE
-        else:
+        elif OPENROUTER_API_KEY:
             client_api_key = OPENROUTER_API_KEY
-            client_base_url = OPENROUTER_API_BASE
+            client_base_url = OPENROUTER_API_BASE or "https://openrouter.ai/api/v1"
+        else:
+            raise ValueError(
+                "No API key found (AZURE_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY)"
+            )
         client_api_version = AZURE_API_VERSION
 
-        if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure"):
+        # Strip provider prefixes for API calls
+        if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure/"):
             if len(CLASSIFIER_MODEL.split("/")) != 2:
                 raise ValueError(
                     f"Current classifier model '{CLASSIFIER_MODEL}' does not meet the pattern 'azure/<deployment-name>' when using Azure OpenAI."
                 )
             model_for_api = CLASSIFIER_MODEL.split("/", 1)[1]
-        elif AZURE_API_BASE:
-            model_for_api = CLASSIFIER_MODEL
+        elif CLASSIFIER_MODEL.startswith("openrouter/"):
+            # Strip "openrouter/" prefix - OpenRouter expects "openai/gpt-4.1" not "openrouter/openai/gpt-4.1"
+            model_for_api = CLASSIFIER_MODEL.split("/", 1)[1]
 
     return ClassifierModelParams(
         model=model_for_api,
