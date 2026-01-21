@@ -65,10 +65,10 @@ def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
 
     Logic (in order):
     1) Keys are derived from the field/variable name.
-    2) Use default or default_factory to generate the example value.
-    3) If the example value is None, use the first value from the field's examples array.
-    4) If still None and the field type extends BaseModel, recurse to build nested object example.
-    5) Otherwise, use "your_<variable_name>".
+    3) If available, use the first value from the field's examples array.
+    2) Otherwise, use default or default_factory to generate the example value.
+    4) If it's still None and the field type extends BaseModel, recursively build nested object example.
+    5) Otherwise, use "your_<variable_name>" (even for lists, dicts, primitive, and any other type).
     """
 
     model_cls: Type[BaseModel] = model if isinstance(model, type) else model.__class__
