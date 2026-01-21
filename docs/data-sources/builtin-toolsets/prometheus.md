@@ -146,7 +146,7 @@ Before configuring Holmes, make sure you have:
 * An Azure Monitor workspace with Managed Prometheus enabled
 * A service principal (or managed identity) that has access to the workspace
 
-### Using a service principal (client secret)
+#### Using a service principal (client secret)
 
 ```yaml
 holmes:
