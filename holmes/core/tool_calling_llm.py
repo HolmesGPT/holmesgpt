@@ -179,7 +179,7 @@ class ToolCallingLLM:
 
     def reset_interaction_state(self) -> None:
         """
-            For interactive loop, reset runbooks in use
+        For interactive loop, reset runbooks in use
         """
         self._runbook_in_use = False
 

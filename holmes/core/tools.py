@@ -224,7 +224,6 @@ class Tool(ABC, BaseModel):
             self._transformer_instances = None
 
     def get_openai_format(self, target_model: str):
-
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
             tool_description=self.description,

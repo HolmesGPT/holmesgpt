@@ -17,37 +17,40 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 | **Classic** | Simple setup, broad access | Up to no expiration |
 | **Fine-grained** | Production, least-privilege | Max 1 year |
 
-### Creating a Classic PAT
+!!! note "Write permissions are optional"
+    Write permissions (for Contents, Issues, Pull requests, Actions) are only required if you want HolmesGPT to be able to open PRs, create issues, or trigger workflows. For read-only investigations, read permissions are sufficient.
 
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
-2. Click **Generate new token** → **Generate new token (classic)**
-3. Set a descriptive name (e.g., "Holmes MCP Server")
-4. Set expiration (90 days recommended)
-5. Select the following scopes:
-   - ✅ **repo** - Full control of private repositories
-   - ✅ **workflow** - Update GitHub Action workflows
-   - ✅ **read:org** - Read organization membership (optional)
-6. Click **Generate token**
-7. **Copy the token immediately** - it won't be shown again
+=== "Classic PAT"
 
-### Creating a Fine-grained PAT
+    1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
+    2. Click **Generate new token** → **Generate new token (classic)**
+    3. Set a descriptive name (e.g., "Holmes MCP Server")
+    4. Set expiration (90 days recommended)
+    5. Select the following scopes:
+       - ✅ **repo** - Full control of private repositories
+       - ✅ **workflow** - Update GitHub Action workflows
+       - ✅ **read:org** - Read organization membership (optional)
+    6. Click **Generate token**
+    7. **Copy the token immediately** - it won't be shown again
 
-1. Go to [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
-2. Click **Generate new token**
-3. Set a descriptive name and expiration
-4. Under **Resource owner**, select your organization or personal account
-5. Under **Repository access**, choose:
-   - **All repositories**, or
-   - **Only select repositories** (for restricted access)
-6. Under **Permissions** → **Repository permissions**, set:
-   - **Actions**: Read and write (to view and trigger workflows)
-   - **Contents**: Read and write (to push code changes)
-   - **Commit statuses**: Read-only
-   - **Issues**: Read and write (to create issues and delegate to Copilot)
-   - **Pull requests**: Read and write (to create PRs and request reviews)
-   - **Metadata**: Read-only (automatically selected)
-7. Click **Generate token**
-8. **Copy the token immediately** - it won't be shown again
+=== "Fine-grained PAT"
+
+    1. Go to [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
+    2. Click **Generate new token**
+    3. Set a descriptive name and expiration
+    4. Under **Resource owner**, select your organization or personal account
+    5. Under **Repository access**, choose:
+       - **All repositories**, or
+       - **Only select repositories** (for restricted access)
+    6. Under **Permissions** → **Repository permissions**, set:
+       - **Actions**: Read and write (to view and trigger workflows)
+       - **Contents**: Read and write (to push code changes)
+       - **Commit statuses**: Read-only
+       - **Issues**: Read and write (to create issues and delegate to Copilot)
+       - **Pull requests**: Read and write (to create PRs and request reviews)
+       - **Metadata**: Read-only (automatically selected)
+    7. Click **Generate token**
+    8. **Copy the token immediately** - it won't be shown again
 
 ## Configuration
 
@@ -354,54 +357,10 @@ holmes ask "List the recent commits in the owner/repo repository"
 
 ## Common Use Cases
 
-### Debugging GitHub Actions Failures
-
-```
-"The CI build failed on PR #123 in myorg/myrepo. What went wrong?"
-```
-
-Holmes will:
-
-1. Get the workflow runs for the repository
-2. Find the failed run associated with the PR
-3. List the jobs in that run to identify which failed
-4. Retrieve the job logs to find the actual error
-5. Provide root cause analysis and suggestions
-
-### Investigating Recent Changes
-
-```
-"What changes were made to the authentication module in the last week?"
-```
-
-Holmes will:
-
-1. List recent commits on the repository
-2. Filter for changes to authentication-related files
-3. Summarize the changes and their authors
-
-### Code Search
-
-```
-"Find all usages of the deprecated API endpoint /v1/users in our codebase"
-```
-
-Holmes will:
-
-1. Search code across repositories for the pattern
-2. List files and locations where it's used
-3. Provide context for each usage
-
-### Delegating Tasks to Copilot
-
-```
-"Create an issue to add retry logic to the payment service and assign it to Copilot"
-```
-
-Holmes will:
-
-1. Create an issue with clear requirements
-2. Assign GitHub Copilot to work on it
+- "The CI build failed on PR #123 in myorg/myrepo. What went wrong?"
+- "What changes were made to the authentication module in the last week?"
+- "Find all usages of the deprecated API endpoint /v1/users in our codebase"
+- "Create an issue to add retry logic to the payment service and assign it to Copilot"
 
 ## Troubleshooting
 
@@ -528,14 +487,6 @@ kubectl create secret generic github-ca-cert \
 **Problem:** Holmes reports a tool is not available
 
 **Solution:** Verify the `config.toolsets` setting includes the toolset containing your tool. The default toolsets are `repos,issues,pull_requests,actions`. For individual tool control, use `config.tools`.
-
-## Security Best Practices
-
-1. **Use fine-grained PATs**: Create tokens with minimal required permissions
-2. **Rotate tokens regularly**: Update your PAT every 90 days
-3. **Use secrets properly**: Never commit tokens to version control
-4. **Enable network policies**: Set `networkPolicy.enabled: true` to restrict traffic
-5. **Audit token usage**: Monitor GitHub's security log for token activity
 
 ## Additional Resources
 

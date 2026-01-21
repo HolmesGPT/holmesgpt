@@ -133,7 +133,9 @@ def _toolset_status_refresh_loop():
                             f"Toolset '{toolset_name}' status changed: {old_status} -> {new_status}"
                         )
                 else:
-                    logging.debug("Periodic toolset status refresh: no changes detected")
+                    logging.debug(
+                        "Periodic toolset status refresh: no changes detected"
+                    )
             except Exception:
                 logging.error(
                     "Error during periodic toolset status refresh", exc_info=True
