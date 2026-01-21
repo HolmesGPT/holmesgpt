@@ -91,7 +91,7 @@ class PrometheusConfig(BaseModel):
 
     prometheus_url: Optional[str] = Field(
         default=None,
-        description="Prometheus server URL. Can also be set via PROMETHEUS_URL env var",
+        description="Prometheus server URL",
         examples=[
             "http://prometheus-server.monitoring.svc.cluster.local:9090",
             "http://prometheus.monitoring.svc:9090",
