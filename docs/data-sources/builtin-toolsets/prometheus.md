@@ -46,67 +46,6 @@ kubectl get svc --all-namespaces -o jsonpath='{range .items[*]}{.metadata.name}{
 
 This will print all possible Prometheus service URLs in your cluster. Pick the one that matches your deployment.
 
-## Advanced Configuration
-
-You can further customize the Prometheus toolset with the following options:
-
-```yaml
-toolsets:
-  prometheus/metrics:
-    enabled: true
-    config:
-      prometheus_url: http://prometheus-server.monitoring.svc.cluster.local:9090
-      headers:
-        Authorization: "Basic <base64_encoded_credentials>"
-
-      # Discovery settings
-      discover_metrics_from_last_hours: 1  # Only return metrics with data in last N hours (default: 1)
-
-      # Timeout configuration
-      query_timeout_seconds_default: 20  # Default timeout for PromQL queries (default: 20)
-      query_timeout_seconds_hard_max: 180  # Maximum allowed timeout for PromQL queries (default: 180)
-      metadata_timeout_seconds_default: 20  # Default timeout for metadata/discovery APIs (default: 20)
-      metadata_timeout_seconds_hard_max: 60  # Maximum allowed timeout for metadata APIs (default: 60)
-
-      # Other options
-      rules_cache_duration_seconds: 1800  # Cache duration for Prometheus rules (default: 30 minutes)
-      verify_ssl: true  # Enable SSL verification (default: true)
-      tool_calls_return_data: true  # If false, disables returning Prometheus data (default: true)
-      additional_labels:  # Additional labels to add to all queries
-        cluster: "production"
-```
-
-**Configuration options:**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `prometheus_url` | - | Prometheus server URL (include protocol and port) |
-| `headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
-| `discover_metrics_from_last_hours` | `1` | Only discover metrics with data in last N hours |
-| `query_timeout_seconds_default` | `20` | Default PromQL query timeout |
-| `query_timeout_seconds_hard_max` | `180` | Maximum query timeout |
-| `metadata_timeout_seconds_default` | `20` | Default metadata/discovery API timeout |
-| `metadata_timeout_seconds_hard_max` | `60` | Maximum metadata API timeout |
-| `rules_cache_duration_seconds` | `1800` | Cache duration for rules (set to `null` to disable) |
-| `verify_ssl` | `true` | Enable SSL certificate verification |
-| `tool_calls_return_data` | `true` | Return Prometheus data (disable if hitting token limits) |
-| `additional_labels` | `{}` | Labels to add to all queries (AWS/AMP only) |
-
-## Capabilities
-
-| Tool Name | Description |
-|-----------|-------------|
-| list_prometheus_rules | List all defined Prometheus rules with descriptions and annotations |
-| get_metric_names | Get list of metric names (fastest discovery method) - requires match filter |
-| get_label_values | Get all values for a specific label (e.g., pod names, namespaces) |
-| get_all_labels | Get list of all label names available in Prometheus |
-| get_series | Get time series matching a selector (returns full label sets) |
-| get_metric_metadata | Get metadata (type, description, unit) for metrics |
-| execute_prometheus_instant_query | Execute an instant PromQL query (single point in time) |
-| execute_prometheus_range_query | Execute a range PromQL query for time series data with graph generation |
-
----
-
 ## Specific Providers
 
 ### Coralogix Prometheus
@@ -262,3 +201,64 @@ To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
 
 - Use the proxy endpoint URL format `/api/datasources/proxy/uid/` - this handles authentication and routing to Mimir automatically
 - The toolset automatically detects and uses the most appropriate APIs for discovery
+
+---
+
+## Advanced Configuration
+
+You can further customize the Prometheus toolset with the following options:
+
+```yaml
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://prometheus-server.monitoring.svc.cluster.local:9090
+      headers:
+        Authorization: "Basic <base64_encoded_credentials>"
+
+      # Discovery settings
+      discover_metrics_from_last_hours: 1  # Only return metrics with data in last N hours (default: 1)
+
+      # Timeout configuration
+      query_timeout_seconds_default: 20  # Default timeout for PromQL queries (default: 20)
+      query_timeout_seconds_hard_max: 180  # Maximum allowed timeout for PromQL queries (default: 180)
+      metadata_timeout_seconds_default: 20  # Default timeout for metadata/discovery APIs (default: 20)
+      metadata_timeout_seconds_hard_max: 60  # Maximum allowed timeout for metadata APIs (default: 60)
+
+      # Other options
+      rules_cache_duration_seconds: 1800  # Cache duration for Prometheus rules (default: 30 minutes)
+      verify_ssl: true  # Enable SSL verification (default: true)
+      tool_calls_return_data: true  # If false, disables returning Prometheus data (default: true)
+      additional_labels:  # Additional labels to add to all queries
+        cluster: "production"
+```
+
+**Configuration options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `prometheus_url` | - | Prometheus server URL (include protocol and port) |
+| `headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
+| `discover_metrics_from_last_hours` | `1` | Only discover metrics with data in last N hours |
+| `query_timeout_seconds_default` | `20` | Default PromQL query timeout |
+| `query_timeout_seconds_hard_max` | `180` | Maximum query timeout |
+| `metadata_timeout_seconds_default` | `20` | Default metadata/discovery API timeout |
+| `metadata_timeout_seconds_hard_max` | `60` | Maximum metadata API timeout |
+| `rules_cache_duration_seconds` | `1800` | Cache duration for rules (set to `null` to disable) |
+| `verify_ssl` | `true` | Enable SSL certificate verification |
+| `tool_calls_return_data` | `true` | Return Prometheus data (disable if hitting token limits) |
+| `additional_labels` | `{}` | Labels to add to all queries (AWS/AMP only) |
+
+## Capabilities
+
+| Tool Name | Description |
+|-----------|-------------|
+| list_prometheus_rules | List all defined Prometheus rules with descriptions and annotations |
+| get_metric_names | Get list of metric names (fastest discovery method) - requires match filter |
+| get_label_values | Get all values for a specific label (e.g., pod names, namespaces) |
+| get_all_labels | Get list of all label names available in Prometheus |
+| get_series | Get time series matching a selector (returns full label sets) |
+| get_metric_metadata | Get metadata (type, description, unit) for metrics |
+| execute_prometheus_instant_query | Execute an instant PromQL query (single point in time) |
+| execute_prometheus_range_query | Execute a range PromQL query for time series data with graph generation |
