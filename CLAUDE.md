@@ -222,6 +222,21 @@ EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
 - `ASK_HOLMES_TEST_TYPE`: Controls message building flow in ask_holmes tests
   - `cli` (default): Uses `build_initial_ask_messages` like the CLI ask() command (skips conversation history tests)
   - `server`: Uses `build_chat_messages` with ChatRequest for server-style flow
+- `SSL_VERIFY`: Set to `false`, `0`, or `no` to disable SSL certificate verification for litellm and OpenAI client (useful for sandbox environments with TLS interception proxies)
+
+**Sandbox/Proxy SSL Issues**:
+
+When running tests in a sandbox environment with a TLS interception proxy, you may encounter SSL certificate verification errors like:
+```
+TLS_error: CERTIFICATE_VERIFY_FAILED: verify cert failed
+```
+
+To resolve this, set the `SSL_VERIFY` environment variable:
+```bash
+SSL_VERIFY=false poetry run pytest -m "confluence" --no-cov -v
+```
+
+This disables SSL verification for both litellm (used by Holmes) and the OpenAI client (used by the LLM-as-judge classifier).
 
 **Common Evaluation Patterns**:
 
