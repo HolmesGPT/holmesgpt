@@ -54,6 +54,7 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | conversation_history    | No       |         | list      | Conversation history (first message must be system)|
 | model                   | No       |         | string    | Model name from your `modelList` configuration  |
 | response_format         | No       |         | object    | JSON schema for structured output (see below)   |
+| images                  | No       |         | array     | Image URLs, base64 data URIs, or objects with `url` (required), `detail` (low/high/auto), and `format` (MIME type). Requires vision-enabled model. See [Image Analysis](#image-analysis) |
 | stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
 | enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions    |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
