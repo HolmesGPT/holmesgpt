@@ -1,6 +1,6 @@
 # Prometheus
 
-Connect HolmesGPT to Prometheus for metrics analysis and query generation. This integration enables detection of memory leaks, CPU throttling, queue backlogs, and performance issues.
+Connect HolmesGPT to Prometheus for metrics analysis and query generation.
 
 ## Prerequisites
 
