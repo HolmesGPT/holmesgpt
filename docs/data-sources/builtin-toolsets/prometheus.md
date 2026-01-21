@@ -9,61 +9,17 @@ Connect HolmesGPT to Prometheus for metrics analysis and query generation.
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+    prometheus/metrics:
+        enabled: true
+        config:
+            prometheus_url: http://<your-prometheus-service>:9090
 
-    Add the following to `~/.holmes/config.yaml`. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-        prometheus/metrics:
-            enabled: true
-            config:
-                prometheus_url: http://<your-prometheus-service>:9090
-
-                # Optional:
-                #headers:
-                #    Authorization: "Basic <base_64_encoded_string>"
-    ```
-
-    Test your connection:
-
-    ```bash
-    holmes ask "Show me the CPU usage for the last hour"
-    ```
-
-    💡 **Alternative**: Set environment variables instead of using the config file:
-
-    - `PROMETHEUS_URL`: The Prometheus server URL
-    - `PROMETHEUS_AUTH_HEADER`: Optional authorization header value (e.g., "Bearer token123")
-
-=== "Holmes Helm Chart"
-
-    ```yaml
-    toolsets:
-        prometheus/metrics:
-            enabled: true
-            config:
-                prometheus_url: http://<your-prometheus-service>:9090
-
-                # Optional:
-                #headers:
-                #    Authorization: "Basic <base_64_encoded_string>"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        toolsets:
-            prometheus/metrics:
-                enabled: true
-                config:
-                    prometheus_url: http://<your-prometheus-service>:9090
-
-                    # Optional:
-                    #headers:
-                    #    Authorization: "Basic <base_64_encoded_string>"
-    ```
+            # Optional:
+            #headers:
+            #    Authorization: "Basic <base_64_encoded_string>"
+```
 
 ### Finding your Prometheus URL
 
