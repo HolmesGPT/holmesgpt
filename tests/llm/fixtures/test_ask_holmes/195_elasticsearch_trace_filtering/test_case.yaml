@@ -1,0 +1,261 @@
+# Test: Elasticsearch Trace Source Filtering
+#
+# This test validates that the LLM uses the source parameter with includes/excludes
+# when querying Elasticsearch APM traces to avoid context window overflow from large
+# span attributes.
+#
+# Setup:
+# - Creates traces-apm-test-195 index with realistic APM trace data
+# - Includes spans with HUGE attributes (10KB+ request bodies, stack traces)
+# - 5 traces total, 1 trace has an error with a specific error code
+#
+# The LLM must:
+# 1. Query the trace index
+# 2. Use source filtering to exclude large fields (*.body, *.stack_trace, *.request.*, *.response.*)
+# 3. Find the error trace and identify the error code
+#
+# Anti-hallucination: The specific error code (ERR-DB-TIMEOUT-9042) can only be
+# discovered by querying, but NOT in the huge request/response bodies.
+#
+# Why this tests the documentation change:
+# - Without proper docs: LLM doesn't know about excludes syntax → returns everything → huge response
+# - With proper docs: LLM uses excludes to filter large fields → manageable response
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "Search the traces-apm-test-195 index for traces from the checkout-service that have errors. What error code was returned?"
+
+expected_output:
+  - "Must find error code ERR-DB-TIMEOUT-9042"
+  - "Must identify the error occurred in checkout-service"
+  - "Must call elasticsearch_search with source parameter using excludes to filter large fields like http.request.body, http.response.body, or error.stack_trace"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - traces
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating traces-apm-test-195 index with large span attributes..."
+
+  # Clean up any existing test data
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/traces-apm-test-195" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create index with APM-like schema
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/traces-apm-test-195" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": {"type": "date"},
+          "trace": {
+            "properties": {
+              "id": {"type": "keyword"}
+            }
+          },
+          "span": {
+            "properties": {
+              "id": {"type": "keyword"},
+              "name": {"type": "keyword"},
+              "type": {"type": "keyword"},
+              "duration": {"type": "long"}
+            }
+          },
+          "service": {
+            "properties": {
+              "name": {"type": "keyword"}
+            }
+          },
+          "error": {
+            "properties": {
+              "code": {"type": "keyword"},
+              "message": {"type": "text"},
+              "stack_trace": {"type": "text"}
+            }
+          },
+          "http": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "body": {"type": "text"},
+                  "headers": {"type": "object"}
+                }
+              },
+              "response": {
+                "properties": {
+                  "body": {"type": "text"},
+                  "headers": {"type": "object"}
+                }
+              }
+            }
+          }
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "⚠️ Warning creating traces-apm-test-195: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  echo "✅ Index created, generating trace data with large attributes..."
+
+  BULK_FILE="/tmp/es_traces_195_$$.ndjson"
+  > "$BULK_FILE"
+
+  # Generate a 10KB request body (realistic for POST with large JSON payload)
+  LARGE_REQUEST_BODY=$(python3 -c "
+import json
+data = {
+    'items': [{'id': f'item-{i}', 'name': f'Product {i}', 'description': 'A' * 100, 'metadata': {'key': 'value'}} for i in range(100)],
+    'user': {'id': 'user-12345', 'session': 'sess-' + 'x' * 1000, 'preferences': {'theme': 'dark', 'notifications': True}},
+    'cart_total': 1234.56
+}
+print(json.dumps(data))
+")
+
+  # Generate a 10KB stack trace (realistic for deep call stack)
+  LARGE_STACK_TRACE=$(python3 -c "
+trace = []
+for i in range(100):
+    trace.append(f'  at com.example.service.CheckoutService.processPayment(CheckoutService.java:{100+i})')
+    trace.append(f'  at com.example.service.OrderService.createOrder(OrderService.java:{200+i})')
+    trace.append(f'  at com.example.controller.CheckoutController.checkout(CheckoutController.java:{300+i})')
+print('\\n'.join(trace))
+")
+
+  # Generate 4 normal traces (success)
+  for i in 1 2 3 4; do
+    TRACE_ID="trace-success-${i}"
+
+    # Root span with large request body
+    echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
+    cat >> "$BULK_FILE" << EOF
+{"@timestamp": "2024-01-15T10:0${i}:00Z", "trace": {"id": "${TRACE_ID}"}, "span": {"id": "span-${i}-1", "name": "POST /checkout", "type": "request", "duration": 150}, "service": {"name": "checkout-service"}, "http": {"request": {"body": ${LARGE_REQUEST_BODY}}, "response": {"body": "{\"status\": \"success\", \"order_id\": \"ord-${i}\"}"}}}
+EOF
+
+    # Child span - database query
+    echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
+    cat >> "$BULK_FILE" << EOF
+{"@timestamp": "2024-01-15T10:0${i}:00.050Z", "trace": {"id": "${TRACE_ID}"}, "span": {"id": "span-${i}-2", "name": "SELECT * FROM orders", "type": "db", "duration": 45}, "service": {"name": "checkout-service"}}
+EOF
+  done
+
+  # Generate THE ERROR TRACE with large attributes
+  ERROR_TRACE_ID="trace-error-timeout"
+
+  # Root span with large request
+  echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
+  cat >> "$BULK_FILE" << EOF
+{"@timestamp": "2024-01-15T10:05:00Z", "trace": {"id": "${ERROR_TRACE_ID}"}, "span": {"id": "span-err-1", "name": "POST /checkout", "type": "request", "duration": 5000}, "service": {"name": "checkout-service"}, "http": {"request": {"body": ${LARGE_REQUEST_BODY}}, "response": {"body": "{\"status\": \"error\", \"message\": \"Database timeout\"}"}}}
+EOF
+
+  # Child span with ERROR and huge stack trace
+  echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
+  cat >> "$BULK_FILE" << EOF
+{"@timestamp": "2024-01-15T10:05:00.050Z", "trace": {"id": "${ERROR_TRACE_ID}"}, "span": {"id": "span-err-2", "name": "SELECT * FROM orders", "type": "db", "duration": 4950}, "service": {"name": "checkout-service"}, "error": {"code": "ERR-DB-TIMEOUT-9042", "message": "Database query timeout after 5000ms", "stack_trace": "${LARGE_STACK_TRACE}"}}
+EOF
+
+  DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
+  echo "Generated $DOC_COUNT span documents (including large request/response bodies and stack traces)"
+
+  # Bulk insert
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$RESPONSE" | grep -q '"errors":false'; then
+    echo "✅ Trace data inserted successfully"
+  else
+    echo "⚠️ Some errors during bulk insert"
+    echo "$RESPONSE" | head -20
+  fi
+
+  rm -f "$BULK_FILE"
+
+  # Refresh index
+  curl -sf -X POST "${ELASTICSEARCH_URL}/traces-apm-test-195/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 2
+
+  # Verify the error trace exists
+  echo "Verifying error trace exists..."
+  VERIFY=$(curl -sf -X POST "${ELASTICSEARCH_URL}/traces-apm-test-195/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "query": {
+        "bool": {
+          "must": [
+            {"term": {"trace.id": "trace-error-timeout"}},
+            {"exists": {"field": "error.code"}}
+          ]
+        }
+      },
+      "_source": ["error.code", "service.name"],
+      "size": 10
+    }')
+
+  ERROR_COUNT=$(echo "$VERIFY" | python3 -c "import sys,json; print(json.load(sys.stdin)['hits']['total']['value'])")
+  echo "Found $ERROR_COUNT error spans in trace-error-timeout"
+
+  if [ "$ERROR_COUNT" -lt 1 ]; then
+    echo "❌ Error trace not found!"
+    exit 1
+  fi
+
+  # Calculate total size if fetched without filtering
+  TOTAL_SIZE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/traces-apm-test-195/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "query": {"match_all": {}},
+      "size": 10
+    }' | wc -c)
+
+  echo "📊 Total response size without filtering: ${TOTAL_SIZE} bytes (~$((TOTAL_SIZE / 1024))KB)"
+
+  # Calculate size with filtering
+  FILTERED_SIZE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/traces-apm-test-195/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "query": {"match_all": {}},
+      "_source": {
+        "includes": ["trace.*", "span.*", "service.*", "error.code", "error.message"],
+        "excludes": ["*.body", "*.stack_trace", "*.headers"]
+      },
+      "size": 10
+    }' | wc -c)
+
+  echo "📊 Total response size WITH filtering: ${FILTERED_SIZE} bytes (~$((FILTERED_SIZE / 1024))KB)"
+  echo "✅ Filtering reduces response size by $((100 - (FILTERED_SIZE * 100 / TOTAL_SIZE)))%"
+
+  echo "✅ Test setup complete!"
+
+after_test: |
+  echo "Cleaning up test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/traces-apm-test-195" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_traces_195_*.ndjson
+
+  echo "✅ Cleanup complete"

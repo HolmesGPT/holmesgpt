@@ -404,7 +404,7 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                         "- Trace query: {\"includes\": [\"trace.*\", \"span.*\", \"service.*\"], \"excludes\": [\"*.request.*\", \"*.response.*\"]}\n"
                         "- Logs: [\"@timestamp\", \"message\", \"level\", \"service.name\"]"
                     ),
-                    type="string",
+                    type="object",
                     required=False,
                 ),
                 "aggregations": ToolParameter(
