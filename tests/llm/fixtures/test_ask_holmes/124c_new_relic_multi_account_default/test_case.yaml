@@ -1,0 +1,12 @@
+description: "Test that holmes gets uses the default account id when no account id can be deducted. Expects env var NEW_RELIC_LICENSE_KEY"
+
+
+user_prompt:
+  - Find any errors in the newrelic logs of pod konnectivity-agent-748b8d9694-4vnzb from the last 3 hours
+
+expected_output:
+  -  holmes runs new relic queries with account_id 6358011 as parameter.
+
+tags:
+  - newrelic
+  - logs

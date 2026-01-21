@@ -307,3 +307,18 @@ def handle_test_error(
         request.node.user_properties.append(("mock_error_message", str(error)))
         # Update the actual output to indicate mock data failure
         update_property(request, "actual", f"Mock data error: {str(error)}")
+        return  # Don't check for other error types
+
+    # Check if this is a ToolsetPrerequisiteError (toolset infrastructure not available)
+    is_toolset_prereq_error = any(
+        "ToolsetPrerequisiteError" in cls.__name__ for cls in type(error).__mro__
+    )
+
+    if is_toolset_prereq_error:
+        # Mark as setup failure - toolset infrastructure wasn't ready
+        request.node.user_properties.append(("is_setup_failure", True))
+        request.node.user_properties.append(
+            ("setup_failure_reason", f"Toolset prerequisite failed: {str(error)}")
+        )
+        # Update the actual output to indicate setup failure
+        update_property(request, "actual", f"Setup failure: {str(error)}")

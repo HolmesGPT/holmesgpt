@@ -7,6 +7,7 @@ imagePullSecrets: []
 podAnnotations: {}
 
 replicas: 1
+imagePullPolicy: IfNotPresent
 
 autoscaling:
   enabled: false
@@ -19,7 +20,7 @@ autoscaling:
 image: holmes:0.0.0
 registry: robustadev
 
-sentryDSN: https://51f9cd9bd2fdee16144db08fc423cd3b@o1120648.ingest.us.sentry.io/4508799804702720
+sentryDSN: https://aa95c183188a6ddf134ebfffe85fd108@o4510692373299200.ingest.de.sentry.io/4510707946094672
 
 enableAccountsCreate: true
 revisionHistoryLimit: 10
@@ -63,6 +64,8 @@ toolsets:
   prometheus/metrics:
     enabled: true
   runbook:
+    enabled: true
+  connectivity_check:
     enabled: true
 mcp_servers: {}
 
@@ -108,6 +111,15 @@ mcpAddons:
       readOnlyMode: true   # Set to false to allow write operations (use with caution)
       namespace: ""        # Kubernetes namespace (defaults to release namespace if empty)
 
+    # Multi-account configuration
+    # When multiAccount.profiles is defined, the chart will use EKS token projection
+    multiAccount:
+      enabled: false  # Set to true to enable multi-account access
+      image: "multi-aws-api-mcp-server:2.0.0"
+      # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
+      profiles: {}
+      llm_account_descriptions: ""
+      
     # Network policy to restrict access to MCP server
     networkPolicy:
       enabled: true  # Enable network isolation (recommended)
@@ -124,7 +136,7 @@ mcpAddons:
   mariadb:
     enabled: false
 
-    image: "mariadb-http-mcp-minimal:1.0.3"
+    image: "mariadb-http-mcp-minimal:1.0.5"
     registry: "me-west1-docker.pkg.dev/robusta-development/development"
 
     config:
@@ -304,3 +316,69 @@ mcpAddons:
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
+
+  # GitHub MCP Server Configuration
+  # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
+  # Uses a prebuilt image that bundles GitHub MCP server with Supergateway for HTTP transport
+  #
+  # AUTHENTICATION:
+  # Create a GitHub Personal Access Token (PAT) with appropriate permissions:
+  # - repo: Full control of private repositories (or public_repo for public only)
+  # - workflow: Update GitHub Action workflows (for CI/CD debugging)
+  # Then create a Kubernetes secret:
+  #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
+  #
+  # GITHUB ENTERPRISE:
+  # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
+  #
+  # CUSTOM IMAGE (optional):
+  # To build your own image, see: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/github
+  github:
+    enabled: false
+
+    image: "github-mcp:1.0.0"
+    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    imagePullPolicy: IfNotPresent
+
+    # Authentication - PAT from Kubernetes secret
+    auth:
+      secretName: ""      # Required: name of K8s secret containing the GitHub PAT
+      secretKey: "token"  # Key in secret (default: "token")
+
+    config:
+      # GitHub Enterprise hostname (leave empty for github.com)
+      # Example: "https://github.mycompany.com"
+      host: ""
+
+      # Custom CA certificate bundle for GitHub Enterprise with internal CA
+      customCACert:
+        enabled: false
+        secretName: "github-ca-cert"
+        secretKey: "ca.crt"
+
+      # Toolsets to enable (comma-separated list of toolset names)
+      # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
+      # Default: repos, issues, pull_requests, actions (covers most investigation needs)
+      toolsets: "repos,issues,pull_requests,actions"
+
+      # Individual tools to enable (comma-separated, optional)
+      # Use this for fine-grained control. Leave empty to use all tools from enabled toolsets.
+      # Example: "get_file_contents,list_commits,list_workflow_runs"
+      tools: ""
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}

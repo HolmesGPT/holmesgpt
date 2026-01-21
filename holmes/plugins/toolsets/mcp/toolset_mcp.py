@@ -192,6 +192,11 @@ class RemoteMCPTool(Tool):
             if isinstance(args, list):
                 return f"gcloud {' '.join(str(arg) for arg in args)}"
 
+        if self.name and params and "args" in params:
+            args = params.get("args", [])
+            if isinstance(args, list):
+                return f"{self.name} {' '.join(str(arg) for arg in args)}"
+
         return f"{self.toolset.name}: {self.name} {params}"
 
 

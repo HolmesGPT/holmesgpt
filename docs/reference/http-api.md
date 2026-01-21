@@ -53,8 +53,82 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | ask                     | Yes      |         | string    | User's question                                  |
 | conversation_history    | No       |         | list      | Conversation history (first message must be system)|
 | model                   | No       |         | string    | Model name from your `modelList` configuration  |
+| response_format         | No       |         | object    | JSON schema for structured output (see below)   |
+| stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
+| enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions    |
+| additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
 
-**Example**
+#### Structured Output with `response_format`
+
+The `response_format` field allows you to request structured JSON output from the AI. This is useful when you need the response in a specific format for programmatic processing.
+
+!!! note
+    Always include `"strict": true` in your `json_schema` to ensure the response matches your schema exactly.
+
+**Format:**
+
+```json
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "YourSchemaName",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "field1": {"type": "string", "description": "Description of field1"},
+        "field2": {"type": "boolean", "description": "Description of field2"}
+      },
+      "required": ["field1", "field2"],
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+**Example with Structured Output:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Is the cluster healthy?",
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "ClusterHealthResult",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "is_healthy": {"type": "boolean", "description": "Whether the cluster is healthy"},
+            "summary": {"type": "string", "description": "Brief summary of cluster status"},
+            "issues": {"type": "array", "items": {"type": "string"}, "description": "List of issues found"}
+          },
+          "required": ["is_healthy", "summary", "issues"],
+          "additionalProperties": false
+        }
+      }
+    }
+  }'
+```
+
+**Example Response with Structured Output:**
+
+```json
+{
+  "analysis": "{\"is_healthy\": true, \"summary\": \"All nodes are ready and workloads running normally.\", \"issues\": []}",
+  "conversation_history": [...],
+  "tool_calls": [...],
+  "follow_up_actions": [...]
+}
+```
+
+!!! note
+    When using `response_format`, the `analysis` field in the response will contain a JSON string matching your schema. You'll need to parse this JSON string to access the structured data.
+
+**Example without Structured Output:**
+
 ```bash
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
@@ -66,7 +140,8 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   }'
 ```
 
-**Example Response**
+**Example Response:**
+
 ```json
 {
   "analysis": "Your cluster is healthy. All nodes are ready and workloads are running as expected.",
