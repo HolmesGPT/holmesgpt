@@ -5,6 +5,7 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
     DatadogMetricsConfig,
     DatadogMetricsToolset,
 )
+from holmes.utils.pydantic_utils import build_config_example
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -319,3 +320,14 @@ class TestDatadogMetricsToolset:
 
         assert success is False
         assert "Failed to parse Datadog configuration" in error_msg
+
+    def test_build_config_example_datadog_metrics_config(self):
+        example = build_config_example(DatadogMetricsConfig)
+
+        assert example["dd_api_key"] == "<your_datadog_api_key>"
+        assert example["dd_app_key"] == "<your_datadog_app_key>"
+        assert example["site_api_url"] == "https://api.datadoghq.com"
+        assert example["request_timeout"] == 60
+
+        assert example["default_limit"] == 100
+

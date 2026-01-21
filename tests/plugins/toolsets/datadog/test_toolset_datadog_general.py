@@ -3,10 +3,12 @@
 from unittest.mock import Mock, patch
 
 from holmes.core.tools import StructuredToolResultStatus
+from holmes.plugins.toolsets.datadog.datadog_models import DatadogGeneralConfig
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
     DatadogGeneralToolset,
     is_endpoint_allowed,
 )
+from holmes.utils.pydantic_utils import build_config_example
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -173,3 +175,15 @@ class TestDatadogGeneralToolset:
 
         assert result.status == StructuredToolResultStatus.ERROR
         assert "blacklisted operation" in result.error
+
+
+def test_build_config_example_datadog_general_config():
+    example = build_config_example(DatadogGeneralConfig)
+
+    assert example["dd_api_key"] == "<your_datadog_api_key>"
+    assert example["dd_app_key"] == "<your_datadog_app_key>"
+    assert example["site_api_url"] == "https://api.datadoghq.com"
+    assert example["request_timeout"] == 60
+
+    assert example["max_response_size"] == 10 * 1024 * 1024
+    assert example["allow_custom_endpoints"] is False

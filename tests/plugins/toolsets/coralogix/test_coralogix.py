@@ -17,6 +17,7 @@ from holmes.plugins.toolsets.coralogix.utils import (
     extract_field,
     normalize_datetime,
 )
+from holmes.utils.pydantic_utils import build_config_example
 
 
 @pytest.fixture
@@ -359,3 +360,16 @@ class TestExecuteDataPrimeQueryTool:
 
             assert result.status == StructuredToolResultStatus.ERROR
             assert result.error == "Query failed"
+
+
+def test_build_config_example_coralogix_config():
+    example = build_config_example(CoralogixConfig)
+
+    assert example["team_hostname"] == "my-team"
+    assert example["domain"] == "eu2.coralogix.com"
+    assert example["api_key"] == "cxuw_xxxxxxxxxxxx"
+
+    assert example["labels"]["pod"] == "resource.attributes.k8s.pod.name"
+    assert example["labels"]["namespace"] == "resource.attributes.k8s.namespace.name"
+    assert example["labels"]["log_message"] == "logRecord.body"
+    assert example["labels"]["timestamp"] == "logRecord.attributes.time"

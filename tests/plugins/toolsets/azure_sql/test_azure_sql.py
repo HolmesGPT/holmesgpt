@@ -1,7 +1,9 @@
 from unittest.mock import MagicMock, patch
 
 from holmes.core.tools import ToolsetStatusEnum
+from holmes.plugins.toolsets.azure_sql.azure_base_toolset import AzureSQLConfig
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
+from holmes.utils.pydantic_utils import build_config_example
 
 
 class TestAzureSQLToolset:
@@ -251,3 +253,16 @@ class TestAzureSQLToolset:
             assert toolset.error is not None
             assert "Failed to set up Azure authentication" in toolset.error
             assert "Failed to obtain SQL database token" in toolset.error
+
+
+def test_build_config_example_azure_sql_config():
+    example = build_config_example(AzureSQLConfig)
+
+    assert example["database"]["subscription_id"] == "12345678-1234-1234-1234-123456789012"
+    assert example["database"]["resource_group"] == "my-resource-group"
+    assert example["database"]["server_name"] == "myserver"
+    assert example["database"]["database_name"] == "mydatabase"
+
+    assert example["tenant_id"] == "{{ env.AZURE_TENANT_ID }}"
+    assert example["client_id"] == "{{ env.AZURE_CLIENT_ID }}"
+    assert example["client_secret"] == "{{ env.AZURE_CLIENT_SECRET }}"

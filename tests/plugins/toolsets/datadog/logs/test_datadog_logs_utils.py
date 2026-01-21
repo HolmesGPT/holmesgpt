@@ -1,3 +1,5 @@
+from holmes.plugins.toolsets.datadog.datadog_models import DataDogStorageTier, DatadogLogsConfig
+from holmes.utils.pydantic_utils import build_config_example
 import pytest
 
 from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
@@ -103,3 +105,17 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
 )
 def test_format_logs(raw_logs, expected_logs):
     assert format_logs(raw_logs) == expected_logs
+
+def test_build_config_example_datadog_logs_config():
+    example = build_config_example(DatadogLogsConfig)
+
+    assert example["dd_api_key"] == "<your_datadog_api_key>"
+    assert example["dd_app_key"] == "<your_datadog_app_key>"
+    assert example["site_api_url"] == "https://api.datadoghq.com"
+    assert example["request_timeout"] == 60
+
+    assert example["indexes"] == ["*"]
+    assert example["storage_tiers"] == [DataDogStorageTier.INDEXES]
+    assert example["compact_logs"] is True
+    assert example["default_limit"] == 100
+
