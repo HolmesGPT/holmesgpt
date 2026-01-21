@@ -13,7 +13,7 @@ Connect HolmesGPT to Prometheus for metrics analysis and query generation.
 
     Add the following to `~/.holmes/config.yaml`. Create the file if it doesn't exist:
 
-    ```yaml-toolset-config
+    ```yaml
     toolsets:
         prometheus/metrics:
             enabled: true
