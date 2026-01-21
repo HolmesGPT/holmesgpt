@@ -11,6 +11,12 @@
       "update_date": "2025-07-08",
       "description": "Runbook to troubleshoot upgrade issues in Azure Kubernetes Service clusters",
       "link": "upgrade/upgrade_troubleshooting_instructions.md"
+    },
+    {
+      "id": "kube-scheduler-controller-manager-false-positive.md",
+      "update_date": "2026-01-21",
+      "description": "ONLY use for alerts named exactly 'KubeSchedulerDown' or 'KubeControllerManagerDown' from kube-prometheus-stack. Detects false positives in managed Kubernetes clusters (EKS, GKE, AKS) where these control plane components cannot be scraped by Prometheus.",
+      "link": "kube-prometheus-stack/scheduler_controller_manager_false_positive.md"
     }
   ]
 }

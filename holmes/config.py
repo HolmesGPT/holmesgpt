@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import sentry_sdk
 import yaml  # type: ignore
-from pydantic import BaseModel, ConfigDict, FilePath, PrivateAttr, SecretStr
+from pydantic import BaseModel, ConfigDict, FilePath, PrivateAttr, SecretStr, model_validator
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
@@ -15,9 +15,7 @@ from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.plugins.runbooks import (
     RunbookCatalog,
-    load_builtin_runbooks,
     load_runbook_catalog,
-    load_runbooks_from_file,
 )
 
 # Source plugin imports moved to their respective create methods to speed up startup
@@ -130,6 +128,17 @@ class Config(RobustaBaseConfig):
         if not self._llm_model_registry:
             self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
         return self._llm_model_registry
+
+    @model_validator(mode="after")
+    def _warn_deprecated_custom_runbooks(self) -> "Config":
+        if self.custom_runbooks:
+            logging.warning(
+                "The 'custom_runbooks' config field is deprecated and no longer used. "
+                "Alert-to-runbook YAML mappings have been removed from HolmesGPT. "
+                "Please remove the 'custom_runbooks' field from your config file (~/.holmes/config.yaml). "
+                "Use 'custom_runbook_catalogs' instead to provide runbook catalogs that can be fetched by the LLM."
+            )
+        return self
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
@@ -350,19 +359,11 @@ class Config(RobustaBaseConfig):
         model: Optional[str] = None,
         tracer=None,
     ) -> "IssueInvestigator":
-        all_runbooks = load_builtin_runbooks()
-        for runbook_path in self.custom_runbooks:
-            all_runbooks.extend(load_runbooks_from_file(runbook_path))
-
-        from holmes.core.runbooks import RunbookManager
-
-        runbook_manager = RunbookManager(all_runbooks)
         tool_executor = self.create_tool_executor(dal)
         from holmes.core.tool_calling_llm import IssueInvestigator
 
         return IssueInvestigator(
             tool_executor=tool_executor,
-            runbook_manager=runbook_manager,
             max_steps=self.max_steps,
             llm=self._get_llm(model, tracer),
             cluster_name=self.cluster_name,
@@ -371,19 +372,11 @@ class Config(RobustaBaseConfig):
     def create_console_issue_investigator(
         self, dal: Optional["SupabaseDal"] = None, model_name: Optional[str] = None
     ) -> "IssueInvestigator":
-        all_runbooks = load_builtin_runbooks()
-        for runbook_path in self.custom_runbooks:
-            all_runbooks.extend(load_runbooks_from_file(runbook_path))
-
-        from holmes.core.runbooks import RunbookManager
-
-        runbook_manager = RunbookManager(all_runbooks)
         tool_executor = self.create_console_tool_executor(dal=dal)
         from holmes.core.tool_calling_llm import IssueInvestigator
 
         return IssueInvestigator(
             tool_executor=tool_executor,
-            runbook_manager=runbook_manager,
             max_steps=self.max_steps,
             llm=self._get_llm(model_key=model_name),
             cluster_name=self.cluster_name,

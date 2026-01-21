@@ -96,8 +96,6 @@ def get_investigation_context(
         raw=raw_data,
     )
 
-    issue_instructions = ai.runbook_manager.get_instructions_for_issue(issue)
-
     # This section is about setting vars to request the LLM to return structured output.
     # It does not mean that Holmes will not return structured sections for investigation as it is
     # capable of splitting the markdown into sections
@@ -139,7 +137,6 @@ def get_investigation_context(
     runbooks_ctx = generate_runbooks_args(
         runbook_catalog=runbook_catalog,
         global_instructions=global_instructions,
-        issue_instructions=issue_instructions,
     )
 
     base_user = f"{base_user}\n #This is context from the issue:\n{issue.raw}"
@@ -149,4 +146,5 @@ def get_investigation_context(
         runbooks_ctx,
     )
 
-    return ai, system_prompt, user_prompt, response_format, sections, issue_instructions
+    # Return empty list for instructions for backwards compatibility
+    return ai, system_prompt, user_prompt, response_format, sections, []

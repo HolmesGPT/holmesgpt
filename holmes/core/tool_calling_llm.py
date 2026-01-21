@@ -32,7 +32,6 @@ from holmes.core.models import (
     ToolCallResult,
 )
 from holmes.core.prompt import generate_user_prompt
-from holmes.core.runbooks import RunbookManager
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
     StructuredToolResult,
@@ -1024,19 +1023,16 @@ class IssueInvestigator(ToolCallingLLM):
     Thin wrapper around ToolCallingLLM which:
     1) Provides a default prompt for RCA
     2) Accepts Issue objects
-    3) Looks up and attaches runbooks
     """
 
     def __init__(
         self,
         tool_executor: ToolExecutor,
-        runbook_manager: RunbookManager,
         max_steps: int,
         llm: LLM,
         cluster_name: Optional[str],
     ):
         super().__init__(tool_executor, max_steps, llm)
-        self.runbook_manager = runbook_manager
         self.cluster_name = cluster_name
 
     def investigate(
@@ -1049,8 +1045,6 @@ class IssueInvestigator(ToolCallingLLM):
         trace_span=DummySpan(),
         runbooks: Optional[RunbookCatalog] = None,
     ) -> LLMResult:
-        issue_runbooks = self.runbook_manager.get_instructions_for_issue(issue)
-
         request_structured_output_from_llm = True
         response_format = None
 
@@ -1077,15 +1071,6 @@ class IssueInvestigator(ToolCallingLLM):
         else:
             logging.info("Structured output is disabled for this request")
 
-        if console and runbooks:
-            console.print(
-                f"[bold]Analyzing with {len(issue_runbooks)} runbooks: {issue_runbooks}[/bold]"
-            )
-        elif console:
-            console.print(
-                "[bold]No runbooks found for this issue. Using default behaviour. (Add runbooks to guide the investigation.)[/bold]"
-            )
-
         system_prompt = load_and_render_prompt(
             prompt,
             {
@@ -1104,7 +1089,6 @@ class IssueInvestigator(ToolCallingLLM):
         runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
-            issue_instructions=issue_runbooks,
         )
         user_prompt = generate_user_prompt(
             base_user,
@@ -1122,5 +1106,4 @@ class IssueInvestigator(ToolCallingLLM):
             sections=sections,
             trace_span=trace_span,
         )
-        res.instructions = issue_runbooks
         return res
