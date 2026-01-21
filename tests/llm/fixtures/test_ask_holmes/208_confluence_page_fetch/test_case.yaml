@@ -1,0 +1,24 @@
+# Test: Fetch Confluence page from URL (page ID in URL)
+# Tests that Holmes can fetch a page when given a full URL with page ID.
+# Should PASS with current toolset - LLM can extract page ID from URL.
+#
+# Requirements:
+#   CONFLUENCE_USER - Email/username for Confluence
+#   CONFLUENCE_API_KEY - Atlassian API token
+#   CONFLUENCE_BASE_URL - e.g., https://robusta-llm-test.atlassian.net
+
+user_prompt: |
+  Fetch the contents of this Confluence page and tell me the AWS account ID mentioned on it:
+  https://robusta-llm-test.atlassian.net/wiki/spaces/MFS/pages/2424833/AWS+Account+ID
+
+expected_output:
+  - "FAIL if fetch_webpage tool was called - this tool must never be used for Confluence pages"
+  - "FAIL if fetch_runbook tool was called - this tool must never be used for Confluence pages"
+  - "Must report the AWS account ID: 938401784103"
+
+include_tool_calls: true
+
+tags:
+  - confluence
+  - question-answer
+  - medium

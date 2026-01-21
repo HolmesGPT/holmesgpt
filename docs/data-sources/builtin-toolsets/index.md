@@ -9,6 +9,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
 -   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
 -   [:material-aws:{ .lg .middle } **AWS**](aws.md)
+-   [:material-microsoft-azure:{ .lg .middle } **Azure (MCP)**](azure-mcp.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
 -   [:material-console:{ .lg .middle } **Bash**](bash.md)
@@ -19,9 +20,8 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-datadog:{ .lg .middle } **Datadog**](datadog.md)
 -   [:simple-docker:{ .lg .middle } **Docker**](docker.md)
 -   [:simple-elasticsearch:{ .lg .middle } **Elasticsearch / OpenSearch**](elasticsearch.md)
--   [:material-git:{ .lg .middle } **Git / GitHub**](github.md)
 -   [:material-google-cloud:{ .lg .middle } **GCP (MCP)**](gcp.md)
--   [:material-github:{ .lg .middle } **GitHub**](github.md)
+-   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
 -   [:material-web:{ .lg .middle } **Internet**](internet.md)
@@ -41,11 +41,3 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 
 </div>
-
-## Getting Started
-
-1. **Choose toolsets** that match your infrastructure (Prometheus, Grafana, etc.)
-2. **Configure authentication** - some need API keys, others work automatically
-3. **Run a test investigation** to verify data access
-
-💡 **Tip**: Start with [Kubernetes](kubernetes.md) and [Prometheus](prometheus.md) for basic cluster monitoring.

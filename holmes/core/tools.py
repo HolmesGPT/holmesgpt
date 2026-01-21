@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import logging
 import os
@@ -106,6 +107,11 @@ class StructuredToolResult(BaseModel):
                 return str(self.data)
 
 
+class ApprovalRequirement(BaseModel):
+    needs_approval: bool
+    reason: str = ""
+
+
 def sanitize(param):
     # allow empty strings to be unquoted - useful for optional params
     # it is up to the user to ensure that the command they are using is ok with empty strings
@@ -171,6 +177,10 @@ class Tool(ABC, BaseModel):
         description="The URL of the icon for the tool, if None will get toolset icon",
     )
     transformers: Optional[List[Transformer]] = None
+    restricted: bool = Field(
+        default=False,
+        description="If True, tool requires runbook authorization or restricted_tools=true to use",
+    )
 
     # Private attribute to store initialized transformer instances for performance
     _transformer_instances: Optional[List["BaseTransformer"]] = PrivateAttr(
@@ -230,11 +240,24 @@ class Tool(ABC, BaseModel):
         logger.info(
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
+
+        if not context.user_approved:
+            approval_check = self._get_approval_requirement(params, context)
+            if approval_check and approval_check.needs_approval:
+                logger.info(
+                    f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
+                )
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                    error=approval_check.reason,
+                    params=params,
+                    invocation=self.get_parameterized_one_liner(params),
+                )
+
         start_time = time.time()
         result = self._invoke(params=params, context=context)
         result.icon_url = self.icon_url
 
-        # Apply transformers to the result
         transformed_result = self._apply_transformers(result)
         elapsed = time.time() - start_time
         output_str = (
@@ -248,6 +271,45 @@ class Tool(ABC, BaseModel):
             f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
+
+    def _is_restricted(self) -> bool:
+        if self.restricted:
+            return True
+
+        toolset = getattr(self, "toolset", None)
+        if toolset:
+            for pattern in getattr(toolset, "restricted_tools", []):
+                if fnmatch.fnmatch(self.name, pattern):
+                    return True
+
+        return False
+
+    def _get_approval_requirement(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        toolset_approval = self._check_approval_config()
+        if toolset_approval and toolset_approval.needs_approval:
+            return toolset_approval
+        return self.requires_approval(params, context)
+
+    def _check_approval_config(self) -> Optional[ApprovalRequirement]:
+        toolset = getattr(self, "toolset", None)
+        if not toolset:
+            return None
+
+        for pattern in getattr(toolset, "approval_required_tools", []):
+            if fnmatch.fnmatch(self.name, pattern):
+                return ApprovalRequirement(
+                    needs_approval=True,
+                    reason=f"Tool '{self.name}' matches approval pattern '{pattern}'",
+                )
+        return None
+
+    def requires_approval(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        """Override to implement tool-specific approval logic."""
+        return None
 
     def _apply_transformers(self, result: StructuredToolResult) -> StructuredToolResult:
         """
@@ -550,6 +612,15 @@ class Toolset(BaseModel):
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
+    restricted_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
+    )
+    approval_required_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
+    )
+
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
 
@@ -671,7 +742,7 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
-    def check_prerequisites(self):
+    def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
 
         # Sort prerequisites by type to fail fast on missing env vars before
@@ -741,11 +812,13 @@ class Toolset(BaseModel):
                 self.status == ToolsetStatusEnum.DISABLED
                 or self.status == ToolsetStatusEnum.FAILED
             ):
-                logger.info(f"❌ Toolset {self.name}: {self.error}")
+                if not silent:
+                    logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
                 return
 
-        logger.info(f"✅ Toolset {self.name}")
+        if not silent:
+            logger.info(f"✅ Toolset {self.name}")
 
     @abstractmethod
     def get_example_config(self) -> Dict[str, Any]:
@@ -809,6 +882,9 @@ class ToolsetYamlFromConfig(Toolset):
     installation_instructions: Optional[str] = None
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
+
+    restricted_tools: List[str] = Field(default_factory=list)
+    approval_required_tools: List[str] = Field(default_factory=list)
 
     def get_example_config(self) -> Dict[str, Any]:
         return {}

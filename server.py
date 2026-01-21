@@ -23,6 +23,7 @@ from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
 import uvicorn
 import colorlog
+import threading
 import time
 
 from litellm.exceptions import AuthenticationError
@@ -38,6 +39,7 @@ from holmes.common.env_vars import (
     ENABLE_TELEMETRY,
     DEVELOPMENT_MODE,
     SENTRY_TRACES_SAMPLE_RATE,
+    TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
 )
 from holmes.config import Config
 from holmes.core.conversations import (
@@ -108,6 +110,39 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
+
+
+def _toolset_status_refresh_loop():
+    interval = TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
+    if interval <= 0:
+        logging.info("Periodic toolset status refresh is disabled")
+        return
+
+    logging.info(
+        f"Starting periodic toolset status refresh (interval: {interval} seconds)"
+    )
+
+    def refresh_loop():
+        while True:
+            time.sleep(interval)
+            try:
+                changes = config.refresh_server_tool_executor(dal)
+                if changes:
+                    for toolset_name, old_status, new_status in changes:
+                        logging.info(
+                            f"Toolset '{toolset_name}' status changed: {old_status} -> {new_status}"
+                        )
+                else:
+                    logging.debug(
+                        "Periodic toolset status refresh: no changes detected"
+                    )
+            except Exception:
+                logging.error(
+                    "Error during periodic toolset status refresh", exc_info=True
+                )
+
+    thread = threading.Thread(target=refresh_loop, daemon=True, name="toolset-refresh")
+    thread.start()
 
 
 if ENABLE_TELEMETRY and SENTRY_DSN:
@@ -349,6 +384,15 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
+        # Log incoming request details
+        has_images = bool(chat_request.images)
+        has_structured_output = bool(chat_request.response_format)
+        logging.info(
+            f"Received /api/chat request: model={chat_request.model}, "
+            f"images={has_images}, structured_output={has_structured_output}, "
+            f"streaming={chat_request.stream}"
+        )
+
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
@@ -360,6 +404,7 @@ def chat(chat_request: ChatRequest):
             global_instructions=global_instructions,
             additional_system_prompt=chat_request.additional_system_prompt,
             runbooks=runbooks,
+            images=chat_request.images,
         )
 
         follow_up_actions = []
@@ -392,13 +437,17 @@ def chat(chat_request: ChatRequest):
                         msgs=messages,
                         enable_tool_approval=chat_request.enable_tool_approval or False,
                         tool_decisions=chat_request.tool_decisions,
+                        response_format=chat_request.response_format,
                     ),
                     [f.model_dump() for f in follow_up_actions],
                 ),
                 media_type="text/event-stream",
             )
         else:
-            llm_call = ai.messages_call(messages=messages)
+            llm_call = ai.messages_call(
+                messages=messages,
+                response_format=chat_request.response_format,
+            )
 
             # For non-streaming, we need to handle approvals differently
             # This is a simplified version - in practice, non-streaming with approvals
@@ -448,4 +497,5 @@ if __name__ == "__main__":
         "%(asctime)s %(levelname)-8s %(message)s"
     )
     sync_before_server_start()
+    _toolset_status_refresh_loop()
     uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)

@@ -175,6 +175,14 @@ class ToolCallingLLM:
             Callable[[StructuredToolResult], tuple[bool, Optional[str]]]
         ] = None
 
+        self._runbook_in_use: bool = False
+
+    def reset_interaction_state(self) -> None:
+        """
+        For interactive loop, reset runbooks in use
+        """
+        self._runbook_in_use = False
+
     def process_tool_decisions(
         self, messages: List[Dict[str, Any]], tool_decisions: List[ToolApprovalDecision]
     ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
@@ -294,6 +302,17 @@ class ToolCallingLLM:
             messages, response_format=response_format, trace_span=trace_span
         )
 
+    def _should_include_restricted_tools(self) -> bool:
+        """Check if restricted tools should be included in the tools list."""
+        return self._runbook_in_use
+
+    def _get_tools(self) -> list:
+        """Get tools list, filtering restricted tools based on authorization."""
+        return self.tool_executor.get_all_tools_openai_format(
+            target_model=self.llm.model,
+            include_restricted=self._should_include_restricted_tools(),
+        )
+
     @sentry_sdk.trace
     def call(  # type: ignore
         self,
@@ -309,9 +328,7 @@ class ToolCallingLLM:
         ] = []  # Used for preventing repeated tool calls. potentially reset after compaction
         all_tool_calls = []  # type: ignore
         costs = LLMCosts()
-        tools = self.tool_executor.get_all_tools_openai_format(
-            target_model=self.llm.model
-        )
+        tools = self._get_tools()
         max_steps = self.max_steps
         i = 0
         metadata: Dict[Any, Any] = {}
@@ -473,6 +490,15 @@ class ToolCallingLLM:
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
 
+                # Re-fetch tools if runbook was just activated (enables restricted tools)
+                if self._runbook_in_use:
+                    new_tools = self._get_tools()
+                    if len(new_tools) != len(tools):
+                        logging.info(
+                            f"Runbook activated - refreshing tools list ({len(tools)} -> {len(new_tools)} tools)"
+                        )
+                        tools = new_tools
+
                 # Add a blank line after all tools in this batch complete
                 if tools_to_call:
                     logging.info("")
@@ -508,6 +534,16 @@ class ToolCallingLLM:
                 tool_call_id=tool_call_id,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
+
+            # Track runbook usage - if fetch_runbook is called successfully,
+            # restricted tools become available for the rest of the current request
+            if (
+                tool_name == "fetch_runbook"
+                and tool_response.status == StructuredToolResultStatus.SUCCESS
+            ):
+                self._runbook_in_use = True
+                logging.debug("Runbook fetched - restricted tools now available")
+
         except Exception as e:
             logging.error(
                 f"Tool call to {tool_name} failed with an Exception", exc_info=True
@@ -733,7 +769,6 @@ class ToolCallingLLM:
         This function DOES NOT call llm.completion(stream=true).
         This function streams holmes one iteration at a time instead of waiting for all iterations to complete.
         """
-
         # Process tool decisions if provided
         if msgs and tool_decisions:
             logging.info(f"Processing {len(tool_decisions)} tool decisions")
@@ -748,9 +783,7 @@ class ToolCallingLLM:
         if msgs:
             messages.extend(msgs)
         tool_calls: list[dict] = []
-        tools = self.tool_executor.get_all_tools_openai_format(
-            target_model=self.llm.model
-        )
+        tools = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         i = 0
@@ -777,6 +810,7 @@ class ToolCallingLLM:
                 tool_calls = []
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
+
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
@@ -954,6 +988,15 @@ class ToolCallingLLM:
 
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
+
+                # Re-fetch tools if runbook was just activated (enables restricted tools)
+                if self._runbook_in_use:
+                    new_tools = self._get_tools()
+                    if len(new_tools) != len(tools):
+                        logging.info(
+                            f"Runbook activated - refreshing tools list ({len(tools)} -> {len(new_tools)} tools)"
+                        )
+                        tools = new_tools
 
         raise Exception(
             f"Too many LLM calls - exceeded max_steps: {i}/{self.max_steps}"
