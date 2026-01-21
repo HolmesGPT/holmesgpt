@@ -431,6 +431,11 @@ def check_llm_api_with_test_call():
     """Check if LLM API is available by testing ALL models that will be used"""
     import litellm
 
+    # Respect SSL_VERIFY env var for sandbox/proxy environments
+    ssl_verify_env = os.environ.get("SSL_VERIFY", "true").lower()
+    if ssl_verify_env in ("false", "0", "no"):
+        litellm.ssl_verify = False
+
     # Get all models that will be tested
     test_models = MODEL.split(",")
 

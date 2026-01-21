@@ -368,6 +368,7 @@ The GCP MCP servers require a service account with appropriate read-only permiss
 The setup script grants ~50 optimized read-only roles designed for incident response and troubleshooting:
 
 **What's Included:**
+
 - ✅ Complete audit log visibility (who changed what)
 - ✅ Full networking troubleshooting (firewalls, load balancers, SSL)
 - ✅ Database and BigQuery metadata (schemas, configurations)
@@ -376,6 +377,7 @@ The setup script grants ~50 optimized read-only roles designed for incident resp
 - ✅ Monitoring, logging, and tracing
 
 **Security Boundaries:**
+
 - ❌ NO actual data access (cannot read storage objects or BigQuery data)
 - ❌ NO secret values (only metadata)
 - ❌ NO write permissions

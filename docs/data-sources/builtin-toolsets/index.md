@@ -43,11 +43,3 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 
 </div>
-
-## Getting Started
-
-1. **Choose toolsets** that match your infrastructure (Prometheus, Grafana, etc.)
-2. **Configure authentication** - some need API keys, others work automatically
-3. **Run a test investigation** to verify data access
-
-💡 **Tip**: Start with [Kubernetes](kubernetes.md) and [Prometheus](prometheus.md) for basic cluster monitoring.
