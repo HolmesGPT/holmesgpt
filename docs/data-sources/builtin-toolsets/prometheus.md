@@ -21,6 +21,11 @@ toolsets:
             #    Authorization: "Basic <base_64_encoded_string>"
 ```
 
+Test your connection:
+
+```bash
+holmes ask "Show me the CPU usage for the last hour"
+```
 
 💡 **Alternative**: Set environment variables instead of using the config file:
 
@@ -51,26 +56,6 @@ kubectl get svc --all-namespaces -o jsonpath='{range .items[*]}{.metadata.name}{
 ```
 
 This will print all possible Prometheus service URLs in your cluster. Pick the one that matches your deployment.
-
-### Test your connection
-
-**CLI users:**
-
-```bash
-holmes ask "Show me the CPU usage for the last hour"
-```
-
-**Helm users (HTTP API):**
-
-```bash
-# Port forward to Holmes service
-kubectl port-forward svc/holmesgpt-holmes 8080:80
-
-# Test with a simple question
-curl -X POST http://localhost:8080/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"ask": "Show me the CPU usage for the last hour", "model": "your-model-name"}'
-```
 
 ## Advanced Configuration
 
