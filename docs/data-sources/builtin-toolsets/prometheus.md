@@ -52,20 +52,25 @@ kubectl get svc --all-namespaces -o jsonpath='{range .items[*]}{.metadata.name}{
 
 This will print all possible Prometheus service URLs in your cluster. Pick the one that matches your deployment.
 
-## Validation
+### Validation
 
-To test your connection, run:
+**For CLI:**
 
 ```bash
 holmes ask "Show me the CPU usage for the last hour"
 ```
 
-## Troubleshooting
+**For Helm (in-cluster HTTP API):**
 
-- **Connection refused**: Check if the Prometheus URL is accessible from HolmesGPT.
-- **Authentication errors**: Verify the headers configuration for secured Prometheus endpoints.
-- **No metrics returned**: Ensure that Prometheus is scraping your targets.
+```bash
+# Port forward to Holmes service
+kubectl port-forward svc/holmesgpt-holmes 8080:80
 
+# Test with a simple question
+curl -X POST http://localhost:8080/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"ask": "Show me the CPU usage for the last hour", "model": "your-model-name"}'
+```
 
 ## Advanced Configuration
 
@@ -128,7 +133,9 @@ toolsets:
 
 ---
 
-## Coralogix Prometheus Configuration
+## Specific Providers
+
+### Coralogix Prometheus
 
 To use a Coralogix PromQL endpoint with HolmesGPT:
 
@@ -163,7 +170,7 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
 
 ---
 
-## AWS Managed Prometheus (AMP) Configuration
+### AWS Managed Prometheus (AMP)
 
 To connect HolmesGPT to AWS Managed Prometheus:
 
@@ -192,7 +199,7 @@ holmes:
 
 ---
 
-## Google Managed Prometheus Configuration
+### Google Managed Prometheus
 
 Before configuring Holmes, make sure you have:
 
@@ -219,7 +226,7 @@ holmes:
 * No additional headers or credentials are required
 * The Prometheus Frontend endpoint must be accessible from the cluster
 
-## Azure Managed Prometheus Configuration
+### Azure Managed Prometheus
 
 Before configuring Holmes, make sure you have:
 
@@ -249,7 +256,7 @@ holmes:
 - No extra headers are required; authentication is handled through Azure AD (service principal or managed identity).
 - SSL is enabled by default (`verify_ssl: true`). Disable only if you know you need to trust a custom cert.
 
-## Grafana Cloud (Mimir) Configuration
+### Grafana Cloud (Mimir)
 
 To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
 
