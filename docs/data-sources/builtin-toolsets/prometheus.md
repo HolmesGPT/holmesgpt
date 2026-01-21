@@ -9,7 +9,7 @@ Connect HolmesGPT to Prometheus for metrics analysis and query generation.
 
 ## Configuration
 
-=== "CLI"
+=== "Holmes CLI"
 
     Add the following to `~/.holmes/config.yaml`. Create the file if it doesn't exist:
 
@@ -36,7 +36,7 @@ Connect HolmesGPT to Prometheus for metrics analysis and query generation.
     - `PROMETHEUS_URL`: The Prometheus server URL
     - `PROMETHEUS_AUTH_HEADER`: Optional authorization header value (e.g., "Bearer token123")
 
-=== "Helm"
+=== "Holmes Helm Chart"
 
     ```yaml
     toolsets:
@@ -48,6 +48,21 @@ Connect HolmesGPT to Prometheus for metrics analysis and query generation.
                 # Optional:
                 #headers:
                 #    Authorization: "Basic <base_64_encoded_string>"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+        toolsets:
+            prometheus/metrics:
+                enabled: true
+                config:
+                    prometheus_url: http://<your-prometheus-service>:9090
+
+                    # Optional:
+                    #headers:
+                    #    Authorization: "Basic <base_64_encoded_string>"
     ```
 
 ### Finding your Prometheus URL
