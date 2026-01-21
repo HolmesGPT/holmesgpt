@@ -15,7 +15,6 @@ nav:
   - Datetime: datetime.md
   - Docker: docker.md
   - GCP (MCP): gcp.md
-  - GitHub: github.md
   - GitHub (MCP): github-mcp.md
   - Grafana Dashboards: grafanadashboards.md
   - Loki: grafanaloki.md
