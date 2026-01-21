@@ -50,10 +50,10 @@ def _warn_deprecated_custom_runbooks(custom_runbooks: Optional[List[Path]]) -> N
     """Warn user about deprecated --custom-runbooks CLI flag."""
     if custom_runbooks:
         logging.warning(
-            "The --custom-runbooks (-r) CLI flag is deprecated and no longer used. "
-            "Alert-to-runbook YAML mappings have been removed from HolmesGPT. "
-            "Use runbook catalogs instead via the 'custom_runbook_catalogs' config field in ~/.holmes/config.yaml. "
-            "Please remove the --custom-runbooks flag from your command."
+            "The --custom-runbooks (-r) flag is deprecated. "
+            "HolmesGPT now uses a more powerful catalog-based runbook system where the LLM can intelligently "
+            "fetch relevant runbooks on-demand. Please use the 'custom_runbook_catalogs' config field in "
+            "~/.holmes/config.yaml instead to specify runbook catalog files."
         )
 
 
@@ -105,7 +105,7 @@ opt_custom_runbooks: Optional[List[Path]] = typer.Option(
     [],
     "--custom-runbooks",
     "-r",
-    help="[DEPRECATED] This option is no longer used. Alert-to-runbook YAML mappings have been removed. Use runbook catalogs instead via the 'custom_runbook_catalogs' config field.",
+    help="[DEPRECATED] Replaced by the more powerful 'custom_runbook_catalogs' config field, which enables intelligent on-demand runbook fetching.",
 )
 opt_max_steps: Optional[int] = typer.Option(
     40,
