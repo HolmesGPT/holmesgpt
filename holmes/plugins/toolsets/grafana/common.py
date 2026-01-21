@@ -23,6 +23,7 @@ class GrafanaConfig(BaseModel):
     headers: Optional[Dict[str, str]] = Field(
         default=None,
         description="Additional HTTP headers to include in requests",
+        examples=[{"Authorization": "Bearer YOUR_API_KEY"}],
     )
     grafana_datasource_uid: Optional[str] = Field(
         default=None,

@@ -37,6 +37,7 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.utils import get_param_or_raise, toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import build_config_example
 
 
 class KafkaClusterConfig(BaseModel):
@@ -81,6 +82,7 @@ class KafkaClusterConfig(BaseModel):
 class KafkaConfig(BaseModel):
     kafka_clusters: List[KafkaClusterConfig] = Field(
         description="List of Kafka clusters to connect to",
+        examples=[[build_config_example(KafkaClusterConfig)]]
     )
 
 

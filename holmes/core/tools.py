@@ -24,6 +24,7 @@ from typing import (
     Union,
 )
 
+from holmes.utils.pydantic_utils import build_config_example
 from jinja2 import Template
 from pydantic import (
     BaseModel,
@@ -822,6 +823,17 @@ class Toolset(BaseModel):
 
         if not silent:
             logger.info(f"✅ Toolset {self.name}")
+
+
+    def get_config_example(self) -> Optional[Dict[str, Any]]:
+        """Returns a JSON-serializable example object for the toolset's configuration.
+
+        Uses config_class if defined, otherwise returns None.
+        """
+        if self.config_class is not None:
+            return build_config_example(self.config_class)
+        return None
+        
 
     def get_config_schema(self) -> Optional[Dict[str, Any]]:
         """Returns JSON Schema for the toolset's configuration.

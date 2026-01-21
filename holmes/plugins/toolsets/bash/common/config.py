@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from holmes.utils.pydantic_utils import build_config_example
+
 
 class KubectlImageConfig(BaseModel):
     image: str = Field(
@@ -16,6 +18,7 @@ class KubectlConfig(BaseModel):
     allowed_images: list[KubectlImageConfig] = Field(
         default=[],
         description="List of allowed container images for kubectl run",
+        examples=[[build_config_example(KubectlImageConfig)]]
     )
 
 

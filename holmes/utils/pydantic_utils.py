@@ -75,30 +75,33 @@ def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
 
     out: Dict[str, Any] = {}
     for field_name, field_info in model_cls.model_fields.items():
+        if field_info.exclude:
+            continue
+
         example_value: Any = None
 
-        default = getattr(field_info, "default", PydanticUndefined)
-        default_factory = getattr(field_info, "default_factory", None)
+        examples = getattr(field_info, "examples", None)
+        if examples is None:
+            json_schema_extra = getattr(field_info, "json_schema_extra", None) or {}
+            examples = json_schema_extra.get("examples")
 
-        if default is not PydanticUndefined:
-            example_value = default
-        elif default_factory is not None:
-            try:
-                example_value = default_factory()
-            except Exception:
-                # If a default factory can't be executed without context, fall back to other strategies.
-                example_value = None
+        if isinstance(examples, list) and len(examples) > 0:
+            example_value = examples[0]
 
         if example_value is None:
-            examples = getattr(field_info, "examples", None)
-            if examples is None:
-                json_schema_extra = getattr(field_info, "json_schema_extra", None) or {}
-                examples = json_schema_extra.get("examples")
+            default = getattr(field_info, "default", PydanticUndefined)
+            default_factory = getattr(field_info, "default_factory", None)
 
-            if isinstance(examples, list) and len(examples) > 0:
-                example_value = examples[0]
+            if default is not PydanticUndefined:
+                example_value = default
+            elif default_factory is not None:
+                try:
+                    example_value = default_factory()
+                except Exception:
+                    # If a default factory can't be executed without context, fall back to other strategies.
+                    example_value = None
 
-        if example_value is None:
+        if example_value is None or isinstance(example_value, BaseModel):
             annotation = getattr(field_info, "annotation", None)
             nested_model_cls = _extract_base_model_subclass(annotation)
             if nested_model_cls is not None:

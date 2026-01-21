@@ -23,19 +23,14 @@ from holmes.plugins.toolsets.rabbitmq.api import (
     make_request,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import build_config_example
 
 
 class RabbitMQConfig(BaseModel):
     clusters: List[RabbitMQClusterConfig] = Field(
         description="List of RabbitMQ clusters to connect to",
         examples=[
-            [
-                {
-                    "management_url": "http://<your-rabbitmq-server-or-service>:15672",
-                    "username": "holmes_user",
-                    "password": "holmes_password",
-                }
-            ]
+            [build_config_example(RabbitMQClusterConfig)]
         ],
     )
 
