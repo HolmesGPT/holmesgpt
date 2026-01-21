@@ -96,6 +96,32 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """Configure pytest settings"""
+    # Disable SSL verification if SSL_VERIFY env var is set to false/0
+    # This is useful for running tests in environments with TLS interception proxies
+    ssl_verify_env = os.environ.get("SSL_VERIFY", "true").lower()
+    if ssl_verify_env in ("false", "0", "no"):
+        try:
+            import litellm
+
+            litellm.ssl_verify = False
+        except ImportError:
+            pass
+
+        # Also patch OpenAI client to use verify=False for httpx
+        try:
+            import httpx
+            import openai
+
+            _original_openai_init = openai.OpenAI.__init__
+
+            def _patched_openai_init(self, *args, **kwargs):
+                if "http_client" not in kwargs:
+                    kwargs["http_client"] = httpx.Client(verify=False)
+                return _original_openai_init(self, *args, **kwargs)
+
+            openai.OpenAI.__init__ = _patched_openai_init
+        except ImportError:
+            pass
     # Configure worker-specific log files for xdist compatibility
     # worker_id = getattr(config, "workerinput", {}).get("workerid", "master")
     # if worker_id != "master":
@@ -242,6 +268,10 @@ def responses():
         rsps.add_passthru(
             re.compile(r"https://.*\.es\.amazonaws\.com")
         )  # AWS OpenSearch
+
+        # Allow Confluence/Atlassian Cloud API calls
+        rsps.add_passthru(re.compile(r"https://.*\.atlassian\.net"))
+        rsps.add_passthru("https://api.atlassian.com")  # Atlassian Cloud API gateway
 
         # Allow
         rsps.add_passthru("https://google.com")

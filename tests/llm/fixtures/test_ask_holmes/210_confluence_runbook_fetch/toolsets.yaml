@@ -1,0 +1,11 @@
+# Toolset configuration for Confluence runbook fetch test
+toolsets:
+  confluence:
+    enabled: true
+  # Disable K8s-dependent toolsets (no K8s in this test)
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
