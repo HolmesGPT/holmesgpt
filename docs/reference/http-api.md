@@ -12,12 +12,12 @@ When using the API with a Helm deployment, the `model` parameter must reference 
 # In your values.yaml
 modelList:
   fast-model:
-    api_key: "{{ env.OPENAI_API_KEY }}"
-    model: openai/gpt-4.1
+    api_key: "{{ env.ANTHROPIC_API_KEY }}"
+    model: anthropic/claude-sonnet-4-5-20250929
     temperature: 0
   accurate-model:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
-    model: anthropic/claude-sonnet-4-20250514
+    model: anthropic/claude-opus-4-5-20251101
     temperature: 0
 ```
 
@@ -34,7 +34,7 @@ curl -X POST http://localhost:8080/api/chat \
 # This will fail - don't use the direct model identifier
 curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"ask": "list pods", "model": "openai/gpt-4.1"}'
+  -d '{"ask": "list pods", "model": "anthropic/claude-sonnet-4-5-20250929"}'
 ```
 
 For complete setup instructions with `modelList` configuration, see the [Kubernetes Installation Guide](../installation/kubernetes-installation.md).
@@ -172,7 +172,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "ask": "What is in this image?",
-    "model": "gpt-4o",
+    "model": "anthropic/claude-sonnet-4-5-20250929",
     "images": [
       "https://example.com/screenshot.png"
     ]
@@ -200,7 +200,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "ask": "Compare these images",
-    "model": "gpt-4o",
+    "model": "anthropic/claude-opus-4-5-20251101",
     "images": [
       "https://example.com/before.png",
       {
@@ -257,7 +257,7 @@ curl -X POST http://<HOLMES-URL>/api/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "gpt-4.1"
+    "model": "anthropic/claude-sonnet-4-5-20250929"
   }'
 ```
 
@@ -304,7 +304,7 @@ curl -N -X POST http://<HOLMES-URL>/api/stream/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "gpt-4.1"
+    "model": "anthropic/claude-sonnet-4-5-20250929"
   }'
 ```
 
@@ -498,7 +498,7 @@ curl http://<HOLMES-URL>/api/model
 **Example** Response
 ```json
 {
-  "model_name": ["gpt-4.1", "azure/gpt-4.1", "robusta"]
+  "model_name": ["anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-opus-4-5-20251101", "robusta"]
 }
 ```
 
