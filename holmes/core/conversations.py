@@ -30,6 +30,46 @@ class InvalidImageDictError(ValueError):
         )
 
 
+def build_vision_content(
+    text: str, images: List[Union[str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Build content array for vision models with text and images.
+
+    Args:
+        text: The text content
+        images: List of images, each can be:
+            - str: URL or base64 data URI
+            - dict: Object with 'url' (required), 'detail', and 'format' fields
+
+    Returns:
+        List of content items in OpenAI vision format
+
+    Raises:
+        InvalidImageDictError: If an image dict is missing the 'url' key
+    """
+    content = [{"type": "text", "text": text}]
+    for image_item in images:
+        # Support both simple string and dict format
+        if isinstance(image_item, str):
+            # Simple URL or data URI string
+            content.append({"type": "image_url", "image_url": {"url": image_item}})
+        else:
+            # Dict with url, detail, format fields (full LiteLLM format)
+            # Validate that the dict contains a "url" key
+            if "url" not in image_item:
+                raise InvalidImageDictError(list(image_item.keys()))
+            image_url_obj = {"url": image_item["url"]}
+            # Add optional detail parameter (OpenAI-specific: low/high/auto)
+            if "detail" in image_item:
+                image_url_obj["detail"] = image_item["detail"]
+            # Add optional format parameter (MIME type)
+            if "format" in image_item:
+                image_url_obj["format"] = image_item["format"]
+            content.append({"type": "image_url", "image_url": image_url_obj})
+    return content
+
+
 @sentry_sdk.trace
 def calculate_tool_size(
     ai: ToolCallingLLM, messages_without_tools: list[dict], number_of_tools: int
@@ -415,26 +455,7 @@ def build_chat_messages(
 
     # Build user message with optional images
     if images:
-        # For vision models, content is an array of content items
-        content = [{"type": "text", "text": ask}]
-        for image_item in images:
-            # Support both simple string and dict format
-            if isinstance(image_item, str):
-                # Simple URL or data URI string
-                content.append({"type": "image_url", "image_url": {"url": image_item}})
-            else:
-                # Dict with url, detail, format fields (full LiteLLM format)
-                # Validate that the dict contains a "url" key
-                if "url" not in image_item:
-                    raise InvalidImageDictError(list(image_item.keys()))
-                image_url_obj = {"url": image_item["url"]}
-                # Add optional detail parameter (OpenAI-specific: low/high/auto)
-                if "detail" in image_item:
-                    image_url_obj["detail"] = image_item["detail"]
-                # Add optional format parameter (MIME type)
-                if "format" in image_item:
-                    image_url_obj["format"] = image_item["format"]
-                content.append({"type": "image_url", "image_url": image_url_obj})
+        content = build_vision_content(ask, images)
         user_message = {"role": "user", "content": content}
     else:
         # Standard text-only message

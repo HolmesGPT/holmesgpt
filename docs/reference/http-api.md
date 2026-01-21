@@ -213,9 +213,9 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 
 **Vision Model Support:**
 
-- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-vision-preview`
-- Anthropic: `claude-3.5-sonnet`, `claude-3-opus`, `claude-3-haiku`
-- Google: `gemini-1.5-pro`, `gemini-1.5-flash`
+Vision capabilities are available in recent models from major providers including OpenAI (GPT-4o and later), Anthropic (Claude 4.5 family and later), Google (Gemini family), and others supported by LiteLLM.
+
+For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision Documentation](https://docs.litellm.ai/docs/completion/vision).
 
 **Advanced Parameters (dict format only):**
 
