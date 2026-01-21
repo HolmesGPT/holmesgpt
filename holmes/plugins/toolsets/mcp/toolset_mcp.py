@@ -43,7 +43,7 @@ def create_mcp_http_client_factory(verify_ssl: bool = True):
             "verify": verify_ssl,
         }
         if timeout is None:
-            kwargs["timeout"] = httpx.Timeout(30.0)
+            kwargs["timeout"] = httpx.Timeout(SSE_READ_TIMEOUT)
         else:
             kwargs["timeout"] = timeout
         if headers is not None:
