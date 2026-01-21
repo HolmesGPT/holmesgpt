@@ -14,8 +14,8 @@ user_prompt: |
 
 expected_output:
   - "Must call fetch_confluence_url tool to retrieve the page"
-  - "Must NOT use fetch_url tool"
-  - "Must NOT use fetch_runbook_from_url or any runbook fetching tool"
+  - "FAIL if fetch_url tool was called - this tool must never be used, even if Confluence tool was also called"
+  - "FAIL if fetch_runbook_from_url or any runbook fetching tool was called - these must never be used, even if Confluence tool was also called"
   - "Must describe the page content or topic"
 
 include_tool_calls: true
