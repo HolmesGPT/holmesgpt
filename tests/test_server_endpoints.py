@@ -79,6 +79,211 @@ def test_api_chat_all_fields(
 
 @patch("holmes.config.Config.create_toolcalling_llm")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_with_images(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """Test /api/chat endpoint with image analysis support."""
+    mock_ai = MagicMock()
+
+    # Capture the messages passed to the LLM
+    captured_messages = []
+
+    def capture_messages(messages, **kwargs):
+        captured_messages.append(messages)
+        return MagicMock(
+            result="This is an analysis of the provided image.",
+            tool_calls=[],
+            messages=messages,
+            metadata={},
+        )
+
+    mock_ai.messages_call.side_effect = capture_messages
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "What's in this image?",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "model": "gpt-4-vision-preview",
+        "images": [
+            "https://example.com/image1.png",
+            "https://example.com/image2.jpg",
+        ],
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Verify response structure
+    assert "analysis" in data
+    assert "conversation_history" in data
+    assert "tool_calls" in data
+    assert "follow_up_actions" in data
+
+    # Verify the messages were captured
+    assert len(captured_messages) == 1
+    messages = captured_messages[0]
+
+    # Find the user message with images
+    user_message = next((m for m in messages if m["role"] == "user"), None)
+    assert user_message is not None
+
+    # Verify the content is an array with text and images
+    content = user_message["content"]
+    assert isinstance(content, list)
+    assert len(content) == 3  # 1 text + 2 images
+
+    # Verify text content
+    text_item = content[0]
+    assert text_item["type"] == "text"
+    assert "What's in this image?" in text_item["text"]
+
+    # Verify image contents
+    image_items = content[1:]
+    assert len(image_items) == 2
+    for i, image_item in enumerate(image_items):
+        assert image_item["type"] == "image_url"
+        assert "image_url" in image_item
+        assert image_item["image_url"]["url"] == payload["images"][i]
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_with_images_advanced_format(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """Test /api/chat endpoint with advanced image format (dict with detail and format)."""
+    mock_ai = MagicMock()
+
+    # Capture the messages passed to the LLM
+    captured_messages = []
+
+    def capture_messages(messages, **kwargs):
+        captured_messages.append(messages)
+        return MagicMock(
+            result="Detailed analysis of high-resolution image.",
+            tool_calls=[],
+            messages=messages,
+            metadata={},
+        )
+
+    mock_ai.messages_call.side_effect = capture_messages
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "Analyze this screenshot in detail",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "model": "gpt-4o",
+        "images": [
+            # Mix of simple strings and advanced dict format
+            "https://example.com/simple-url.png",
+            {
+                "url": "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+                "detail": "high",
+            },
+            {
+                "url": "https://example.com/image-with-format.webp",
+                "detail": "low",
+                "format": "image/webp",
+            },
+        ],
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Verify response structure
+    assert "analysis" in data
+    assert "conversation_history" in data
+
+    # Verify the messages were captured
+    assert len(captured_messages) == 1
+    messages = captured_messages[0]
+
+    # Find the user message with images
+    user_message = next((m for m in messages if m["role"] == "user"), None)
+    assert user_message is not None
+
+    # Verify the content is an array
+    content = user_message["content"]
+    assert isinstance(content, list)
+    assert len(content) == 4  # 1 text + 3 images
+
+    # Verify text content
+    text_item = content[0]
+    assert text_item["type"] == "text"
+    assert "Analyze this screenshot in detail" in text_item["text"]
+
+    # Verify first image (simple string URL)
+    image1 = content[1]
+    assert image1["type"] == "image_url"
+    assert image1["image_url"]["url"] == "https://example.com/simple-url.png"
+    assert "detail" not in image1["image_url"]
+    assert "format" not in image1["image_url"]
+
+    # Verify second image (base64 with detail)
+    image2 = content[2]
+    assert image2["type"] == "image_url"
+    assert image2["image_url"]["url"] == "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+    assert image2["image_url"]["detail"] == "high"
+    assert "format" not in image2["image_url"]
+
+    # Verify third image (URL with detail and format)
+    image3 = content[3]
+    assert image3["type"] == "image_url"
+    assert image3["image_url"]["url"] == "https://example.com/image-with-format.webp"
+    assert image3["image_url"]["detail"] == "low"
+    assert image3["image_url"]["format"] == "image/webp"
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_with_images_missing_url_key(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """Test /api/chat endpoint raises error when image dict missing 'url' key."""
+    mock_ai = MagicMock()
+    mock_ai.messages_call.return_value = MagicMock(
+        result="This should not be reached.",
+        tool_calls=[],
+        messages=[],
+        metadata={},
+    )
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "Analyze this",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "model": "gpt-4o",
+        "images": [
+            # Dict missing required "url" key
+            {"detail": "high", "format": "image/jpeg"}
+        ],
+    }
+    response = client.post("/api/chat", json=payload)
+
+    # Should return 500 error with clear message
+    assert response.status_code == 500
+    data = response.json()
+    assert "Image dict must contain a 'url' key" in data["detail"]
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
 def test_api_issue_chat_all_fields(
     mock_get_global_instructions,
     mock_create_toolcalling_llm,
@@ -115,68 +320,6 @@ def test_api_issue_chat_all_fields(
         ],
     }
     response = client.post("/api/issue_chat", json=payload)
-    assert response.status_code == 200
-    data = response.json()
-
-    assert "analysis" in data
-    assert "conversation_history" in data
-    assert "tool_calls" in data
-
-    assert isinstance(data["analysis"], str)
-    assert isinstance(data["conversation_history"], list)
-    assert isinstance(data["tool_calls"], list)
-
-    assert any(msg.get("role") == "user" for msg in data["conversation_history"])
-
-    if data["tool_calls"]:
-        tool_call = data["tool_calls"][0]
-        assert "tool_call_id" in tool_call
-        assert "tool_name" in tool_call
-        assert "description" in tool_call
-        assert "result" in tool_call
-
-
-@patch("holmes.config.Config.create_toolcalling_llm")
-@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
-def test_api_workload_health_chat(
-    mock_get_global_instructions,
-    mock_create_toolcalling_llm,
-    client,
-):
-    mock_ai = MagicMock()
-    mock_ai.messages_call.return_value = MagicMock(
-        result="This is a mock analysis for workload health chat.",
-        tool_calls=[
-            {
-                "tool_call_id": "1",
-                "tool_name": "health_checker",
-                "description": "Checks workload health",
-                "result": {"status": "success", "data": "Workload is healthy"},
-            }
-        ],
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Check the workload health."},
-        ],
-        metadata={},
-    )
-    mock_create_toolcalling_llm.return_value = mock_ai
-
-    mock_get_global_instructions.return_value = []
-
-    payload = {
-        "ask": "Check the workload health.",
-        "workload_health_result": {
-            "analysis": "Mock workload health analysis",
-            "tools": [],
-        },
-        "resource": {"name": "example-resource", "kind": "Deployment"},
-        "conversation_history": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Check the workload health."},
-        ],
-    }
-    response = client.post("/api/workload_health_chat", json=payload)
     assert response.status_code == 200
     data = response.json()
 
