@@ -4,8 +4,9 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
+import httpx
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -29,6 +30,31 @@ _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
 
 
+def create_mcp_http_client_factory(verify_ssl: bool = True):
+    """Create a factory function for httpx clients with configurable SSL verification."""
+
+    def factory(
+        headers: Dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        kwargs: Dict[str, Any] = {
+            "follow_redirects": True,
+            "verify": verify_ssl,
+        }
+        if timeout is None:
+            kwargs["timeout"] = httpx.Timeout(SSE_READ_TIMEOUT)
+        else:
+            kwargs["timeout"] = timeout
+        if headers is not None:
+            kwargs["headers"] = headers
+        if auth is not None:
+            kwargs["auth"] = auth
+        return httpx.AsyncClient(**kwargs)
+
+    return factory
+
+
 def get_server_lock(url: str) -> threading.Lock:
     """Get or create a lock for a specific MCP server URL."""
     with _locks_lock:
@@ -44,19 +70,50 @@ class MCPMode(str, Enum):
 
 
 class MCPConfig(BaseModel):
-    url: AnyUrl
-    mode: MCPMode = MCPMode.SSE
-    headers: Optional[Dict[str, str]] = None
+    url: AnyUrl = Field(
+        description="MCP server URL (for SSE or Streamable HTTP modes).",
+        examples=["http://example.com:8000/mcp/messages"],
+    )
+    mode: MCPMode = Field(
+        default=MCPMode.SSE,
+        description="Connection mode to use when talking to the MCP server.",
+        examples=[MCPMode.STREAMABLE_HTTP],
+    )
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Optional HTTP headers to include in requests (e.g., Authorization).",
+        examples=[{"Authorization": "Bearer YOUR_TOKEN"}],
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates (set to false for local/dev servers without valid SSL).",
+        examples=[False],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.url)
 
 
 class StdioMCPConfig(BaseModel):
-    mode: MCPMode = MCPMode.STDIO
-    command: str
-    args: Optional[List[str]] = None
-    env: Optional[Dict[str, str]] = None
+    mode: MCPMode = Field(
+        default=MCPMode.STDIO,
+        description="Stdio mode runs an MCP server as a local subprocess.",
+        examples=[MCPMode.STDIO],
+    )
+    command: str = Field(
+        description="The command to start the MCP server (e.g., npx, uv, python).",
+        examples=["npx"],
+    )
+    args: Optional[List[str]] = Field(
+        default=None,
+        description="Arguments to pass to the MCP server command.",
+        examples=[["-y", "@modelcontextprotocol/server-github"]],
+    )
+    env: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Environment variables to set for the MCP server process.",
+        examples=[{"GITHUB_PERSONAL_ACCESS_TOKEN": "{{ env.GITHUB_TOKEN }}"}],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.command)
@@ -82,8 +139,12 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
                 yield session
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
+        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
         async with sse_client(
-            url, toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
+            url,
+            toolset._mcp_config.headers,
+            sse_read_timeout=SSE_READ_TIMEOUT,
+            httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
@@ -93,8 +154,12 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
                 yield session
     else:
         url = str(toolset._mcp_config.url)
+        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
         async with streamablehttp_client(
-            url, headers=toolset._mcp_config.headers, sse_read_timeout=SSE_READ_TIMEOUT
+            url,
+            headers=toolset._mcp_config.headers,
+            sse_read_timeout=SSE_READ_TIMEOUT,
+            httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
@@ -201,6 +266,7 @@ class RemoteMCPTool(Tool):
 
 
 class RemoteMCPToolset(Toolset):
+    config_class: ClassVar[Type[MCPConfig]] = MCPConfig
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None

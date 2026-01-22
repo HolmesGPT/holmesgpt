@@ -15,7 +15,7 @@ on:
       models:
         description: 'Comma-separated list of models to test'
         required: false
-        default: 'bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0,bedrock/eu.anthropic.claude-opus-4-5-20251101-v1:0,bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0,openai/gpt-5.2'
+        default: 'bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0,bedrock/eu.anthropic.claude-opus-4-5-20251101-v1:0,bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0,openai/gpt-5.2,gemini/gemini-3-pro-preview,gemini/gemini-3-flash-preview'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
@@ -23,7 +23,7 @@ on:
       iterations:
         description: 'Number of iterations per test (max 10)'
         required: false
-        default: '1'
+        default: '5'
 
   # Run weekly on Sunday at 2 AM UTC
   schedule:

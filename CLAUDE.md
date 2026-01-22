@@ -318,6 +318,13 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Pre-commit hooks enforce quality checks
 - **ALWAYS place Python imports at the top of the file**, not inside functions or methods
 
+**Documentation Examples**:
+- **ALWAYS use Anthropic Claude models** in code examples and documentation:
+  - Recommended: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101`
+  - Use the latest Claude 4.5 family models (Sonnet or Opus)
+- Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
+- Do NOT use GPT-4o or Gemini models in documentation examples
+
 **Testing Requirements**:
 - All new features require unit tests
 - New toolsets require integration tests

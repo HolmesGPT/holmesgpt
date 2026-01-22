@@ -133,7 +133,9 @@ def _toolset_status_refresh_loop():
                             f"Toolset '{toolset_name}' status changed: {old_status} -> {new_status}"
                         )
                 else:
-                    logging.debug("Periodic toolset status refresh: no changes detected")
+                    logging.debug(
+                        "Periodic toolset status refresh: no changes detected"
+                    )
             except Exception:
                 logging.error(
                     "Error during periodic toolset status refresh", exc_info=True
@@ -382,6 +384,15 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest):
     try:
+        # Log incoming request details
+        has_images = bool(chat_request.images)
+        has_structured_output = bool(chat_request.response_format)
+        logging.info(
+            f"Received /api/chat request: model={chat_request.model}, "
+            f"images={has_images}, structured_output={has_structured_output}, "
+            f"streaming={chat_request.stream}"
+        )
+
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
@@ -393,6 +404,7 @@ def chat(chat_request: ChatRequest):
             global_instructions=global_instructions,
             additional_system_prompt=chat_request.additional_system_prompt,
             runbooks=runbooks,
+            images=chat_request.images,
         )
 
         follow_up_actions = []
