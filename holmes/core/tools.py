@@ -91,7 +91,7 @@ class StructuredToolResult(BaseModel):
     invocation: Optional[str] = None
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
-
+    
     def get_stringified_data(self) -> str:
         if self.data is None:
             return ""
@@ -598,6 +598,7 @@ class Toolset(BaseModel):
     description: str
     docs_url: Optional[str] = None
     icon_url: Optional[str] = None
+    installation_instructions: Optional[str] = None
     additional_instructions: Optional[str] = ""
     prerequisites: List[
         Union[
@@ -896,6 +897,7 @@ class ToolsetYamlFromConfig(Toolset):
     description: Optional[str] = None  # type: ignore
     docs_url: Optional[str] = None
     icon_url: Optional[str] = None
+    installation_instructions: Optional[str] = None
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
 
