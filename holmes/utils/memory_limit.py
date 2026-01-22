@@ -37,12 +37,14 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
     # - "Killed" in output (Linux OOM killer message)
     # - "MemoryError" (Python)
     # - "Cannot allocate memory" (various tools)
+    # - "out of memory" (Go runtime: "runtime: out of memory", "fatal error: out of memory")
     is_oom = (
         return_code in (137, -9)
         or "Killed" in output
         or "MemoryError" in output
         or "Cannot allocate memory" in output
         or "bad_alloc" in output
+        or "out of memory" in output
     )
 
     if is_oom:

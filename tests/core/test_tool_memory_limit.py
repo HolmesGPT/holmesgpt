@@ -43,6 +43,11 @@ class TestCheckOomAndAppendHint:
             (1, "MemoryError: unable to allocate"),  # Python OOM
             (1, "Cannot allocate memory"),  # System allocation failure
             (1, "std::bad_alloc"),  # C++ allocation failure
+            (
+                2,
+                "runtime: out of memory: cannot allocate 8388608-byte block",
+            ),  # Go runtime OOM
+            (2, "fatal error: out of memory"),  # Go fatal error
         ],
     )
     def test_hint_appended_on_oom_indicators(self, return_code: int, output: str):
