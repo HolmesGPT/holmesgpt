@@ -38,14 +38,18 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
     # - "MemoryError" (Python)
     # - "Cannot allocate memory" (various tools)
     # - "out of memory" (Go runtime: "runtime: out of memory", "fatal error: out of memory")
-    is_oom = (
-        return_code in (137, -9)
-        or "Killed" in output
+    #
+    # Note: String-based detection only triggers on non-zero exit codes to avoid
+    # false positives when commands succeed but output contains OOM-related text
+    # (e.g., kubectl describing a pod that was OOMKilled).
+    has_oom_strings = (
+        "Killed" in output
         or "MemoryError" in output
         or "Cannot allocate memory" in output
         or "bad_alloc" in output
         or "out of memory" in output
     )
+    is_oom = return_code in (137, -9) or (return_code != 0 and has_oom_strings)
 
     if is_oom:
         hint = (
