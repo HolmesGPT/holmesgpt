@@ -1,0 +1,222 @@
+name: CLI Performance Benchmark
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of benchmark iterations'
+        required: false
+        default: '3'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history to checkout master
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      # Run benchmark on PR branch
+      - name: Benchmark PR branch
+        id: pr-benchmark
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
+          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+        run: |
+          ITERATIONS=${{ github.event.inputs.iterations || '3' }}
+          python scripts/cli_performance_benchmark.py \
+            --iterations "$ITERATIONS" \
+            --output pr_benchmark.json \
+            --no-warmup
+
+      # Checkout and benchmark master
+      - name: Checkout master branch
+        run: |
+          # Save PR benchmark results
+          cp pr_benchmark.json /tmp/pr_benchmark.json
+
+          # Checkout master
+          git checkout origin/master
+
+      - name: Install dependencies (master)
+        run: poetry install --no-interaction
+
+      - name: Benchmark master branch
+        id: master-benchmark
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
+          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+        run: |
+          ITERATIONS=${{ github.event.inputs.iterations || '3' }}
+          python scripts/cli_performance_benchmark.py \
+            --iterations "$ITERATIONS" \
+            --output master_benchmark.json \
+            --no-warmup
+
+      # Switch back to PR and compare
+      - name: Checkout PR branch for comparison
+        run: |
+          git checkout ${{ github.head_ref || github.ref_name }}
+          cp /tmp/pr_benchmark.json pr_benchmark.json
+
+      - name: Compare results
+        id: compare
+        run: |
+          # Run comparison and capture output
+          python scripts/cli_performance_benchmark.py \
+            --iterations 1 \
+            --no-warmup \
+            --compare master_benchmark.json \
+            --output comparison_result.json \
+            > comparison_report.md 2>/dev/null || true
+
+          # Read the actual comparison from the saved results
+          python -c "
+          import json
+          from pathlib import Path
+
+          pr = json.loads(Path('pr_benchmark.json').read_text())
+          master = json.loads(Path('master_benchmark.json').read_text())
+
+          mean_diff_pct = ((pr['mean_seconds'] - master['mean_seconds']) / master['mean_seconds']) * 100
+
+          if mean_diff_pct < -5:
+              status = 'improved'
+              emoji = '🟢'
+          elif mean_diff_pct > 10:
+              status = 'regression'
+              emoji = '🔴'
+          else:
+              status = 'neutral'
+              emoji = '🟡'
+
+          report = f'''## {emoji} CLI Performance Benchmark: {status.upper()}
+
+          | Metric | PR | Master | Change |
+          |--------|-----|--------|--------|
+          | Mean | {pr['mean_seconds']:.2f}s | {master['mean_seconds']:.2f}s | {mean_diff_pct:+.1f}% |
+          | Median | {pr['median_seconds']:.2f}s | {master['median_seconds']:.2f}s | {((pr['median_seconds'] - master['median_seconds']) / master['median_seconds']) * 100:+.1f}% |
+          | Min | {pr['min_seconds']:.2f}s | {master['min_seconds']:.2f}s | |
+          | Max | {pr['max_seconds']:.2f}s | {master['max_seconds']:.2f}s | |
+
+          **PR commit**: \`{pr['git_sha']}\`
+          **Master commit**: \`{master['git_sha']}\`
+          **Iterations**: {pr['iterations']}
+          **Prompt**: \`{pr['prompt']}\`
+          '''
+
+          if status == 'regression':
+              report += '\n⚠️ **Performance regression detected!** Mean time increased by more than 10%.\n'
+          elif status == 'improved':
+              report += '\n✨ **Performance improvement!** Mean time decreased by more than 5%.\n'
+
+          Path('comparison_report.md').write_text(report)
+          print(f'regression={status == \"regression\"}'.lower())
+          "
+
+          # Set output for PR comment
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          cat comparison_report.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const report = `${{ steps.compare.outputs.report }}`;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('CLI Performance Benchmark')
+            );
+
+            const body = report + '\n\n---\n*Updated: ' + new Date().toISOString() + '*';
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: |
+            pr_benchmark.json
+            master_benchmark.json
+            comparison_report.md
+
+      - name: Check for regression
+        if: github.event_name == 'pull_request'
+        run: |
+          # Check if regression was detected
+          python -c "
+          import json
+          from pathlib import Path
+
+          pr = json.loads(Path('pr_benchmark.json').read_text())
+          master = json.loads(Path('master_benchmark.json').read_text())
+
+          mean_diff_pct = ((pr['mean_seconds'] - master['mean_seconds']) / master['mean_seconds']) * 100
+
+          if mean_diff_pct > 10:
+              print('❌ Performance regression detected: {:.1f}% slower'.format(mean_diff_pct))
+              exit(1)
+          else:
+              print('✅ No significant regression detected')
+          "
