@@ -89,20 +89,16 @@ jobs:
           git checkout ${{ github.head_ref }}
           cp /tmp/pr_benchmark.json pr_benchmark.json
 
-          python << 'EOF'
+          python << 'PYEOF'
           import json
           from pathlib import Path
 
           pr = json.loads(Path('pr_benchmark.json').read_text())
           master = json.loads(Path('master_benchmark.json').read_text())
 
-          # Cold start comparison
           cold_diff_pct = ((pr['cold_start_seconds'] - master['cold_start_seconds']) / master['cold_start_seconds']) * 100
-
-          # Warm start comparison
           warm_diff_pct = ((pr['warm_mean_seconds'] - master['warm_mean_seconds']) / master['warm_mean_seconds']) * 100
 
-          # Determine status (based on warm - more stable)
           if warm_diff_pct < -10:
               status, emoji = 'improved', '🟢'
           elif warm_diff_pct > 20:
@@ -110,7 +106,6 @@ jobs:
           else:
               status, emoji = 'neutral', '🟡'
 
-          # Cold start status
           if cold_diff_pct > 20:
               cold_emoji = '🔴'
           elif cold_diff_pct < -10:
@@ -118,43 +113,44 @@ jobs:
           else:
               cold_emoji = '🟡'
 
-          report = f"""## {emoji} CLI Startup Benchmark: {status.upper()}
-
-Measures `holmes version` execution time (imports + initialization).
-
-### {cold_emoji} Cold Start (first run, no caches)
-
-| Metric | PR | Master | Change |
-|--------|-----|--------|--------|
-| Time | {pr['cold_start_seconds']:.3f}s | {master['cold_start_seconds']:.3f}s | {cold_diff_pct:+.1f}% |
-
-### Warm Start (subsequent runs, caches populated)
-
-| Metric | PR | Master | Change |
-|--------|-----|--------|--------|
-| Mean | {pr['warm_mean_seconds']:.3f}s | {master['warm_mean_seconds']:.3f}s | {warm_diff_pct:+.1f}% |
-| Min | {pr['warm_min_seconds']:.3f}s | {master['warm_min_seconds']:.3f}s | |
-| Max | {pr['warm_max_seconds']:.3f}s | {master['warm_max_seconds']:.3f}s | |
-
-**PR**: `{pr['git_sha']}` | **Master**: `{master['git_sha']}` | **Iterations**: {pr['iterations']}
-"""
+          report_lines = [
+              f"## {emoji} CLI Startup Benchmark: {status.upper()}",
+              "",
+              "Measures `holmes version` execution time (imports + initialization).",
+              "",
+              f"### {cold_emoji} Cold Start (first run, no caches)",
+              "",
+              "| Metric | PR | Master | Change |",
+              "|--------|-----|--------|--------|",
+              f"| Time | {pr['cold_start_seconds']:.3f}s | {master['cold_start_seconds']:.3f}s | {cold_diff_pct:+.1f}% |",
+              "",
+              "### Warm Start (subsequent runs, caches populated)",
+              "",
+              "| Metric | PR | Master | Change |",
+              "|--------|-----|--------|--------|",
+              f"| Mean | {pr['warm_mean_seconds']:.3f}s | {master['warm_mean_seconds']:.3f}s | {warm_diff_pct:+.1f}% |",
+              f"| Min | {pr['warm_min_seconds']:.3f}s | {master['warm_min_seconds']:.3f}s | |",
+              f"| Max | {pr['warm_max_seconds']:.3f}s | {master['warm_max_seconds']:.3f}s | |",
+              "",
+              f"**PR**: `{pr['git_sha']}` | **Master**: `{master['git_sha']}` | **Iterations**: {pr['iterations']}",
+          ]
 
           if status == 'regression':
-              report += """
-⚠️ **Regression detected!** Check for:
-- New heavy imports at module level
-- Initialization code that runs on import
-- New dependencies with slow imports
-"""
+              report_lines.extend([
+                  "",
+                  "⚠️ **Regression detected!** Check for:",
+                  "- New heavy imports at module level",
+                  "- Initialization code that runs on import",
+                  "- New dependencies with slow imports",
+              ])
           elif status == 'improved':
-              report += "\n✨ **Performance improved!**\n"
+              report_lines.append("")
+              report_lines.append("✨ **Performance improved!**")
 
+          report = "\n".join(report_lines)
           Path('comparison_report.md').write_text(report)
-
-          # Write outputs
-          with open('status.txt', 'w') as f:
-              f.write(status)
-          EOF
+          Path('status.txt').write_text(status)
+          PYEOF
 
           echo "status=$(cat status.txt)" >> $GITHUB_OUTPUT
           echo "report<<EOF" >> $GITHUB_OUTPUT
