@@ -502,6 +502,14 @@ curl -X POST http://<HOLMES-URL>/api/workload_health_chat \
 curl http://<HOLMES-URL>/api/model
 ```
 
+**Example (validation error - missing required field):**
+```bash
+<!-- test: status=422, id=chat_missing_ask_field -->
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"conversation_history": []}'
+```
+
 **Example** Response
 ```json
 {
