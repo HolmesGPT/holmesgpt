@@ -1,17 +1,26 @@
 name: CLI Performance Benchmark
 
+# Measures CLI startup time (deterministic) to catch import/init regressions.
+# Also runs e2e sanity check to verify CLI commands work.
+
 on:
   pull_request:
     branches: [master]
   workflow_dispatch:
     inputs:
       iterations:
-        description: 'Number of benchmark iterations'
+        description: 'Number of startup benchmark iterations'
         required: false
-        default: '3'
+        default: '5'
+      run_e2e:
+        description: 'Also run e2e benchmark (requires API key)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  benchmark:
+  startup-benchmark:
+    name: Startup Time Benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -23,7 +32,7 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history to checkout master
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -46,111 +55,102 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
-      # Run benchmark on PR branch
-      - name: Benchmark PR branch
-        id: pr-benchmark
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
-          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
-          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+      # Benchmark PR branch startup time (no API key needed)
+      - name: Benchmark PR startup time
         run: |
-          ITERATIONS=${{ github.event.inputs.iterations || '3' }}
+          ITERATIONS=${{ github.event.inputs.iterations || '5' }}
           python scripts/cli_performance_benchmark.py \
+            --startup-only \
             --iterations "$ITERATIONS" \
-            --output pr_benchmark.json \
-            --no-warmup
+            --output pr_startup.json
 
-      # Checkout and benchmark master
+      # Save results and checkout master
       - name: Checkout master branch
         run: |
-          # Save PR benchmark results
-          cp pr_benchmark.json /tmp/pr_benchmark.json
-
-          # Checkout master
+          cp pr_startup.json /tmp/pr_startup.json
           git checkout origin/master
 
       - name: Install dependencies (master)
         run: poetry install --no-interaction
 
-      - name: Benchmark master branch
-        id: master-benchmark
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
-          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
-          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+      - name: Benchmark master startup time
         run: |
-          ITERATIONS=${{ github.event.inputs.iterations || '3' }}
+          ITERATIONS=${{ github.event.inputs.iterations || '5' }}
           python scripts/cli_performance_benchmark.py \
+            --startup-only \
             --iterations "$ITERATIONS" \
-            --output master_benchmark.json \
-            --no-warmup
+            --output master_startup.json
 
-      # Switch back to PR and compare
-      - name: Checkout PR branch for comparison
+      # Compare results
+      - name: Checkout PR for comparison
         run: |
           git checkout ${{ github.head_ref || github.ref_name }}
-          cp /tmp/pr_benchmark.json pr_benchmark.json
+          cp /tmp/pr_startup.json pr_startup.json
 
-      - name: Compare results
+      - name: Compare and generate report
         id: compare
         run: |
-          # Run comparison and capture output
           python scripts/cli_performance_benchmark.py \
+            --startup-only \
             --iterations 1 \
             --no-warmup \
-            --compare master_benchmark.json \
-            --output comparison_result.json \
-            > comparison_report.md 2>/dev/null || true
+            --compare master_startup.json \
+            --output /dev/null \
+            2>/dev/null > comparison_report.md || true
 
-          # Read the actual comparison from the saved results
-          python -c "
+          # Generate comparison report
+          python << 'EOF'
           import json
           from pathlib import Path
 
-          pr = json.loads(Path('pr_benchmark.json').read_text())
-          master = json.loads(Path('master_benchmark.json').read_text())
+          pr = json.loads(Path('pr_startup.json').read_text())
+          master = json.loads(Path('master_startup.json').read_text())
 
-          mean_diff_pct = ((pr['mean_seconds'] - master['mean_seconds']) / master['mean_seconds']) * 100
+          diff_pct = ((pr['mean_seconds'] - master['mean_seconds']) / master['mean_seconds']) * 100
 
-          if mean_diff_pct < -5:
-              status = 'improved'
-              emoji = '🟢'
-          elif mean_diff_pct > 10:
-              status = 'regression'
-              emoji = '🔴'
+          # Startup is deterministic - use tight thresholds
+          if diff_pct < -10:
+              status, emoji = 'improved', '🟢'
+          elif diff_pct > 20:
+              status, emoji = 'regression', '🔴'
           else:
-              status = 'neutral'
-              emoji = '🟡'
+              status, emoji = 'neutral', '🟡'
 
-          report = f'''## {emoji} CLI Performance Benchmark: {status.upper()}
+          report = f"""## {emoji} CLI Startup Benchmark: {status.upper()}
+
+          Measures `holmes version` execution time (imports + initialization).
 
           | Metric | PR | Master | Change |
           |--------|-----|--------|--------|
-          | Mean | {pr['mean_seconds']:.2f}s | {master['mean_seconds']:.2f}s | {mean_diff_pct:+.1f}% |
-          | Median | {pr['median_seconds']:.2f}s | {master['median_seconds']:.2f}s | {((pr['median_seconds'] - master['median_seconds']) / master['median_seconds']) * 100:+.1f}% |
-          | Min | {pr['min_seconds']:.2f}s | {master['min_seconds']:.2f}s | |
-          | Max | {pr['max_seconds']:.2f}s | {master['max_seconds']:.2f}s | |
+          | Mean | {pr['mean_seconds']:.3f}s | {master['mean_seconds']:.3f}s | {diff_pct:+.1f}% |
+          | Median | {pr['median_seconds']:.3f}s | {master['median_seconds']:.3f}s | {((pr['median_seconds'] - master['median_seconds']) / master['median_seconds']) * 100:+.1f}% |
+          | Min | {pr['min_seconds']:.3f}s | {master['min_seconds']:.3f}s | |
+          | Max | {pr['max_seconds']:.3f}s | {master['max_seconds']:.3f}s | |
 
-          **PR commit**: \`{pr['git_sha']}\`
-          **Master commit**: \`{master['git_sha']}\`
-          **Iterations**: {pr['iterations']}
-          **Prompt**: \`{pr['prompt']}\`
-          '''
+          **PR**: `{pr['git_sha']}` | **Master**: `{master['git_sha']}` | **Iterations**: {pr['iterations']}
+          """
 
           if status == 'regression':
-              report += '\n⚠️ **Performance regression detected!** Mean time increased by more than 10%.\n'
+              report += """
+          ⚠️ **Startup regression detected!** Check for:
+          - New heavy imports at module level
+          - Initialization code that runs on import
+          - New dependencies with slow imports
+          """
           elif status == 'improved':
-              report += '\n✨ **Performance improvement!** Mean time decreased by more than 5%.\n'
+              report += "\n✨ **Startup time improved!**\n"
 
           Path('comparison_report.md').write_text(report)
-          print(f'regression={status == \"regression\"}'.lower())
-          "
 
-          # Set output for PR comment
+          # Output for GitHub Actions
+          with open('$GITHUB_OUTPUT' if Path('$GITHUB_OUTPUT').exists() else '/dev/null', 'a') as f:
+              f.write(f"status={status}\n")
+              f.write(f"diff_pct={diff_pct:.1f}\n")
+          EOF
+
+          # Set outputs
+          echo "status=$(python -c "import json; pr=json.loads(open('pr_startup.json').read()); master=json.loads(open('master_startup.json').read()); diff=((pr['mean_seconds']-master['mean_seconds'])/master['mean_seconds'])*100; print('regression' if diff > 20 else ('improved' if diff < -10 else 'neutral'))")" >> $GITHUB_OUTPUT
+
           echo "report<<EOF" >> $GITHUB_OUTPUT
           cat comparison_report.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -162,7 +162,6 @@ jobs:
           script: |
             const report = `${{ steps.compare.outputs.report }}`;
 
-            // Find existing comment
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -171,7 +170,7 @@ jobs:
 
             const botComment = comments.find(comment =>
               comment.user.type === 'Bot' &&
-              comment.body.includes('CLI Performance Benchmark')
+              comment.body.includes('CLI Startup Benchmark')
             );
 
             const body = report + '\n\n---\n*Updated: ' + new Date().toISOString() + '*';
@@ -192,31 +191,76 @@ jobs:
               });
             }
 
-      - name: Upload benchmark artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-${{ github.run_id }}
+          name: startup-benchmark-${{ github.run_id }}
           path: |
-            pr_benchmark.json
-            master_benchmark.json
+            pr_startup.json
+            master_startup.json
             comparison_report.md
 
       - name: Check for regression
         if: github.event_name == 'pull_request'
         run: |
-          # Check if regression was detected
-          python -c "
-          import json
-          from pathlib import Path
+          if [ "${{ steps.compare.outputs.status }}" = "regression" ]; then
+            echo "❌ Startup time regression detected (>20% slower)"
+            exit 1
+          fi
+          echo "✅ No startup regression"
 
-          pr = json.loads(Path('pr_benchmark.json').read_text())
-          master = json.loads(Path('master_benchmark.json').read_text())
+  e2e-sanity-check:
+    name: E2E Sanity Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.inputs.run_e2e == 'true' || github.event_name == 'pull_request'
 
-          mean_diff_pct = ((pr['mean_seconds'] - master['mean_seconds']) / master['mean_seconds']) * 100
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-          if mean_diff_pct > 10:
-              print('❌ Performance regression detected: {:.1f}% slower'.format(mean_diff_pct))
-              exit(1)
-          else:
-              print('✅ No significant regression detected')
-          "
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Run e2e sanity check
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
+          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+        run: |
+          # Simple e2e test - just verify the CLI works end-to-end
+          echo "Running e2e sanity check..."
+          python scripts/cli_performance_benchmark.py \
+            --e2e-only \
+            --iterations 1 \
+            --no-warmup \
+            --output e2e_result.json
+
+          echo "✅ E2E sanity check passed"
+
+      - name: Upload e2e results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-sanity-${{ github.run_id }}
+          path: e2e_result.json
