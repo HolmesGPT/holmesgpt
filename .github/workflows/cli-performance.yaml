@@ -1,11 +1,14 @@
 name: CLI Performance Benchmark
 
 # Measures CLI startup time (deterministic) to catch import/init regressions.
-# Also runs e2e sanity check to verify CLI commands work.
+# Reports both cold start (first run) and warm start (subsequent runs).
+# Persists baseline results for historical comparison.
 
 on:
   pull_request:
     branches: [master]
+  push:
+    branches: [master]  # Update baseline on merge
   workflow_dispatch:
     inputs:
       iterations:
@@ -55,105 +58,128 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
-      # Benchmark PR branch startup time (no API key needed)
-      - name: Benchmark PR startup time
+      # Restore baseline from cache (if exists)
+      - name: Restore baseline cache
+        id: baseline-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .benchmark-baseline
+          key: cli-benchmark-baseline-${{ runner.os }}
+
+      # Benchmark current code
+      - name: Run startup benchmark
         run: |
           ITERATIONS=${{ github.event.inputs.iterations || '5' }}
           python scripts/cli_performance_benchmark.py \
             --startup-only \
             --iterations "$ITERATIONS" \
-            --output pr_startup.json
+            --output current_benchmark.json
 
-      # Save results and checkout master
-      - name: Checkout master branch
-        run: |
-          cp pr_startup.json /tmp/pr_startup.json
-          git checkout origin/master
-
-      - name: Install dependencies (master)
-        run: poetry install --no-interaction
-
-      - name: Benchmark master startup time
-        run: |
-          ITERATIONS=${{ github.event.inputs.iterations || '5' }}
-          python scripts/cli_performance_benchmark.py \
-            --startup-only \
-            --iterations "$ITERATIONS" \
-            --output master_startup.json
-
-      # Compare results
-      - name: Checkout PR for comparison
-        run: |
-          git checkout ${{ github.head_ref || github.ref_name }}
-          cp /tmp/pr_startup.json pr_startup.json
-
-      - name: Compare and generate report
+      # Compare with baseline (if PR) or update baseline (if push to master)
+      - name: Compare with baseline
         id: compare
+        if: github.event_name == 'pull_request'
         run: |
-          python scripts/cli_performance_benchmark.py \
-            --startup-only \
-            --iterations 1 \
-            --no-warmup \
-            --compare master_startup.json \
-            --output /dev/null \
-            2>/dev/null > comparison_report.md || true
+          if [ -f .benchmark-baseline/baseline.json ]; then
+            echo "Comparing against cached baseline..."
 
-          # Generate comparison report
-          python << 'EOF'
+            # Generate comparison report
+            python << 'EOF'
           import json
           from pathlib import Path
 
-          pr = json.loads(Path('pr_startup.json').read_text())
-          master = json.loads(Path('master_startup.json').read_text())
+          current = json.loads(Path('current_benchmark.json').read_text())
+          baseline = json.loads(Path('.benchmark-baseline/baseline.json').read_text())
 
-          diff_pct = ((pr['mean_seconds'] - master['mean_seconds']) / master['mean_seconds']) * 100
+          # Cold start comparison
+          cold_diff_pct = ((current['cold_start_seconds'] - baseline['cold_start_seconds']) / baseline['cold_start_seconds']) * 100
 
-          # Startup is deterministic - use tight thresholds
-          if diff_pct < -10:
+          # Warm start comparison
+          warm_diff_pct = ((current['warm_mean_seconds'] - baseline['warm_mean_seconds']) / baseline['warm_mean_seconds']) * 100
+
+          # Determine status
+          if warm_diff_pct < -10:
               status, emoji = 'improved', '🟢'
-          elif diff_pct > 20:
+          elif warm_diff_pct > 20:
               status, emoji = 'regression', '🔴'
           else:
               status, emoji = 'neutral', '🟡'
+
+          # Cold start status
+          if cold_diff_pct > 20:
+              cold_status, cold_emoji = 'regression', '🔴'
+          elif cold_diff_pct < -10:
+              cold_status, cold_emoji = 'improved', '🟢'
+          else:
+              cold_status, cold_emoji = 'neutral', '🟡'
 
           report = f"""## {emoji} CLI Startup Benchmark: {status.upper()}
 
           Measures `holmes version` execution time (imports + initialization).
 
-          | Metric | PR | Master | Change |
-          |--------|-----|--------|--------|
-          | Mean | {pr['mean_seconds']:.3f}s | {master['mean_seconds']:.3f}s | {diff_pct:+.1f}% |
-          | Median | {pr['median_seconds']:.3f}s | {master['median_seconds']:.3f}s | {((pr['median_seconds'] - master['median_seconds']) / master['median_seconds']) * 100:+.1f}% |
-          | Min | {pr['min_seconds']:.3f}s | {master['min_seconds']:.3f}s | |
-          | Max | {pr['max_seconds']:.3f}s | {master['max_seconds']:.3f}s | |
+          ### {cold_emoji} Cold Start (first run, no caches)
 
-          **PR**: `{pr['git_sha']}` | **Master**: `{master['git_sha']}` | **Iterations**: {pr['iterations']}
+          | Metric | PR | Baseline | Change |
+          |--------|-----|----------|--------|
+          | Cold Start | {current['cold_start_seconds']:.3f}s | {baseline['cold_start_seconds']:.3f}s | {cold_diff_pct:+.1f}% |
+
+          ### Warm Start (subsequent runs)
+
+          | Metric | PR | Baseline | Change |
+          |--------|-----|----------|--------|
+          | Mean | {current['warm_mean_seconds']:.3f}s | {baseline['warm_mean_seconds']:.3f}s | {warm_diff_pct:+.1f}% |
+          | Min | {current['warm_min_seconds']:.3f}s | {baseline['warm_min_seconds']:.3f}s | |
+          | Max | {current['warm_max_seconds']:.3f}s | {baseline['warm_max_seconds']:.3f}s | |
+
+          **PR**: `{current['git_sha']}` | **Baseline**: `{baseline['git_sha']}` | **Iterations**: {current['iterations']}
           """
 
           if status == 'regression':
               report += """
-          ⚠️ **Startup regression detected!** Check for:
+          ⚠️ **Warm start regression detected!** Check for:
           - New heavy imports at module level
           - Initialization code that runs on import
           - New dependencies with slow imports
           """
           elif status == 'improved':
-              report += "\n✨ **Startup time improved!**\n"
+              report += "\n✨ **Warm start improved!**\n"
+
+          if cold_status == 'regression':
+              report += "\n🥶 **Cold start regression!** First-run experience is slower.\n"
 
           Path('comparison_report.md').write_text(report)
-
-          # Output for GitHub Actions
-          with open('$GITHUB_OUTPUT' if Path('$GITHUB_OUTPUT').exists() else '/dev/null', 'a') as f:
-              f.write(f"status={status}\n")
-              f.write(f"diff_pct={diff_pct:.1f}\n")
+          print(f"STATUS={status}")
+          print(f"COLD_STATUS={cold_status}")
           EOF
 
-          # Set outputs
-          echo "status=$(python -c "import json; pr=json.loads(open('pr_startup.json').read()); master=json.loads(open('master_startup.json').read()); diff=((pr['mean_seconds']-master['mean_seconds'])/master['mean_seconds'])*100; print('regression' if diff > 20 else ('improved' if diff < -10 else 'neutral'))")" >> $GITHUB_OUTPUT
+            echo "status=$(python -c "import json; c=json.loads(open('current_benchmark.json').read()); b=json.loads(open('.benchmark-baseline/baseline.json').read()); d=((c['warm_mean_seconds']-b['warm_mean_seconds'])/b['warm_mean_seconds'])*100; print('regression' if d > 20 else ('improved' if d < -10 else 'neutral'))")" >> $GITHUB_OUTPUT
+          else
+            echo "No baseline found, this is the first run."
+            cat current_benchmark.json > comparison_report.md
+            echo "## 📊 CLI Startup Benchmark (No Baseline)" > comparison_report.md
+            echo "" >> comparison_report.md
+            python -c "import json; c=json.loads(open('current_benchmark.json').read()); print(f'**Cold Start**: {c[\"cold_start_seconds\"]:.3f}s'); print(f'**Warm Mean**: {c[\"warm_mean_seconds\"]:.3f}s')" >> comparison_report.md
+            echo "status=neutral" >> $GITHUB_OUTPUT
+          fi
 
           echo "report<<EOF" >> $GITHUB_OUTPUT
           cat comparison_report.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
+      # Update baseline on push to master
+      - name: Update baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          mkdir -p .benchmark-baseline
+          cp current_benchmark.json .benchmark-baseline/baseline.json
+          echo "Baseline updated with results from $(cat current_benchmark.json | python -c 'import json,sys; print(json.load(sys.stdin)[\"git_sha\"])')"
+
+      - name: Save baseline cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@v4
+        with:
+          path: .benchmark-baseline
+          key: cli-benchmark-baseline-${{ runner.os }}-${{ github.sha }}
 
       - name: Post PR comment
         if: github.event_name == 'pull_request'
@@ -196,8 +222,7 @@ jobs:
         with:
           name: startup-benchmark-${{ github.run_id }}
           path: |
-            pr_startup.json
-            master_startup.json
+            current_benchmark.json
             comparison_report.md
 
       - name: Check for regression
@@ -248,15 +273,20 @@ jobs:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
         run: |
-          # Simple e2e test - just verify the CLI works end-to-end
           echo "Running e2e sanity check..."
           python scripts/cli_performance_benchmark.py \
             --e2e-only \
-            --iterations 1 \
-            --no-warmup \
+            --iterations 2 \
             --output e2e_result.json
 
-          echo "✅ E2E sanity check passed"
+          # Show results
+          python -c "
+          import json
+          r = json.loads(open('e2e_result.json').read())
+          print(f'✅ E2E sanity check passed')
+          print(f'   Cold: {r[\"cold_start_seconds\"]:.2f}s')
+          print(f'   Warm: {r[\"warm_mean_seconds\"]:.2f}s')
+          "
 
       - name: Upload e2e results
         if: always()
