@@ -131,6 +131,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 **Example without Structured Output:**
 
 ```bash
+<!-- test: status=200, has_fields=analysis|conversation_history, id=chat_basic -->
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -249,6 +250,7 @@ For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision D
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=analysis, id=investigate_basic -->
 curl -X POST http://<HOLMES-URL>/api/investigate \
   -H "Content-Type: application/json" \
   -d '{
@@ -360,6 +362,7 @@ data: {"sections": {"Alert Explanation": ...}}
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=analysis|conversation_history, id=issue_chat_basic -->
 curl -X POST http://<HOLMES-URL>/api/issue_chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -411,6 +414,7 @@ curl -X POST http://<HOLMES-URL>/api/issue_chat \
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=analysis, id=workload_health_basic -->
 curl -X POST http://<HOLMES-URL>/api/workload_health_check \
   -H "Content-Type: application/json" \
   -d '{
@@ -458,6 +462,7 @@ curl -X POST http://<HOLMES-URL>/api/workload_health_check \
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=analysis|conversation_history, id=workload_health_chat_basic -->
 curl -X POST http://<HOLMES-URL>/api/workload_health_chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -493,6 +498,7 @@ curl -X POST http://<HOLMES-URL>/api/workload_health_chat \
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=model_name, id=model_list -->
 curl http://<HOLMES-URL>/api/model
 ```
 
