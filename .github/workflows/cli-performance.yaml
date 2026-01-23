@@ -61,11 +61,14 @@ jobs:
             --iterations "$ITERATIONS" \
             --output pr_benchmark.json
 
-      # Save PR results and checkout master
+      # Save PR results and script, then checkout master
       - name: Checkout master for baseline
         run: |
           cp pr_benchmark.json /tmp/pr_benchmark.json
+          cp scripts/cli_performance_benchmark.py /tmp/cli_performance_benchmark.py
           git checkout origin/master
+          mkdir -p scripts
+          cp /tmp/cli_performance_benchmark.py scripts/cli_performance_benchmark.py
 
       - name: Install dependencies (master)
         run: poetry install --no-interaction
