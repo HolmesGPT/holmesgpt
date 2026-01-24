@@ -55,8 +55,10 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          # Quiet output: no progress dots, no live logs, short tracebacks
+          # Minimal output: only failures, no progress, no coverage
           poetry run pytest -m "not llm" \
+            --no-cov \
+            -p no:sugar \
             -q --no-header \
             -o log_cli=false \
             --tb=short \
