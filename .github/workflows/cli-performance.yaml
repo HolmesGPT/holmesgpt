@@ -89,6 +89,15 @@ jobs:
           mkdir -p scripts
           cp /tmp/cli_performance_benchmark.py scripts/cli_performance_benchmark.py
 
+      - name: Fresh environment for master (true cold start)
+        run: |
+          # Clear Python bytecode cache
+          find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find . -name "*.pyc" -delete 2>/dev/null || true
+          # Remove venv to get fresh install
+          rm -rf .venv
+          echo "Cleared bytecode cache and venv for true cold start"
+
       - name: Install dependencies (master)
         run: poetry install --no-interaction
 
