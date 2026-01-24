@@ -55,7 +55,12 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          poetry run pytest -m "not llm"
+          # Clean pytest output: disable live logs, minimal durations, short tracebacks
+          poetry run pytest -m "not llm" \
+            -o log_cli=false \
+            --durations=3 \
+            --tb=short \
+            -W ignore::DeprecationWarning
 
       - name: Test the binary
         shell: bash
