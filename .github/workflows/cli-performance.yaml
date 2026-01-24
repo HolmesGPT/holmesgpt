@@ -31,18 +31,21 @@ jobs:
 
       - name: Mark benchmark as running
         uses: actions/github-script@v7
+        continue-on-error: true
         with:
           script: |
+            console.log(`Looking for benchmark comment on PR #${context.issue.number}`);
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
+            console.log(`Found ${comments.length} comments`);
             const botComment = comments.find(c => c.user.type === 'Bot' && (c.body.includes('CLI Performance Benchmark') || c.body.includes('CLI Startup Benchmark')));
             if (botComment) {
-              // Remove any existing "running" banner and add fresh one
-              let body = botComment.body.replace(/^> 🔄 \*\*Benchmark running\.\.\.\*\* \[.*?\]\n\n/, '');
-              const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+              console.log(`Found existing benchmark comment (id: ${botComment.id}), adding running banner`);
+              let body = botComment.body.replace(/^> 🔄 \*\*Benchmark running\.\.\.\*\*.*\n\n/s, '');
+              const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
               body = `> 🔄 **Benchmark running...** [View logs](${runUrl})\n\n` + body;
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -50,6 +53,9 @@ jobs:
                 comment_id: botComment.id,
                 body: body,
               });
+              console.log('Updated comment with running banner');
+            } else {
+              console.log('No existing benchmark comment found, skipping banner');
             }
 
       - name: Setup Python
