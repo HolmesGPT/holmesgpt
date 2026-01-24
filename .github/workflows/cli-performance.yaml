@@ -3,7 +3,7 @@ name: CLI Performance Benchmark
 # Measures CLI startup time to catch import/init regressions.
 # Two benchmarks:
 # 1. Without LLM: `holmes version` - measures pure startup overhead
-# 2. With LLM: `holmes ask` - verifies full CLI works end-to-end
+# 2. With LLM: `holmes ask` - verifies full CLI works end-to-end (uses OpenRouter + Haiku)
 
 on:
   pull_request:
@@ -20,6 +20,8 @@ jobs:
     name: "Benchmark: Startup Time (no LLM)"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      status: ${{ steps.compare.outputs.status }}
 
     permissions:
       contents: read
@@ -188,9 +190,14 @@ jobs:
           echo "✅ No startup regression"
 
   benchmark-with-llm:
-    name: "Benchmark: Full CLI (with LLM)"
+    name: "Benchmark: Full CLI (with LLM via OpenRouter)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: benchmark-without-llm
+
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - name: Checkout
@@ -217,31 +224,83 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
-      - name: Benchmark with LLM (holmes ask)
+      - name: Check API key and run benchmark
+        id: llm_benchmark
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
-          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
-          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          echo "Benchmarking full CLI with LLM (holmes ask)..."
-          python scripts/cli_performance_benchmark.py \
-            --e2e-only \
-            --iterations 2 \
-            --output benchmark_with_llm.json
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "has_api_key=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ OPENROUTER_API_KEY not available - LLM benchmark will be skipped"
+            echo "result=⚠️ **LLM Benchmark skipped** - OPENROUTER_API_KEY not configured in repository secrets." > llm_result.txt
+          else
+            echo "has_api_key=true" >> "$GITHUB_OUTPUT"
+            echo "Benchmarking full CLI with LLM (holmes ask via OpenRouter + Haiku 4.5)..."
 
-          python3 -c "
+            python scripts/cli_performance_benchmark.py \
+              --e2e-only \
+              --iterations 2 \
+              --model "openrouter/anthropic/claude-3-5-haiku-latest" \
+              --output benchmark_with_llm.json
+
+            python3 << 'PYEOF'
           import json
-          r = json.loads(open('benchmark_with_llm.json').read())
-          print('✅ CLI with LLM works')
-          print(f'   Cold: {r[\"cold_start_seconds\"]:.2f}s')
-          print(f'   Warm: {r[\"warm_mean_seconds\"]:.2f}s')
-          "
+          from pathlib import Path
+
+          r = json.loads(Path('benchmark_with_llm.json').read_text())
+          result = f"""✅ **LLM Benchmark (OpenRouter + Haiku 4.5)**: Passed
+
+          | Metric | Time |
+          |--------|------|
+          | Cold Start | {r['cold_start_seconds']:.2f}s |
+          | Warm Start | {r['warm_mean_seconds']:.2f}s |
+          """
+          Path('llm_result.txt').write_text(result)
+          PYEOF
+          fi
+
+      - name: Update PR comment with LLM results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const llmResult = fs.readFileSync('llm_result.txt', 'utf8');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('CLI Startup Benchmark'));
+
+            if (botComment) {
+              // Append LLM results to existing comment
+              let body = botComment.body;
+
+              // Remove old LLM section if present
+              body = body.replace(/\n---\n### LLM Benchmark[\s\S]*?(?=\n---\n\*Updated:|$)/, '');
+
+              // Remove the old timestamp line
+              body = body.replace(/\n---\n\*Updated:.*\*$/, '');
+
+              // Add new LLM section and timestamp
+              body += '\n\n---\n### LLM Benchmark\n' + llmResult;
+              body += '\n\n---\n*Updated: ' + new Date().toISOString() + '*';
+
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            }
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-with-llm-${{ github.run_id }}
-          path: benchmark_with_llm.json
+          path: |
+            benchmark_with_llm.json
+            llm_result.txt
