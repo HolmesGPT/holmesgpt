@@ -18,6 +18,8 @@ jobs:
     name: "CLI Performance Benchmark"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Only run on PRs (not workflow_dispatch without PR context)
+    if: github.event_name == 'pull_request'
 
     permissions:
       contents: read
@@ -41,7 +43,11 @@ jobs:
               issue_number: context.issue.number,
             });
             console.log(`Found ${comments.length} comments`);
-            const botComment = comments.find(c => c.user.type === 'Bot' && (c.body.includes('CLI Performance Benchmark') || c.body.includes('CLI Startup Benchmark')));
+            // Only match comments from github-actions bot, not other bots like CodeRabbit
+            const botComment = comments.find(c =>
+              c.user.login === 'github-actions[bot]' &&
+              (c.body.includes('CLI Performance Benchmark') || c.body.includes('CLI Startup Benchmark'))
+            );
             if (botComment) {
               console.log(`Found existing benchmark comment (id: ${botComment.id}), adding running banner`);
               let body = botComment.body.replace(/^> 🔄 \*\*Benchmark running\.\.\.\*\*.*\n\n/s, '');
@@ -77,7 +83,7 @@ jobs:
           key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
 
       - name: Install dependencies
-        run: poetry install --no-interaction
+        run: poetry install --no-interaction --sync
 
       - name: Benchmark PR branch
         id: pr_benchmark
@@ -110,10 +116,14 @@ jobs:
           fi
 
       - name: Save PR results and checkout master
+        env:
+          PR_HEAD_REF: ${{ github.head_ref }}
         run: |
           cp pr_startup.json /tmp/pr_startup.json
           [ -f pr_llm.json ] && cp pr_llm.json /tmp/pr_llm.json || true
           cp scripts/cli_performance_benchmark.py /tmp/cli_performance_benchmark.py
+          # Store PR branch name for later
+          echo "$PR_HEAD_REF" > /tmp/pr_branch_name
           git checkout origin/master
           mkdir -p scripts
           cp /tmp/cli_performance_benchmark.py scripts/cli_performance_benchmark.py
@@ -150,7 +160,7 @@ jobs:
           echo "✓ Cleared: bytecode, venv, ~/.holmes, pip/poetry cache, OS page cache"
 
       - name: Install dependencies (master)
-        run: poetry install --no-interaction
+        run: poetry install --no-interaction --sync
 
       - name: Benchmark master branch
         env:
@@ -183,7 +193,9 @@ jobs:
         id: compare
         run: |
           rm -f scripts/cli_performance_benchmark.py
-          git checkout ${{ github.head_ref }}
+          # Use saved branch name to avoid script injection
+          PR_BRANCH=$(cat /tmp/pr_branch_name)
+          git checkout "$PR_BRANCH"
 
           cp /tmp/pr_startup.json pr_startup.json
           cp /tmp/master_startup.json master_startup.json
@@ -287,7 +299,11 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const botComment = comments.find(c => c.user.type === 'Bot' && (c.body.includes('CLI Performance Benchmark') || c.body.includes('CLI Startup Benchmark')));
+            // Only match comments from github-actions bot
+            const botComment = comments.find(c =>
+              c.user.login === 'github-actions[bot]' &&
+              (c.body.includes('CLI Performance Benchmark') || c.body.includes('CLI Startup Benchmark'))
+            );
             const body = report + '\n\n*Updated: ' + new Date().toISOString() + '*';
             if (botComment) {
               await github.rest.issues.updateComment({
