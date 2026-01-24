@@ -154,9 +154,11 @@ jobs:
           PYEOF
 
           echo "status=$(cat status.txt)" >> $GITHUB_OUTPUT
-          echo "report<<EOF" >> $GITHUB_OUTPUT
-          cat comparison_report.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo 'report<<REPORT_DELIMITER_12345'
+            cat comparison_report.md
+            echo 'REPORT_DELIMITER_12345'
+          } >> $GITHUB_OUTPUT
 
       - name: Post PR comment
         uses: actions/github-script@v7
