@@ -150,8 +150,8 @@ jobs:
           sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
           # Memory pressure to evict any remaining cached data
-          # Read 8GB to exceed runner's 7GB RAM and force cache eviction
-          dd if=/dev/urandom bs=1M count=8000 2>/dev/null | cat > /dev/null || true
+          # Read 16GB to far exceed runner's 7GB RAM and force aggressive cache eviction
+          dd if=/dev/urandom bs=1M count=16000 2>/dev/null | cat > /dev/null || true
 
           # Drop caches again after memory pressure
           sync
