@@ -52,3 +52,8 @@ def load_model_from_file(
             fg="red",
         )
         sys.exit()
+    except ValueError as e:
+        print(e)
+        typer.secho(
+            f"Invalid content in config file at {file_path}. Ensure the content of this file is in normal yaml format.")
+        sys.exit()
