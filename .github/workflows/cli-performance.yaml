@@ -119,7 +119,10 @@ jobs:
           find . -name "*.pyc" -delete 2>/dev/null || true
           # Remove venv to get fresh install
           rm -rf .venv
-          echo "Cleared bytecode cache and venv for true cold start"
+          # Drop OS page cache (requires sudo, available on GH runners)
+          sync
+          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+          echo "Cleared bytecode cache, venv, and OS page cache for true cold start"
 
       - name: Install dependencies (master)
         run: poetry install --no-interaction
