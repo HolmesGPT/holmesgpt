@@ -114,15 +114,34 @@ jobs:
 
       - name: Fresh environment for master (true cold start)
         run: |
+          echo "=== Clearing all caches for true cold start ==="
+
           # Clear Python bytecode cache
           find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
           find . -name "*.pyc" -delete 2>/dev/null || true
-          # Remove venv to get fresh install
+
+          # Remove venv
           rm -rf .venv
-          # Drop OS page cache (requires sudo, available on GH runners)
+
+          # Clear Holmes cache
+          rm -rf ~/.holmes
+
+          # Clear pip/poetry caches
+          rm -rf ~/.cache/pip ~/.cache/pypoetry
+
+          # Drop OS page cache, dentries, inodes
           sync
           sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
-          echo "Cleared bytecode cache, venv, and OS page cache for true cold start"
+
+          # Memory pressure to evict any remaining cached data
+          # Allocate 6GB to push files out of RAM (runners have 7GB)
+          dd if=/dev/urandom bs=1M count=6000 2>/dev/null | cat > /dev/null || true
+
+          # Drop caches again after memory pressure
+          sync
+          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+
+          echo "✓ Cleared: bytecode, venv, ~/.holmes, pip/poetry cache, OS page cache"
 
       - name: Install dependencies (master)
         run: poetry install --no-interaction
