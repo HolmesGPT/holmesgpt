@@ -227,7 +227,7 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('CLI Performance Benchmark'));
+            const botComment = comments.find(c => c.user.type === 'Bot' && (c.body.includes('CLI Performance Benchmark') || c.body.includes('CLI Startup Benchmark')));
             const body = report + '\n\n*Updated: ' + new Date().toISOString() + '*';
             if (botComment) {
               await github.rest.issues.updateComment({
