@@ -43,6 +43,55 @@ PLACEHOLDER_SUBSTITUTIONS = {
 }
 
 
+def format_doc_test_failure(
+    test_id: str,
+    doc_test: DocCurlTest,
+    error_type: str,
+    expected: Any,
+    actual: Any,
+    extra_info: str = "",
+) -> str:
+    """
+    Format a clear, easy-to-find failure message for documentation tests.
+
+    This makes failures obvious in long pytest output by using clear banners
+    and providing all context a developer needs to fix the issue.
+    """
+    curl_preview = doc_test.raw_command[:200]
+    if len(doc_test.raw_command) > 200:
+        curl_preview += "..."
+
+    # Get relative path for cleaner output
+    source_file = doc_test.curl.source_file
+    try:
+        source_file = str(Path(source_file).relative_to(Path.cwd()))
+    except ValueError:
+        pass
+
+    return f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  DOCUMENTATION CURL TEST FAILED                                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Test ID:  {test_id}
+║
+║  What: This test validates that a curl example in our docs actually works.
+║        If this fails, the documentation has an incorrect example!
+║
+║  Source: {source_file}:{doc_test.curl.line_number}
+║
+║  Error:  {error_type}
+║          Expected: {expected}
+║          Actual:   {actual}
+{f"║          {extra_info}" if extra_info else ""}║
+║  Curl command from docs:
+║    {curl_preview}
+║
+║  To fix: Edit the curl example in the docs file above, or update the
+║          test annotation (<!-- test: status=..., has_fields=... -->)
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+
+
 @pytest.fixture
 def client():
     """FastAPI test client."""
@@ -226,18 +275,31 @@ def test_documented_curl(
     result = execute_curl_test(client, doc_test, mock_llm)
 
     # Validate status code
-    assert result["status_code"] == doc_test.curl.expected_status, (
-        f"Expected status {doc_test.curl.expected_status}, "
-        f"got {result['status_code']} for {doc_test.raw_command[:100]}..."
-    )
+    if result["status_code"] != doc_test.curl.expected_status:
+        pytest.fail(
+            format_doc_test_failure(
+                test_id=test_id,
+                doc_test=doc_test,
+                error_type="Wrong HTTP status code",
+                expected=doc_test.curl.expected_status,
+                actual=result["status_code"],
+                extra_info=f"Response: {str(result.get('json', ''))[:100]}",
+            )
+        )
 
     # Validate expected fields in JSON response
     if doc_test.curl.expected_fields and result["json"]:
         for field in doc_test.curl.expected_fields:
-            assert field in result["json"], (
-                f"Expected field '{field}' not found in response. "
-                f"Available fields: {list(result['json'].keys())}"
-            )
+            if field not in result["json"]:
+                pytest.fail(
+                    format_doc_test_failure(
+                        test_id=test_id,
+                        doc_test=doc_test,
+                        error_type="Missing expected field in response",
+                        expected=f"field '{field}' present",
+                        actual=f"fields: {list(result['json'].keys())}",
+                    )
+                )
 
 
 # Alternative: Test specific doc files explicitly
