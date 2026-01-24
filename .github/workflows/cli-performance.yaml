@@ -1,8 +1,9 @@
 name: CLI Performance Benchmark
 
-# Measures CLI startup time (deterministic) to catch import/init regressions.
-# Reports both cold start (first run) and warm start (subsequent runs).
-# Compares PR against master branch directly.
+# Measures CLI startup time to catch import/init regressions.
+# Two benchmarks:
+# 1. Without LLM: `holmes version` - measures pure startup overhead
+# 2. With LLM: `holmes ask` - verifies full CLI works end-to-end
 
 on:
   pull_request:
@@ -10,13 +11,13 @@ on:
   workflow_dispatch:
     inputs:
       iterations:
-        description: 'Number of startup benchmark iterations'
+        description: 'Number of benchmark iterations'
         required: false
         default: '5'
 
 jobs:
-  startup-benchmark:
-    name: Startup Time Benchmark
+  benchmark-without-llm:
+    name: "Benchmark: Startup Time (no LLM)"
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -51,18 +52,16 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
-      # Benchmark PR branch
       - name: Benchmark PR branch
         run: |
           ITERATIONS=${{ github.event.inputs.iterations || '5' }}
-          echo "Benchmarking PR branch..."
+          echo "Benchmarking PR branch (holmes version)..."
           python scripts/cli_performance_benchmark.py \
             --startup-only \
             --iterations "$ITERATIONS" \
             --output pr_benchmark.json
 
-      # Save PR results and script, then checkout master
-      - name: Checkout master for baseline
+      - name: Save PR results and checkout master
         run: |
           cp pr_benchmark.json /tmp/pr_benchmark.json
           cp scripts/cli_performance_benchmark.py /tmp/cli_performance_benchmark.py
@@ -76,21 +75,21 @@ jobs:
       - name: Benchmark master branch
         run: |
           ITERATIONS=${{ github.event.inputs.iterations || '5' }}
-          echo "Benchmarking master branch..."
+          echo "Benchmarking master branch (holmes version)..."
           python scripts/cli_performance_benchmark.py \
             --startup-only \
             --iterations "$ITERATIONS" \
-            --output master_benchmark.json
+            --output /tmp/master_benchmark.json
 
-      # Switch back to PR and compare
       - name: Compare results
         id: compare
         run: |
-          rm -f scripts/cli_performance_benchmark.py  # Remove copied script before checkout
+          rm -f scripts/cli_performance_benchmark.py
           git checkout ${{ github.head_ref }}
           cp /tmp/pr_benchmark.json pr_benchmark.json
+          cp /tmp/master_benchmark.json master_benchmark.json
 
-          python << 'PYEOF'
+          python3 << 'PYEOF'
           import json
           from pathlib import Path
 
@@ -107,25 +106,20 @@ jobs:
           else:
               status, emoji = 'neutral', '🟡'
 
-          if cold_diff_pct > 20:
-              cold_emoji = '🔴'
-          elif cold_diff_pct < -10:
-              cold_emoji = '🟢'
-          else:
-              cold_emoji = '🟡'
+          cold_emoji = '🔴' if cold_diff_pct > 20 else ('🟢' if cold_diff_pct < -10 else '🟡')
 
           report_lines = [
-              f"## {emoji} CLI Startup Benchmark: {status.upper()}",
+              f"## {emoji} CLI Startup Benchmark (no LLM): {status.upper()}",
               "",
-              "Measures `holmes version` execution time (imports + initialization).",
+              "Measures **holmes version** execution time (imports + initialization).",
               "",
-              f"### {cold_emoji} Cold Start (first run, no caches)",
+              f"### {cold_emoji} Cold Start (first run)",
               "",
               "| Metric | PR | Master | Change |",
               "|--------|-----|--------|--------|",
               f"| Time | {pr['cold_start_seconds']:.3f}s | {master['cold_start_seconds']:.3f}s | {cold_diff_pct:+.1f}% |",
               "",
-              "### Warm Start (subsequent runs, caches populated)",
+              "### Warm Start (cached runs)",
               "",
               "| Metric | PR | Master | Change |",
               "|--------|-----|--------|--------|",
@@ -133,52 +127,36 @@ jobs:
               f"| Min | {pr['warm_min_seconds']:.3f}s | {master['warm_min_seconds']:.3f}s | |",
               f"| Max | {pr['warm_max_seconds']:.3f}s | {master['warm_max_seconds']:.3f}s | |",
               "",
-              f"**PR**: `{pr['git_sha']}` | **Master**: `{master['git_sha']}` | **Iterations**: {pr['iterations']}",
+              f"**PR**: {pr['git_sha']} | **Master**: {master['git_sha']} | **Iterations**: {pr['iterations']}",
           ]
 
           if status == 'regression':
-              report_lines.extend([
-                  "",
-                  "⚠️ **Regression detected!** Check for:",
-                  "- New heavy imports at module level",
-                  "- Initialization code that runs on import",
-                  "- New dependencies with slow imports",
-              ])
+              report_lines.extend(["", "⚠️ **Regression detected!** Check for new imports or initialization overhead."])
           elif status == 'improved':
-              report_lines.append("")
-              report_lines.append("✨ **Performance improved!**")
+              report_lines.extend(["", "✨ **Performance improved!**"])
 
-          report = "\n".join(report_lines)
-          Path('comparison_report.md').write_text(report)
+          Path('comparison_report.md').write_text("\n".join(report_lines))
           Path('status.txt').write_text(status)
           PYEOF
 
-          echo "status=$(cat status.txt)" >> $GITHUB_OUTPUT
-          {
-            echo 'report<<REPORT_DELIMITER_12345'
-            cat comparison_report.md
-            echo 'REPORT_DELIMITER_12345'
-          } >> $GITHUB_OUTPUT
+          echo "status=$(cat status.txt)" >> "$GITHUB_OUTPUT"
+          delimiter="$(openssl rand -hex 16)"
+          echo "report<<${delimiter}" >> "$GITHUB_OUTPUT"
+          cat comparison_report.md >> "$GITHUB_OUTPUT"
+          echo "${delimiter}" >> "$GITHUB_OUTPUT"
 
       - name: Post PR comment
         uses: actions/github-script@v7
         with:
           script: |
             const report = `${{ steps.compare.outputs.report }}`;
-
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-
-            const botComment = comments.find(comment =>
-              comment.user.type === 'Bot' &&
-              comment.body.includes('CLI Startup Benchmark')
-            );
-
+            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('CLI Startup Benchmark'));
             const body = report + '\n\n---\n*Updated: ' + new Date().toISOString() + '*';
-
             if (botComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -198,7 +176,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-${{ github.run_id }}
+          name: benchmark-no-llm-${{ github.run_id }}
           path: |
             pr_benchmark.json
             master_benchmark.json
@@ -212,8 +190,8 @@ jobs:
           fi
           echo "✅ No startup regression"
 
-  e2e-sanity-check:
-    name: E2E Sanity Check
+  benchmark-with-llm:
+    name: "Benchmark: Full CLI (with LLM)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -242,7 +220,7 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
-      - name: Run e2e sanity check
+      - name: Benchmark with LLM (holmes ask)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -250,23 +228,23 @@ jobs:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
         run: |
-          echo "Running e2e sanity check..."
+          echo "Benchmarking full CLI with LLM (holmes ask)..."
           python scripts/cli_performance_benchmark.py \
             --e2e-only \
             --iterations 2 \
-            --output e2e_result.json
+            --output benchmark_with_llm.json
 
-          python -c "
+          python3 -c "
           import json
-          r = json.loads(open('e2e_result.json').read())
-          print(f'✅ E2E sanity check passed')
+          r = json.loads(open('benchmark_with_llm.json').read())
+          print('✅ CLI with LLM works')
           print(f'   Cold: {r[\"cold_start_seconds\"]:.2f}s')
           print(f'   Warm: {r[\"warm_mean_seconds\"]:.2f}s')
           "
 
-      - name: Upload e2e results
+      - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-sanity-${{ github.run_id }}
-          path: e2e_result.json
+          name: benchmark-with-llm-${{ github.run_id }}
+          path: benchmark_with_llm.json
