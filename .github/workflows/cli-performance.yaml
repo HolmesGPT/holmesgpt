@@ -86,6 +86,7 @@ jobs:
       - name: Compare results
         id: compare
         run: |
+          rm -f scripts/cli_performance_benchmark.py  # Remove copied script before checkout
           git checkout ${{ github.head_ref }}
           cp /tmp/pr_benchmark.json pr_benchmark.json
 
