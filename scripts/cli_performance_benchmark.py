@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, median, stdev
 
@@ -38,6 +38,8 @@ class BenchmarkResult:
     benchmark_type: str  # "startup" or "e2e"
     model: str = ""
     prompt: str = ""
+    stdout: str = ""
+    stderr: str = ""
 
 
 @dataclass
@@ -113,7 +115,7 @@ def run_holmes_startup() -> BenchmarkResult:
     return BenchmarkResult(
         wall_time_seconds=elapsed,
         exit_code=result.returncode,
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         benchmark_type="startup",
     )
 
@@ -151,10 +153,12 @@ def run_holmes_ask(prompt: str, model: str | None = None) -> BenchmarkResult:
     return BenchmarkResult(
         wall_time_seconds=elapsed,
         exit_code=result.returncode,
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         benchmark_type="e2e",
         model=model or "default",
         prompt=prompt,
+        stdout=result.stdout,
+        stderr=result.stderr,
     )
 
 
@@ -200,7 +204,7 @@ def run_startup_benchmark(iterations: int = 5) -> BenchmarkSummary:
         warm_max_seconds=max(warm_times),
         warm_stdev_seconds=stdev(warm_times) if len(warm_times) > 1 else None,
         all_times=all_times,
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         git_sha=git_sha,
         git_branch=git_branch,
     )
@@ -227,6 +231,10 @@ def run_e2e_benchmark(
 
         if result.exit_code != 0:
             print(f"Warning: iteration {i + 1} failed with exit code {result.exit_code}", file=sys.stderr)
+            if result.stderr:
+                print(f"STDERR:\n{result.stderr}", file=sys.stderr)
+            if result.stdout:
+                print(f"STDOUT:\n{result.stdout}", file=sys.stderr)
             if i == 0:
                 raise RuntimeError("Cold start e2e benchmark failed")
             continue
@@ -252,7 +260,7 @@ def run_e2e_benchmark(
         warm_max_seconds=max(warm_times),
         warm_stdev_seconds=stdev(warm_times) if len(warm_times) > 1 else None,
         all_times=all_times,
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         git_sha=git_sha,
         git_branch=git_branch,
     )

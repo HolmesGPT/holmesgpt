@@ -240,7 +240,7 @@ jobs:
             python scripts/cli_performance_benchmark.py \
               --e2e-only \
               --iterations 2 \
-              --model "openrouter/anthropic/claude-haiku-4-5-20251001" \
+              --model "openrouter/anthropic/claude-haiku-4.5" \
               --output benchmark_with_llm.json
 
             python3 << 'PYEOF'
