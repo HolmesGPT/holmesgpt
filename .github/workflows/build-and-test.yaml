@@ -55,9 +55,9 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          # Minimal output: only failures, no progress, no coverage
+          # Minimal output: only show failures
           poetry run pytest -m "not llm" \
-            --no-cov \
+            --cov-report= \
             -p no:sugar \
             -q --no-header \
             -o log_cli=false \
