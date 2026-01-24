@@ -52,13 +52,13 @@ def format_doc_test_failure(
     extra_info: str = "",
 ) -> str:
     """
-    Format a clear, easy-to-find failure message for documentation tests.
+    Format a clear failure message for documentation tests.
 
-    This makes failures obvious in long pytest output by using clear banners
-    and providing all context a developer needs to fix the issue.
+    These tests validate that curl examples in our docs actually work.
+    If this fails, the documentation has an incorrect example that needs fixing.
     """
-    curl_preview = doc_test.raw_command[:200]
-    if len(doc_test.raw_command) > 200:
+    curl_preview = doc_test.raw_command[:300]
+    if len(doc_test.raw_command) > 300:
         curl_preview += "..."
 
     # Get relative path for cleaner output
@@ -68,28 +68,32 @@ def format_doc_test_failure(
     except ValueError:
         pass
 
-    return f"""
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  DOCUMENTATION CURL TEST FAILED                                              ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║  Test ID:  {test_id}
-║
-║  What: This test validates that a curl example in our docs actually works.
-║        If this fails, the documentation has an incorrect example!
-║
-║  Source: {source_file}:{doc_test.curl.line_number}
-║
-║  Error:  {error_type}
-║          Expected: {expected}
-║          Actual:   {actual}
-{f"║          {extra_info}" if extra_info else ""}║
-║  Curl command from docs:
-║    {curl_preview}
-║
-║  To fix: Edit the curl example in the docs file above, or update the
-║          test annotation (<!-- test: status=..., has_fields=... -->)
-╚══════════════════════════════════════════════════════════════════════════════╝
-"""
+    lines = [
+        "",
+        "DOCUMENTATION CURL TEST FAILED",
+        "",
+        f"This test checks that curl examples in docs work correctly.",
+        f"A curl example in the documentation returned an unexpected result.",
+        "",
+        f"Test ID: {test_id}",
+        f"Source:  {source_file}:{doc_test.curl.line_number}",
+        "",
+        f"Error:    {error_type}",
+        f"Expected: {expected}",
+        f"Actual:   {actual}",
+    ]
+
+    if extra_info:
+        lines.append(f"Details:  {extra_info}")
+
+    lines.extend([
+        "",
+        f"Curl: {curl_preview}",
+        "",
+        "To fix: Edit the curl example or its <!-- test: ... --> annotation",
+    ])
+
+    return "\n".join(lines)
 
 
 @pytest.fixture
