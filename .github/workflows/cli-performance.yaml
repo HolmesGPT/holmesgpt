@@ -1,9 +1,7 @@
 name: CLI Performance Benchmark
 
-# Measures CLI startup time to catch import/init regressions.
-# Two benchmarks:
-# 1. Without LLM: `holmes version` - measures pure startup overhead
-# 2. With LLM: `holmes ask` - verifies full CLI works end-to-end (uses OpenRouter + Haiku)
+# Measures CLI performance to catch import/init regressions.
+# Benchmarks both startup time (no LLM) and full CLI with LLM.
 
 on:
   pull_request:
@@ -16,12 +14,10 @@ on:
         default: '5'
 
 jobs:
-  benchmark-without-llm:
-    name: "Benchmark: Startup Time (no LLM)"
+  benchmark:
+    name: "CLI Performance Benchmark"
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    outputs:
-      status: ${{ steps.compare.outputs.status }}
 
     permissions:
       contents: read
@@ -55,17 +51,39 @@ jobs:
         run: poetry install --no-interaction
 
       - name: Benchmark PR branch
+        id: pr_benchmark
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           ITERATIONS=${{ github.event.inputs.iterations || '5' }}
-          echo "Benchmarking PR branch (holmes version)..."
+
+          echo "=== Benchmarking PR branch ==="
+
+          # Startup benchmark (no LLM)
+          echo "Running startup benchmark..."
           python scripts/cli_performance_benchmark.py \
             --startup-only \
             --iterations "$ITERATIONS" \
-            --output pr_benchmark.json
+            --output pr_startup.json
+
+          # LLM benchmark (if API key available)
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "has_api_key=true" >> "$GITHUB_OUTPUT"
+            echo "Running LLM benchmark..."
+            python scripts/cli_performance_benchmark.py \
+              --e2e-only \
+              --iterations "$ITERATIONS" \
+              --model "openrouter/anthropic/claude-haiku-4.5" \
+              --output pr_llm.json
+          else
+            echo "has_api_key=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ OPENROUTER_API_KEY not available - LLM benchmark skipped"
+          fi
 
       - name: Save PR results and checkout master
         run: |
-          cp pr_benchmark.json /tmp/pr_benchmark.json
+          cp pr_startup.json /tmp/pr_startup.json
+          [ -f pr_llm.json ] && cp pr_llm.json /tmp/pr_llm.json || true
           cp scripts/cli_performance_benchmark.py /tmp/cli_performance_benchmark.py
           git checkout origin/master
           mkdir -p scripts
@@ -75,67 +93,122 @@ jobs:
         run: poetry install --no-interaction
 
       - name: Benchmark master branch
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           ITERATIONS=${{ github.event.inputs.iterations || '5' }}
-          echo "Benchmarking master branch (holmes version)..."
+
+          echo "=== Benchmarking master branch ==="
+
+          # Startup benchmark (no LLM)
+          echo "Running startup benchmark..."
           python scripts/cli_performance_benchmark.py \
             --startup-only \
             --iterations "$ITERATIONS" \
-            --output /tmp/master_benchmark.json
+            --output /tmp/master_startup.json
 
-      - name: Compare results
+          # LLM benchmark (if API key available)
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "Running LLM benchmark..."
+            python scripts/cli_performance_benchmark.py \
+              --e2e-only \
+              --iterations "$ITERATIONS" \
+              --model "openrouter/anthropic/claude-haiku-4.5" \
+              --output /tmp/master_llm.json
+          else
+            echo "⚠️ OPENROUTER_API_KEY not available - LLM benchmark skipped"
+          fi
+
+      - name: Generate comparison report
         id: compare
         run: |
           rm -f scripts/cli_performance_benchmark.py
           git checkout ${{ github.head_ref }}
-          cp /tmp/pr_benchmark.json pr_benchmark.json
-          cp /tmp/master_benchmark.json master_benchmark.json
+
+          cp /tmp/pr_startup.json pr_startup.json
+          cp /tmp/master_startup.json master_startup.json
+          [ -f /tmp/pr_llm.json ] && cp /tmp/pr_llm.json pr_llm.json || true
+          [ -f /tmp/master_llm.json ] && cp /tmp/master_llm.json master_llm.json || true
 
           python3 << 'PYEOF'
           import json
           from pathlib import Path
 
-          pr = json.loads(Path('pr_benchmark.json').read_text())
-          master = json.loads(Path('master_benchmark.json').read_text())
+          def load_json(path):
+              p = Path(path)
+              return json.loads(p.read_text()) if p.exists() else None
 
-          cold_diff_pct = ((pr['cold_start_seconds'] - master['cold_start_seconds']) / master['cold_start_seconds']) * 100
-          warm_diff_pct = ((pr['warm_mean_seconds'] - master['warm_mean_seconds']) / master['warm_mean_seconds']) * 100
+          def format_benchmark_table(name, description, pr, master):
+              """Generate consistent benchmark table format."""
+              cold_diff = ((pr['cold_start_seconds'] - master['cold_start_seconds']) / master['cold_start_seconds']) * 100
+              warm_diff = ((pr['warm_mean_seconds'] - master['warm_mean_seconds']) / master['warm_mean_seconds']) * 100
 
-          if warm_diff_pct < -10:
-              status, emoji = 'improved', '🟢'
-          elif warm_diff_pct > 20:
-              status, emoji = 'regression', '🔴'
+              # Determine status emoji for section
+              if warm_diff < -10:
+                  status_emoji = '🟢'
+              elif warm_diff > 20:
+                  status_emoji = '🔴'
+              else:
+                  status_emoji = '🟡'
+
+              lines = [
+                  f"### {status_emoji} {name}",
+                  f"_{description}_",
+                  "",
+                  "| Metric | PR | Master | Change |",
+                  "|--------|-----|--------|--------|",
+                  f"| Cold Start | {pr['cold_start_seconds']:.2f}s | {master['cold_start_seconds']:.2f}s | {cold_diff:+.1f}% |",
+                  f"| Warm Mean | {pr['warm_mean_seconds']:.2f}s | {master['warm_mean_seconds']:.2f}s | {warm_diff:+.1f}% |",
+                  f"| Warm Min | {pr['warm_min_seconds']:.2f}s | {master['warm_min_seconds']:.2f}s | |",
+                  f"| Warm Max | {pr['warm_max_seconds']:.2f}s | {master['warm_max_seconds']:.2f}s | |",
+              ]
+              return lines, warm_diff
+
+          # Load results
+          pr_startup = load_json('pr_startup.json')
+          master_startup = load_json('master_startup.json')
+          pr_llm = load_json('pr_llm.json')
+          master_llm = load_json('master_llm.json')
+
+          report_lines = ["## 🔬 CLI Performance Benchmark", ""]
+
+          # Startup benchmark section
+          startup_lines, startup_diff = format_benchmark_table(
+              "Startup Time (no LLM)",
+              "Measures `holmes version` execution time (imports + initialization)",
+              pr_startup, master_startup
+          )
+          report_lines.extend(startup_lines)
+
+          # LLM benchmark section
+          report_lines.append("")
+          if pr_llm and master_llm:
+              llm_lines, llm_diff = format_benchmark_table(
+                  "Full CLI with LLM",
+                  "Measures `holmes ask` execution time (OpenRouter + Haiku 4.5)",
+                  pr_llm, master_llm
+              )
+              report_lines.extend(llm_lines)
           else:
-              status, emoji = 'neutral', '🟡'
+              report_lines.extend([
+                  "### ⚠️ Full CLI with LLM",
+                  "_Skipped - OPENROUTER_API_KEY not configured in repository secrets._",
+              ])
 
-          cold_emoji = '🔴' if cold_diff_pct > 20 else ('🟢' if cold_diff_pct < -10 else '🟡')
+          # Footer
+          report_lines.extend([
+              "",
+              "---",
+              f"**PR**: `{pr_startup['git_sha']}` | **Master**: `{master_startup['git_sha']}` | **Iterations**: {pr_startup['iterations']}",
+          ])
 
-          report_lines = [
-              f"## {emoji} CLI Startup Benchmark (no LLM): {status.upper()}",
-              "",
-              "Measures **holmes version** execution time (imports + initialization).",
-              "",
-              f"### {cold_emoji} Cold Start (first run)",
-              "",
-              "| Metric | PR | Master | Change |",
-              "|--------|-----|--------|--------|",
-              f"| Time | {pr['cold_start_seconds']:.3f}s | {master['cold_start_seconds']:.3f}s | {cold_diff_pct:+.1f}% |",
-              "",
-              "### Warm Start (cached runs)",
-              "",
-              "| Metric | PR | Master | Change |",
-              "|--------|-----|--------|--------|",
-              f"| Mean | {pr['warm_mean_seconds']:.3f}s | {master['warm_mean_seconds']:.3f}s | {warm_diff_pct:+.1f}% |",
-              f"| Min | {pr['warm_min_seconds']:.3f}s | {master['warm_min_seconds']:.3f}s | |",
-              f"| Max | {pr['warm_max_seconds']:.3f}s | {master['warm_max_seconds']:.3f}s | |",
-              "",
-              f"**PR**: {pr['git_sha']} | **Master**: {master['git_sha']} | **Iterations**: {pr['iterations']}",
-          ]
-
-          if status == 'regression':
-              report_lines.extend(["", "⚠️ **Regression detected!** Check for new imports or initialization overhead."])
-          elif status == 'improved':
-              report_lines.extend(["", "✨ **Performance improved!**"])
+          # Determine overall status
+          if startup_diff > 20:
+              status = 'regression'
+          elif startup_diff < -10:
+              status = 'improved'
+          else:
+              status = 'neutral'
 
           Path('comparison_report.md').write_text("\n".join(report_lines))
           Path('status.txt').write_text(status)
@@ -154,8 +227,8 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('CLI Startup Benchmark'));
-            const body = report + '\n\n---\n*Updated: ' + new Date().toISOString() + '*';
+            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('CLI Performance Benchmark'));
+            const body = report + '\n\n*Updated: ' + new Date().toISOString() + '*';
             if (botComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -175,10 +248,12 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-no-llm-${{ github.run_id }}
+          name: benchmark-results-${{ github.run_id }}
           path: |
-            pr_benchmark.json
-            master_benchmark.json
+            pr_startup.json
+            master_startup.json
+            pr_llm.json
+            master_llm.json
             comparison_report.md
 
       - name: Check for regression
@@ -188,119 +263,3 @@ jobs:
             exit 1
           fi
           echo "✅ No startup regression"
-
-  benchmark-with-llm:
-    name: "Benchmark: Full CLI (with LLM via OpenRouter)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: benchmark-without-llm
-
-    permissions:
-      contents: read
-      pull-requests: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: latest
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
-
-      - name: Install dependencies
-        run: poetry install --no-interaction
-
-      - name: Check API key and run benchmark
-        id: llm_benchmark
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "has_api_key=false" >> "$GITHUB_OUTPUT"
-            echo "⚠️ OPENROUTER_API_KEY not available - LLM benchmark will be skipped"
-            echo "result=⚠️ **LLM Benchmark skipped** - OPENROUTER_API_KEY not configured in repository secrets." > llm_result.txt
-          else
-            echo "has_api_key=true" >> "$GITHUB_OUTPUT"
-            echo "Benchmarking full CLI with LLM (holmes ask via OpenRouter + Haiku 4.5)..."
-
-            python scripts/cli_performance_benchmark.py \
-              --e2e-only \
-              --iterations 2 \
-              --model "openrouter/anthropic/claude-haiku-4.5" \
-              --output benchmark_with_llm.json
-
-            python3 << 'PYEOF'
-          import json
-          from pathlib import Path
-
-          r = json.loads(Path('benchmark_with_llm.json').read_text())
-          result = f"""✅ **LLM Benchmark (OpenRouter + Haiku 4.5)**: Passed
-
-          | Metric | Time |
-          |--------|------|
-          | Cold Start | {r['cold_start_seconds']:.2f}s |
-          | Warm Start | {r['warm_mean_seconds']:.2f}s |
-          """
-          Path('llm_result.txt').write_text(result)
-          PYEOF
-          fi
-
-      - name: Update PR comment with LLM results
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const llmResult = fs.readFileSync('llm_result.txt', 'utf8');
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('CLI Startup Benchmark'));
-
-            if (botComment) {
-              // Append LLM results to existing comment
-              let body = botComment.body;
-
-              // Remove old LLM section if present
-              body = body.replace(/\n---\n### LLM Benchmark[\s\S]*?(?=\n---\n\*Updated:|$)/, '');
-
-              // Remove the old timestamp line
-              body = body.replace(/\n---\n\*Updated:.*\*$/, '');
-
-              // Add new LLM section and timestamp
-              body += '\n\n---\n### LLM Benchmark\n' + llmResult;
-              body += '\n\n---\n*Updated: ' + new Date().toISOString() + '*';
-
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: body,
-              });
-            }
-
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-with-llm-${{ github.run_id }}
-          path: |
-            benchmark_with_llm.json
-            llm_result.txt
