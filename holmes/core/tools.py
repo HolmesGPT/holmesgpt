@@ -590,7 +590,7 @@ class ToolsetEnvironmentPrerequisite(BaseModel):
 class Toolset(BaseModel):
     model_config = ConfigDict(extra="forbid")
     experimental: bool = False
-    config_class: ClassVar[Optional[Type[BaseModel]]] = None
+    config_classes: ClassVar[List[Type[BaseModel]]] = []
 
     enabled: bool = False
     name: str
@@ -828,20 +828,23 @@ class Toolset(BaseModel):
     def get_config_example(self) -> Optional[Dict[str, Any]]:
         """Returns a JSON-serializable example object for the toolset's configuration.
 
-        Uses config_class if defined, otherwise returns None.
+        Returns the example of the first config class (if any), otherwise returns None.
         """
-        if self.config_class is not None:
-            return build_config_example(self.config_class)
+        if self.config_classes:
+            return build_config_example(self.config_classes[0])
         return None
         
 
     def get_config_schema(self) -> Optional[Dict[str, Any]]:
         """Returns JSON Schema for the toolset's configuration.
 
-        Uses config_class if defined, otherwise returns None.
+        Returns a dict of { config_class_name: model_json_schema } (if any), otherwise returns None.
         """
-        if self.config_class is not None:
-            return self.config_class.model_json_schema()
+        if self.config_classes:
+            return {
+                config_cls.__name__: config_cls.model_json_schema()
+                for config_cls in self.config_classes
+            }
         return None
 
     def _load_llm_instructions(self, jinja_template: str):

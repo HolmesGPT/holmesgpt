@@ -67,7 +67,7 @@ class ElasticsearchBaseToolset(Toolset):
     """Base class for Elasticsearch toolsets with shared configuration and HTTP logic."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    config_class: ClassVar[Type[ElasticsearchConfig]] = ElasticsearchConfig
+    config_classes: ClassVar[list[Type[ElasticsearchConfig]]] = [ElasticsearchConfig]
 
     def __init__(self, name: str, description: str, tools: list, **kwargs):
         super().__init__(

@@ -39,7 +39,7 @@ class MongoDBConfig(BaseModel):
 
 # https://www.mongodb.com/docs/atlas/reference/api-resources-spec/v2/
 class MongoDBAtlasToolset(Toolset):
-    config_class: ClassVar[Type[MongoDBConfig]] = MongoDBConfig
+    config_classes: ClassVar[list[Type[MongoDBConfig]]] = [MongoDBConfig]
 
     name: str = "MongoDBAtlas"
     description: str = "The MongoDB Atlas API allows access to Mongodb projects and processes. You can find logs, alerts, events, slow queries and various metrics to understand the state of Mongodb projects."

@@ -231,7 +231,9 @@ class InternetBaseToolsetConfig(BaseModel):
         ],
     )
 class InternetBaseToolset(Toolset):
-    config_class: ClassVar[Type[InternetBaseToolsetConfig]] = InternetBaseToolsetConfig
+    config_classes: ClassVar[list[Type[InternetBaseToolsetConfig]]] = [
+        InternetBaseToolsetConfig
+    ]
     
     config: Optional[InternetBaseToolsetConfig] = None
 

@@ -62,7 +62,7 @@ def format_logs(raw_logs: list[dict]) -> str:
 class DatadogLogsToolset(Toolset):
     """Toolset for working with Datadog logs data."""
 
-    config_class: ClassVar[Type[DatadogLogsConfig]] = DatadogLogsConfig
+    config_classes: ClassVar[list[Type[DatadogLogsConfig]]] = [DatadogLogsConfig]
 
     dd_config: Optional[DatadogLogsConfig] = None
 

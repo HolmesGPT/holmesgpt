@@ -598,7 +598,7 @@ class ListKafkaClusters(BaseKafkaTool):
 
 
 class KafkaToolset(Toolset):
-    config_class: ClassVar[Type[KafkaConfig]] = KafkaConfig
+    config_classes: ClassVar[list[Type[KafkaConfig]]] = [KafkaConfig]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     clients: Dict[str, AdminClient] = {}

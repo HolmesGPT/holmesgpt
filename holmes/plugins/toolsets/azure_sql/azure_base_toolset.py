@@ -47,7 +47,7 @@ class AzureSQLConfig(BaseModel):
 
 
 class BaseAzureSQLToolset(Toolset):
-    config_class: ClassVar[Type[AzureSQLConfig]] = AzureSQLConfig
+    config_classes: ClassVar[list[Type[AzureSQLConfig]]] = [AzureSQLConfig]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     _api_client: Optional[AzureSQLAPIClient] = None

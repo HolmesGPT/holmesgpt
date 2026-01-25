@@ -181,7 +181,7 @@ class ExecuteDataPrimeQuery(Tool):
 
 
 class CoralogixToolset(Toolset):
-    config_class: ClassVar[Type[CoralogixConfig]] = CoralogixConfig
+    config_classes: ClassVar[list[Type[CoralogixConfig]]] = [CoralogixConfig]
 
     def __init__(self):
         super().__init__(

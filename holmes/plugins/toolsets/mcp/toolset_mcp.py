@@ -266,7 +266,10 @@ class RemoteMCPTool(Tool):
 
 
 class RemoteMCPToolset(Toolset):
-    config_class: ClassVar[Type[MCPConfig]] = MCPConfig
+    config_classes: ClassVar[list[Type[Union[MCPConfig, StdioMCPConfig]]]] = [
+        MCPConfig,
+        StdioMCPConfig,
+    ]
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None

@@ -200,7 +200,7 @@ WHITELISTED_POST_ENDPOINTS = [
 class DatadogGeneralToolset(Toolset):
     """General-purpose Datadog API toolset for read-only operations not covered by specialized toolsets."""
 
-    config_class: ClassVar[Type[DatadogGeneralConfig]] = DatadogGeneralConfig
+    config_classes: ClassVar[list[Type[DatadogGeneralConfig]]] = [DatadogGeneralConfig]
 
     dd_config: Optional[DatadogGeneralConfig] = None
     openapi_spec: Optional[Dict[str, Any]] = None

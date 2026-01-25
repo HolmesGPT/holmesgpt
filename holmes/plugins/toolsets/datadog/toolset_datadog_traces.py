@@ -49,7 +49,7 @@ PERCENTILE_AGGREGATIONS = ["pc75", "pc90", "pc95", "pc98", "pc99"]
 class DatadogTracesToolset(Toolset):
     """Toolset for working with Datadog traces/APM data."""
 
-    config_class: ClassVar[Type[DatadogTracesConfig]] = DatadogTracesConfig
+    config_classes: ClassVar[list[Type[DatadogTracesConfig]]] = [DatadogTracesConfig]
 
     dd_config: Optional[DatadogTracesConfig] = None
 

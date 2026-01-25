@@ -135,7 +135,7 @@ class GetRabbitMQClusterStatus(BaseRabbitMQTool):
 
 
 class RabbitMQToolset(Toolset):
-    config_class: ClassVar[Type[RabbitMQConfig]] = RabbitMQConfig
+    config_classes: ClassVar[list[Type[RabbitMQConfig]]] = [RabbitMQConfig]
 
     def __init__(self):
         super().__init__(

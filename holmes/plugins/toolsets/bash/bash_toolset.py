@@ -231,7 +231,7 @@ class RunBashCommand(BaseBashTool):
 
 
 class BashExecutorToolset(BaseBashExecutorToolset):
-    config_class: ClassVar[Type[BashExecutorConfig]] = BashExecutorConfig
+    config_classes: ClassVar[list[Type[BashExecutorConfig]]] = [BashExecutorConfig]
 
     def __init__(self):
         super().__init__(

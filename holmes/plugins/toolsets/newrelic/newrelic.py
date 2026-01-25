@@ -244,7 +244,7 @@ class NewrelicConfig(BaseModel):
 
 
 class NewRelicToolset(Toolset):
-    config_class: ClassVar[Type[NewrelicConfig]] = NewrelicConfig
+    config_classes: ClassVar[list[Type[NewrelicConfig]]] = [NewrelicConfig]
 
     nr_api_key: Optional[str] = None
     nr_account_id: Optional[str] = None

@@ -657,7 +657,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
 
 
 class DatadogMetricsToolset(Toolset):
-    config_class: ClassVar[Type[DatadogMetricsConfig]] = DatadogMetricsConfig
+    config_classes: ClassVar[list[Type[DatadogMetricsConfig]]] = [DatadogMetricsConfig]
 
     dd_config: Optional[DatadogMetricsConfig] = None
 

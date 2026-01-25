@@ -1757,7 +1757,9 @@ class ExecuteRangeQuery(BasePrometheusTool):
 
 
 class PrometheusToolset(Toolset):
-    config_class: ClassVar[Type[PrometheusConfig]] = PrometheusConfig
+    config_classes: ClassVar[
+        list[Type[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]]]
+    ] = [PrometheusConfig, AMPConfig, AzurePrometheusConfig]
     config: Optional[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]] = None
 
     def __init__(self):
