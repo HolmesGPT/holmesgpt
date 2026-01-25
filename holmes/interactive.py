@@ -44,7 +44,7 @@ from holmes.plugins.toolsets.bash.common.cli_prefixes import (
     enable_cli_mode,
 )
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
-    save_cli_approved_prefixes as _save_approved_prefixes,
+    save_cli_bash_tools_approved_prefixes as _save_approved_prefixes,
 )
 from holmes.utils.colors import (
     AI_COLOR,
@@ -634,12 +634,6 @@ def _run_inline_menu(options: list[str], console: Console) -> Optional[int]:
     Returns:
         Index of selected option (0-based), or None if cancelled
     """
-    from prompt_toolkit.application import Application
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.layout import Layout
-    from prompt_toolkit.layout.containers import Window
-    from prompt_toolkit.layout.controls import FormattedTextControl
-
     selected = [0]  # Use list to allow mutation in nested function
     result = [None]  # None means cancelled
 

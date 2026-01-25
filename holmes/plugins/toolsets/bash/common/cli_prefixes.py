@@ -37,7 +37,7 @@ def is_cli_mode() -> bool:
     return _cli_mode_enabled
 
 
-def load_cli_approved_prefixes() -> List[str]:
+def load_cli_bash_tools_approved_prefixes() -> List[str]:
     """
     Load approved prefixes from ~/.holmes/bash_approved_prefixes.yaml.
 
@@ -59,7 +59,7 @@ def load_cli_approved_prefixes() -> List[str]:
     return []
 
 
-def save_cli_approved_prefixes(prefixes: List[str]) -> None:
+def save_cli_bash_tools_approved_prefixes(prefixes: List[str]) -> None:
     """
     Save approved prefixes to ~/.holmes/bash_approved_prefixes.yaml.
 

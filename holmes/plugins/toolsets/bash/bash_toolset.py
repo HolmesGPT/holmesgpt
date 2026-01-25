@@ -22,7 +22,7 @@ from holmes.core.tools import (
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
-from holmes.plugins.toolsets.bash.common.cli_prefixes import load_cli_approved_prefixes
+from holmes.plugins.toolsets.bash.common.cli_prefixes import load_cli_bash_tools_approved_prefixes
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
@@ -325,8 +325,8 @@ class BashExecutorToolset(Toolset):
 
         # Compute effective lists (includes defaults if include_default_allow_deny_list is True)
         config = self.config or BashExecutorConfig()
-        logging.info(
-            f"Loading bash toolset with include_default_allow_deny_list: {config.include_default_allow_deny_list}"
+        logging.debug(
+            f"Reloading bash toolset with include_default_allow_deny_list: {config.include_default_allow_deny_list}"
         )
         effective_allow, effective_deny = get_effective_lists(config)
 
@@ -355,7 +355,7 @@ class BashExecutorToolset(Toolset):
 
     def _merge_cli_approved_prefixes(self) -> None:
         """Merge CLI-approved prefixes from ~/.holmes/bash_approved_prefixes.yaml."""
-        cli_prefixes = load_cli_approved_prefixes()
+        cli_prefixes = load_cli_bash_tools_approved_prefixes()
         if cli_prefixes and self.config:
             # Build new list instead of mutating (preserves order, dedupes)
             merged = list(dict.fromkeys(self.config.allow + cli_prefixes))

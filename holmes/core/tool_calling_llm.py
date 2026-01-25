@@ -798,6 +798,21 @@ class ToolCallingLLM:
             )
             return tool_call_result
 
+    def _is_tool_call_already_approved(self, tool_call_result):
+        tool = self.tool_executor.get_tool_by_name(tool_call_result.tool_name)
+        if not tool:
+            return False
+        context = ToolInvokeContext(
+            llm=self.llm,
+            max_token_count=self.llm.get_max_token_count_for_single_tool(),
+            tool_name=tool_call_result.tool_name,
+            tool_call_id=tool_call_result.tool_call_id,
+        )
+        approval = tool.requires_approval(
+            tool_call_result.result.params or {}, context
+        )
+        return not approval or not approval.needs_approval
+
     def _handle_tool_call_approval(
         self,
         tool_call_result: ToolCallResult,
@@ -821,31 +836,20 @@ class ToolCallingLLM:
             return tool_call_result
 
         # Re-check if approval is still needed (prefix may have been approved by another tool call)
-        tool = self.tool_executor.get_tool_by_name(tool_call_result.tool_name)
-        if tool:
-            context = ToolInvokeContext(
-                llm=self.llm,
-                max_token_count=self.llm.get_max_token_count_for_single_tool(),
-                tool_name=tool_call_result.tool_name,
-                tool_call_id=tool_call_result.tool_call_id,
+        if self._is_tool_call_already_approved(tool_call_result):
+            logging.info(
+                f"Approval no longer needed for {tool_call_result.tool_name}"
             )
-            approval = tool.requires_approval(
-                tool_call_result.result.params or {}, context
-            )
-            if not approval or not approval.needs_approval:
-                logging.info(
-                    f"Approval no longer needed for {tool_call_result.tool_name}"
+            with trace_span.start_span(type="tool") as tool_span:
+                tool_call_result.result = self._directly_invoke_tool_call(
+                    tool_name=tool_call_result.tool_name,
+                    tool_params=tool_call_result.result.params or {},
+                    user_approved=False,
+                    tool_number=tool_number,
+                    tool_call_id=tool_call_result.tool_call_id,
                 )
-                with trace_span.start_span(type="tool") as tool_span:
-                    tool_call_result.result = self._directly_invoke_tool_call(
-                        tool_name=tool_call_result.tool_name,
-                        tool_params=tool_call_result.result.params or {},
-                        user_approved=False,
-                        tool_number=tool_number,
-                        tool_call_id=tool_call_result.tool_call_id,
-                    )
-                    ToolCallingLLM._log_tool_call_result(tool_span, tool_call_result)
-                return tool_call_result
+                ToolCallingLLM._log_tool_call_result(tool_span, tool_call_result)
+            return tool_call_result
 
         # Get approval from user
         with trace_span.start_span(
