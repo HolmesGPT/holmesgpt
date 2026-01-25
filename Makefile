@@ -13,7 +13,7 @@ test-llm-ask-holmes:
 test-without-llm:
 	poetry run pytest tests -m "not llm"
 
-docs:
+docs-run:
 	poetry run mkdocs serve --dev-addr=127.0.0.1:7000
 
 docs-build:
