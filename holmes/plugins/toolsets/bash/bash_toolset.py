@@ -40,8 +40,6 @@ def bash_result_to_structured(
     """
     Convert a BashResult to a StructuredToolResult.
 
-<<<<<<< HEAD
-=======
     Args:
         result: The BashResult from execute_bash_command
         cmd: The original command (for error messages)
@@ -84,7 +82,6 @@ def bash_result_to_structured(
         return_code=result.return_code,
     )
 
->>>>>>> master
 
 class RunBashCommand(Tool):
     """
