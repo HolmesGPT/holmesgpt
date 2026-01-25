@@ -120,6 +120,7 @@ def test_fetch_webpage(responses):
         body=EXPECTED_TEST_RESULT,
     )
     toolset = InternetToolset()
+    toolset.config = {}
     toolset.status = ToolsetStatusEnum.ENABLED
     tool_executor = ToolExecutor(toolsets=[toolset])
     fetch_webpage_tool = tool_executor.get_tool_by_name("fetch_webpage")
