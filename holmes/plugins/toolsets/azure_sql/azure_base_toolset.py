@@ -1,8 +1,8 @@
-from typing import Optional, Tuple
+from typing import ClassVar, Optional, Tuple, Type
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from holmes.core.tools import ClassVar, Tool, Toolset, Type
+from holmes.core.tools import Tool, Toolset
 from holmes.plugins.toolsets.azure_sql.apis.azure_sql_api import AzureSQLAPIClient
 
 

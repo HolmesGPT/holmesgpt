@@ -1,8 +1,9 @@
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
+from pydantic import BaseModel, Field
 import requests  # type: ignore
 from bs4 import BeautifulSoup
 from markdownify import markdownify
@@ -191,7 +192,7 @@ class FetchWebpage(Tool):
         url: str = params["url"]
 
         additional_headers = (
-            self.toolset.additional_headers if self.toolset.additional_headers else {}
+            self.toolset.config.additional_headers if self.toolset.config.additional_headers else {}
         )
         content, mime_type = scrape(url, additional_headers)
 
@@ -220,8 +221,19 @@ class FetchWebpage(Tool):
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Webpage {url}"
 
 
+class InternetBaseToolsetConfig(BaseModel):
+    additional_headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional HTTP headers to include in requests",
+        examples=[
+            {"Authorization": "Basic <base64_encoded_credentials>"},
+            {"Authorization": "Bearer <token>"},
+        ],
+    )
 class InternetBaseToolset(Toolset):
-    additional_headers: Dict[str, str] = {}
+    config_class: ClassVar[Type[InternetBaseToolsetConfig]] = InternetBaseToolsetConfig
+    
+    config: Optional[InternetBaseToolsetConfig] = None
 
     def __init__(
         self,
@@ -249,13 +261,11 @@ class InternetBaseToolset(Toolset):
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         if not config:
             return True, ""
-        self.additional_headers = config.get("additional_headers", {})
+        self.config = InternetBaseToolsetConfig(**config)
         return True, ""
 
 
 class InternetToolset(InternetBaseToolset):
-    additional_headers: Dict[str, str] = {}
-
     def __init__(self):
         super().__init__(
             name="internet",
