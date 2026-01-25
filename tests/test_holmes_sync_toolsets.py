@@ -110,9 +110,7 @@ def test_sync_toolsets_with_config_schema(
 
     mock_dal.sync_toolsets.assert_called_once()
     toolset_data = mock_dal.sync_toolsets.call_args[0][0][0]
-
-    # installation_instructions contains config_schema JSON (null for toolsets without config_classes)
-    assert toolset_data["installation_instructions"] is None
+    assert toolset_data["installation_instructions"] is not None
 
 
 @patch("subprocess.run")

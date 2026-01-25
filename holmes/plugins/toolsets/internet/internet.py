@@ -261,9 +261,7 @@ class InternetBaseToolset(Toolset):
         )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
-        if not config:
-            return True, ""
-        self.config = InternetBaseToolsetConfig(**config)
+        self.config = InternetBaseToolsetConfig(**(config or {}))
         return True, ""
 
 
