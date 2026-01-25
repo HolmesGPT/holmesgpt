@@ -1,7 +1,7 @@
 import yaml
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List
 
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal

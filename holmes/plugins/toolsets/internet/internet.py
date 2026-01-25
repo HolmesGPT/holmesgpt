@@ -222,7 +222,7 @@ class FetchWebpage(Tool):
 
 
 class InternetBaseToolsetConfig(BaseModel):
-    additional_headers: Dict[str, str] = Field(
+    additional_headers: Optional[Dict[str, str]] = Field(
         default_factory=dict,
         description="Additional HTTP headers to include in requests",
         examples=[
@@ -261,7 +261,10 @@ class InternetBaseToolset(Toolset):
         )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
-        self.config = InternetBaseToolsetConfig(**(config or {}))
+        try:
+            self.config = InternetBaseToolsetConfig(**(config or {}))
+        except Exception as e:
+            return False, f"Failed to parse config: {e}"
         return True, ""
 
 
