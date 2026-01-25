@@ -57,7 +57,7 @@ nav:
                 - "Datetime": data-sources/builtin-toolsets/datetime.md
                 - "Docker": data-sources/builtin-toolsets/docker.md
                 - "Elasticsearch / OpenSearch": data-sources/builtin-toolsets/elasticsearch.md
-                - "GitHub": data-sources/builtin-toolsets/github.md
+                - "GitHub (MCP)": data-sources/builtin-toolsets/github-mcp.md
                 - "Grafana Dashboards": data-sources/builtin-toolsets/grafanadashboards.md
                 - "Loki": data-sources/builtin-toolsets/grafanaloki.md
                 - "Tempo": data-sources/builtin-toolsets/grafanatempo.md

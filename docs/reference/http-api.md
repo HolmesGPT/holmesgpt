@@ -12,12 +12,12 @@ When using the API with a Helm deployment, the `model` parameter must reference 
 # In your values.yaml
 modelList:
   fast-model:
-    api_key: "{{ env.OPENAI_API_KEY }}"
-    model: openai/gpt-4.1
+    api_key: "{{ env.ANTHROPIC_API_KEY }}"
+    model: anthropic/claude-sonnet-4-5-20250929
     temperature: 0
   accurate-model:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
-    model: anthropic/claude-sonnet-4-20250514
+    model: anthropic/claude-opus-4-5-20251101
     temperature: 0
 ```
 
@@ -34,7 +34,7 @@ curl -X POST http://localhost:8080/api/chat \
 # This will fail - don't use the direct model identifier
 curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"ask": "list pods", "model": "openai/gpt-4.1"}'
+  -d '{"ask": "list pods", "model": "anthropic/claude-sonnet-4-5-20250929"}'
 ```
 
 For complete setup instructions with `modelList` configuration, see the [Kubernetes Installation Guide](../installation/kubernetes-installation.md).
@@ -54,6 +54,7 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | conversation_history    | No       |         | list      | Conversation history (first message must be system)|
 | model                   | No       |         | string    | Model name from your `modelList` configuration  |
 | response_format         | No       |         | object    | JSON schema for structured output (see below)   |
+| images                  | No       |         | array     | Image URLs, base64 data URIs, or objects with `url` (required), `detail` (low/high/auto), and `format` (MIME type). Requires vision-enabled model. See [Image Analysis](#image-analysis) |
 | stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
 | enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions    |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
@@ -155,6 +156,76 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 }
 ```
 
+#### Image Analysis
+
+The `/api/chat` endpoint supports image analysis with vision-enabled models. Include images as URLs or base64 data URIs in the `images` field.
+
+**Image Formats:**
+
+Images can be provided as:
+- **Simple strings**: URLs or base64 data URIs
+- **Dict format**: Objects with `url`, `detail`, and `format` fields for advanced control
+
+**Example with Image URL:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "What is in this image?",
+    "model": "anthropic/claude-sonnet-4-5-20250929",
+    "images": [
+      "https://example.com/screenshot.png"
+    ]
+  }'
+```
+
+**Example with Base64 Data URI:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Analyze this diagram",
+    "model": "anthropic/claude-sonnet-4-5-20250929",
+    "images": [
+      "data:image/png;base64,iVBORw0KGgoAAAANS..."
+    ]
+  }'
+```
+
+**Example with Advanced Format:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Compare these images",
+    "model": "anthropic/claude-opus-4-5-20251101",
+    "images": [
+      "https://example.com/before.png",
+      {
+        "url": "https://example.com/after.png",
+        "detail": "high"
+      }
+    ]
+  }'
+```
+
+**Vision Model Support:**
+
+Vision capabilities are available in recent models from major providers including OpenAI (GPT-4o and later), Anthropic (Claude 4.5 family and later), Google (Gemini family), and others supported by LiteLLM.
+
+For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision Documentation](https://docs.litellm.ai/docs/completion/vision).
+
+**Advanced Parameters (dict format only):**
+
+| Field  | Type   | Description                                              |
+|--------|--------|----------------------------------------------------------|
+| url    | string | Image URL or base64 data URI (required)                |
+| detail | string | OpenAI-specific: `low`, `high`, or `auto` for resolution control |
+| format | string | MIME type (e.g., `image/jpeg`) for providers that need explicit format |
+
 ---
 
 ### `/api/investigate` (POST)
@@ -187,7 +258,7 @@ curl -X POST http://<HOLMES-URL>/api/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "gpt-4.1"
+    "model": "anthropic/claude-sonnet-4-5-20250929"
   }'
 ```
 
@@ -234,7 +305,7 @@ curl -N -X POST http://<HOLMES-URL>/api/stream/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "gpt-4.1"
+    "model": "anthropic/claude-sonnet-4-5-20250929"
   }'
 ```
 
@@ -428,7 +499,7 @@ curl http://<HOLMES-URL>/api/model
 **Example** Response
 ```json
 {
-  "model_name": ["gpt-4.1", "azure/gpt-4.1", "robusta"]
+  "model_name": ["anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-opus-4-5-20251101", "robusta"]
 }
 ```
 
