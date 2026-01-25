@@ -13,6 +13,7 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.internet.internet import (
     InternetBaseToolset,
+    InternetBaseToolsetConfig,
     scrape,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
@@ -134,5 +135,4 @@ class NotionToolset(InternetBaseToolset):
                 False,
                 "Notion toolset is misconfigured. Authorization header is required.",
             )
-        self.additional_headers = config["additional_headers"]
-        return True, ""
+        return super().prerequisites_callable(config)

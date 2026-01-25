@@ -192,7 +192,7 @@ class FetchWebpage(Tool):
         url: str = params["url"]
 
         additional_headers = (
-            self.toolset.config.additional_headers if self.toolset.config.additional_headers else {}
+            self.toolset.internet_config.additional_headers if self.toolset.internet_config.additional_headers else {}
         )
         content, mime_type = scrape(url, additional_headers)
 
@@ -222,10 +222,11 @@ class FetchWebpage(Tool):
 
 
 class InternetBaseToolsetConfig(BaseModel):
-    additional_headers: Optional[Dict[str, str]] = Field(
+    additional_headers: Dict[str, str] = Field(
         default_factory=dict,
         description="Additional HTTP headers to include in requests",
-        examples=[
+        examples=[ 
+            {},
             {"Authorization": "Basic <base64_encoded_credentials>"},
             {"Authorization": "Bearer <token>"},
         ],
@@ -235,7 +236,7 @@ class InternetBaseToolset(Toolset):
         InternetBaseToolsetConfig
     ]
     
-    config: Optional[InternetBaseToolsetConfig] = None
+    internet_config: Optional[InternetBaseToolsetConfig] = None
 
     def __init__(
         self,
@@ -262,7 +263,7 @@ class InternetBaseToolset(Toolset):
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
-            self.config = InternetBaseToolsetConfig(**(config or {}))
+            self.internet_config = InternetBaseToolsetConfig(**(config or {}))
         except Exception as e:
             return False, f"Failed to parse config: {e}"
         return True, ""
