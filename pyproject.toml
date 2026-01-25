@@ -57,6 +57,7 @@ ag-ui-protocol = "^0.1.9"
 google-cloud-aiplatform = ">=1.38"
 
 jq = "^1.10.0"
+bashlex = "^0.18"
 
 [tool.poetry.group.dev]
 optional = true

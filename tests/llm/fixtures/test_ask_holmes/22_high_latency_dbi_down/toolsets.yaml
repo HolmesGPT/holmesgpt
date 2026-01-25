@@ -7,5 +7,3 @@ toolsets:
     enabled: true
   kubernetes/logs:
     enabled: true
-  aws/rds:
-    enabled: true

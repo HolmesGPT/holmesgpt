@@ -28,7 +28,7 @@ class ToolCallResult(BaseModel):
     result: StructuredToolResult
     size: Optional[int] = None
 
-    def as_tool_call_message(self):
+    def as_tool_call_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
@@ -37,6 +37,7 @@ class ToolCallResult(BaseModel):
                 tool_result=self.result,
                 tool_call_id=self.tool_call_id,
                 tool_name=self.tool_name,
+                extra_metadata=extra_metadata,
             ),
         }
 
@@ -66,9 +67,17 @@ class ToolCallResult(BaseModel):
 
 
 def format_tool_result_data(
-    tool_result: StructuredToolResult, tool_call_id: str, tool_name: str
+    tool_result: StructuredToolResult,
+    tool_call_id: str,
+    tool_name: str,
+    extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
-    tool_call_metadata = {"tool_name": tool_name, "tool_call_id": tool_call_id}
+    tool_call_metadata: Dict[str, Any] = {}
+    if extra_metadata:
+        tool_call_metadata.update(extra_metadata)
+    # Required fields always take precedence
+    tool_call_metadata["tool_name"] = tool_name
+    tool_call_metadata["tool_call_id"] = tool_call_id
     tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
 
     if tool_result.status == StructuredToolResultStatus.ERROR:
@@ -181,6 +190,7 @@ class ToolApprovalDecision(BaseModel):
 
     tool_call_id: str
     approved: bool
+    save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
 
 
 class ChatRequestBaseModel(BaseModel):

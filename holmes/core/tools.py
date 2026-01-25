@@ -113,6 +113,8 @@ class StructuredToolResult(BaseModel):
 class ApprovalRequirement(BaseModel):
     needs_approval: bool
     reason: str = ""
+    # Prefixes to save when user approves (for bash toolset)
+    prefixes_to_save: Optional[List[str]] = None
 
 
 def sanitize(param):
@@ -165,6 +167,9 @@ class ToolInvokeContext(BaseModel):
     max_token_count: int
     tool_call_id: str
     tool_name: str
+    session_approved_prefixes: List[
+        str
+    ] = []  # Bash prefixes approved during this session
 
 
 class Tool(ABC, BaseModel):
@@ -250,6 +255,9 @@ class Tool(ABC, BaseModel):
                 logger.info(
                     f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
                 )
+                # Override suggested_prefixes with filtered list (for bash toolset)
+                if approval_check.prefixes_to_save:
+                    params["suggested_prefixes"] = approval_check.prefixes_to_save
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.APPROVAL_REQUIRED,
                     error=approval_check.reason,
@@ -803,7 +811,7 @@ class Toolset(BaseModel):
 
             elif isinstance(prereq, CallablePrerequisite):
                 try:
-                    (enabled, error_message) = prereq.callable(self.config)
+                    (enabled, error_message) = prereq.callable(self.config or {})
                     if not enabled:
                         self.status = ToolsetStatusEnum.FAILED
                     if error_message:

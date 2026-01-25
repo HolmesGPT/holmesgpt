@@ -7,8 +7,6 @@ toolsets:
     enabled: False
   kubernetes/kube-lineage-extras:
     enabled: False
-  aws/rds:
-    enabled: False
   bash:
     enabled: False
   argocd/core:
@@ -18,8 +16,6 @@ toolsets:
   confluence:
     enabled: False
   docker/core:
-    enabled: False
-  aws/security:
     enabled: False
   aks/core:
     enabled: False

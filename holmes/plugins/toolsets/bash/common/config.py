@@ -1,29 +1,31 @@
+from typing import List
+
 from pydantic import BaseModel, Field
 
-from holmes.utils.pydantic_utils import build_config_example
-
-
-class KubectlImageConfig(BaseModel):
-    image: str = Field(
-        description="Container image to allow",
-        examples=["busybox:1.36"],
-    )
-    allowed_commands: list[str] = Field(
-        description="List of allowed commands for this image",
-        examples=[["ping", "curl", "wget"]],
-    )
-
-
-class KubectlConfig(BaseModel):
-    allowed_images: list[KubectlImageConfig] = Field(
-        default=[],
-        description="List of allowed container images for kubectl run",
-        examples=[[build_config_example(KubectlImageConfig)]]
-    )
+# Hardcoded blocks - these patterns are ALWAYS blocked and cannot be overridden
+HARDCODED_BLOCKS: List[str] = [
+    "sudo",
+    "su",
+]
 
 
 class BashExecutorConfig(BaseModel):
-    kubectl: KubectlConfig = Field(
-        default_factory=KubectlConfig,
-        description="Configuration for kubectl commands",
+    """Configuration for the bash toolset with prefix-based validation."""
+
+    # Allow/deny lists for prefix-based command validation
+    allow: List[str] = Field(
+        default_factory=list, 
+        description="Allow list of prefixes for command validation",
     )
+    deny: List[str] = Field(
+        default_factory=list,
+        description="Deny list of prefixes for command validation",
+    )
+
+    # When True, merges user lists with default allow/deny lists
+    # Default: False for CLI (user builds trusted commands over time)
+    # Should be True for server/in-cluster deployments
+    include_default_allow_deny_list: bool = Field(
+        default=False,
+        description="Include default allow/deny lists",
+        )

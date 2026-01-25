@@ -15,10 +15,6 @@ toolsets:
     enabled: false
   kafka/admin:
     enabled: false
-  aws/security:
-    enabled: false
-  aws/rds:
-    enabled: false
   aks/core:
     enabled: false
   kubernetes/live-metrics:

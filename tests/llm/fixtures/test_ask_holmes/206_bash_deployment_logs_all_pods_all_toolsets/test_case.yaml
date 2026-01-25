@@ -1,0 +1,69 @@
+user_prompt: "Get the latest 5 log lines from all order-processor pods in namespace app-206. Identify all patterns."
+
+expected_output:
+  - "Most pods have 'Connection timeout' errors"
+  - "Pod order-processor-79 has a different error: 'Database connection refused'"
+
+description: |
+  Tests that Holmes can retrieve error logs from ALL 100 pods in a StatefulSet.
+  Each pod has 5000 INFO logs followed by exactly 1 ERROR log.
+  Pod 79 has a different error message - Holmes should identify both patterns.
+
+tags:
+  - kubernetes
+  - logs
+  - question-answer
+  - benchmark
+
+before_test: |
+  kubectl create namespace app-206 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  # Wait for all 100 pods to be ready
+  PODS_READY=false
+  for i in {1..300}; do
+    READY_COUNT=$(kubectl get pods -n app-206 -l app=order-processor --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    echo "Attempt $i: $READY_COUNT/100 pods ready"
+    if [ "$READY_COUNT" -ge 100 ]; then
+      echo "All 100 pods ready!"
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$PODS_READY" = false ]; then
+    echo "Not all pods ready"
+    kubectl get pods -n app-206
+    exit 1
+  fi
+
+  # Verify all 100 pods have their ERROR log
+  ERRORS_READY=false
+  for i in {1..120}; do
+    ERROR_COUNT=$(kubectl logs -l app=order-processor -n app-206 --all-containers --max-log-requests=100 2>/dev/null | grep -c "ERROR:" || echo "0")
+    echo "Attempt $i: Found $ERROR_COUNT/100 ERROR logs"
+    if [ "$ERROR_COUNT" -ge 100 ]; then
+      echo "All 100 ERROR logs present!"
+      ERRORS_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$ERRORS_READY" = false ]; then
+    echo "Not all pods generated ERROR logs - expected 100, got $ERROR_COUNT"
+    exit 1
+  fi
+
+  # Verify pod 79 has the different error message
+  POD79_ERROR=$(kubectl logs -n app-206 order-processor-79 | grep "ERROR:")
+  if echo "$POD79_ERROR" | grep -q "Database connection refused"; then
+    echo "Pod 79 has correct different error: $POD79_ERROR"
+  else
+    echo "Pod 79 has wrong error message: $POD79_ERROR"
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-206 --ignore-not-found

@@ -1,0 +1,67 @@
+user_prompt: "Get all the error logs from all the pods of order-processor in namespace app-205. I suspect some of them might have different error messages - summarize the error patterns you find."
+
+expected_output:
+  - "Most pods have 'Connection timeout' errors"
+  - "Pod order-processor-27 has a different error: 'Database connection refused'"
+
+description: |
+  Tests that Holmes can retrieve and analyze logs from ALL 30 pods in a StatefulSet.
+  The logs are too large to read entirely (~12MB), so Holmes must filter smartly (e.g., grep ERROR).
+  Pod 27 has a different error message - Holmes should identify both patterns.
+
+tags:
+  - kubernetes
+  - logs
+  - question-answer
+  - benchmark
+
+before_test: |
+  kubectl create namespace app-205 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  # Wait for all 30 pods to be ready
+  PODS_READY=false
+  for i in {1..120}; do
+    READY_COUNT=$(kubectl get pods -n app-205 -l app=order-processor --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    echo "Attempt $i: $READY_COUNT/30 pods ready"
+    if [ "$READY_COUNT" -ge 30 ]; then
+      echo "All 30 pods ready!"
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$PODS_READY" = false ]; then
+    echo "Not all pods ready"
+    kubectl get pods -n app-205
+    exit 1
+  fi
+
+  # Verify burst completed - check that pod 27 has at least 4500 log lines
+  BURST_COMPLETE=false
+  for i in {1..60}; do
+    LINE_COUNT=$(kubectl logs -n app-205 order-processor-27 2>/dev/null | wc -l | tr -d ' ')
+    echo "Attempt $i: Pod order-processor-27 has $LINE_COUNT log lines"
+    if [ "$LINE_COUNT" -ge 4500 ]; then
+      echo "Burst complete!"
+      BURST_COMPLETE=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$BURST_COMPLETE" = false ]; then
+    echo "Burst not complete - expected at least 4500 lines, got $LINE_COUNT"
+    exit 1
+  fi
+
+  # Verify pod 27 has the different error message
+  if ! kubectl logs -n app-205 order-processor-27 | grep -q "Database connection refused"; then
+    echo "Pod 27 missing expected 'Database connection refused' error"
+    exit 1
+  fi
+  echo "Pod 27 has correct different error message"
+
+after_test: |
+  kubectl delete namespace app-205 --ignore-not-found
