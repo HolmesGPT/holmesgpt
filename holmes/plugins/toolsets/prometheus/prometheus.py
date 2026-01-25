@@ -140,7 +140,7 @@ class PrometheusConfig(BaseModel):
     additional_labels: Optional[Dict[str, str]] = Field(
         default=None,
         description="Additional label filters to apply to queries (exact-match labels)",
-        examples=[{"cluster": "prod", "namespace": "default"}],
+        examples=[ {}, {"cluster": "prod", "namespace": "default"}],
     )
     verify_ssl: bool = Field(
         default=True,
