@@ -15,6 +15,7 @@ on:
       models:
         description: 'Comma-separated list of models to test'
         required: false
+        # NOTE: Keep in sync with DEFAULT_BENCHMARK_MODELS env var
         default: 'bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0,bedrock/eu.anthropic.claude-opus-4-5-20251101-v1:0,bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0,openai/gpt-5.2,gemini/gemini-3-pro-preview,gemini/gemini-3-flash-preview'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
@@ -28,6 +29,11 @@ on:
   # Run weekly on Sunday at 2 AM UTC
   schedule:
     - cron: '0 2 * * 0'
+
+env:
+  # Default models for benchmarks - single source of truth
+  # NOTE: Keep workflow_dispatch default in sync with this for UI display
+  DEFAULT_BENCHMARK_MODELS: 'bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0,bedrock/eu.anthropic.claude-opus-4-5-20251101-v1:0,bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0,openai/gpt-5.2,gemini/gemini-3-pro-preview,gemini/gemini-3-flash-preview'
 
 jobs:
   run-benchmarks:
@@ -83,9 +89,9 @@ jobs:
               CMD="$CMD --iterations $ITERATIONS"
             fi
           else
-            # Scheduled run: use fast-benchmark with azure/gpt-4.1
+            # Scheduled run: use fast-benchmark with default models
             BENCHMARK_TYPE="fast-benchmark"
-            CMD="$CMD --benchmark-type fast-benchmark --models azure/gpt-4.1"
+            CMD="$CMD --benchmark-type fast-benchmark --models $DEFAULT_BENCHMARK_MODELS"
           fi
 
           echo "command=$CMD" >> $GITHUB_OUTPUT
