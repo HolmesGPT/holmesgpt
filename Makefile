@@ -1,4 +1,4 @@
-
+.PHONY: docs
 
 check:
 	poetry run pre-commit run -a
@@ -13,7 +13,7 @@ test-llm-ask-holmes:
 test-without-llm:
 	poetry run pytest tests -m "not llm"
 
-docs-run:
+docs:
 	poetry run mkdocs serve --dev-addr=127.0.0.1:7000
 
 docs-build:
