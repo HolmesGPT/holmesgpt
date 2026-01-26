@@ -1415,7 +1415,7 @@ class TestRequestContextPassthrough:
 
         captured_headers = None
 
-        def capture_sse_client_call(_url, headers, *, sse_read_timeout):
+        def capture_sse_client_call(_url, headers, *, sse_read_timeout, httpx_client_factory=None):
             nonlocal captured_headers
             captured_headers = headers
             return mock_client_context
@@ -1490,7 +1490,7 @@ class TestRequestContextPassthrough:
 
         captured_headers = None
 
-        def capture_sse_client_call(_url, headers, *, sse_read_timeout):
+        def capture_sse_client_call(_url, headers, *, sse_read_timeout, httpx_client_factory=None):
             nonlocal captured_headers
             captured_headers = headers
             return mock_client_context
