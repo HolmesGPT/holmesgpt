@@ -429,7 +429,7 @@ def extract_passthrough_headers(request: Request) -> dict:
 
 
 @app.post("/api/chat")
-def chat(chat_request: ChatRequest, http_request: Optional[Request] = None):
+def chat(chat_request: ChatRequest, http_request: Request):
     try:
         # Log incoming request details
         has_images = bool(chat_request.images)
@@ -453,7 +453,7 @@ def chat(chat_request: ChatRequest, http_request: Optional[Request] = None):
             runbooks=runbooks,
             images=chat_request.images,
         )
-        request_context = extract_passthrough_headers(http_request) if http_request else {}
+        request_context = extract_passthrough_headers(http_request)
 
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):

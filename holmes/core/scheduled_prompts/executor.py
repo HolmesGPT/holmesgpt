@@ -8,6 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from pydantic import ValidationError
+from starlette.requests import Request
 
 from holmes import get_version
 from holmes.common.env_vars import (
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from holmes.config import Config
     from holmes.core.supabase_dal import SupabaseDal
 
-ChatFunction = Callable[[ChatRequest], Union["ChatResponse", "StreamingResponse"]]
+ChatFunction = Callable[[ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]]
 
 ADDITIONAL_SYSTEM_PROMPT_URL = f"{ROBUSTA_UI_DOMAIN}/api/additional-system-prompt.json"
 
@@ -199,7 +200,8 @@ class ScheduledPromptsExecutor:
             trace_span=heartbeat_span,
         )
 
-        response = self.chat_function(chat_request)
+        empty_request = Request(scope={"type": "http", "headers": []})
+        response = self.chat_function(chat_request, empty_request)
         duration_seconds = time.perf_counter() - start
 
         if isinstance(response, ChatResponse):
