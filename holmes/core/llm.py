@@ -425,7 +425,7 @@ class DefaultLLM(LLM):
             cache_control_injection_points=[
                 {
                     "location": "message",
-                    "index": -1,  # -1 targets the last message, -2 would target second-to-last, etc.
+                    "index": -1,  # -1 targets the last message.
                 }
             ],
         )
