@@ -15,6 +15,10 @@ The GCP MCP addon consists of three specialized servers:
 
 When using the Holmes or Robusta Helm charts, these servers are deployed as separate pods in your cluster. For CLI users, you'll need to deploy the MCP servers manually and configure Holmes to connect to them.
 
+### Project and Region Defaults
+
+The optional `project` and `region` settings are used by Holmes by default, if not asked about a specific project or region. Holmes can still query anything the service account has access to.
+
 ## Configuration
 
 === "Holmes CLI"
@@ -66,9 +70,9 @@ When using the Holmes or Robusta Helm charts, these servers are deployed as sepa
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: "/var/secrets/gcp/key.json"
             - name: GCP_PROJECT_ID
-              value: "your-project-id"  # Optional: set default project
+              value: "your-project-id"  # Optional: Holmes uses this if not asked about a specific project
             - name: GCP_REGION
-              value: "us-central1"      # Optional: set default region
+              value: "us-central1"      # Optional: Holmes uses this if not asked about a specific region
             volumeMounts:
             - name: gcp-key
               mountPath: /var/secrets/gcp
@@ -269,10 +273,10 @@ When using the Holmes or Robusta Helm charts, these servers are deployed as sepa
         serviceAccountKey:
           secretName: "gcp-sa-key"
 
-        # Optional: specify primary project/region
+        # Optional: Holmes uses these if not asked about a specific project/region
         config:
-          project: "your-primary-project"  # Optional
-          region: "us-central1"            # Optional
+          project: "your-primary-project"
+          region: "us-central1"
 
         # Enable the MCP servers you need
         gcloud:
@@ -311,10 +315,10 @@ When using the Holmes or Robusta Helm charts, these servers are deployed as sepa
           serviceAccountKey:
             secretName: "gcp-sa-key"
 
-          # Optional: specify primary project/region
+          # Optional: Holmes uses these if not asked about a specific project/region
           config:
-            project: "your-primary-project"  # Optional
-            region: "us-central1"            # Optional
+            project: "your-primary-project"
+            region: "us-central1"
 
           # Enable the MCP servers you need
           gcloud:
