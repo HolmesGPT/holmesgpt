@@ -9,10 +9,12 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
+import argparse
 import json
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import List, Optional
 
 import colorlog
@@ -36,7 +38,7 @@ from holmes.common.env_vars import (
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
 )
-from holmes.config import Config
+from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core import investigation
 from holmes.core.conversations import (
     build_chat_messages,
@@ -95,8 +97,63 @@ init_logging()
 
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
+# Initialize config and dal at module load time
+# Will be re-initialized in main() if --config is provided
 config = Config.load_from_env()
 dal = config.dal
+
+
+def init_config(config_file: Optional[Path] = None):
+    """
+    Initialize configuration from file and environment variables.
+
+    If config_file is None, use load_from_env() (original behavior).
+    Otherwise, load from file with environment variables as overrides.
+    """
+    global config, dal
+
+    if config_file is None:
+        # Use original load_from_env() behavior
+        config = Config.load_from_env()
+    else:
+        # Check if specified config file exists
+        if not config_file.exists():
+            raise FileNotFoundError(
+                f"Config file not found: {config_file}. "
+                "Please check the path or omit --config to use environment variables."
+            )
+
+        # Load from file with environment variable overrides
+        env_overrides = {}
+        for field_name in [
+            "model",
+            "fast_model",
+            "api_key",
+            "api_base",
+            "api_version",
+            "max_steps",
+            "alertmanager_url",
+            "alertmanager_username",
+            "alertmanager_password",
+            "jira_url",
+            "jira_username",
+            "jira_api_key",
+            "jira_query",
+            "slack_token",
+            "slack_channel",
+            "github_url",
+            "github_owner",
+            "github_repository",
+            "github_pat",
+            "github_query",
+        ]:
+            val = os.getenv(field_name.upper())
+            if val is not None:
+                env_overrides[field_name] = val
+
+        config = Config.load_from_file(config_file, **env_overrides)
+
+    dal = config.dal
 
 
 def sync_before_server_start():
@@ -544,7 +601,32 @@ def readiness_check():
         raise HTTPException(status_code=503, detail="Service not ready")
 
 
-if __name__ == "__main__":
+def main():
+    """Holmes AI Server entry point"""
+    parser = argparse.ArgumentParser(description="Holmes AI Server")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=f"Path to config file (default: {DEFAULT_CONFIG_LOCATION} if exists, otherwise use environment variables)",
+    )
+    args = parser.parse_args()
+
+    # Determine config file to use
+    config_file = args.config
+    if config_file is None:
+        # Check if default config file exists
+        default_config = Path(DEFAULT_CONFIG_LOCATION)
+        if default_config.exists():
+            config_file = default_config
+            logging.info(f"Using default config file: {config_file}")
+        else:
+            logging.info("No config file specified, using environment variables")
+
+    # Initialize configuration
+    init_config(config_file)
+
+    # Configure uvicorn logging
     log_config = uvicorn.config.LOGGING_CONFIG
     log_config["formatters"]["access"]["fmt"] = (
         "%(asctime)s %(levelname)-8s %(message)s"
@@ -552,6 +634,14 @@ if __name__ == "__main__":
     log_config["formatters"]["default"]["fmt"] = (
         "%(asctime)s %(levelname)-8s %(message)s"
     )
+
+    # Sync before server start
     sync_before_server_start()
     _toolset_status_refresh_loop()
+
+    # Start server
     uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
+
+
+if __name__ == "__main__":
+    main()
