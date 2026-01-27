@@ -46,6 +46,57 @@ mcp_servers:
     llm_instructions: "This server provides general data access capabilities. Use it when you need to retrieve external information or perform remote operations that aren't covered by other toolsets."
 ```
 
+#### Dynamic Headers with Request Context
+
+MCP servers can use dynamic headers that are populated from the incoming HTTP request context. This is useful for passing authentication tokens or other request-specific headers to your MCP server.
+
+Use the `extra_headers` field (instead of `headers`) with template variables to reference headers from the incoming request:
+
+```yaml
+mcp_servers:
+  my_server:
+    description: "My MCP server with dynamic authentication"
+    config:
+      url: "http://example.com:8000/mcp/messages"
+      mode: streamable-http
+      extra_headers:
+        X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
+        X-User-Id: "{{ request_context.headers['X-User-Id'] }}"
+    llm_instructions: "Use this server to access resources with per-request authentication."
+```
+
+**How it works:**
+
+- When a request comes to HolmesGPT (via the server API), headers from that request are available in `request_context.headers`
+- Header lookups are case-insensitive (e.g., `X-Auth-Token`, `x-auth-token`, and `X-AUTH-TOKEN` all work)
+- The template is rendered when calling the MCP server, passing the header value through
+- You can also use environment variables: `"{{ env.MY_VAR }}"` or combine them: `"Bearer {{ request_context.headers['token'] }}"`
+
+**Example use case:**
+
+This is particularly useful when your MCP server needs to authenticate with external services using tokens that are specific to each request/user.
+
+```yaml
+mcp_servers:
+  remote_api_server:
+    description: "Remote API MCP Server"
+    config:
+      url: "http://mcp-server:8000/mcp"
+      mode: streamable-http
+      extra_headers:
+        X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
+    llm_instructions: "Use this server to interact with remote APIs."
+```
+
+When making requests to HolmesGPT, include the required header:
+
+```bash
+curl -X POST http://holmes-server/api/investigate \
+  -H "X-Auth-Token: your-auth-token-here" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Check system status"}'
+```
+
 ### URL Format
 
 The URL should point to the MCP server endpoint. The exact path depends on your server configuration:

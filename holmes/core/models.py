@@ -202,6 +202,9 @@ class ChatRequestBaseModel(BaseModel):
     )
     tool_decisions: Optional[List[ToolApprovalDecision]] = None
     additional_system_prompt: Optional[str] = None
+    trace_span: Optional[Any] = (
+        None  # Optional span for tracing and heartbeat callbacks
+    )
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],

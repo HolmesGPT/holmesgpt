@@ -128,6 +128,25 @@ KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))
 KEEPALIVE_INTVL = int(os.environ.get("KEEPALIVE_INTVL", 2))
 KEEPALIVE_CNT = int(os.environ.get("KEEPALIVE_CNT", 5))
 
+# Controls whether scheduled prompts executor runs at startup (defaults to on)
+ENABLED_SCHEDULED_PROMPTS = load_bool("ENABLED_SCHEDULED_PROMPTS", True)
+# Polling interval in seconds for accounts with active scheduled prompts (defaults to 60 seconds)
+SCHEDULED_PROMPTS_ACTIVE_POLL_INTERVAL_SECONDS = int(
+    os.environ.get("SCHEDULED_PROMPTS_ACTIVE_POLL_INTERVAL_SECONDS", 60)
+)
+# Polling interval in seconds for accounts without scheduled prompts (defaults to 15 minutes)
+SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
+    os.environ.get("SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS", 900)
+)
+# Heartbeat interval in seconds for updating scheduled prompt run status during execution
+SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
+    os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
+)
+# for embedds
+ROBUSTA_UI_DOMAIN = os.environ.get(
+    "ROBUSTA_UI_DOMAIN",
+    "https://platform.robusta.dev",
+)
 # Periodic refresh interval for toolset status in server mode (in seconds)
 # Set to 0 to disable periodic refresh
 TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
