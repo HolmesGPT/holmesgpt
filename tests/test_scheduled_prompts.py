@@ -41,7 +41,7 @@ def mock_config():
 def mock_chat_function():
     """Create a mock chat function."""
 
-    def chat_func(request):
+    def chat_func(request, empty_request):
         return ChatResponse(
             analysis="Test analysis",
             conversation_history=[],
@@ -172,7 +172,7 @@ class TestScheduledPromptsExecutor:
         """Test handling execution error."""
 
         # Create chat function that raises an error
-        def error_chat_func(request):
+        def error_chat_func(request, empty_request):
             raise Exception("Test error")
 
         executor = ScheduledPromptsExecutor(
