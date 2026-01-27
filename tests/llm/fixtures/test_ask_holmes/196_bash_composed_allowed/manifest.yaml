@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: amber-sunset
+  namespace: app-196
+  labels:
+    app: bash-test
+spec:
+  containers:
+    - name: nginx
+      image: nginx:1.25
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "100m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: jade-mountain
+  namespace: app-196
+  labels:
+    app: bash-test
+spec:
+  containers:
+    - name: nginx
+      image: nginx:1.25
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "100m"

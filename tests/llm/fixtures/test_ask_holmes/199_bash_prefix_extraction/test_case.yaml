@@ -1,0 +1,31 @@
+user_prompt: "Run the command 'kubectl get pods -n app-199 | grep OOMKilled' using the bash tool"
+expected_output:
+  - The bash tool call includes suggested_prefixes containing 'kubectl get' as the first prefix
+  - The bash tool call includes suggested_prefixes containing 'grep' as the second prefix
+  - The command executes successfully
+description: |
+  Tests that the AI correctly extracts command prefixes for a piped command.
+  AI must provide suggested_prefixes=['kubectl get', 'grep'] for the command.
+  We verify this by checking the tool call parameters in the output.
+before_test: |
+  kubectl create namespace app-199 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  # Wait for pod to crash with OOMKilled - need to give it time to OOM
+  echo "Waiting for data-processor-199 pod to OOMKill..."
+  for i in {1..60}; do
+    STATUS=$(kubectl get pod data-processor-199 -n app-199 -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || echo "")
+    CURRENT_REASON=$(kubectl get pod data-processor-199 -n app-199 -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || echo "")
+    if [ "$STATUS" = "OOMKilled" ] || [ "$CURRENT_REASON" = "CrashLoopBackOff" ]; then
+      echo "Pod has OOMKilled status!"
+      break
+    fi
+    echo "Attempt $i/60: waiting for OOMKill..."
+    sleep 1
+  done
+  kubectl get pods -n app-199
+after_test: |
+  kubectl delete namespace app-199 --ignore-not-found
+tags:
+  - kubernetes
+  - question-answer
+include_tool_calls: true

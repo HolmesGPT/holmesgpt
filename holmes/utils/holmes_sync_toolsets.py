@@ -1,8 +1,7 @@
+import yaml
 import logging
 from datetime import datetime
 from typing import Any, List
-
-import yaml  # type: ignore
 
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
@@ -45,6 +44,7 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         # hiding disabled experimental toolsets from the docs
         if toolset.experimental and not toolset.enabled:
             continue
+
         if not toolset.installation_instructions:
             instructions = render_default_installation_instructions_for_toolset(toolset)
             toolset.installation_instructions = instructions
@@ -68,7 +68,7 @@ def render_default_installation_instructions_for_toolset(toolset: Toolset) -> st
         "toolset_name": toolset.name,
     }
 
-    example_config = toolset.get_example_config()
+    example_config = toolset.get_config_example()
     if example_config:
         context["example_config"] = yaml.dump(example_config)
 

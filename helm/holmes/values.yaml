@@ -67,6 +67,10 @@ toolsets:
     enabled: true
   connectivity_check:
     enabled: true
+  bash:
+    enabled: true
+    config:
+      include_default_allow_deny_list: true
 mcp_servers: {}
 
 resources:
