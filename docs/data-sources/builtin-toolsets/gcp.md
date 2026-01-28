@@ -463,15 +463,55 @@ Workload Identity is Google's recommended way to authenticate workloads running 
     - **Fine-grained access** - Each Kubernetes service account maps to a specific GCP service account
     - **Audit trail** - All API calls are attributed to the GKE workload
 
-#### Prerequisites
+#### Step 1: Enable Workload Identity on Your Cluster
 
-<!-- PLACEHOLDER: Add prerequisites for Workload Identity setup -->
+```bash
+gcloud container clusters update CLUSTER_NAME \
+  --project PROJECT_ID \
+  --workload-pool=PROJECT_ID.svc.id.goog \
+  --region REGION
+```
 
-#### Setup Steps
+#### Step 2: Enable Workload Identity on Node Pools
 
-<!-- PLACEHOLDER: Add step-by-step Workload Identity configuration -->
+Each node pool that runs workloads using Workload Identity needs to have GKE metadata server enabled:
 
-#### Helm Configuration
+```bash
+gcloud container node-pools update NODE_POOL_NAME \
+  --project PROJECT_ID \
+  --cluster CLUSTER_NAME \
+  --workload-metadata=GKE_METADATA \
+  --region REGION
+```
+
+!!! note
+    Repeat for all node pools where Holmes pods may run.
+
+#### Step 3: Create a GCP Service Account
+
+Follow the same steps as [Creating a GCP Service Account](#creating-a-gcp-service-account) above, but **skip the key generation step** - Workload Identity doesn't require a JSON key file.
+
+#### Step 4: Bind Kubernetes Service Account to GCP Service Account
+
+Allow the Kubernetes Service Account (KSA) to impersonate the GCP Service Account (GSA):
+
+!!! tip
+    The `GCP_SERVICE_ACCOUNT_EMAIL` can be found in the GCP Console under **IAM & Admin > Service Accounts**.
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding GCP_SERVICE_ACCOUNT_EMAIL \
+  --project PROJECT_ID \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:PROJECT_ID.svc.id.goog[NAMESPACE/gcp-mcp-sa]"
+```
+
+Replace:
+
+- `GCP_SERVICE_ACCOUNT_EMAIL` - Your GCP service account email (e.g., `holmes-gcp-mcp@my-project.iam.gserviceaccount.com`)
+- `PROJECT_ID` - Your GCP project ID
+- `NAMESPACE` - The Kubernetes namespace where Holmes will be deployed
+
+#### Step 5: Helm Configuration
 
 === "Holmes Helm Chart"
 
@@ -485,10 +525,9 @@ Workload Identity is Google's recommended way to authenticate workloads running 
           enabled: true
 
         serviceAccount:
-          create: true
           name: gcp-mcp-sa
           annotations:
-            iam.gke.io/gcp-service-account: "holmes-mcp@YOUR_PROJECT.iam.gserviceaccount.com"
+            iam.gke.io/gcp-service-account: "GCP_SERVICE_ACCOUNT_EMAIL"
 
         # Optional: specify primary project/region
         config:
@@ -517,10 +556,9 @@ Workload Identity is Google's recommended way to authenticate workloads running 
             enabled: true
 
           serviceAccount:
-            create: true
             name: gcp-mcp-sa
             annotations:
-              iam.gke.io/gcp-service-account: "holmes-mcp@YOUR_PROJECT.iam.gserviceaccount.com"
+              iam.gke.io/gcp-service-account: "GCP_SERVICE_ACCOUNT_EMAIL"
 
           # Optional: specify primary project/region
           config:
@@ -535,10 +573,6 @@ Workload Identity is Google's recommended way to authenticate workloads running 
           storage:
             enabled: true
     ```
-
-#### Troubleshooting Workload Identity
-
-<!-- PLACEHOLDER: Add Workload Identity specific troubleshooting -->
 
 ## Capabilities
 
