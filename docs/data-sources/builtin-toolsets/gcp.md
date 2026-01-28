@@ -520,10 +520,6 @@ Replace:
       gcp:
         enabled: true
 
-        # Workload Identity configuration
-        workloadIdentity:
-          enabled: true
-
         serviceAccount:
           name: gcp-mcp-sa
           annotations:
@@ -550,10 +546,6 @@ Replace:
       mcpAddons:
         gcp:
           enabled: true
-
-          # Workload Identity configuration
-          workloadIdentity:
-            enabled: true
 
           serviceAccount:
             name: gcp-mcp-sa
