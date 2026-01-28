@@ -355,31 +355,66 @@ Service account keys are the traditional way to authenticate GCP applications. T
 
 #### Creating a GCP Service Account
 
-The GCP MCP servers require a service account with appropriate read-only permissions. We provide an automated script that handles all the setup:
+The GCP MCP servers require a service account with appropriate read-only permissions.
 
-1. **Clone the repository and run the setup script:**
+=== "Setup Script (Recommended)"
 
-   ```bash
-   git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
-   cd holmes-mcp-integrations/servers/gcp
+    We provide an automated script that handles all the setup:
 
-   # Single project setup
-   ./setup-gcp-service-account.sh \
-     --project your-project-id \
-     --k8s-namespace holmes  # Or your namespace
+    ```bash
+    git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
+    cd holmes-mcp-integrations/servers/gcp
 
-   # Multi-project setup (for cross-project investigations)
-   ./setup-gcp-service-account.sh \
-     --project primary-project \
-     --other-projects dev-project,staging-project,prod-project \
-     --k8s-namespace holmes
-   ```
+    # Single project setup
+    ./setup-gcp-service-account.sh \
+      --project your-project-id \
+      --k8s-namespace holmes  # Or your namespace
 
-2. **What the script does:**
-   - Creates a GCP service account
-   - Grants ~50 optimized read-only IAM roles for incident response
-   - Generates a service account key
-   - Creates a Kubernetes secret (`gcp-sa-key`) with the key
+    # Multi-project setup (for cross-project investigations)
+    ./setup-gcp-service-account.sh \
+      --project primary-project \
+      --other-projects dev-project,staging-project,prod-project \
+      --k8s-namespace holmes
+    ```
+
+    **What the script does:**
+
+    - Creates a GCP service account
+    - Grants ~50 optimized read-only IAM roles for incident response
+    - Generates a service account key
+    - Creates a Kubernetes secret (`gcp-sa-key`) with the key
+
+=== "Manual Setup"
+
+    If you prefer to set up manually:
+
+    ```bash
+    # Create service account
+    gcloud iam service-accounts create holmes-gcp-mcp \
+      --display-name="Holmes GCP MCP Service Account"
+
+    # Grant essential roles (example)
+    PROJECT_ID=your-project
+    SA_EMAIL=holmes-gcp-mcp@${PROJECT_ID}.iam.gserviceaccount.com
+
+    for role in browser compute.viewer container.viewer logging.privateLogViewer monitoring.viewer; do
+      gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+        --member="serviceAccount:${SA_EMAIL}" \
+        --role="roles/${role}"
+    done
+
+    # Create key
+    gcloud iam service-accounts keys create key.json \
+      --iam-account=${SA_EMAIL}
+
+    # Create Kubernetes secret
+    kubectl create secret generic gcp-sa-key \
+      --from-file=key.json \
+      --namespace=holmes
+    ```
+
+    !!! warning "Limited roles"
+        The manual setup above only includes essential roles. For the full set of ~50 optimized roles, use the setup script or see the [complete role list](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp).
 
 #### IAM Permissions
 
@@ -401,6 +436,7 @@ The setup script grants ~50 optimized read-only roles designed for incident resp
 - ❌ NO write permissions
 
 Key roles include:
+
 - `roles/browser` - Navigate project hierarchy
 - `roles/logging.privateLogViewer` - Audit and data access logs
 - `roles/compute.viewer` - VMs, firewalls, load balancers
@@ -411,35 +447,6 @@ Key roles include:
 - `roles/bigquery.metadataViewer` - Table schemas only
 
 For the complete list and setup details, see the [GCP MCP setup documentation](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp).
-
-#### Manual Setup (Alternative)
-
-If you prefer to set up manually:
-
-```bash
-# Create service account
-gcloud iam service-accounts create holmes-gcp-mcp \
-  --display-name="Holmes GCP MCP Service Account"
-
-# Grant essential roles (example)
-PROJECT_ID=your-project
-SA_EMAIL=holmes-gcp-mcp@${PROJECT_ID}.iam.gserviceaccount.com
-
-for role in browser compute.viewer container.viewer logging.privateLogViewer monitoring.viewer; do
-  gcloud projects add-iam-policy-binding ${PROJECT_ID} \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/${role}"
-done
-
-# Create key
-gcloud iam service-accounts keys create key.json \
-  --iam-account=${SA_EMAIL}
-
-# Create Kubernetes secret
-kubectl create secret generic gcp-sa-key \
-  --from-file=key.json \
-  --namespace=holmes
-```
 
 ### Workload Identity (GKE)
 
