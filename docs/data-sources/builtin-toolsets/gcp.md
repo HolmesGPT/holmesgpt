@@ -5,7 +5,10 @@ The GCP MCP servers provide comprehensive access to Google Cloud Platform servic
 ## Overview
 
 !!! info "Prerequisites"
-    You need to configure GCP service account credentials before installing the MCP servers. See the [Service Account Configuration](#service-account-configuration) section for setup instructions.
+    You need to configure GCP authentication before installing the MCP servers. Choose one of the following methods:
+
+    - **[Service Account Key](#service-account-key)** - Traditional authentication using a JSON key file (works anywhere)
+    - **[Workload Identity](#workload-identity-gke)** - Recommended for GKE clusters (no key management required)
 
 The GCP MCP addon consists of three specialized servers:
 
@@ -337,9 +340,20 @@ The optional `project` and `region` settings are used by Holmes by default, if n
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-## Service Account Configuration
+## Authentication
 
-### Creating a GCP Service Account
+The GCP MCP servers support two authentication methods. Choose the one that best fits your environment.
+
+### Service Account Key
+
+Service account keys are the traditional way to authenticate GCP applications. This method works in any environment but requires managing and rotating key files.
+
+!!! tip "When to use"
+    - Non-GKE Kubernetes clusters (EKS, AKS, on-premise)
+    - Local development and testing
+    - Environments where Workload Identity is not available
+
+#### Creating a GCP Service Account
 
 The GCP MCP servers require a service account with appropriate read-only permissions. We provide an automated script that handles all the setup:
 
@@ -367,7 +381,7 @@ The GCP MCP servers require a service account with appropriate read-only permiss
    - Generates a service account key
    - Creates a Kubernetes secret (`gcp-sa-key`) with the key
 
-### IAM Permissions
+#### IAM Permissions
 
 The setup script grants ~50 optimized read-only roles designed for incident response and troubleshooting:
 
@@ -398,7 +412,7 @@ Key roles include:
 
 For the complete list and setup details, see the [GCP MCP setup documentation](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp).
 
-### Manual Setup (Alternative)
+#### Manual Setup (Alternative)
 
 If you prefer to set up manually:
 
@@ -426,6 +440,98 @@ kubectl create secret generic gcp-sa-key \
   --from-file=key.json \
   --namespace=holmes
 ```
+
+### Workload Identity (GKE)
+
+Workload Identity is Google's recommended way to authenticate workloads running on GKE. It eliminates the need for service account keys by allowing Kubernetes service accounts to impersonate GCP service accounts.
+
+!!! tip "When to use"
+    - GKE clusters (Standard or Autopilot)
+    - Production environments where key management is a concern
+    - Organizations with strict security policies against long-lived credentials
+
+!!! info "Benefits"
+    - **No key rotation required** - Credentials are automatically managed
+    - **Enhanced security** - No service account keys to leak or manage
+    - **Fine-grained access** - Each Kubernetes service account maps to a specific GCP service account
+    - **Audit trail** - All API calls are attributed to the GKE workload
+
+#### Prerequisites
+
+<!-- PLACEHOLDER: Add prerequisites for Workload Identity setup -->
+
+#### Setup Steps
+
+<!-- PLACEHOLDER: Add step-by-step Workload Identity configuration -->
+
+#### Helm Configuration
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      gcp:
+        enabled: true
+
+        # Workload Identity configuration
+        workloadIdentity:
+          enabled: true
+
+        serviceAccount:
+          create: true
+          name: gcp-mcp-sa
+          annotations:
+            iam.gke.io/gcp-service-account: "holmes-mcp@YOUR_PROJECT.iam.gserviceaccount.com"
+
+        # Optional: specify primary project/region
+        config:
+          project: "your-primary-project"
+          region: "us-central1"
+
+        # Enable the MCP servers you need
+        gcloud:
+          enabled: true
+        observability:
+          enabled: true
+        storage:
+          enabled: true
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        gcp:
+          enabled: true
+
+          # Workload Identity configuration
+          workloadIdentity:
+            enabled: true
+
+          serviceAccount:
+            create: true
+            name: gcp-mcp-sa
+            annotations:
+              iam.gke.io/gcp-service-account: "holmes-mcp@YOUR_PROJECT.iam.gserviceaccount.com"
+
+          # Optional: specify primary project/region
+          config:
+            project: "your-primary-project"
+            region: "us-central1"
+
+          # Enable the MCP servers you need
+          gcloud:
+            enabled: true
+          observability:
+            enabled: true
+          storage:
+            enabled: true
+    ```
+
+#### Troubleshooting Workload Identity
+
+<!-- PLACEHOLDER: Add Workload Identity specific troubleshooting -->
 
 ## Capabilities
 
@@ -521,11 +627,12 @@ The gcloud MCP requires version 550.0.0+ to work correctly. The provided Docker 
 
 ## Security Best Practices
 
-1. **Use least privilege**: The setup script only grants read-only roles without data access
-2. **Rotate keys regularly**: Re-run the setup script every 90 days
-3. **Delete local keys**: Remove key files after creating Kubernetes secret
-4. **Monitor usage**: Check audit logs for service account activity
-5. **Enable network policies**: Set `networkPolicy.enabled: true` in Helm values
+1. **Use Workload Identity when possible**: On GKE, prefer Workload Identity over service account keys
+2. **Use least privilege**: The setup script only grants read-only roles without data access
+3. **Rotate keys regularly**: If using service account keys, re-run the setup script every 90 days
+4. **Delete local keys**: Remove key files after creating Kubernetes secret
+5. **Monitor usage**: Check audit logs for service account activity
+6. **Enable network policies**: Set `networkPolicy.enabled: true` in Helm values
 
 ## Additional Resources
 
