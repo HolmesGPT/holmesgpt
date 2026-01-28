@@ -866,13 +866,9 @@ class Toolset(BaseModel):
         """
         if self.config_classes:
             return {
-                "name": self.name,
-                "description": self.description,
-                "examples": self.get_config_example(),
-                "config_schema": {
                 config_cls.__name__: config_cls.model_json_schema()
                 for config_cls in self.config_classes
-            }}
+            }
         return None
 
     def _load_llm_instructions(self, jinja_template: str):

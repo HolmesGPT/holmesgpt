@@ -2,6 +2,7 @@ nav:
     - CLI: cli-installation.md
     - Web UI (3rd party): ui-installation.md
     - Slack Bot (3rd party): slack-installation.md
+    - Teams Bot (3rd party): teams-installation.md
     - Backstage (3rd party): backstage-integration.md
     - K9s: k9s-installation.md
     - Helm Chart: kubernetes-installation.md

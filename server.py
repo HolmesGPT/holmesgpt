@@ -142,6 +142,7 @@ def _toolset_status_refresh_loop():
                         logging.info(
                             f"Toolset '{toolset_name}' status changed: {old_status} -> {new_status}"
                         )
+                    holmes_sync_toolsets_status(dal, config)
                 else:
                     logging.debug(
                         "Periodic toolset status refresh: no changes detected"
