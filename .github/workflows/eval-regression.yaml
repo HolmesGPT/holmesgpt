@@ -784,6 +784,8 @@ jobs:
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
           CONFLUENCE_USER_NAME: ${{ secrets.CONFLUENCE_USER_NAME }}
+          CORALOGIX_API_KEY: ${{ secrets.CORALOGIX_API_KEY }}
+          CORALOGIX_SEND_API_KEY: ${{ secrets.CORALOGIX_SEND_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
