@@ -1,3 +1,4 @@
+import json
 import yaml
 import logging
 from datetime import datetime
@@ -46,7 +47,7 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
             continue
 
         if not toolset.installation_instructions:
-            instructions = render_default_installation_instructions_for_toolset(toolset)
+            instructions = get_config_schema_for_toolset(toolset)
             toolset.installation_instructions = instructions
         db_toolsets.append(
             ToolsetDBModel(
@@ -60,6 +61,13 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
     dal.sync_toolsets(db_toolsets, config.cluster_name)
     log_toolsets_statuses(tool_executor.toolsets)
 
+
+def get_config_schema_for_toolset(toolset: Toolset) -> str:
+    res = {
+        "example_yaml": render_default_installation_instructions_for_toolset(toolset),
+        "schema": toolset.get_config_schema(),
+    }
+    return json.dumps(res)
 
 def render_default_installation_instructions_for_toolset(toolset: Toolset) -> str:
     env_vars = toolset.get_environment_variables()
