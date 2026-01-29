@@ -13,9 +13,9 @@ before_test: |
   kubectl create namespace app-73b || true
   kubectl create secret generic cron-scheduler-logs-script --from-file=generate_logs.py=./generate_logs.py -n app-73b --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f ./manifest.yaml
-  # Wait for pod and all required log lines to appear (60s total) - MUST succeed or test fails
+  # Wait for pod and all required log lines to appear - MUST succeed or test fails
   LOGS_READY=false
-  for i in {1..40}; do
+  for i in {1..50}; do
     # First check if pod exists and is ready
     if kubectl wait --for=condition=ready pod -l app=cron-scheduler -n app-73b --timeout=1s 2>/dev/null; then
       # Pod is ready, now get its name and check for all three required log lines
@@ -25,15 +25,15 @@ before_test: |
         LOGS_READY=true
         break
       else
-        echo "⏳ Attempt $i/40: pod ready but not all log lines found yet, checking in 3s..."
+        echo "⏳ Attempt $i/50: pod ready but not all log lines found yet, checking in 3s..."
       fi
     else
-      echo "⏳ Attempt $i/40: waiting for pod to be ready, checking in 3s..."
+      echo "⏳ Attempt $i/50: waiting for pod to be ready, checking in 3s..."
     fi
     sleep 3
   done
   if [ "$LOGS_READY" = false ]; then
-    echo "❌ Required log lines not found after 60s"
+    echo "❌ Required log lines not found after timeout"
     POD_NAME=$(kubectl get pods -n app-73b -l app=cron-scheduler -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [ -n "$POD_NAME" ]; then
       kubectl logs "$POD_NAME" -n app-73b --tail=50
