@@ -436,22 +436,24 @@ def build_chat_messages(
     else:
         conversation_history = conversation_history.copy()
 
-    conversation_history = add_or_update_system_prompt(
-        conversation_history=conversation_history,
-        ai=ai,
-        config=config,
-        additional_system_prompt=additional_system_prompt,
-        runbooks=runbooks,
-    )
+    # [PROMPT #5] System prompt from generic_ask_conversation.jinja2 template (server mode)
+    # conversation_history = add_or_update_system_prompt(
+    #     conversation_history=conversation_history,
+    #     ai=ai,
+    #     config=config,
+    #     additional_system_prompt=additional_system_prompt,
+    #     runbooks=runbooks,
+    # )
 
-    runbooks_ctx = generate_runbooks_args(
-        runbook_catalog=runbooks,
-        global_instructions=global_instructions,
-    )
-    ask = generate_user_prompt(
-        ask,
-        runbooks_ctx,
-    )
+    # [PROMPT #6] Runbook context + time period text (server mode, added to user prompt)
+    # runbooks_ctx = generate_runbooks_args(
+    #     runbook_catalog=runbooks,
+    #     global_instructions=global_instructions,
+    # )
+    # ask = generate_user_prompt(
+    #     ask,
+    #     runbooks_ctx,
+    # )
 
     # Build user message with optional images
     if images:

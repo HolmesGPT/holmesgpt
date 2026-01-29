@@ -100,23 +100,26 @@ def build_initial_ask_messages(
         system_prompt_template, template_context
     )
 
-    # Append files to user prompt
+    # [PROMPT #1] Append files to user prompt
     user_prompt_with_files = append_all_files_to_user_prompt(
         console, initial_user_prompt, file_paths
     )
 
-    user_prompt_with_files += get_tasks_management_system_reminder()
+    # [PROMPT #2] TodoWrite reminder (added to user prompt)
+    # user_prompt_with_files += get_tasks_management_system_reminder()
 
-    runbooks_ctx = generate_runbooks_args(
-        runbook_catalog=runbooks,  # type: ignore
-    )
-    user_prompt_with_files = generate_user_prompt(
-        user_prompt_with_files,
-        runbooks_ctx,
-    )
+    # [PROMPT #3] Runbook context + time period text (added to user prompt)
+    # runbooks_ctx = generate_runbooks_args(
+    #     runbook_catalog=runbooks,  # type: ignore
+    # )
+    # user_prompt_with_files = generate_user_prompt(
+    #     user_prompt_with_files,
+    #     runbooks_ctx,
+    # )
 
     messages = [
-        {"role": "system", "content": system_prompt_rendered},
+        # [PROMPT #4] System prompt from generic_ask.jinja2 template
+        # {"role": "system", "content": system_prompt_rendered},
         {"role": "user", "content": user_prompt_with_files},
     ]
 
