@@ -31,7 +31,8 @@ bs4 = "^0.0.2"
 markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
-litellm = "~1.81.5"
+# Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
+litellm = "1.81.3"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
