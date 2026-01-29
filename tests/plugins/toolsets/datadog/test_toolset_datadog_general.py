@@ -50,6 +50,33 @@ class TestEndpointValidation:
         allowed, error = is_endpoint_allowed(endpoint, method="POST")
         assert not allowed, f"POST should not be allowed for {endpoint}"
 
+    def test_container_endpoints(self):
+        """Test that container endpoints are allowed."""
+        allowed_endpoints = [
+            "/api/v2/containers",
+            "/api/v2/container_images",
+        ]
+        for endpoint in allowed_endpoints:
+            allowed, error = is_endpoint_allowed(endpoint, method="GET")
+            assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
+
+    def test_downtime_endpoints(self):
+        """Test that downtime endpoints are allowed."""
+        allowed_endpoints = [
+            "/api/v1/downtime",
+            "/api/v2/downtime",
+            "/api/v1/downtime/12345",
+        ]
+        for endpoint in allowed_endpoints:
+            allowed, error = is_endpoint_allowed(endpoint, method="GET")
+            assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
+
+    def test_service_check_endpoint(self):
+        """Test that service check endpoint is allowed."""
+        endpoint = "/api/v1/check_run"
+        allowed, error = is_endpoint_allowed(endpoint, method="GET")
+        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
+
     def test_blacklisted_operations(self):
         """Test that blacklisted operations are blocked."""
         blocked_endpoints = [

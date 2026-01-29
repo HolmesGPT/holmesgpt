@@ -97,6 +97,14 @@ WHITELISTED_ENDPOINTS = [
     (r"^/api/v\d+/usage/estimated_cost$", ""),
     # Processes
     (r"^/api/v\d+/processes$", ""),
+    # Containers
+    (r"^/api/v2/containers$", "List running containers"),
+    (r"^/api/v2/container_images$", "List container images"),
+    # Downtimes
+    (r"^/api/v\d+/downtime$", "List scheduled downtimes"),
+    (r"^/api/v\d+/downtime/\d+$", "Get specific downtime"),
+    # Service Checks
+    (r"^/api/v1/check_run$", "Query service check results"),
     # Tags
     (r"^/api/v\d+/tags/hosts(/[^/]+)?$", ""),
     # Notebooks
