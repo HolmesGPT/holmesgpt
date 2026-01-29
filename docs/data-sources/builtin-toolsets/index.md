@@ -39,6 +39,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-robot:{ .lg .middle } **Robusta**](robusta.md)
 -   [:material-ticket:{ .lg .middle } **ServiceNow**](servicenow.md)
 -   [:material-forum:{ .lg .middle } **Slab**](slab.md)
+-   [:simple-splunk:{ .lg .middle } **Splunk (MCP)**](splunk-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 
 </div>
