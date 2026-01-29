@@ -1,0 +1,153 @@
+{{- if .Values.mcpAddons.github.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-github-mcp-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-github-mcp
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data:
+  {{- if .Values.mcpAddons.github.config.toolsets }}
+  GITHUB_TOOLSETS: {{ .Values.mcpAddons.github.config.toolsets | quote }}
+  {{- end }}
+  {{- if .Values.mcpAddons.github.config.tools }}
+  GITHUB_TOOLS: {{ .Values.mcpAddons.github.config.tools | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-github-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-github-mcp
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-github-mcp
+      app.kubernetes.io/name: github-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-github-mcp
+        app.kubernetes.io/name: github-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.github | toYaml | sha256sum }}
+    spec:
+      {{- if .Values.mcpAddons.github.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.github.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.github.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.github.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.github.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.github.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: github-mcp
+        image: "{{ .Values.mcpAddons.github.registry }}/{{ .Values.mcpAddons.github.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.github.imagePullPolicy | default "IfNotPresent" }}
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        args:
+          - "--stdio"
+          - "github-mcp-server stdio"
+          - "--port"
+          - "8000"
+        env:
+        - name: GITHUB_PERSONAL_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "mcpAddons.github.auth.secretName is required" .Values.mcpAddons.github.auth.secretName }}
+              key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
+        {{- if .Values.mcpAddons.github.config.toolsets }}
+        - name: GITHUB_TOOLSETS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-github-mcp-config
+              key: GITHUB_TOOLSETS
+        {{- end }}
+        {{- if .Values.mcpAddons.github.config.tools }}
+        - name: GITHUB_TOOLS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-github-mcp-config
+              key: GITHUB_TOOLS
+        {{- end }}
+        {{- if .Values.mcpAddons.github.config.host }}
+        - name: GITHUB_HOST
+          value: {{ .Values.mcpAddons.github.config.host | quote }}
+        {{- end }}
+        {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/certs/{{ .Values.mcpAddons.github.config.customCACert.secretKey }}
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/ssl/certs
+          readOnly: true
+        {{- end }}
+      {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
+      volumes:
+      - name: ca-cert
+        secret:
+          secretName: {{ .Values.mcpAddons.github.config.customCACert.secretName }}
+          defaultMode: 420
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-github-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-github-mcp
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  selector:
+    app: {{ .Release.Name }}-github-mcp
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- end }}

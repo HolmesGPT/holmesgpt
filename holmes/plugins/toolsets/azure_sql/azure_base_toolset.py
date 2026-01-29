@@ -1,26 +1,54 @@
-from typing import Optional, Tuple
+from typing import ClassVar, Optional, Tuple, Type
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from holmes.core.tools import Tool, Toolset
 from holmes.plugins.toolsets.azure_sql.apis.azure_sql_api import AzureSQLAPIClient
 
 
 class AzureSQLDatabaseConfig(BaseModel):
-    subscription_id: str
-    resource_group: str
-    server_name: str
-    database_name: str
+    subscription_id: str = Field(
+        description="Azure subscription ID",
+        examples=["12345678-1234-1234-1234-123456789012"],
+    )
+    resource_group: str = Field(
+        description="Azure resource group name",
+        examples=["my-resource-group"],
+    )
+    server_name: str = Field(
+        description="Azure SQL server name",
+        examples=["myserver"],
+    )
+    database_name: str = Field(
+        description="Azure SQL database name",
+        examples=["mydatabase"],
+    )
 
 
 class AzureSQLConfig(BaseModel):
-    database: AzureSQLDatabaseConfig
-    tenant_id: Optional[str]
-    client_id: Optional[str]
-    client_secret: Optional[str]
+    database: AzureSQLDatabaseConfig = Field(
+        description="Azure SQL database connection details",
+    )
+    tenant_id: Optional[str] = Field(
+        default=None,
+        description="Azure AD tenant ID (required for service principal auth)",
+        examples=["{{ env.AZURE_TENANT_ID }}"],
+    )
+    client_id: Optional[str] = Field(
+        default=None,
+        description="Azure AD client/application ID (required for service principal auth)",
+        examples=["{{ env.AZURE_CLIENT_ID }}"],
+    )
+    client_secret: Optional[str] = Field(
+        default=None,
+        description="Azure AD client secret (required for service principal auth)",
+        examples=["{{ env.AZURE_CLIENT_SECRET }}"],
+    )
 
 
 class BaseAzureSQLToolset(Toolset):
+    config_classes: ClassVar[list[Type[AzureSQLConfig]]] = [AzureSQLConfig]
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
     _api_client: Optional[AzureSQLAPIClient] = None
     _database_config: Optional[AzureSQLDatabaseConfig] = None

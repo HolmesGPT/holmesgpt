@@ -159,37 +159,6 @@ Controls message building flow in ask_holmes tests:
 - `cli` (default) - Uses CLI-style message building
 - `server` - Uses server-style message building with ChatRequest
 
-## Usage Examples
-
-### Basic Setup
-```bash
-# Set up OpenAI
-export OPENAI_API_KEY="sk-..."
-export HOLMES_LOG_LEVEL="INFO"
-
-# Run HolmesGPT
-holmes ask "what pods are failing?"
-```
-
-### Gemini Configuration
-```bash
-# Configure for Gemini models
-export GEMINI_API_KEY="your-key"
-export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
-
-holmes ask "analyze cluster health" --model="gemini/gemini-1.5-pro"
-```
-
-### Testing with Strict Tool Calling
-```bash
-# Enable strict tool calling for additional models
-export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4.1,openai/*,custom/model-*"
-export RUN_LIVE=true
-export MODEL="custom/model-v2"
-
-poetry run pytest tests/llm/ -n 6
-```
-
 ## See Also
 
 - [AI Providers](../ai-providers/index.md) - Detailed configuration for each AI provider

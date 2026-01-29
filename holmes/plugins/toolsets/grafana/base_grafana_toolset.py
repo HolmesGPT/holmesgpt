@@ -8,7 +8,7 @@ from holmes.plugins.toolsets.grafana.common import GrafanaConfig
 
 
 class BaseGrafanaToolset(Toolset):
-    config_class: ClassVar[Type[GrafanaConfig]] = GrafanaConfig
+    config_classes: ClassVar[list[Type[GrafanaConfig]]] = [GrafanaConfig]
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class BaseGrafanaToolset(Toolset):
             return False, TOOLSET_CONFIG_MISSING_ERROR
 
         try:
-            self._grafana_config = self.config_class(**config)
+            self._grafana_config = GrafanaConfig(**config)
             return self.health_check()
 
         except Exception as e:
@@ -57,10 +57,3 @@ class BaseGrafanaToolset(Toolset):
             Tuple[bool, str]: (True, "") on success, (False, "error message") on failure.
         """
         raise NotImplementedError("Subclasses must implement health_check()")
-
-    def get_example_config(self):
-        example_config = GrafanaConfig(
-            api_key="YOUR API KEY",
-            url="YOUR GRAFANA URL",
-        )
-        return example_config.model_dump()

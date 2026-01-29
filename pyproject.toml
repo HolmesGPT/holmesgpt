@@ -11,14 +11,14 @@ holmes = "holmes.main:run"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-openai = ">=1.6.1,<1.100.0"
+openai = "^2.8.0"
 jinja2 = "^3.1.2"
 typer = "^0.15.4"
 python-benedict = "^0.33.1"
 humanize = "^4.9.0"
 rich = "^13.7.1"
 fastapi = "^0.116"
-uvicorn = "^0.30"
+uvicorn = "^0.40"
 pydantic = "^2.7"
 supabase = "^2.5"
 colorlog = "^6.8.2"
@@ -31,11 +31,12 @@ bs4 = "^0.0.2"
 markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
-litellm = "1.77.1"
+# Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
+litellm = "1.81.3"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
-mcp = "v1.12.2"
+mcp = "v1.25.0"
 prompt-toolkit = "^3.0.51"
 pygments = "^2.18.0"
 azure-identity = "^1.23.0"
@@ -57,6 +58,7 @@ ag-ui-protocol = "^0.1.9"
 google-cloud-aiplatform = ">=1.38"
 
 jq = "^1.10.0"
+bashlex = "^0.18"
 
 [tool.poetry.group.dev]
 optional = true
@@ -134,9 +136,11 @@ markers = [
     "frontend: Run frontend tests",
     "grafana-dashboard: Tests involving Grafana dashboard interactions",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
+    "integration: Integration tests requiring external services (e.g., running server, real APIs)",
+    "confluence: Tests for Confluence page fetching toolset",
     # REGRESSION TEST SELECTION CRITERIA:
     # - Must pass 30+ iterations reliably with Sonnet-4.5 model
-    # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)  
+    # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)
     # - Tests core HolmesGPT functionality that should never regress
     # - Fast execution to avoid slowing CI/CD pipelines
     "regression: Critical regression tests that must always pass",

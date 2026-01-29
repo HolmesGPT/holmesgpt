@@ -1,0 +1,20 @@
+# Bash toolset test - hardcoded block recovery
+# Enable bash with 'ps' in allow list
+# Sudo is hardcoded blocked and cannot be in allow list
+toolsets:
+  bash:
+    enabled: true
+    config:
+      allow:
+        - "ps"
+      deny: []
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  kubernetes/live-metrics:
+    enabled: false
+  kubernetes/kube-prometheus-stack:
+    enabled: false
+  kubernetes/krew-extras:
+    enabled: false

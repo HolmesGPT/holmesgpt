@@ -20,14 +20,14 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-datadog:{ .lg .middle } **Datadog**](datadog.md)
 -   [:simple-docker:{ .lg .middle } **Docker**](docker.md)
 -   [:simple-elasticsearch:{ .lg .middle } **Elasticsearch / OpenSearch**](elasticsearch.md)
--   [:material-git:{ .lg .middle } **Git / GitHub**](github.md)
 -   [:material-google-cloud:{ .lg .middle } **GCP (MCP)**](gcp.md)
--   [:material-github:{ .lg .middle } **GitHub**](github.md)
+-   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
 -   [:material-web:{ .lg .middle } **Internet**](internet.md)
 -   [:simple-apachekafka:{ .lg .middle } **Kafka**](kafka.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
 -   [:simple-grafana:{ .lg .middle } **Loki**](grafanaloki.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
@@ -42,11 +42,3 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 
 </div>
-
-## Getting Started
-
-1. **Choose toolsets** that match your infrastructure (Prometheus, Grafana, etc.)
-2. **Configure authentication** - some need API keys, others work automatically
-3. **Run a test investigation** to verify data access
-
-💡 **Tip**: Start with [Kubernetes](kubernetes.md) and [Prometheus](prometheus.md) for basic cluster monitoring.

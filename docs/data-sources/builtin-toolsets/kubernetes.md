@@ -70,7 +70,7 @@ This toolset retrieves real-time CPU and memory usage for pods and nodes.
 ```yaml
 holmes:
     toolsets:
-        kubernetes/live_metrics:
+        kubernetes/live-metrics:
             enabled: true
 ```
 

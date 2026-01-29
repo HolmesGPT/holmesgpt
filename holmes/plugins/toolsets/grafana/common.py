@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GrafanaConfig(BaseModel):
@@ -11,12 +11,33 @@ class GrafanaConfig(BaseModel):
     systems' URL
     """
 
-    api_key: Optional[str] = None
-    headers: Optional[Dict[str, str]] = None
-    url: str
-    grafana_datasource_uid: Optional[str] = None
-    external_url: Optional[str] = None
-    verify_ssl: bool = True
+    url: str = Field(
+        description="Grafana URL or direct datasource URL",
+        examples=["YOUR GRAFANA URL", "http://grafana.monitoring.svc:3000"],
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Grafana API key for authentication",
+        examples=["YOUR API KEY"],
+    )
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Additional HTTP headers to include in requests",
+        examples=[{"Authorization": "Bearer YOUR_API_KEY"}],
+    )
+    grafana_datasource_uid: Optional[str] = Field(
+        default=None,
+        description="Grafana datasource UID to proxy requests through Grafana",
+        examples=["loki", "tempo"],
+    )
+    external_url: Optional[str] = Field(
+        default=None,
+        description="External URL for linking to Grafana UI",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates",
+    )
 
 
 def build_headers(api_key: Optional[str], additional_headers: Optional[Dict[str, str]]):
@@ -41,12 +62,15 @@ def get_base_url(config: GrafanaConfig) -> str:
 
 
 class GrafanaTempoLabelsConfig(BaseModel):
-    pod: str = "k8s.pod.name"
-    namespace: str = "k8s.namespace.name"
-    deployment: str = "k8s.deployment.name"
-    node: str = "k8s.node.name"
-    service: str = "service.name"
+    pod: str = Field(default="k8s.pod.name", description="Label for pod name")
+    namespace: str = Field(default="k8s.namespace.name", description="Label for namespace")
+    deployment: str = Field(default="k8s.deployment.name", description="Label for deployment")
+    node: str = Field(default="k8s.node.name", description="Label for node name")
+    service: str = Field(default="service.name", description="Label for service name")
 
 
 class GrafanaTempoConfig(GrafanaConfig):
-    labels: GrafanaTempoLabelsConfig = GrafanaTempoLabelsConfig()
+    labels: GrafanaTempoLabelsConfig = Field(
+        default_factory=GrafanaTempoLabelsConfig,
+        description="Label mappings for Tempo spans",
+    )

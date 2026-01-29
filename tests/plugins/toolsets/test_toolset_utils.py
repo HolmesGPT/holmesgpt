@@ -164,9 +164,6 @@ class DummyNonLoggingToolset(Toolset):
         pod_name = params.get("pod_name", "unknown-pod")
         return f"Fetching logs for pod {pod_name} in namespace {namespace}"
 
-    def get_example_config(self):
-        return {}
-
 
 class DummyLoggingToolset(BasePodLoggingToolset):
     def __init__(self, name, enabled: bool = True):
@@ -180,9 +177,6 @@ class DummyLoggingToolset(BasePodLoggingToolset):
 
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
         return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
-
-    def get_example_config(self):
-        return {}
 
 
 @pytest.mark.parametrize(

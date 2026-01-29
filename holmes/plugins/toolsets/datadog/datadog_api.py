@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse, urlunparse
 
 import requests  # type: ignore
-from pydantic import AnyUrl, BaseModel
+from pydantic import AnyUrl, BaseModel, Field
 from requests.structures import CaseInsensitiveDict  # type: ignore
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_incrementing
 from tenacity.wait import wait_base
@@ -96,10 +96,22 @@ def convert_api_url_to_app_url(api_url: Union[str, AnyUrl]) -> str:
 class DatadogBaseConfig(BaseModel):
     """Base configuration for all Datadog toolsets"""
 
-    dd_api_key: str
-    dd_app_key: str
-    site_api_url: AnyUrl
-    request_timeout: int = 60
+    dd_api_key: str = Field(
+        description="Datadog API key for authentication",
+        examples=["<your_datadog_api_key>"],
+    )
+    dd_app_key: str = Field(
+        description="Datadog application key for authentication",
+        examples=["<your_datadog_app_key>"],
+    )
+    site_api_url: AnyUrl = Field(
+        description="Datadog site API base URL",
+        examples=["https://api.datadoghq.com", "https://api.datadoghq.eu"],
+    )
+    request_timeout: int = Field(
+        default=60,
+        description="HTTP request timeout in seconds",
+    )
 
 
 class DataDogRequestError(Exception):
