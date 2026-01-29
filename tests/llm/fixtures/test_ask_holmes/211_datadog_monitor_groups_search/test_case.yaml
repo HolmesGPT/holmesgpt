@@ -1,50 +1,43 @@
 description: |
-  This test verifies that Holmes can use the Datadog monitor groups_search endpoint
-  to search for monitor group statuses. The test creates a test monitor in Datadog,
-  then asks Holmes about its monitoring groups. Holmes should be able to use the
-  groups_search API endpoint to retrieve information about monitor group states.
+  Tests that Holmes can discover and use the monitor groups_search endpoint when asked
+  about per-group status of a multi-group monitor. The challenge is that Holmes must
+  figure out the right API endpoint without being told - the user just wants to know
+  which host groups are affected by a monitor.
 
 before_test: |
-  # Create a test monitor in Datadog using the API
-  # This monitor will be used to test the groups_search endpoint
+  # Create a monitor that groups by host - this creates multiple monitor groups
   curl -s -X POST "https://api.datadoghq.com/api/v1/monitor" \
     -H "Content-Type: application/json" \
     -H "DD-API-KEY: ${DATADOG_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
     -d '{
-      "name": "holmesgpt-eval-monitor-groups-search-211",
+      "name": "CPU Alert by Host - eval211",
       "type": "metric alert",
-      "query": "avg(last_5m):avg:system.cpu.user{*} > 99.9",
-      "message": "Test monitor for HolmesGPT eval - monitor groups search",
-      "tags": ["env:test", "team:holmesgpt", "eval:211"],
+      "query": "avg(last_5m):avg:system.cpu.user{*} by {host} > 99.9",
+      "message": "High CPU on {{host.name}}",
+      "tags": ["env:test", "service:eval211"],
       "options": {
-        "thresholds": {"critical": 99.9, "warning": 95},
+        "thresholds": {"critical": 99.9, "warning": 90},
         "notify_no_data": false,
         "evaluation_delay": 60
       }
     }' | tee /tmp/monitor_response_211.json
 
-  # Extract and save the monitor ID
   MONITOR_ID=$(cat /tmp/monitor_response_211.json | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
   echo "Created monitor with ID: $MONITOR_ID"
   echo "$MONITOR_ID" > /tmp/monitor_id_211.txt
+  sleep 3
 
-  # Wait a moment for the monitor to be fully created
-  sleep 5
-
-user_prompt:
-  - "Search for monitor groups for the holmesgpt-eval-monitor-groups-search-211 monitor in Datadog. What groups or statuses does it have?"
-  - "Can you use the Datadog API to find the monitoring groups for the test monitor tagged with eval:211?"
-  - "Use the monitor groups search endpoint to find information about the holmesgpt-eval-monitor-groups-search-211 monitor"
+user_prompt: "I have a monitor called 'CPU Alert by Host - eval211' that alerts per-host. Can you check which specific hosts or groups this monitor is currently tracking and what their individual statuses are?"
 
 expected_output: |
-  Holmes should successfully call the Datadog API to search for monitor groups.
+  Holmes must call the Datadog API with an endpoint containing "groups_search" to get
+  per-group status information for the monitor.
 
-  The response should indicate that Holmes used the datadog_api_get or datadog_api_post_search tool
-  with an endpoint containing "groups_search" or "groups/search".
+  The response should show Holmes discovering and using the groups_search endpoint,
+  not just the basic monitor endpoint.
 
-  Output must NOT say the endpoint is not allowed or not whitelisted.
-  Output must NOT say it cannot access monitor groups information.
+  Must NOT say the endpoint is not allowed or not in the whitelist.
 
 include_tool_calls: true
 
@@ -54,14 +47,12 @@ tags:
 test_type: server
 
 after_test: |
-  # Delete the test monitor
   if [ -f /tmp/monitor_id_211.txt ]; then
     MONITOR_ID=$(cat /tmp/monitor_id_211.txt)
-    if [ ! -z "$MONITOR_ID" ]; then
+    if [ -n "$MONITOR_ID" ]; then
       curl -s -X DELETE "https://api.datadoghq.com/api/v1/monitor/${MONITOR_ID}?force=true" \
-        -H "DD-API-KEY: ${DD_API_KEY}" \
-        -H "DD-APPLICATION-KEY: ${DD_APP_KEY}"
-      echo "Deleted monitor $MONITOR_ID"
+        -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+        -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}"
     fi
   fi
   rm -f /tmp/monitor_response_211.json /tmp/monitor_id_211.txt

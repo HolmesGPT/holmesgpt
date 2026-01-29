@@ -1,49 +1,42 @@
 description: |
-  This test verifies that Holmes can use the Datadog /api/v2/monitors/events/search endpoint
-  to search for monitor events. The test creates a test monitor in Datadog, waits for it to
-  generate events, then asks Holmes to search for monitor events. Holmes should be able to
-  use the POST monitors/events/search API endpoint to retrieve event information.
+  Tests that Holmes can discover and use the /api/v2/monitors/events/search endpoint
+  when asked about monitor state change history. The challenge is that Holmes must
+  figure out to use the monitors events search API (not the regular events API) to
+  find when a monitor triggered, recovered, or changed state.
 
 before_test: |
-  # Create a test monitor in Datadog using the API
+  # Create a test monitor
   curl -s -X POST "https://api.datadoghq.com/api/v1/monitor" \
     -H "Content-Type: application/json" \
     -H "DD-API-KEY: ${DATADOG_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
     -d '{
-      "name": "holmesgpt-eval-monitor-events-search-212",
+      "name": "Disk Usage Alert - eval212",
       "type": "metric alert",
-      "query": "avg(last_5m):avg:system.cpu.user{*} > 99.9",
-      "message": "Test monitor for HolmesGPT eval - monitor events search",
-      "tags": ["env:test", "team:holmesgpt", "eval:212"],
+      "query": "avg(last_5m):avg:system.disk.used{*} > 99999999999",
+      "message": "Disk usage critical",
+      "tags": ["env:test", "service:eval212"],
       "options": {
-        "thresholds": {"critical": 99.9, "warning": 95},
-        "notify_no_data": false,
-        "evaluation_delay": 60
+        "thresholds": {"critical": 99999999999, "warning": 88888888888},
+        "notify_no_data": false
       }
     }' | tee /tmp/monitor_response_212.json
 
-  # Extract and save the monitor ID
   MONITOR_ID=$(cat /tmp/monitor_response_212.json | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
   echo "Created monitor with ID: $MONITOR_ID"
   echo "$MONITOR_ID" > /tmp/monitor_id_212.txt
+  sleep 5
 
-  # Wait for monitor to potentially generate events
-  sleep 10
-
-user_prompt:
-  - "Search for recent events from the holmesgpt-eval-monitor-events-search-212 monitor in Datadog"
-  - "Can you query the Datadog monitors events search API to find events for monitor tagged with eval:212?"
-  - "Use the /api/v2/monitors/events/search endpoint to find events for our test monitor"
+user_prompt: "The 'Disk Usage Alert - eval212' monitor has been flapping. Can you pull up the recent state change history for this monitor - when it triggered, recovered, or had any transitions?"
 
 expected_output: |
-  Holmes should successfully call the Datadog API to search for monitor events.
+  Holmes must call the Datadog API using the monitors/events/search endpoint (POST)
+  to retrieve monitor event history.
 
-  The response should indicate that Holmes used the datadog_api_post_search tool
-  with an endpoint containing "monitors/events/search".
+  The tool call should use /api/v2/monitors/events/search, not the generic /api/v1/events
+  endpoint, since we're specifically looking for monitor state transitions.
 
-  Output must NOT say the endpoint is not allowed or not whitelisted.
-  Output must NOT say it cannot search for monitor events.
+  Must NOT say the endpoint is not allowed or not in the whitelist.
 
 include_tool_calls: true
 
@@ -53,14 +46,12 @@ tags:
 test_type: server
 
 after_test: |
-  # Delete the test monitor
   if [ -f /tmp/monitor_id_212.txt ]; then
     MONITOR_ID=$(cat /tmp/monitor_id_212.txt)
-    if [ ! -z "$MONITOR_ID" ]; then
+    if [ -n "$MONITOR_ID" ]; then
       curl -s -X DELETE "https://api.datadoghq.com/api/v1/monitor/${MONITOR_ID}?force=true" \
-        -H "DD-API-KEY: ${DD_API_KEY}" \
-        -H "DD-APPLICATION-KEY: ${DD_APP_KEY}"
-      echo "Deleted monitor $MONITOR_ID"
+        -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+        -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}"
     fi
   fi
   rm -f /tmp/monitor_response_212.json /tmp/monitor_id_212.txt
