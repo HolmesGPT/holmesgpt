@@ -21,10 +21,11 @@ from confluent_kafka.admin import (
     TopicMetadata,
 )
 from confluent_kafka.admin import _TopicPartition as TopicPartition
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -32,23 +33,57 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.utils import get_param_or_raise, toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import build_config_example
 
 
 class KafkaClusterConfig(BaseModel):
-    name: str
-    kafka_broker: str
-    kafka_security_protocol: Optional[str] = None
-    kafka_sasl_mechanism: Optional[str] = None
-    kafka_username: Optional[str] = None
-    kafka_password: Optional[str] = None
-    kafka_client_id: Optional[str] = "holmes-kafka-client"
+    name: str = Field(
+        description="Name identifier for this Kafka cluster",
+        examples=["us-west-kafka", "eu-central-kafka"],
+    )
+    kafka_broker: str = Field(
+        description="Kafka broker address",
+        examples=[
+            "broker1.example.com:9092,broker2.example.com:9092",
+            "broker3.example.com:9092",
+            "kafka.default.svc:9092",
+        ],
+    )
+    kafka_security_protocol: Optional[str] = Field(
+        default=None,
+        description="Security protocol (e.g., PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)",
+        examples=["SASL_SSL", "SSL", "PLAINTEXT"],
+    )
+    kafka_sasl_mechanism: Optional[str] = Field(
+        default=None,
+        description="SASL mechanism (e.g., PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)",
+        examples=["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"],
+    )
+    kafka_username: Optional[str] = Field(
+        default=None,
+        description="Username for SASL authentication",
+        examples=["{{ env.KAFKA_USERNAME }}"],
+    )
+    kafka_password: Optional[str] = Field(
+        default=None,
+        description="Password for SASL authentication",
+        examples=["{{ env.KAFKA_PASSWORD }}"],
+    )
+    kafka_client_id: Optional[str] = Field(
+        default="holmes-kafka-client",
+        description="Client ID for Kafka connections",
+    )
 
 
 class KafkaConfig(BaseModel):
-    kafka_clusters: List[KafkaClusterConfig]
+    kafka_clusters: List[KafkaClusterConfig] = Field(
+        description="List of Kafka clusters to connect to",
+        examples=[[build_config_example(KafkaClusterConfig)]]
+    )
 
 
 def convert_to_dict(obj: Any) -> Union[str, Dict]:
@@ -563,6 +598,8 @@ class ListKafkaClusters(BaseKafkaTool):
 
 
 class KafkaToolset(Toolset):
+    config_classes: ClassVar[list[Type[KafkaConfig]]] = [KafkaConfig]
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
     clients: Dict[str, AdminClient] = {}
     kafka_config: Optional[KafkaConfig] = None
@@ -629,23 +666,3 @@ class KafkaToolset(Toolset):
         except Exception as e:
             logging.exception("Failed to set up Kafka toolset")
             return False, str(e)
-
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = KafkaConfig(
-            kafka_clusters=[
-                KafkaClusterConfig(
-                    name="us-west-kafka",
-                    kafka_broker="broker1.example.com:9092,broker2.example.com:9092",
-                    kafka_security_protocol="SASL_SSL",
-                    kafka_sasl_mechanism="PLAIN",
-                    kafka_username="{{ env.KAFKA_USERNAME }}",
-                    kafka_password="{{ env.KAFKA_PASSWORD }}",
-                ),
-                KafkaClusterConfig(
-                    name="eu-central-kafka",
-                    kafka_broker="broker3.example.com:9092",
-                    kafka_security_protocol="SSL",
-                ),
-            ]
-        )
-        return example_config.model_dump()

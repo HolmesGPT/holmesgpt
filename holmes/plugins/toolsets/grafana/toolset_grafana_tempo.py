@@ -2,7 +2,7 @@ import json
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, cast
 from urllib.parse import quote
 
 from holmes.common.env_vars import MAX_GRAPH_POINTS, load_bool
@@ -134,15 +134,7 @@ def _build_grafana_explore_tempo_url(
 
 
 class BaseGrafanaTempoToolset(BaseGrafanaToolset):
-    config_class = GrafanaTempoConfig
-
-    def get_example_config(self):
-        example_config = GrafanaTempoConfig(
-            api_key="YOUR API KEY",
-            url="YOUR GRAFANA URL",
-            grafana_datasource_uid="<UID of the tempo datasource to use>",
-        )
-        return example_config.model_dump()
+    config_classes: ClassVar[list[Type[GrafanaTempoConfig]]] = [GrafanaTempoConfig]
 
     @property
     def grafana_config(self) -> GrafanaTempoConfig:

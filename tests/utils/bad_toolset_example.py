@@ -40,9 +40,6 @@ class BadToolset(Toolset):
 
     tools: List[BadTool] = Field(default_factory=list)  # type: ignore
 
-    def get_example_config(self) -> Dict:
-        return {}
-
 
 BadTool.model_rebuild()
 BadToolset.model_rebuild()

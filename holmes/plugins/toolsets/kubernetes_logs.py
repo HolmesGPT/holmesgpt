@@ -96,9 +96,6 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
         except Exception as e:
             return False, f"kubectl health check error: {str(e)}"
 
-    def get_example_config(self):
-        return LoggingConfig().model_dump()
-
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
         try:
             all_logs: list[StructuredLog] = []
