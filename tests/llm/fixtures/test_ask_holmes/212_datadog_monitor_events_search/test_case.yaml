@@ -8,8 +8,8 @@ before_test: |
   # Create a test monitor in Datadog using the API
   curl -s -X POST "https://api.datadoghq.com/api/v1/monitor" \
     -H "Content-Type: application/json" \
-    -H "DD-API-KEY: ${DD_API_KEY}" \
-    -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
     -d '{
       "name": "holmesgpt-eval-monitor-events-search-212",
       "type": "metric alert",
