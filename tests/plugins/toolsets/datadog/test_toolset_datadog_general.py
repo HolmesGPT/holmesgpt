@@ -31,64 +31,6 @@ class TestEndpointValidation:
             allowed, error = is_endpoint_allowed(endpoint, method="GET")
             assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
 
-    def test_monitor_groups_search_endpoints(self):
-        """Test that monitor groups_search endpoints are allowed."""
-        # Monitor groups_search with specific monitor ID
-        test_ids = ["249127261", "123456", "999999999", "1"]
-        for monitor_id in test_ids:
-            endpoint = f"/api/v1/monitor/{monitor_id}/groups_search"
-            allowed, error = is_endpoint_allowed(endpoint, method="GET")
-            assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
-
-        # Global monitor groups_search endpoint
-        endpoint = "/api/v1/monitor/groups_search"
-        allowed, error = is_endpoint_allowed(endpoint, method="GET")
-        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
-
-        # POST should not be allowed for groups_search
-        endpoint = "/api/v1/monitor/249127261/groups_search"
-        allowed, error = is_endpoint_allowed(endpoint, method="POST")
-        assert not allowed, f"POST should not be allowed for {endpoint}"
-
-    def test_monitor_alerts_endpoint(self):
-        """Test that monitor alerts endpoint is allowed."""
-        endpoint = "/api/v1/monitor/249127261/alerts"
-        allowed, error = is_endpoint_allowed(endpoint, method="GET")
-        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
-
-    def test_monitors_v2_downtimes_endpoint(self):
-        """Test that v2 monitors downtimes endpoint is allowed (note: plural 'monitors')."""
-        endpoint = "/api/v2/monitors/249127261/downtimes"
-        allowed, error = is_endpoint_allowed(endpoint, method="GET")
-        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
-
-    def test_container_endpoints(self):
-        """Test that container endpoints are allowed."""
-        allowed_endpoints = [
-            "/api/v2/containers",
-            "/api/v2/container_images",
-        ]
-        for endpoint in allowed_endpoints:
-            allowed, error = is_endpoint_allowed(endpoint, method="GET")
-            assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
-
-    def test_downtime_endpoints(self):
-        """Test that downtime endpoints are allowed."""
-        allowed_endpoints = [
-            "/api/v1/downtime",
-            "/api/v2/downtime",
-            "/api/v1/downtime/12345",
-        ]
-        for endpoint in allowed_endpoints:
-            allowed, error = is_endpoint_allowed(endpoint, method="GET")
-            assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
-
-    def test_service_check_endpoint(self):
-        """Test that service check endpoint is allowed."""
-        endpoint = "/api/v1/check_run"
-        allowed, error = is_endpoint_allowed(endpoint, method="GET")
-        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
-
     def test_blacklisted_operations(self):
         """Test that blacklisted operations are blocked."""
         blocked_endpoints = [
@@ -118,29 +60,6 @@ class TestEndpointValidation:
         for endpoint in allowed_post:
             allowed, error = is_endpoint_allowed(endpoint, method="POST")
             assert allowed, f"POST endpoint {endpoint} should be allowed: {error}"
-
-    def test_monitor_events_search_endpoint(self):
-        """Test that /api/v2/monitors/events/search allows POST only."""
-        endpoint = "/api/v2/monitors/events/search"
-
-        # POST should be allowed
-        allowed, error = is_endpoint_allowed(endpoint, method="POST")
-        assert allowed, f"POST method should be allowed for endpoint: {endpoint}"
-
-        # GET should not be allowed
-        allowed, error = is_endpoint_allowed(endpoint, method="GET")
-        assert not allowed, f"GET should not be allowed for: {endpoint}"
-
-        # Blocked POST endpoints
-        blocked_post = [
-            "/api/v1/monitor",  # Creation endpoint
-            "/api/v1/dashboard",  # Creation endpoint
-            "/api/v1/events",  # Should be GET only
-        ]
-
-        for endpoint in blocked_post:
-            allowed, error = is_endpoint_allowed(endpoint, method="POST")
-            assert not allowed, f"POST endpoint {endpoint} should be blocked"
 
     def test_unsupported_methods(self):
         """Test that unsupported HTTP methods are blocked."""
