@@ -44,9 +44,12 @@ WHITELISTED_ENDPOINTS = [
     # Monitors
     (r"^/api/v\d+/monitor(/search)?$", ""),
     (r"^/api/v\d+/monitor/\d+(/downtimes)?$", ""),
+    (r"^/api/v\d+/monitor/\d+/alerts$", "Get monitor alert history"),
     (r"^/api/v\d+/monitor/\d+/groups_search$", "Search monitor groups for a specific monitor"),
     (r"^/api/v\d+/monitor/groups_search$", "Search monitor groups globally"),
     (r"^/api/v\d+/monitor/groups/search$", ""),
+    # Monitors v2 API (note: plural "monitors")
+    (r"^/api/v2/monitors/\d+/downtimes$", "Get downtimes for a specific monitor"),
     # Dashboards
     (r"^/api/v\d+/dashboard(/lists)?$", ""),
     (r"^/api/v\d+/dashboard/[^/]+$", ""),

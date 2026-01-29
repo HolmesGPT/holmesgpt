@@ -50,6 +50,18 @@ class TestEndpointValidation:
         allowed, error = is_endpoint_allowed(endpoint, method="POST")
         assert not allowed, f"POST should not be allowed for {endpoint}"
 
+    def test_monitor_alerts_endpoint(self):
+        """Test that monitor alerts endpoint is allowed."""
+        endpoint = "/api/v1/monitor/249127261/alerts"
+        allowed, error = is_endpoint_allowed(endpoint, method="GET")
+        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
+
+    def test_monitors_v2_downtimes_endpoint(self):
+        """Test that v2 monitors downtimes endpoint is allowed (note: plural 'monitors')."""
+        endpoint = "/api/v2/monitors/249127261/downtimes"
+        allowed, error = is_endpoint_allowed(endpoint, method="GET")
+        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
+
     def test_container_endpoints(self):
         """Test that container endpoints are allowed."""
         allowed_endpoints = [
