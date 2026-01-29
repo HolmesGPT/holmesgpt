@@ -1,4 +1,6 @@
-# Install Robusta Slack Bot (3&#8203;rd party)
+# Slack Bot (3&#8203;rd party)
+
+The HolmesGPT Slack bot is available via [Robusta.dev](https://home.robusta.dev/), which created HolmesGPT and donated it to the CNCF.
 
 First install [Robusta SaaS](ui-installation.md), then tag HolmesGPT in any Slack message for instant analysis.
 

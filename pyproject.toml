@@ -11,7 +11,7 @@ holmes = "holmes.main:run"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-openai = ">=1.6.1,<1.100.0"
+openai = "^2.8.0"
 jinja2 = "^3.1.2"
 typer = "^0.15.4"
 python-benedict = "^0.33.1"
@@ -31,7 +31,8 @@ bs4 = "^0.0.2"
 markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
-litellm = "1.77.1"
+# Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
+litellm = "1.81.3"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
