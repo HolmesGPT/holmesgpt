@@ -1,43 +1,44 @@
 description: |
-  Tests that Holmes can discover and use the monitor groups_search endpoint when asked
-  about per-group status of a multi-group monitor. The challenge is that Holmes must
-  figure out the right API endpoint without being told - the user just wants to know
-  which host groups are affected by a monitor.
+  Tests that Holmes can find currently alerting monitors in Datadog. This is the most
+  common question an on-call engineer asks. Holmes must discover and use the
+  /api/v1/monitor/groups_search endpoint with a status filter to find all monitors
+  in alert or warning state across the account.
 
 before_test: |
-  # Create a monitor that groups by host - this creates multiple monitor groups
+  # Create a test monitor that will be in OK state (threshold is impossibly high)
+  # This ensures Holmes has something to find when searching
   curl -s -X POST "https://api.datadoghq.com/api/v1/monitor" \
     -H "Content-Type: application/json" \
     -H "DD-API-KEY: ${DATADOG_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
     -d '{
-      "name": "CPU Alert by Host - eval211",
+      "name": "HolmesGPT Eval Test Monitor",
       "type": "metric alert",
       "query": "avg(last_5m):avg:system.cpu.user{*} by {host} > 99.9",
-      "message": "High CPU on {{host.name}}",
-      "tags": ["env:test", "service:eval211"],
+      "message": "CPU threshold exceeded",
+      "tags": ["env:holmesgpt-eval", "service:eval211"],
       "options": {
-        "thresholds": {"critical": 99.9, "warning": 90},
-        "notify_no_data": false,
-        "evaluation_delay": 60
+        "thresholds": {"critical": 99.9, "warning": 95},
+        "notify_no_data": false
       }
     }' | tee /tmp/monitor_response_211.json
 
   MONITOR_ID=$(cat /tmp/monitor_response_211.json | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
-  echo "Created monitor with ID: $MONITOR_ID"
   echo "$MONITOR_ID" > /tmp/monitor_id_211.txt
   sleep 3
 
-user_prompt: "I have a monitor called 'CPU Alert by Host - eval211' that alerts per-host. Can you check which specific hosts or groups this monitor is currently tracking and what their individual statuses are?"
+user_prompt: "We got paged overnight. What monitors are currently in an alert or warning state in Datadog?"
 
 expected_output: |
-  Holmes must call the Datadog API with an endpoint containing "groups_search" to get
-  per-group status information for the monitor.
+  Holmes must use the Datadog API to search for monitors in alert/warning state.
 
-  The response should show Holmes discovering and using the groups_search endpoint,
-  not just the basic monitor endpoint.
+  The tool call should query monitor groups or monitors filtering by status
+  (e.g., using groups_search with status:alert or status:warn, or similar).
 
-  Must NOT say the endpoint is not allowed or not in the whitelist.
+  Holmes should report what monitors are alerting (if any) or confirm none are
+  currently in alert state.
+
+  Must NOT say the endpoint is blocked or not allowed.
 
 include_tool_calls: true
 
