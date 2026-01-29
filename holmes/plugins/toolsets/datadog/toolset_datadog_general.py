@@ -44,6 +44,8 @@ WHITELISTED_ENDPOINTS = [
     # Monitors
     (r"^/api/v\d+/monitor(/search)?$", ""),
     (r"^/api/v\d+/monitor/\d+(/downtimes)?$", ""),
+    (r"^/api/v\d+/monitor/\d+/groups_search$", "Search monitor groups for a specific monitor"),
+    (r"^/api/v\d+/monitor/groups_search$", "Search monitor groups globally"),
     (r"^/api/v\d+/monitor/groups/search$", ""),
     # Dashboards
     (r"^/api/v\d+/dashboard(/lists)?$", ""),
@@ -179,6 +181,7 @@ BLACKLISTED_SEGMENTS = [
 # POST endpoints that are allowed (search/query operations only)
 WHITELISTED_POST_ENDPOINTS = [
     r"^/api/v\d+/monitor/search$",
+    r"^/api/v2/monitors/events/search$",
     r"^/api/v\d+/dashboard/lists$",
     r"^/api/v\d+/slo/search$",
     r"^/api/v\d+/events/search$",

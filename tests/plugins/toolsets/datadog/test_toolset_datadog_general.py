@@ -31,6 +31,25 @@ class TestEndpointValidation:
             allowed, error = is_endpoint_allowed(endpoint, method="GET")
             assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
 
+    def test_monitor_groups_search_endpoints(self):
+        """Test that monitor groups_search endpoints are allowed."""
+        # Monitor groups_search with specific monitor ID
+        test_ids = ["249127261", "123456", "999999999", "1"]
+        for monitor_id in test_ids:
+            endpoint = f"/api/v1/monitor/{monitor_id}/groups_search"
+            allowed, error = is_endpoint_allowed(endpoint, method="GET")
+            assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
+
+        # Global monitor groups_search endpoint
+        endpoint = "/api/v1/monitor/groups_search"
+        allowed, error = is_endpoint_allowed(endpoint, method="GET")
+        assert allowed, f"Endpoint {endpoint} should be allowed: {error}"
+
+        # POST should not be allowed for groups_search
+        endpoint = "/api/v1/monitor/249127261/groups_search"
+        allowed, error = is_endpoint_allowed(endpoint, method="POST")
+        assert not allowed, f"POST should not be allowed for {endpoint}"
+
     def test_blacklisted_operations(self):
         """Test that blacklisted operations are blocked."""
         blocked_endpoints = [
@@ -54,11 +73,24 @@ class TestEndpointValidation:
             "/api/v1/monitor/search",
             "/api/v2/incidents/search",
             "/api/v2/security_monitoring/signals/search",
+            "/api/v2/monitors/events/search",
         ]
 
         for endpoint in allowed_post:
             allowed, error = is_endpoint_allowed(endpoint, method="POST")
             assert allowed, f"POST endpoint {endpoint} should be allowed: {error}"
+
+    def test_monitor_events_search_endpoint(self):
+        """Test that /api/v2/monitors/events/search allows POST only."""
+        endpoint = "/api/v2/monitors/events/search"
+
+        # POST should be allowed
+        allowed, error = is_endpoint_allowed(endpoint, method="POST")
+        assert allowed, f"POST method should be allowed for endpoint: {endpoint}"
+
+        # GET should not be allowed
+        allowed, error = is_endpoint_allowed(endpoint, method="GET")
+        assert not allowed, f"GET should not be allowed for: {endpoint}"
 
         # Blocked POST endpoints
         blocked_post = [
