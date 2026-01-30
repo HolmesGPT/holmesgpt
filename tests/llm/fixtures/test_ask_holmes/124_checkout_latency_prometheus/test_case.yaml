@@ -13,37 +13,51 @@ tags:
   - regression
 
 port_forwards:
-  - namespace: app-124
-    service: prometheus
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
     local_port: 10124
     remote_port: 9090
 
 before_test: |
   set -e  # Exit immediately if any command fails
   kubectl create namespace app-124 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
-  kubectl apply -f prometheus-config.yaml -n app-124
-  kubectl apply -f ../../shared/prometheus.yaml -n app-124
   kubectl apply -f holmes-all-in-one-fast.yaml -n app-124
 
-  echo "⏳ Waiting for prometheus pod to be ready..."
-  PROM_READY=false
+  echo "⏳ Waiting for checkout pod to be ready..."
+  APP_READY=false
   for i in {1..60}; do
-    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-124 --timeout=5s 2>/dev/null; then
-      echo "✅ Prometheus pod is ready!"
-      PROM_READY=true
+    if kubectl wait --for=condition=ready pod -l app=checkout -n app-124 --timeout=5s 2>/dev/null; then
+      echo "✅ Checkout pod is ready!"
+      APP_READY=true
       break
     fi
-    echo "⏳ Attempt $i/60: Prometheus not ready yet..."
+    echo "⏳ Attempt $i/60: Checkout not ready yet..."
     sleep 1
   done
-  if [ "$PROM_READY" = false ]; then
-    echo "❌ Prometheus failed to become ready"
-    kubectl get pods -n app-124 -l app=prometheus
-    kubectl logs -n app-124 -l app=prometheus --tail=20
+  if [ "$APP_READY" = false ]; then
+    echo "❌ Checkout failed to become ready"
+    kubectl get pods -n app-124 -l app=checkout
+    kubectl logs -n app-124 -l app=checkout --tail=20
     exit 1
   fi
 
   ./run-holmes-check-curl-jq.sh
+
+  echo "⏳ Waiting for metrics to be scraped by Prometheus..."
+  METRICS_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n default deploy/robusta-kube-prometheus-st-prometheus -- wget -q -O- "http://localhost:9090/api/v1/query?query=checkout_request_duration_seconds_count" 2>/dev/null | grep -q '"result":\[{'; then
+      echo "✅ Metrics are being scraped!"
+      METRICS_READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/30: Waiting for Prometheus to scrape checkout metrics..."
+    sleep 2
+  done
+  if [ "$METRICS_READY" = false ]; then
+    echo "⚠️ Warning: Metrics may not be fully scraped yet, proceeding anyway"
+  fi
+
   echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
   kubectl delete job k6-coupon-split -n app-124 --ignore-not-found=true
   kubectl delete pods -n app-124 -l job-name=k6-coupon-split --ignore-not-found=true

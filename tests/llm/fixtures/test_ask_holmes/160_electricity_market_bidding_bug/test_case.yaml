@@ -15,8 +15,8 @@ tags:
   - regression
 
 port_forwards:
-  - namespace: app-160
-    service: prometheus
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
     local_port: 10160
     remote_port: 9090
 
@@ -26,19 +26,29 @@ before_test: |
   echo "📁 Creating namespace..."
   kubectl create namespace app-160 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
 
-  echo "⚙️ Setting up Prometheus..."
-  kubectl apply -f prometheus-config.yaml -n app-160
-  kubectl apply -f ../../shared/prometheus.yaml -n app-160
-
   echo "🚀 Deploying bidder service and k6 test..."
   kubectl apply -f bidder-app.yaml -n app-160
 
-  echo "⏳ Waiting for pods to be ready..."
-  kubectl wait --for=condition=ready pod -l app=prometheus -n app-160 --timeout=60s
+  echo "⏳ Waiting for bidder pod to be ready..."
   kubectl wait --for=condition=ready pod -l app=bidder -n app-160 --timeout=60s
 
   echo "🔍 Running validation..."
   ./run-bidder-check.sh
+
+  echo "⏳ Waiting for metrics to be scraped by Prometheus..."
+  METRICS_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n default deploy/robusta-kube-prometheus-st-prometheus -- wget -q -O- "http://localhost:9090/api/v1/query?query=bid_requests_total" 2>/dev/null | grep -q '"result":\[{'; then
+      echo "✅ Metrics are being scraped!"
+      METRICS_READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/30: Waiting for Prometheus to scrape bidder metrics..."
+    sleep 2
+  done
+  if [ "$METRICS_READY" = false ]; then
+    echo "⚠️ Warning: Metrics may not be fully scraped yet, proceeding anyway"
+  fi
 
   echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
   kubectl delete job k6-energy-market -n app-160 --ignore-not-found=true

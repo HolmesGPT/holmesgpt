@@ -15,8 +15,8 @@ tags:
   - regression
 
 port_forwards:
-  - namespace: app-161
-    service: prometheus
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
     local_port: 10161
     remote_port: 9090
 
@@ -28,17 +28,27 @@ before_test: |
   echo "📁 Creating namespace..."
   kubectl create namespace app-161 --save-config --dry-run=client -o yaml | kubectl apply -f -
 
-  echo "⚙️ Setting up monitoring..."
-  kubectl apply -f prometheus-config.yaml -n app-161
-  kubectl apply -f ../../shared/prometheus.yaml -n app-161
-
   echo "🚀 Phase 1: Deploy v1.0 (fast version)..."
   kubectl apply -f bidder-v1.yaml -n app-161
   kubectl apply -f hpa.yaml -n app-161
 
   echo "⏳ Waiting for v1.0 pods..."
-  kubectl wait --for=condition=ready pod -l app=prometheus -n app-161 --timeout=60s
   kubectl wait --for=condition=ready pod -l app=bidder -n app-161 --timeout=60s
+
+  echo "⏳ Waiting for Prometheus to discover bidder..."
+  METRICS_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n default deploy/robusta-kube-prometheus-st-prometheus -- wget -q -O- "http://localhost:9090/api/v1/query?query=bidder_request_duration_seconds_count" 2>/dev/null | grep -q '"result":\[{'; then
+      echo "✅ Metrics are being scraped!"
+      METRICS_READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/30: Waiting for Prometheus to scrape bidder metrics..."
+    sleep 2
+  done
+  if [ "$METRICS_READY" = false ]; then
+    echo "⚠️ Warning: Metrics may not be fully scraped yet, proceeding anyway"
+  fi
 
   echo "📊 Generate traffic for v1.0 (2 minutes)..."
   kubectl apply -f k6-v1-traffic.yaml -n app-161
