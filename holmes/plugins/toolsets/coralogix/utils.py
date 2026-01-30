@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, NamedTuple, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class FlattenedLog(NamedTuple):
@@ -18,17 +18,41 @@ class CoralogixQueryResult(BaseModel):
 
 
 class CoralogixLabelsConfig(BaseModel):
-    pod: str = "resource.attributes.k8s.pod.name"
-    namespace: str = "resource.attributes.k8s.namespace.name"
-    log_message: str = "logRecord.body"
-    timestamp: str = "logRecord.attributes.time"
+    pod: str = Field(
+        default="resource.attributes.k8s.pod.name",
+        description="Field path for pod name in log entries",
+    )
+    namespace: str = Field(
+        default="resource.attributes.k8s.namespace.name",
+        description="Field path for namespace in log entries",
+    )
+    log_message: str = Field(
+        default="logRecord.body",
+        description="Field path for log message content",
+    )
+    timestamp: str = Field(
+        default="logRecord.attributes.time",
+        description="Field path for timestamp in log entries",
+    )
 
 
 class CoralogixConfig(BaseModel):
-    team_hostname: str
-    domain: str
-    api_key: str
-    labels: CoralogixLabelsConfig = CoralogixLabelsConfig()
+    team_hostname: str = Field(
+        description="Your Coralogix team hostname",
+        examples=["my-team"],
+    )
+    domain: str = Field(
+        description="Coralogix domain",
+        examples=["eu2.coralogix.com", "coralogix.us", "coralogix.in"],
+    )
+    api_key: str = Field(
+        description="Coralogix API key (starts with cxuw_)",
+        examples=["cxuw_xxxxxxxxxxxx"],
+    )
+    labels: CoralogixLabelsConfig = Field(
+        default_factory=CoralogixLabelsConfig,
+        description="Label mappings for log fields",
+    )
 
 
 def parse_json_lines(raw_text) -> List[Dict[str, Any]]:

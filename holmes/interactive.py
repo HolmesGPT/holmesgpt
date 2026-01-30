@@ -29,7 +29,6 @@ from rich.console import Console
 from rich.markdown import Markdown, Panel
 from rich.markup import escape
 
-from holmes.common.env_vars import ENABLE_CLI_TOOL_APPROVAL
 from holmes.core.config import config_path_dir
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
@@ -41,6 +40,12 @@ from holmes.core.prompt import build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
 from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    enable_cli_mode,
+)
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    save_cli_bash_tools_approved_prefixes as _save_approved_prefixes,
+)
 from holmes.utils.colors import (
     AI_COLOR,
     ERROR_COLOR,
@@ -618,19 +623,95 @@ def prompt_for_llm_sharing(
     return None
 
 
+def _run_inline_menu(options: list[str], console: Console) -> Optional[int]:
+    """
+    Run an inline menu with arrow key navigation.
+
+    Args:
+        options: List of option strings to display
+        console: Rich console for output
+
+    Returns:
+        Index of selected option (0-based), or None if cancelled
+    """
+    selected = [0]  # Use list to allow mutation in nested function
+    result = [None]  # None means cancelled
+
+    def get_menu_text():
+        lines = []
+        for i, option in enumerate(options):
+            if i == selected[0]:
+                lines.append(("bold", f"> {i + 1}. {option}\n"))
+            else:
+                lines.append(("", f"  {i + 1}. {option}\n"))
+        lines.append(("class:hint", "\nEsc to cancel"))
+        return lines
+
+    bindings = KeyBindings()
+
+    @bindings.add("up")
+    @bindings.add("k")
+    def _up(event):
+        selected[0] = (selected[0] - 1) % len(options)
+
+    @bindings.add("down")
+    @bindings.add("j")
+    def _down(event):
+        selected[0] = (selected[0] + 1) % len(options)
+
+    @bindings.add("enter")
+    def _enter(event):
+        result[0] = selected[0]
+        event.app.exit()
+
+    @bindings.add("escape")
+    @bindings.add("c-c")
+    def _cancel(event):
+        result[0] = None
+        event.app.exit()
+
+    # Also allow number keys 1-9 for direct selection
+    for i in range(min(9, len(options))):
+
+        @bindings.add(str(i + 1))
+        def _select_num(event, idx=i):
+            result[0] = idx
+            event.app.exit()
+
+    menu_style = Style.from_dict(
+        {
+            "hint": "#666666",
+        }
+    )
+
+    layout = Layout(Window(FormattedTextControl(get_menu_text, show_cursor=False)))
+
+    app: Application = Application(
+        layout=layout,
+        key_bindings=bindings,
+        style=menu_style,
+        full_screen=False,
+    )
+
+    app.run()
+    return result[0]
+
+
 def handle_tool_approval(
-    command: Optional[str],
-    error_message: Optional[str],
+    tool_result: StructuredToolResult,
     style: Style,
     console: Console,
 ) -> tuple[bool, Optional[str]]:
     """
     Handle user approval for potentially sensitive commands.
 
+    Shows an interactive menu per the bash toolset spec:
+    1. Yes - one-time approval
+    2. Yes, and don't ask again for <prefix> commands - saves to allow list
+    3. Type feedback to tell Holmes what to do differently
+
     Args:
-        command: The command that needs approval
-        error_message: The error message explaining why approval is needed
-        session: PromptSession for user input
+        tool_result: The StructuredToolResult containing command and prefixes
         style: Style for prompts
         console: Rich console for output
 
@@ -639,28 +720,44 @@ def handle_tool_approval(
         - approved: True if user approves, False if denied
         - feedback: User's optional feedback message when denying
     """
-    console.print("\n[bold yellow]⚠️  Command Approval Required[/bold yellow]")
-    console.print(f"[yellow]Command:[/yellow] {command or 'unknown'}")
-    console.print(f"[yellow]Reason:[/yellow] {error_message or 'unknown'}")
-    console.print()
-
-    # Create a temporary session without history for approval prompts
-    temp_session = PromptSession(history=InMemoryHistory())  # type: ignore
-
-    approval_prompt = temp_session.prompt(
-        [("class:prompt", "Do you want to approve and execute this command? (y/N): ")],
-        style=style,
+    command = tool_result.invocation
+    prefixes = (
+        tool_result.params.get("suggested_prefixes", []) if tool_result.params else []
     )
 
-    if approval_prompt.lower().startswith("y"):
-        return True, None
+    # Format prefixes for display
+    if prefixes:
+        prefixes_display = ", ".join(f"{p}" for p in prefixes)
     else:
-        # Ask for optional feedback when denying
+        prefixes_display = "<command>"
+
+    # Print header
+    console.print("\n[bold yellow]Bash command[/bold yellow]")
+    console.print(f"\n  {command or 'unknown'}")
+    console.print("\n[bold]Do you want to proceed?[/bold]")
+
+    # Show inline menu
+    options = [
+        "Yes",
+        f"Yes, and don't ask again for {prefixes_display} commands",
+        "No, and tell Holmes what to do differently",
+    ]
+
+    result = _run_inline_menu(options, console)
+
+    if result == 0:  # Yes
+        return True, None
+    elif result == 1:  # Yes, save
+        if prefixes:
+            _save_approved_prefixes(prefixes)
+            console.print(f"[green]✓ Saved `{prefixes_display}` to allow list[/green]")
+        return True, None
+    else:  # No (option 3) or Cancelled (Esc) - prompt for optional feedback
+        temp_session = PromptSession(history=InMemoryHistory())  # type: ignore
         feedback_prompt = temp_session.prompt(
             [("class:prompt", "Optional feedback for the AI (press Enter to skip): ")],
             style=style,
         )
-
         feedback = feedback_prompt.strip() if feedback_prompt.strip() else None
         return False, feedback
 
@@ -998,7 +1095,12 @@ def run_interactive_loop(
     check_version: bool = True,
     feedback_callback: Optional[FeedbackCallback] = None,
     json_output_file: Optional[str] = None,
+    bash_always_deny: bool = False,
+    bash_always_allow: bool = False,
 ) -> None:
+    # Enable CLI mode for bash prefix loading (server mode doesn't call this)
+    enable_cli_mode()
+
     # Initialize tracer - use DummyTracer if no tracer provided
     if tracer is None:
         tracer = DummyTracer()
@@ -1011,18 +1113,23 @@ def run_interactive_loop(
         }
     )
 
-    # Set up approval callback for potentially sensitive commands
-    def approval_handler(
-        tool_call_result: StructuredToolResult,
-    ) -> tuple[bool, Optional[str]]:
-        return handle_tool_approval(
-            command=tool_call_result.invocation,
-            error_message=tool_call_result.error,
-            style=style,
-            console=console,
-        )
+    # Set up approval callback based on CLI flags
+    # --bash-always-deny: don't set callback, let default behavior deny
+    # --bash-always-allow: set callback that always approves
+    # default: set interactive approval handler
+    if bash_always_allow:
+        ai.approval_callback = lambda _: (True, None)
+    elif not bash_always_deny:
+        # Default: interactive approval
+        def approval_handler(
+            tool_call_result: StructuredToolResult,
+        ) -> tuple[bool, Optional[str]]:
+            return handle_tool_approval(
+                tool_result=tool_call_result,
+                style=style,
+                console=console,
+            )
 
-    if ENABLE_CLI_TOOL_APPROVAL:
         ai.approval_callback = approval_handler
 
     # Create merged completer with slash commands, conditional executables, show command, and smart paths

@@ -1,13 +1,101 @@
-# Bash commands
+# Bash Tool
 
-The tool `run_bash_command` allows you to run the following commands:
-- `kubectl get|describe|logs|top|events [options]`
-- `aws <service> <operation> [options]` (read-only)
-- `az|docker|helm|argocd [options]`
-- `grep|cut|sort|uniq|head|tail|wc|tr|base64|jq|sed [options]`
+Use the `bash` tool to execute simple one-liner shell commands. You must provide:
+1. `command`: The bash command to execute
+2. `suggested_prefixes`: Array of prefixes, one per command segment
 
-Commands can be piped with `|`. No `&&` support.
+## Supported Command Types
 
+**SUPPORTED** - Simple one-liner commands:
+- Single commands: `kubectl get pods -n default`
+- Pipes (`|`): `kubectl get pods | grep Running | head -5`
+- AND operator (`&&`): `kubectl get pods && kubectl get services`
+- OR operator (`||`): `kubectl get pods || echo 'no pods found'`
+- Semicolon (`;`): `kubectl get pods; kubectl get services`
+- Background (`&`): `sleep 5 & echo done`
+- Environment variables: `echo $HOME`, `ls ${HOME}/projects`
 
-The tool `kubectl_run_image` will run an image:
-- `kubectl run <name> --image=<image> --rm --attach --restart=Never --i --tty -- <command>`
+**NOT SUPPORTED** - Compound statements:
+- `for` loops: `for i in 1 2 3; do echo $i; done`
+- `while` loops: `while true; do sleep 1; done`
+- `until` loops: `until false; do echo running; done`
+- `if` statements: `if [ -f file ]; then cat file; fi`
+- `case` statements: `case $x in 1) echo one;; esac`
+- Command substitution: `echo $(whoami)` or `` echo `whoami` ``
+- Process substitution: `diff <(cat file1) <(cat file2)`
+
+## Command Structure
+
+When constructing commands, **place parameter values at the end** so that prefixes can match effectively:
+- Good: `kubectl scale deployment nginx -n prod --replicas=3` (prefix `kubectl scale deployment nginx -n prod` matches)
+- Bad: `kubectl scale --replicas=3 deployment nginx -n prod` (prefix won't match)
+
+General principle: identifiers first (what you're targeting), parameter values last (how you're affecting it).
+
+## Prefix Guidelines
+
+For each command segment (separated by `|`, `&&`, `||`, `;`, `&`), provide a `suggested_prefixes` entry based on the operation type:
+
+### Read-only operations
+Use the **shortest prefix that commits to read-only behavior**.
+- `kubectl get pods -n default` → `kubectl get`
+- `cat /var/log/app.log` → `cat`
+- `grep error file.txt` → `grep`
+- `kubectl get pods | grep error | head -10` → `["kubectl get", "grep", "head"]`
+
+### Mixed operations (can branch to read OR write)
+Use a **longer prefix that specifies the read-only branch**.
+- `kubectl config view` → `kubectl config view` (not `kubectl config`, which could also do `set`)
+- `git remote -v` → `git remote -v` (not `git remote`, which could also do `add/remove`)
+
+### Destructive/write operations
+Include the **full target identification** (action + resource type + resource name + namespace), but **exclude parameter values**.
+- `kubectl delete pod my-pod -n default` → `kubectl delete pod my-pod -n default`
+- `kubectl scale deployment nginx --replicas=3` → `kubectl scale deployment nginx`
+- `kubectl scale deployment nginx -n prod --replicas=3` → `kubectl scale deployment nginx -n prod`
+- `rm /tmp/file.txt` → `rm /tmp/file.txt`
+
+## Allowed Commands
+
+Commands matching these prefixes will execute immediately without prompting:
+{% if config and config.allow %}
+{% for prefix in config.allow %}
+- `{{ prefix }}`
+{% endfor %}
+{% else %}
+- (No commands pre-approved - all commands require user approval)
+{% endif %}
+
+## Blocked Commands
+
+These commands are blocked and cannot be executed:
+{% if config and config.deny %}
+{% for prefix in config.deny %}
+- `{{ prefix }}`
+{% endfor %}
+{% endif %}
+- `sudo` (always blocked)
+- `su` (always blocked)
+
+### NEVER USE - Subshells and Command Substitution
+
+The following constructs are **permanently blocked** and will **always fail**. Do not attempt to use them:
+
+- **`$(...)`** - Command substitution with dollar-paren. Example: `echo $(whoami)` - BLOCKED
+- **`` `...` ``** - Command substitution with backticks. Example: `` echo `date` `` - BLOCKED
+- **`<(...)`** - Process substitution (input). Example: `diff <(cat file1) <(cat file2)` - BLOCKED
+- **`>(...)`** - Process substitution (output). Example: `tee >(cat > file)` - BLOCKED
+
+Instead of subshells, use pipes: `whoami | xargs echo` or run separate commands.
+
+### NEVER USE - Compound Statements
+
+The following control structures are **permanently blocked** and will **always fail**:
+
+- **`for`** loops: `for i in 1 2 3; do echo $i; done` - BLOCKED
+- **`while`** loops: `while true; do sleep 1; done` - BLOCKED
+- **`until`** loops: `until false; do echo x; done` - BLOCKED
+- **`if`** statements: `if [ -f file ]; then cat file; fi` - BLOCKED
+- **`case`** statements: `case $x in 1) echo one;; esac` - BLOCKED
+
+Instead of loops, run the command once or use pipes with tools like `xargs`.

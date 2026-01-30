@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -36,19 +36,38 @@ class ElasticsearchConfig(BaseModel):
     ```
     """
 
-    url: str
-    api_key: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    verify_ssl: bool = True
-    timeout: int = 10  # Default timeout in seconds
+    url: str = Field(
+        description="Elasticsearch/OpenSearch base URL",
+        examples=["https://your-cluster.es.cloud.io"],
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="API key for authentication (preferred over basic auth when available)",
+        examples=["{{ env.ELASTICSEARCH_API_KEY }}"],
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="Username for basic auth authentication (used if api_key is not provided)",
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="Password for basic auth authentication (used if api_key is not provided)",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates",
+    )
+    timeout: int = Field(
+        default=10,
+        description="Default request timeout in seconds",
+    )
 
 
 class ElasticsearchBaseToolset(Toolset):
     """Base class for Elasticsearch toolsets with shared configuration and HTTP logic."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    config_class: ClassVar[Type[ElasticsearchConfig]] = ElasticsearchConfig
+    config_classes: ClassVar[list[Type[ElasticsearchConfig]]] = [ElasticsearchConfig]
 
     def __init__(self, name: str, description: str, tools: list, **kwargs):
         super().__init__(
@@ -110,15 +129,6 @@ class ElasticsearchBaseToolset(Toolset):
     @property
     def elasticsearch_config(self) -> ElasticsearchConfig:
         return self.config  # type: ignore
-
-    def get_example_config(self) -> Dict[str, Any]:
-        """Return an example configuration for this toolset."""
-        return {
-            "url": "https://your-cluster.es.cloud.io",
-            "api_key": "{{ env.ELASTICSEARCH_API_KEY }}",
-            "verify_ssl": True,
-            "timeout": 10,
-        }
 
     def _get_headers(self) -> Dict[str, str]:
         """Build request headers with authentication."""

@@ -54,6 +54,8 @@ HOLMES_STATUS_TABLE = "HolmesStatus"
 HOLMES_TOOLSET = "HolmesToolsStatus"
 SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
+SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
+HOLMES_RESULTS_TABLE = "HolmesResults"
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
@@ -79,6 +81,15 @@ supabase_request_builder.pre_select = pre_select_patched
 class FindingType(str, Enum):
     ISSUE = "issue"
     CONFIGURATION_CHANGE = "configuration_change"
+
+
+class RunStatus(str, Enum):
+    PENDING = "pending"
+    PULLED = "pulled"
+    RUNNING = "running"
+    FAILED = "failed"
+    FAILED_NO_RETRY = "failed_no_retry"
+    COMPLETED = "completed"
 
 
 class RobustaToken(BaseModel):
@@ -776,3 +787,141 @@ class SupabaseDal:
             logging.exception(
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
             )
+
+    def has_scheduled_prompt_definitions(self) -> bool:
+        """
+        Check if the account has any scheduled prompt definitions.
+        Returns True if count > 0, False otherwise.
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            res = (
+                self.client.table("ScheduledPromptsDefinitions")
+                .select("id", count="exact")
+                .eq("account_id", self.account_id)
+                .limit(1)
+                .execute()
+            )
+
+            count = res.count if hasattr(res, "count") else 0
+            return count > 0
+        except Exception:
+            logging.exception(
+                "Supabase error while checking scheduled prompt definitions",
+                exc_info=True,
+            )
+            return False
+
+    def claim_scheduled_prompt_run(self, holmes_id: str) -> Optional[Dict]:
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc(
+                "claim_scheduled_prompt_run",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_name": self.cluster,
+                    "_holmes_id": holmes_id,
+                },
+            ).execute()
+
+            if not res.data:
+                return None
+
+            row = res.data[0] if isinstance(res.data, list) else res.data
+            # supabase returns empty row if no data found
+            if not row.get("id"):
+                return None
+
+            return row
+        except Exception:
+            logging.exception(
+                "Supabase error while claiming scheduled prompt run",
+                exc_info=True,
+            )
+            return None
+
+    def update_run_status(
+        self, run_id: str, status: RunStatus, msg: Optional[str] = None
+    ) -> bool:
+        if not self.enabled:
+            logging.info(
+                "Robusta store not initialized. Skipping updating scheduled prompt run status."
+            )
+            return False
+
+        status_str = status.value
+
+        try:
+            update_data = {
+                "status": status_str,
+                "last_heartbeat_at": datetime.now().isoformat(),
+            }
+            if msg is not None:
+                update_data["msg"] = msg
+
+            (
+                self.client.table(SCHEDULED_PROMPTS_RUNS_TABLE)
+                .update(update_data)
+                .eq("id", run_id)
+                .eq("account_id", self.account_id)
+                .execute()
+            )
+
+            logging.debug(f"Updated run {run_id} status to {status}")
+            return True
+        except Exception as e:
+            logging.exception(
+                f"Error updating scheduled prompt run status: {e}", exc_info=True
+            )
+            return False
+
+    def finish_scheduled_prompt_run(
+        self,
+        status: RunStatus,
+        result: Dict,
+        run_id: str,
+        scheduled_prompt_definition_id: Optional[str],
+        version: str,
+        metadata: Optional[dict],
+    ) -> bool:
+        if not self.enabled:
+            logging.info(
+                "Robusta store not initialized. Skipping finishing scheduled prompt run."
+            )
+            return False
+
+        if status not in (
+            RunStatus.COMPLETED,
+            RunStatus.FAILED,
+            RunStatus.FAILED_NO_RETRY,
+        ):
+            logging.error(
+                "finish_scheduled_prompt_run received invalid status %s", status
+            )
+            return False
+
+        try:
+            self.client.rpc(
+                "finish_scheduled_prompt_run",
+                {
+                    "_cluster_name": self.cluster,
+                    "_account_id": self.account_id,
+                    "_status": status.value,
+                    "_result": result,
+                    "_scheduled_prompt_run_id": run_id,
+                    "_scheduled_prompt_definition_id": scheduled_prompt_definition_id,
+                    "_version": version,
+                    "_metadata": metadata,
+                },
+            ).execute()
+            return True
+        except Exception:
+            logging.exception(
+                "Supabase error while finishing scheduled prompt run",
+                exc_info=True,
+            )
+            return False

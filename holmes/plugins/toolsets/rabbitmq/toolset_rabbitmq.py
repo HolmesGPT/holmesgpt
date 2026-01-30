@@ -1,9 +1,9 @@
 import logging
 import os
-from typing import Any, List, Optional, Tuple
+from typing import Any, ClassVar, List, Optional, Tuple, Type
 from urllib.parse import urljoin
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from requests import RequestException  # type: ignore
 
 from holmes.core.tools import (
@@ -23,10 +23,16 @@ from holmes.plugins.toolsets.rabbitmq.api import (
     make_request,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import build_config_example
 
 
 class RabbitMQConfig(BaseModel):
-    clusters: List[RabbitMQClusterConfig]
+    clusters: List[RabbitMQClusterConfig] = Field(
+        description="List of RabbitMQ clusters to connect to",
+        examples=[
+            [build_config_example(RabbitMQClusterConfig)]
+        ],
+    )
 
 
 class BaseRabbitMQTool(Tool):
@@ -129,6 +135,8 @@ class GetRabbitMQClusterStatus(BaseRabbitMQTool):
 
 
 class RabbitMQToolset(Toolset):
+    config_classes: ClassVar[list[Type[RabbitMQConfig]]] = [RabbitMQConfig]
+
     def __init__(self):
         super().__init__(
             name="rabbitmq/core",
@@ -217,15 +225,3 @@ class RabbitMQToolset(Toolset):
                 return (False, "\n".join([f"- {error}" for error in errors]))
         else:
             return (True, "")
-
-    def get_example_config(self):
-        example_config = RabbitMQConfig(
-            clusters=[
-                RabbitMQClusterConfig(
-                    management_url="http://<your-rabbitmq-server-or-service>:15672",
-                    username="holmes_user",
-                    password="holmes_password",
-                )
-            ]
-        )
-        return example_config.model_dump()

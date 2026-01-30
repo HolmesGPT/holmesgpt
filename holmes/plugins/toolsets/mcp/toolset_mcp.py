@@ -1,12 +1,14 @@
 import asyncio
 import json
 import logging
+import os
 import threading
 from contextlib import asynccontextmanager
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import httpx
+from jinja2 import Template
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -28,6 +30,17 @@ from holmes.core.tools import (
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
+
+
+class CaseInsensitiveDict(dict):
+    """Dictionary with case-insensitive key lookup for HTTP headers."""
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            for k, v in self.items():
+                if k.lower() == key.lower():
+                    return v
+        raise KeyError(key)
 
 
 def create_mcp_http_client_factory(verify_ssl: bool = True):
@@ -70,27 +83,69 @@ class MCPMode(str, Enum):
 
 
 class MCPConfig(BaseModel):
-    url: AnyUrl
-    mode: MCPMode = MCPMode.SSE
-    headers: Optional[Dict[str, str]] = None
-    verify_ssl: bool = True
+    url: AnyUrl = Field(
+        description="MCP server URL (for SSE or Streamable HTTP modes).",
+        examples=["http://example.com:8000/mcp/messages"],
+    )
+    mode: MCPMode = Field(
+        default=MCPMode.SSE,
+        description="Connection mode to use when talking to the MCP server.",
+        examples=[MCPMode.STREAMABLE_HTTP],
+    )
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Optional HTTP headers to include in requests (e.g., Authorization).",
+        examples=[{"Authorization": "Bearer YOUR_TOKEN"}],
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates (set to false for local/dev servers without valid SSL).",
+        examples=[False],
+    )
+    extra_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Template headers that will be rendered with request context and environment variables.",
+        examples=[
+            {
+                "X-Custom-Header": "{{ request_context.headers['X-Custom-Header'] }}",
+                "X-Api-Key": "{{ env.API_KEY }}",
+            }
+        ],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.url)
 
 
 class StdioMCPConfig(BaseModel):
-    mode: MCPMode = MCPMode.STDIO
-    command: str
-    args: Optional[List[str]] = None
-    env: Optional[Dict[str, str]] = None
+    mode: MCPMode = Field(
+        default=MCPMode.STDIO,
+        description="Stdio mode runs an MCP server as a local subprocess.",
+        examples=[MCPMode.STDIO],
+    )
+    command: str = Field(
+        description="The command to start the MCP server (e.g., npx, uv, python).",
+        examples=["npx"],
+    )
+    args: Optional[List[str]] = Field(
+        default=None,
+        description="Arguments to pass to the MCP server command.",
+        examples=[["-y", "@modelcontextprotocol/server-github"]],
+    )
+    env: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Environment variables to set for the MCP server process.",
+        examples=[{"GITHUB_PERSONAL_ACCESS_TOKEN": "{{ env.GITHUB_TOKEN }}"}],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.command)
 
 
 @asynccontextmanager
-async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
+async def get_initialized_mcp_session(
+    toolset: "RemoteMCPToolset", request_context: Optional[Dict[str, Any]] = None
+):
     if toolset._mcp_config is None:
         raise ValueError("MCP config is not initialized")
 
@@ -110,9 +165,10 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
         httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        rendered_headers = toolset._render_headers(request_context)
         async with sse_client(
             url,
-            toolset._mcp_config.headers,
+            rendered_headers,
             sse_read_timeout=SSE_READ_TIMEOUT,
             httpx_client_factory=httpx_factory,
         ) as (
@@ -125,9 +181,10 @@ async def get_initialized_mcp_session(toolset: "RemoteMCPToolset"):
     else:
         url = str(toolset._mcp_config.url)
         httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        rendered_headers = toolset._render_headers(request_context)
         async with streamablehttp_client(
             url,
-            headers=toolset._mcp_config.headers,
+            headers=rendered_headers,
             sse_read_timeout=SSE_READ_TIMEOUT,
             httpx_client_factory=httpx_factory,
         ) as (
@@ -152,7 +209,7 @@ class RemoteMCPTool(Tool):
 
             lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
             with lock:
-                return asyncio.run(self._invoke_async(params))
+                return asyncio.run(self._invoke_async(params, context.request_context))
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -170,8 +227,12 @@ class RemoteMCPTool(Tool):
         except Exception:
             return False
 
-    async def _invoke_async(self, params: Dict) -> StructuredToolResult:
-        async with get_initialized_mcp_session(self.toolset) as session:
+    async def _invoke_async(
+        self, params: Dict, request_context: Optional[Dict[str, Any]]
+    ) -> StructuredToolResult:
+        async with get_initialized_mcp_session(
+            self.toolset, request_context
+        ) as session:
             tool_result = await session.call_tool(self.name, params)
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
@@ -236,9 +297,104 @@ class RemoteMCPTool(Tool):
 
 
 class RemoteMCPToolset(Toolset):
+    config_classes: ClassVar[list[Type[Union[MCPConfig, StdioMCPConfig]]]] = [
+        MCPConfig,
+        StdioMCPConfig,
+    ]
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
+
+    def _render_headers(
+        self, request_context: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, str]]:
+        """
+        Merge and render headers for MCP connection.
+
+        Process:
+        1. Start with 'headers' field (backward compatibility, passed as-is)
+        2. Render 'extra_headers' templates with request_context and env vars
+        3. Merge them (extra_headers takes precedence)
+
+        Template sources for extra_headers:
+        - {{ request_context.headers['foo'] }}: Pass-through from client request
+        - {{ env.CORALOGIX_API_KEY }}: From environment variables
+        - "hardcoded value": Static hardcoded values
+
+        Returns:
+            Merged headers dictionary or None
+
+        Example of mcp_config:
+            mcp_servers:
+                my_mcp_server:
+                    config:
+                        ...
+                        headers:
+                            Header-Name: "hardcoded value"
+                        extra_headers:
+                            Header-Name-1: "hardcoded value"
+                            Header-Name-2: "{{ request_context.headers['foo'] }}"
+                            Header-Name-3: "{{ env.CORALOGIX_API_KEY }}"
+        """
+        if not isinstance(self._mcp_config, MCPConfig):
+            return None
+
+        # Start with direct headers (no rendering, backward compatibility)
+        final_headers = {}
+        if self._mcp_config.headers:
+            final_headers.update(self._mcp_config.headers)
+
+        # Render and merge extra_headers
+        if self._mcp_config.extra_headers:
+            for header_name, header_template in self._mcp_config.extra_headers.items():
+                try:
+                    rendered_value = self._render_template(
+                        header_template, request_context
+                    )
+                    final_headers[header_name] = rendered_value
+                except Exception as e:  # noqa: BLE001
+                    logging.warning(
+                        f"MCP toolset '{self.name}': Failed to render header template "
+                        f"'{header_name}': {e}"
+                    )
+
+        return final_headers if final_headers else None
+
+    def _render_template(
+        self, template_str: str, request_context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Render a single template string using Jinja2.
+
+        Supports:
+        - {{ request_context.headers['foo'] }} - case-insensitive header lookup
+        - {{ env.API_KEY }} - environment variables
+        - Plain strings (no template syntax)
+        """
+        # Build context for Jinja2 template rendering
+        context: Dict[str, Any] = {
+            "env": os.environ,
+        }
+
+        if request_context:
+            # Wrap headers in CaseInsensitiveDict for case-insensitive lookup
+            request_context_copy = request_context.copy()
+            if "headers" in request_context_copy:
+                request_context_copy["headers"] = CaseInsensitiveDict(
+                    request_context_copy["headers"]
+                )
+            context["request_context"] = request_context_copy
+        else:
+            context["request_context"] = {"headers": CaseInsensitiveDict()}
+
+        try:
+            template = Template(template_str)
+            return template.render(context)
+        except Exception as e:
+            logging.warning(
+                f"MCP toolset '{self.name}': Failed to render template '{template_str}': {e}"
+            )
+            return template_str
 
     def model_post_init(self, __context: Any) -> None:
         self.prerequisites = [
@@ -319,14 +475,5 @@ class RemoteMCPToolset(Toolset):
             )
 
     async def _get_server_tools(self):
-        async with get_initialized_mcp_session(self) as session:
+        async with get_initialized_mcp_session(self, None) as session:
             return await session.list_tools()
-
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = MCPConfig(
-            url=AnyUrl("http://example.com:8000/mcp/messages"),
-            mode=MCPMode.STREAMABLE_HTTP,
-            headers={"Authorization": "Bearer YOUR_TOKEN"},
-            verify_ssl=False,  # Set to False for local/development servers without SSL
-        )
-        return example_config.model_dump()

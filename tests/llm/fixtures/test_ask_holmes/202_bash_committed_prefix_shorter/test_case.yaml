@@ -1,0 +1,11 @@
+user_prompt: "Run 'kubectl describe deployment my-app -n production'. If disapproved by the user, just say you failed without trying anything else."
+expected_output:
+  - The suggested prefixes contains exactly one item
+  - This item is 'kubectl describe'
+description: |
+  Tests that for read-only operations, the shortest committed prefix is used.
+  'kubectl describe' is always read-only, so there's no need for a longer prefix like 'kubectl describe deployment'.
+include_tool_calls: true
+tags:
+  - kubernetes
+  - question-answer
