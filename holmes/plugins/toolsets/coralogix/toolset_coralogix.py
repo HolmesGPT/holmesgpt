@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, ClassVar, Optional, Tuple, Type
 from urllib.parse import quote
 
 from holmes.core.tools import (
@@ -181,6 +181,8 @@ class ExecuteDataPrimeQuery(Tool):
 
 
 class CoralogixToolset(Toolset):
+    config_classes: ClassVar[list[Type[CoralogixConfig]]] = [CoralogixConfig]
+
     def __init__(self):
         super().__init__(
             name="coralogix",
@@ -196,12 +198,6 @@ class CoralogixToolset(Toolset):
             self._load_llm_instructions(
                 jinja_template=f"file://{os.path.abspath(template_path)}"
             )
-
-    def get_example_config(self):
-        example_config = CoralogixConfig(
-            api_key="<cxuw_...>", team_hostname="my-team", domain="eu2.coralogix.com"
-        )
-        return example_config.model_dump()
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         if not config:

@@ -177,7 +177,7 @@ def ask_holmes(
     with eval_span.start_span(
         "Initialize Toolsets",
         type=SpanType.TASK.value,
-    ):
+    ) as toolset_span:
         toolset_manager = MockToolsetManager(
             test_case_folder=test_case.folder,
             mock_generation_config=mock_generation_config,
@@ -187,11 +187,13 @@ def ask_holmes(
             allow_toolset_failures=getattr(test_case, "allow_toolset_failures", False),
         )
 
-    tool_executor = ToolExecutor(toolset_manager.toolsets)
-    enabled_toolsets = [t.name for t in tool_executor.enabled_toolsets]
-    print(
-        f"\n🛠️  ENABLED TOOLSETS ({len(enabled_toolsets)}):", ", ".join(enabled_toolsets)
-    )
+        tool_executor = ToolExecutor(toolset_manager.toolsets)
+        enabled_toolsets = [t.name for t in tool_executor.enabled_toolsets]
+        print(
+            f"\n🛠️  ENABLED TOOLSETS ({len(enabled_toolsets)}):",
+            ", ".join(enabled_toolsets),
+        )
+        toolset_span.log(metadata={"toolset_names": enabled_toolsets})
 
     ai = ToolCallingLLM(
         tool_executor=tool_executor,

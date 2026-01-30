@@ -143,9 +143,6 @@ class CoreInvestigationToolset(Toolset):
             is_default=True,
         )
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
     def _reload_instructions(self):
         template_file_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "investigator_instructions.jinja2")

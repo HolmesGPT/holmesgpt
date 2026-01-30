@@ -265,6 +265,3 @@ class RunbookToolset(Toolset):
             config=config,
             enabled=True,
         )
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}

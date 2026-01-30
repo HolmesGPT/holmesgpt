@@ -7,11 +7,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
 import requests  # type: ignore
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr
 from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -19,18 +20,27 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
 class MongoDBConfig(BaseModel):
-    public_key: str
-    private_key: str
-    project_id: str
+    public_key: str = Field(
+        description="MongoDB Atlas public key for API authentication",
+    )
+    private_key: str = Field(
+        description="MongoDB Atlas private key for API authentication",
+    )
+    project_id: str = Field(
+        description="MongoDB Atlas project ID",
+    )
 
 
 # https://www.mongodb.com/docs/atlas/reference/api-resources-spec/v2/
 class MongoDBAtlasToolset(Toolset):
+    config_classes: ClassVar[list[Type[MongoDBConfig]]] = [MongoDBConfig]
+
     name: str = "MongoDBAtlas"
     description: str = "The MongoDB Atlas API allows access to Mongodb projects and processes. You can find logs, alerts, events, slow queries and various metrics to understand the state of Mongodb projects."
     docs_url: str = (
@@ -76,9 +86,6 @@ class MongoDBAtlasToolset(Toolset):
                 "Invalid Atlas config. Failed to set up MongoDBAtlas toolset"
             )
             return False, "Invalid Atlas config"
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
 
 
 class MongoDBAtlasBaseTool(Tool):

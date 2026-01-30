@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 from pydantic import AnyUrl
 
@@ -61,6 +61,8 @@ def format_logs(raw_logs: list[dict]) -> str:
 
 class DatadogLogsToolset(Toolset):
     """Toolset for working with Datadog logs data."""
+
+    config_classes: ClassVar[list[Type[DatadogLogsConfig]]] = [DatadogLogsConfig]
 
     dd_config: Optional[DatadogLogsConfig] = None
 
@@ -138,15 +140,6 @@ class DatadogLogsToolset(Toolset):
         except Exception as e:
             logging.exception("Failed to set up Datadog toolset")
             return (False, f"Failed to parse Datadog configuration: {str(e)}")
-
-    def get_example_config(self) -> Dict[str, Any]:
-        """Get example configuration for this toolset."""
-        example_config = DatadogLogsConfig(
-            dd_api_key="<your_datadog_api_key>",
-            dd_app_key="<your_datadog_app_key>",
-            site_api_url=AnyUrl("https://api.datadoghq.com"),
-        )
-        return example_config.model_dump(mode="json")
 
     def _reload_instructions(self):
         """Load Datadog logs specific troubleshooting instructions."""
