@@ -68,16 +68,6 @@ class TestDatadogTracesToolset:
         assert not success
         assert "No configuration provided" in error_msg
 
-    def test_get_example_config(self):
-        """Test get_example_config method."""
-        toolset = DatadogTracesToolset()
-        example_config = toolset.get_example_config()
-
-        assert "dd_api_key" in example_config
-        assert "dd_app_key" in example_config
-        assert "site_api_url" in example_config
-        assert "request_timeout" in example_config
-
 
 class TestFetchDatadogSpansByFilter:
     """Unit tests for FetchDatadogSpansByFilter tool."""

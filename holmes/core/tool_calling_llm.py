@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import logging
+import re
 import textwrap
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
@@ -64,6 +65,79 @@ from holmes.utils.tags import parse_messages_tags
 
 # Create a named logger for cost tracking
 cost_logger = logging.getLogger("holmes.costs")
+
+
+def _extract_text_from_content(content: Any) -> str:
+    """Extract text from message content, handling both string and array formats.
+
+    OpenAI/LiteLLM message content can be:
+    - A plain string: "some text"
+    - An array of content objects: [{"type": "text", "text": "some text", ...}]
+
+    The array format is used by our cache_control feature (see llm.py add_cache_control_to_last_message)
+    which converts string content to a single-item array. For tool messages, there's always
+    only one text item containing the full tool output with tool_call_metadata at the start.
+
+    Args:
+        content: Message content (string or array)
+
+    Returns:
+        Extracted text as a string
+    """
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        # Tool messages have a single text item (created by format_tool_result_data,
+        # possibly wrapped in array by cache_control). Return the first text item.
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                return item.get("text", "")
+
+    return ""
+
+
+def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
+    """Extract bash session approved prefixes from conversation history.
+
+    Scans tool result messages for bash_session_approved_prefixes stored in
+    tool_call_metadata. These prefixes were approved by the user via the
+    "Yes, and don't ask again" option.
+
+    Args:
+        messages: Conversation history messages
+
+    Returns:
+        List of approved prefixes accumulated from all tool results
+    """
+    prefixes: set[str] = set()
+
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+
+        content = _extract_text_from_content(msg.get("content", ""))
+        if not content:
+            continue
+
+        # Extract tool_call_metadata from the content string
+        # Format: tool_call_metadata={"tool_name": "...", ...}
+        match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
+        if not match:
+            continue
+
+        try:
+            metadata = json.loads(match.group(1))
+            if "bash_session_approved_prefixes" in metadata:
+                prefixes.update(metadata["bash_session_approved_prefixes"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    if prefixes:
+        logging.info(
+            f"Found {len(prefixes)} session-approved bash prefixes from conversation: {list(prefixes)}"
+        )
+    return list(prefixes)
 
 
 class LLMCosts(BaseModel):
@@ -183,7 +257,10 @@ class ToolCallingLLM:
         self._runbook_in_use = False
 
     def process_tool_decisions(
-        self, messages: List[Dict[str, Any]], tool_decisions: List[ToolApprovalDecision]
+        self,
+        messages: List[Dict[str, Any]],
+        tool_decisions: List[ToolApprovalDecision],
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
         """
         Process tool approval decisions and execute approved tools.
@@ -228,6 +305,9 @@ class ToolCallingLLM:
             error_message = f"Received {len(tool_decisions)} tool decisions but no pending approvals found"
             logging.error(error_message)
             raise Exception(error_message)
+        # Extract existing session prefixes from conversation history
+        session_prefixes = extract_bash_session_prefixes(messages)
+
         for tool_call_with_decision in pending_tool_calls:
             tool_call_message: dict
             tool_call = tool_call_with_decision.tool_call
@@ -240,6 +320,8 @@ class ToolCallingLLM:
                     trace_span=DummySpan(),  # TODO: replace with proper span
                     tool_number=None,
                     user_approved=True,
+                    session_approved_prefixes=session_prefixes,
+                    request_context=request_context,
                 )
             else:
                 # Tool was rejected or no decision found, add rejection message
@@ -260,7 +342,19 @@ class ToolCallingLLM:
                 )
             )
 
-            tool_call_message = tool_result.as_tool_call_message()
+            # If user chose "Yes, and don't ask again", include prefixes in metadata
+            extra_metadata = None
+            if decision and decision.approved and decision.save_prefixes:
+                logging.info(
+                    f"Saving bash session prefixes for future commands: {decision.save_prefixes}"
+                )
+                extra_metadata = {
+                    "bash_session_approved_prefixes": decision.save_prefixes
+                }
+
+            tool_call_message = tool_result.as_tool_call_message(
+                extra_metadata=extra_metadata
+            )
 
             # It is expected that the tool call result directly follows the tool call request from the LLM
             # The API call may contain a user ask which is appended to the messages so we can't just append
@@ -278,6 +372,7 @@ class ToolCallingLLM:
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -289,6 +384,7 @@ class ToolCallingLLM:
             user_prompt=user_prompt,
             sections=sections,
             trace_span=trace_span,
+            request_context=request_context,
         )
 
     def messages_call(
@@ -296,9 +392,13 @@ class ToolCallingLLM:
         messages: List[Dict[str, str]],
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         trace_span=DummySpan(),
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         return self.call(
-            messages, response_format=response_format, trace_span=trace_span
+            messages,
+            response_format=response_format,
+            trace_span=trace_span,
+            request_context=request_context,
         )
 
     def _should_include_restricted_tools(self) -> bool:
@@ -321,13 +421,14 @@ class ToolCallingLLM:
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
         tool_number_offset: int = 0,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         tool_calls: list[
             dict
         ] = []  # Used for preventing repeated tool calls. potentially reset after compaction
         all_tool_calls = []  # type: ignore
         costs = LLMCosts()
-        tools = self._get_tools()
+        tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         i = 0
         metadata: Dict[Any, Any] = {}
@@ -455,6 +556,7 @@ class ToolCallingLLM:
                         previous_tool_calls=tool_calls,
                         trace_span=trace_span,
                         tool_number=tool_number,
+                        request_context=request_context,
                     )
                     futures_tool_numbers[future] = tool_number
                     futures.append(future)
@@ -476,6 +578,7 @@ class ToolCallingLLM:
                             tool_call_result=tool_call_result,
                             tool_number=tool_number,
                             trace_span=trace_span,
+                            request_context=request_context,
                         )
 
                     tool_result_response_dict = (
@@ -490,7 +593,7 @@ class ToolCallingLLM:
                 tool_number_offset += len(tools_to_call)
 
                 # Re-fetch tools if runbook was just activated (enables restricted tools)
-                if self._runbook_in_use:
+                if self._runbook_in_use and tools is not None:
                     new_tools = self._get_tools()
                     if len(new_tools) != len(tools):
                         logging.info(
@@ -511,6 +614,8 @@ class ToolCallingLLM:
         user_approved: bool,
         tool_call_id: str,
         tool_number: Optional[int] = None,
+        session_approved_prefixes: Optional[List[str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> StructuredToolResult:
         tool = self.tool_executor.get_tool_by_name(tool_name)
         if not tool:
@@ -531,6 +636,8 @@ class ToolCallingLLM:
                 max_token_count=self.llm.get_max_token_count_for_single_tool(),
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
+                session_approved_prefixes=session_approved_prefixes or [],
+                request_context=request_context,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
@@ -562,6 +669,8 @@ class ToolCallingLLM:
         user_approved: bool,
         previous_tool_calls: list[dict],
         tool_number: Optional[int] = None,
+        session_approved_prefixes: Optional[List[str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> ToolCallResult:
         tool_params = {}
         try:
@@ -586,6 +695,8 @@ class ToolCallingLLM:
                 user_approved=user_approved,
                 tool_number=tool_number,
                 tool_call_id=tool_call_id,
+                session_approved_prefixes=session_approved_prefixes,
+                request_context=request_context,
             )
 
         if not isinstance(tool_response, StructuredToolResult):
@@ -654,6 +765,8 @@ class ToolCallingLLM:
         trace_span=None,
         tool_number=None,
         user_approved: bool = False,
+        session_approved_prefixes: Optional[List[str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> ToolCallResult:
         if trace_span is None:
             trace_span = DummySpan()
@@ -687,6 +800,8 @@ class ToolCallingLLM:
                     previous_tool_calls=previous_tool_calls,
                     tool_number=tool_number,
                     user_approved=user_approved,
+                    session_approved_prefixes=session_approved_prefixes,
+                    request_context=request_context,
                 )
 
             original_token_count = prevent_overly_big_tool_response(
@@ -701,11 +816,27 @@ class ToolCallingLLM:
             )
             return tool_call_result
 
+    def _is_tool_call_already_approved(self, tool_call_result):
+        tool = self.tool_executor.get_tool_by_name(tool_call_result.tool_name)
+        if not tool:
+            return False
+        context = ToolInvokeContext(
+            llm=self.llm,
+            max_token_count=self.llm.get_max_token_count_for_single_tool(),
+            tool_name=tool_call_result.tool_name,
+            tool_call_id=tool_call_result.tool_call_id,
+        )
+        approval = tool.requires_approval(
+            tool_call_result.result.params or {}, context
+        )
+        return not approval or not approval.needs_approval
+
     def _handle_tool_call_approval(
         self,
         tool_call_result: ToolCallResult,
         tool_number: Optional[int],
         trace_span: Any,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> ToolCallResult:
         """
         Handle approval for a single tool call if required.
@@ -721,6 +852,22 @@ class ToolCallingLLM:
         # If no approval callback, convert to ERROR because it is assumed the client may not be able to handle approvals
         if not self.approval_callback:
             tool_call_result.result.status = StructuredToolResultStatus.ERROR
+            return tool_call_result
+
+        # Re-check if approval is still needed (prefix may have been approved by another tool call)
+        if self._is_tool_call_already_approved(tool_call_result):
+            logging.info(
+                f"Approval no longer needed for {tool_call_result.tool_name}"
+            )
+            with trace_span.start_span(type="tool") as tool_span:
+                tool_call_result.result = self._directly_invoke_tool_call(
+                    tool_name=tool_call_result.tool_name,
+                    tool_params=tool_call_result.result.params or {},
+                    user_approved=False,
+                    tool_number=tool_number,
+                    tool_call_id=tool_call_result.tool_call_id,
+                )
+                ToolCallingLLM._log_tool_call_result(tool_span, tool_call_result)
             return tool_call_result
 
         # Get approval from user
@@ -741,6 +888,7 @@ class ToolCallingLLM:
                     user_approved=True,
                     tool_number=tool_number,
                     tool_call_id=tool_call_result.tool_call_id,
+                    request_context=request_context,
                 )
                 tool_call_result.result = new_response
             else:
@@ -763,6 +911,7 @@ class ToolCallingLLM:
         msgs: Optional[list[dict]] = None,
         enable_tool_approval: bool = False,
         tool_decisions: List[ToolApprovalDecision] | None = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ):
         """
         This function DOES NOT call llm.completion(stream=true).
@@ -771,7 +920,9 @@ class ToolCallingLLM:
         # Process tool decisions if provided
         if msgs and tool_decisions:
             logging.info(f"Processing {len(tool_decisions)} tool decisions")
-            msgs, events = self.process_tool_decisions(msgs, tool_decisions)
+            msgs, events = self.process_tool_decisions(
+                msgs, tool_decisions, request_context
+            )
             yield from events
 
         messages: list[dict] = []
@@ -782,7 +933,7 @@ class ToolCallingLLM:
         if msgs:
             messages.extend(msgs)
         tool_calls: list[dict] = []
-        tools = self._get_tools()
+        tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         i = 0
@@ -897,6 +1048,9 @@ class ToolCallingLLM:
             pending_approvals = []
             approval_required_tools = []
 
+            # Extract session approved prefixes from conversation history
+            session_prefixes = extract_bash_session_prefixes(messages)
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
                 futures = []
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
@@ -908,6 +1062,8 @@ class ToolCallingLLM:
                         previous_tool_calls=tool_calls,
                         trace_span=DummySpan(),  # Streaming mode doesn't support tracing yet
                         tool_number=tool_number,
+                        session_approved_prefixes=session_prefixes,
+                        request_context=request_context,
                     )
                     futures.append(future)
                     yield StreamMessage(
@@ -989,7 +1145,7 @@ class ToolCallingLLM:
                 tool_number_offset += len(tools_to_call)
 
                 # Re-fetch tools if runbook was just activated (enables restricted tools)
-                if self._runbook_in_use:
+                if self._runbook_in_use and tools is not None:
                     new_tools = self._get_tools()
                     if len(new_tools) != len(tools):
                         logging.info(
@@ -1044,6 +1200,7 @@ class IssueInvestigator(ToolCallingLLM):
         sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
         runbooks: Optional[RunbookCatalog] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
         request_structured_output_from_llm = True
         response_format = None
@@ -1105,5 +1262,6 @@ class IssueInvestigator(ToolCallingLLM):
             response_format=response_format,
             sections=sections,
             trace_span=trace_span,
+            request_context=request_context,
         )
         return res

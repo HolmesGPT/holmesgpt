@@ -66,9 +66,6 @@ class OpenSearchQueryAssistToolset(Toolset):
             prerequisites=[ToolsetEnvironmentPrerequisite(env=["OPENSEARCH_URL"])],
         )
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {"opensearch_url": "http://localhost:9200"}
-
     def _reload_instructions(self):
         template_file_path = os.path.abspath(
             os.path.join(

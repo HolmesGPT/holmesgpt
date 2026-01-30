@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 from urllib.parse import urljoin
 
 import dateutil.parser
@@ -89,31 +89,73 @@ class PrometheusConfig(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    # URL is optional because it can be set with an env var
-    prometheus_url: Optional[str] = None
+    prometheus_url: Optional[str] = Field(
+        default=None,
+        description="Prometheus server URL",
+        examples=[
+            "http://prometheus-server.monitoring.svc.cluster.local:9090",
+            "http://prometheus.monitoring.svc:9090",
+        ],
+    )
 
-    # Discovery API time window - only return metrics with data in the last N hours
-    discover_metrics_from_last_hours: int = DEFAULT_METADATA_TIME_WINDOW_HRS
+    discover_metrics_from_last_hours: int = Field(
+        default=DEFAULT_METADATA_TIME_WINDOW_HRS,
+        description="Time window for metadata APIs (in hours). Only shows metrics active in this window",
+    )
 
-    # Query timeout configuration
-    query_timeout_seconds_default: int = DEFAULT_QUERY_TIMEOUT_SECONDS
-    query_timeout_seconds_hard_max: int = MAX_QUERY_TIMEOUT_SECONDS
+    query_timeout_seconds_default: int = Field(
+        default=DEFAULT_QUERY_TIMEOUT_SECONDS,
+        description="Default timeout for PromQL queries",
+    )
+    query_timeout_seconds_hard_max: int = Field(
+        default=MAX_QUERY_TIMEOUT_SECONDS,
+        description="Maximum allowed timeout for PromQL queries",
+    )
 
-    # Metadata API timeout configuration
-    metadata_timeout_seconds_default: int = DEFAULT_METADATA_TIMEOUT_SECONDS
-    metadata_timeout_seconds_hard_max: int = MAX_METADATA_TIMEOUT_SECONDS
+    metadata_timeout_seconds_default: int = Field(
+        default=DEFAULT_METADATA_TIMEOUT_SECONDS,
+        description="Default timeout for metadata/discovery APIs",
+    )
+    metadata_timeout_seconds_hard_max: int = Field(
+        default=MAX_METADATA_TIMEOUT_SECONDS,
+        description="Maximum allowed timeout for metadata APIs",
+    )
 
-    tool_calls_return_data: bool = True
-    headers: Dict = Field(default_factory=dict)
-    rules_cache_duration_seconds: Optional[int] = 1800  # 30 minutes
-    additional_labels: Optional[Dict[str, str]] = None
-    verify_ssl: bool = True
+    tool_calls_return_data: bool = Field(
+        default=True,
+        description="Whether tools should return the queried data (set false if you only want summaries)",
+    )
+    headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional HTTP headers to include in Prometheus requests",
+        examples=[
+            {"Authorization": "Basic <base64_encoded_credentials>"},
+            {"Authorization": "Bearer <token>"},
+        ],
+    )
+    rules_cache_duration_seconds: Optional[int] = Field(
+        default=1800,
+        description="Cache duration for Prometheus rules endpoint (seconds)",
+    )
+    additional_labels: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Additional label filters to apply to queries (exact-match labels)",
+        examples=[ {}, {"cluster": "prod", "namespace": "default"}],
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        description="Whether to verify SSL certificates when connecting to Prometheus",
+    )
 
     # Custom limit to the max number of tokens that a query result can take to proactively
     #   prevent token limit issues. Expressed in % of the model's context window.
     # This limit only overrides the global limit for all tools  (TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT)
     #   if it is lower.
-    query_response_size_limit_pct: Optional[int] = None
+    query_response_size_limit_pct: Optional[int] = Field(
+        default=None,
+        description="Optional per-toolset max response size limit, as % of model context window (lower overrides global limit)",
+        examples=[10, 20, 30],
+    )
 
     @field_validator("prometheus_url")
     def ensure_trailing_slash(cls, v: Optional[str]) -> Optional[str]:
@@ -1715,6 +1757,9 @@ class ExecuteRangeQuery(BasePrometheusTool):
 
 
 class PrometheusToolset(Toolset):
+    config_classes: ClassVar[
+        list[Type[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]]]
+    ] = [PrometheusConfig, AMPConfig, AzurePrometheusConfig]
     config: Optional[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]] = None
 
     def __init__(self):
@@ -1847,14 +1892,3 @@ class PrometheusToolset(Toolset):
                 False,
                 f"Failed to initialize using url={url}. Unexpected error: {str(e)}",
             )
-
-    def get_example_config(self):
-        example_config = PrometheusConfig(
-            prometheus_url="http://prometheus-server.monitoring.svc.cluster.local:9090",
-            headers={"Authorization": "Basic <base64_encoded_credentials>"},
-            discover_metrics_from_last_hours=1,
-            query_timeout_seconds_default=20,
-            query_timeout_seconds_hard_max=180,
-            verify_ssl=True,
-        )
-        return example_config.model_dump()

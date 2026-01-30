@@ -27,6 +27,3 @@ class SampleToolset(Toolset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tools: List[Tool] = [DummyTool()]
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}

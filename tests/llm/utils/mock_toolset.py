@@ -590,9 +590,6 @@ class SimplifiedMockToolset(Toolset):
     def get_status(self):
         return ToolsetStatusEnum.ENABLED
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
 
 class MockToolsetManager:
     """Manages mock toolsets for testing."""

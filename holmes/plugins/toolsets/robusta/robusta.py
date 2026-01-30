@@ -407,6 +407,3 @@ class RobustaToolset(Toolset):
             os.path.join(os.path.dirname(__file__), "robusta_instructions.jinja2")
         )
         self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}

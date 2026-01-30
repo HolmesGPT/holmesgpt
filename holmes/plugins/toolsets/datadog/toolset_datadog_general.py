@@ -9,6 +9,7 @@ from urllib.parse import urlencode, urlparse
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -16,6 +17,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
@@ -198,6 +200,8 @@ WHITELISTED_POST_ENDPOINTS = [
 class DatadogGeneralToolset(Toolset):
     """General-purpose Datadog API toolset for read-only operations not covered by specialized toolsets."""
 
+    config_classes: ClassVar[list[Type[DatadogGeneralConfig]]] = [DatadogGeneralConfig]
+
     dd_config: Optional[DatadogGeneralConfig] = None
     openapi_spec: Optional[Dict[str, Any]] = None
 
@@ -279,16 +283,6 @@ class DatadogGeneralToolset(Toolset):
         except Exception as e:
             logging.exception("Failed during Datadog general API healthcheck")
             return False, f"Healthcheck failed with exception: {str(e)}"
-
-    def get_example_config(self) -> Dict[str, Any]:
-        """Get example configuration for this toolset."""
-        return {
-            "dd_api_key": "your-datadog-api-key",
-            "dd_app_key": "your-datadog-application-key",
-            "site_api_url": "https://api.datadoghq.com",
-            "max_response_size": MAX_RESPONSE_SIZE,
-            "allow_custom_endpoints": False,
-        }
 
 
 def is_endpoint_allowed(

@@ -1,5 +1,5 @@
 import json
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -138,6 +138,8 @@ def test_streaming_chat_approval_workflow_requires_approval(
         user_approved: bool,
         tool_call_id: str,
         tool_number: Optional[int] = None,
+        session_approved_prefixes: Optional[List[str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> StructuredToolResult:
         return StructuredToolResult(
             status=StructuredToolResultStatus.APPROVAL_REQUIRED,
@@ -265,7 +267,7 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
 
     # Mock process_tool_decisions to simulate approval and execution
     ai.process_tool_decisions = MagicMock(
-        side_effect=lambda messages, tool_decisions: (
+        side_effect=lambda messages, tool_decisions, request_context=None: (
             messages
             + [
                 {
@@ -412,7 +414,7 @@ def test_streaming_chat_approval_workflow_reject_command(
 
     # Mock process_tool_decisions to simulate rejection
     ai.process_tool_decisions = MagicMock(
-        side_effect=lambda messages, tool_decisions: (
+        side_effect=lambda messages, tool_decisions, request_context=None: (
             messages
             + [
                 {

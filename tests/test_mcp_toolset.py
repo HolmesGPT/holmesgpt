@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import shutil
 import subprocess
 from unittest.mock import AsyncMock, patch
@@ -9,6 +10,7 @@ from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from holmes.core.tools import (
     StructuredToolResultStatus,
+    ToolInvokeContext,
     ToolParameter,
 )
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
@@ -374,7 +376,7 @@ class TestStreamableHttp:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async(params))
+            result = asyncio.run(mcp_tool._invoke_async(params, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert response_text in result.data
@@ -535,7 +537,7 @@ class TestSSE:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async(params))
+            result = asyncio.run(mcp_tool._invoke_async(params, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert response_text in result.data
@@ -898,7 +900,7 @@ class TestStdio:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async(params))
+            result = asyncio.run(mcp_tool._invoke_async(params, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert response_text in result.data
@@ -1081,9 +1083,18 @@ class TestStdio:
         if greet_tool is None:
             pytest.skip("greet tool not found in MCP server")
 
-        # Actually invoke the tool on the real server with timeout
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="test-id",
+            tool_name="greet",
+            request_context=None,
+        )
+
         try:
-            invoke_result = greet_tool._invoke({"name": "Alice"}, None)
+            invoke_result = greet_tool._invoke({"name": "Alice"}, context)
         except Exception as e:
             pytest.fail(f"Tool invocation failed: {e}")
 
@@ -1129,3 +1140,372 @@ class TestStdio:
 
         # Verify the tools loaded in the toolset match what we got from list_tools
         assert len(toolset.tools) == len(list_result.tools)
+
+
+class TestHeaderRendering:
+    def test_render_headers_with_static_headers_only(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "headers": {"Authorization": "Bearer token123"},
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        rendered = mcp_toolset._render_headers(None)
+
+        assert rendered is not None
+        assert rendered["Authorization"] == "Bearer token123"
+
+    def test_render_headers_with_extra_headers_static(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {"X-Custom": "static-value"},
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        rendered = mcp_toolset._render_headers(None)
+
+        assert rendered is not None
+        assert rendered["X-Custom"] == "static-value"
+
+    def test_render_headers_with_request_context_template(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {
+                    "X-Tenant-Id": "{{ request_context.headers['X-Tenant-Id'] }}"
+                },
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        request_context = {"headers": {"X-Tenant-Id": "tenant-123"}}
+        rendered = mcp_toolset._render_headers(request_context)
+
+        assert rendered is not None
+        assert rendered["X-Tenant-Id"] == "tenant-123"
+
+    def test_render_headers_with_request_context_case_insensitive(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {
+                    "X-Tenant-Id": "{{ request_context.headers['x-tenant-id'] }}"
+                },
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        request_context = {"headers": {"X-Tenant-Id": "tenant-456"}}
+        rendered = mcp_toolset._render_headers(request_context)
+
+        assert rendered is not None
+        assert rendered["X-Tenant-Id"] == "tenant-456"
+
+    def test_render_headers_with_env_var_template(self, monkeypatch):
+        monkeypatch.setenv("TEST_API_KEY", "secret-key-789")
+
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {"X-Api-Key": "{{ env.TEST_API_KEY }}"},
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        rendered = mcp_toolset._render_headers(None)
+
+        assert rendered is not None
+        assert rendered["X-Api-Key"] == "secret-key-789"
+
+    def test_render_headers_merge_static_and_extra(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "headers": {"Authorization": "Bearer static"},
+                "extra_headers": {"X-Custom": "dynamic"},
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        rendered = mcp_toolset._render_headers(None)
+
+        assert rendered is not None
+        assert rendered["Authorization"] == "Bearer static"
+        assert rendered["X-Custom"] == "dynamic"
+
+    def test_render_headers_extra_overrides_static(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "headers": {"X-Header": "old-value"},
+                "extra_headers": {"X-Header": "new-value"},
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        rendered = mcp_toolset._render_headers(None)
+
+        assert rendered is not None
+        assert rendered["X-Header"] == "new-value"
+
+    def test_render_headers_with_missing_request_context_header(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {
+                    "X-Missing": "{{ request_context.headers['X-Missing'] }}"
+                },
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        request_context = {"headers": {"X-Other": "value"}}
+        rendered = mcp_toolset._render_headers(request_context)
+
+        assert rendered is not None
+        # Jinja2 default behavior is to render undefined variables as empty strings
+        assert rendered["X-Missing"] == ""
+
+    def test_render_headers_with_missing_env_var(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {"X-Key": "{{ env.NONEXISTENT_VAR }}"},
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        rendered = mcp_toolset._render_headers(None)
+
+        assert rendered is not None
+        # Jinja2 default behavior is to render undefined variables as empty strings
+        assert rendered["X-Key"] == ""
+
+    def test_render_headers_mixed_templates(self, monkeypatch):
+        monkeypatch.setenv("API_KEY", "env-secret")
+
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {
+                    "Authorization": "Bearer {{ env.API_KEY }}",
+                    "X-Tenant": "{{ request_context.headers['X-Tenant'] }}",
+                    "X-Static": "static-value",
+                },
+            },
+        )
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        request_context = {"headers": {"X-Tenant": "tenant-999"}}
+        rendered = mcp_toolset._render_headers(request_context)
+
+        assert rendered is not None
+        assert rendered["Authorization"] == "Bearer env-secret"
+        assert rendered["X-Tenant"] == "tenant-999"
+        assert rendered["X-Static"] == "static-value"
+
+    def test_render_headers_stdio_config_returns_none(self):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "mode": "stdio",
+                "command": "python",
+                "args": ["server.py"],
+            },
+        )
+
+        mcp_toolset._mcp_config = StdioMCPConfig(
+            mode=MCPMode.STDIO, command="python", args=["server.py"]
+        )
+        rendered = mcp_toolset._render_headers(None)
+
+        assert rendered is None
+
+
+class TestRequestContextPassthrough:
+    def test_tool_invoke_context_sanitizes_request_context(self):
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="test-id",
+            tool_name="test-tool",
+            request_context={"headers": {"Authorization": "Bearer secret"}},
+        )
+
+        dumped = context.model_dump()
+        assert "request_context" in dumped
+        assert dumped["request_context"]["headers"] == "***REDACTED***"
+
+    def test_tool_invoke_context_str_hides_values(self):
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="test-id",
+            tool_name="test-tool",
+            request_context={"headers": {"X-Tenant": "secret-tenant"}},
+        )
+
+        str_repr = str(context)
+        assert "secret-tenant" not in str_repr
+        assert "context_keys=['headers']" in str_repr
+
+    def test_get_initialized_mcp_session_passes_request_context(
+        self, monkeypatch
+    ):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {
+                    "X-Tenant": "{{ request_context.headers['X-Tenant'] }}"
+                },
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        mock_read_stream = AsyncMock()
+        mock_write_stream = AsyncMock()
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+
+        mock_client_context = AsyncMock()
+        mock_client_context.__aenter__ = AsyncMock(
+            return_value=(mock_read_stream, mock_write_stream)
+        )
+        mock_client_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session_context = AsyncMock()
+        mock_session_context.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_context.__aexit__ = AsyncMock(return_value=None)
+
+        captured_headers = None
+
+        def capture_sse_client_call(_url, headers, *, sse_read_timeout, httpx_client_factory=None):
+            nonlocal captured_headers
+            captured_headers = headers
+            return mock_client_context
+
+        with patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.sse_client",
+            side_effect=capture_sse_client_call,
+        ):
+            with patch(
+                "holmes.plugins.toolsets.mcp.toolset_mcp.ClientSession",
+                return_value=mock_session_context,
+            ):
+                request_context = {"headers": {"X-Tenant": "tenant-abc"}}
+
+                async def run_test():
+                    async with get_initialized_mcp_session(
+                        mcp_toolset, request_context
+                    ) as _:
+                        pass
+
+                asyncio.run(run_test())
+
+        assert captured_headers is not None
+        assert captured_headers["X-Tenant"] == "tenant-abc"
+
+    def test_tool_invoke_async_passes_request_context(self, monkeypatch):
+        tool = Tool(
+            name="test_tool",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Test tool",
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {
+                    "X-Context": "{{ request_context.headers['X-Context'] }}"
+                },
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mock_toolset, "_get_server_tools", mock_get_server_tools)
+        mock_toolset.prerequisites_callable(config=mock_toolset.config)
+
+        mcp_tool = RemoteMCPTool.create(tool, mock_toolset)
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        mock_session.call_tool = AsyncMock(
+            return_value=CallToolResult(
+                content=[TextContent(type="text", text="success")], isError=False
+            )
+        )
+
+        mock_read_stream = AsyncMock()
+        mock_write_stream = AsyncMock()
+
+        mock_client_context = AsyncMock()
+        mock_client_context.__aenter__ = AsyncMock(
+            return_value=(mock_read_stream, mock_write_stream)
+        )
+        mock_client_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session_context = AsyncMock()
+        mock_session_context.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_context.__aexit__ = AsyncMock(return_value=None)
+
+        captured_headers = None
+
+        def capture_sse_client_call(_url, headers, *, sse_read_timeout, httpx_client_factory=None):
+            nonlocal captured_headers
+            captured_headers = headers
+            return mock_client_context
+
+        with patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.sse_client",
+            side_effect=capture_sse_client_call,
+        ):
+            with patch(
+                "holmes.plugins.toolsets.mcp.toolset_mcp.ClientSession",
+                return_value=mock_session_context,
+            ):
+                request_context = {"headers": {"X-Context": "ctx-value"}}
+                result = asyncio.run(mcp_tool._invoke_async({}, request_context))
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert captured_headers is not None
+        assert captured_headers["X-Context"] == "ctx-value"
