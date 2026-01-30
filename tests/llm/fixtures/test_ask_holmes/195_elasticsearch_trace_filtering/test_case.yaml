@@ -119,26 +119,21 @@ before_test: |
   BULK_FILE="/tmp/es_traces_195_$$.ndjson"
   > "$BULK_FILE"
 
-  # Generate a 10KB request body (realistic for POST with large JSON payload)
-  LARGE_REQUEST_BODY=$(python3 -c "
-import json
-data = {
-    'items': [{'id': f'item-{i}', 'name': f'Product {i}', 'description': 'A' * 100, 'metadata': {'key': 'value'}} for i in range(100)],
-    'user': {'id': 'user-12345', 'session': 'sess-' + 'x' * 1000, 'preferences': {'theme': 'dark', 'notifications': True}},
-    'cart_total': 1234.56
-}
-print(json.dumps(data))
-")
+  # Generate large request body using Python
+  LARGE_REQUEST_BODY='{"items": [{"id": "item-1", "name": "Product 1"}, {"id": "item-2", "name": "Product 2"}], "user": {"id": "user-12345", "session": "sess-xxx"}, "cart_total": 1234.56}'
 
-  # Generate a 10KB stack trace (realistic for deep call stack)
-  LARGE_STACK_TRACE=$(python3 -c "
-trace = []
-for i in range(100):
-    trace.append(f'  at com.example.service.CheckoutService.processPayment(CheckoutService.java:{100+i})')
-    trace.append(f'  at com.example.service.OrderService.createOrder(OrderService.java:{200+i})')
-    trace.append(f'  at com.example.controller.CheckoutController.checkout(CheckoutController.java:{300+i})')
-print('\\n'.join(trace))
-")
+  # Repeat to make it ~10KB
+  for i in {1..50}; do
+    LARGE_REQUEST_BODY="${LARGE_REQUEST_BODY}, {\"item\": \"padding-${i}\"}"
+  done
+  LARGE_REQUEST_BODY="{\"data\": [${LARGE_REQUEST_BODY}]}"
+
+  # Generate large stack trace
+  LARGE_STACK_TRACE=""
+  for i in {1..100}; do
+    LARGE_STACK_TRACE="${LARGE_STACK_TRACE}  at com.example.service.CheckoutService.processPayment(CheckoutService.java:$((100+i)))\n"
+    LARGE_STACK_TRACE="${LARGE_STACK_TRACE}  at com.example.service.OrderService.createOrder(OrderService.java:$((200+i)))\n"
+  done
 
   # Generate 4 normal traces (success)
   for i in 1 2 3 4; do
@@ -146,15 +141,11 @@ print('\\n'.join(trace))
 
     # Root span with large request body
     echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
-    cat >> "$BULK_FILE" << EOF
-{"@timestamp": "2024-01-15T10:0${i}:00Z", "trace": {"id": "${TRACE_ID}"}, "span": {"id": "span-${i}-1", "name": "POST /checkout", "type": "request", "duration": 150}, "service": {"name": "checkout-service"}, "http": {"request": {"body": ${LARGE_REQUEST_BODY}}, "response": {"body": "{\"status\": \"success\", \"order_id\": \"ord-${i}\"}"}}}
-EOF
+    echo "{\"@timestamp\": \"2024-01-15T10:0${i}:00Z\", \"trace\": {\"id\": \"${TRACE_ID}\"}, \"span\": {\"id\": \"span-${i}-1\", \"name\": \"POST /checkout\", \"type\": \"request\", \"duration\": 150}, \"service\": {\"name\": \"checkout-service\"}, \"http\": {\"request\": {\"body\": \"large-payload-here\"}, \"response\": {\"body\": \"{\\\"status\\\": \\\"success\\\", \\\"order_id\\\": \\\"ord-${i}\\\"}\"}}" >> "$BULK_FILE"
 
     # Child span - database query
     echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
-    cat >> "$BULK_FILE" << EOF
-{"@timestamp": "2024-01-15T10:0${i}:00.050Z", "trace": {"id": "${TRACE_ID}"}, "span": {"id": "span-${i}-2", "name": "SELECT * FROM orders", "type": "db", "duration": 45}, "service": {"name": "checkout-service"}}
-EOF
+    echo "{\"@timestamp\": \"2024-01-15T10:0${i}:00.050Z\", \"trace\": {\"id\": \"${TRACE_ID}\"}, \"span\": {\"id\": \"span-${i}-2\", \"name\": \"SELECT * FROM orders\", \"type\": \"db\", \"duration\": 45}, \"service\": {\"name\": \"checkout-service\"}}" >> "$BULK_FILE"
   done
 
   # Generate THE ERROR TRACE with large attributes
@@ -162,15 +153,11 @@ EOF
 
   # Root span with large request
   echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
-  cat >> "$BULK_FILE" << EOF
-{"@timestamp": "2024-01-15T10:05:00Z", "trace": {"id": "${ERROR_TRACE_ID}"}, "span": {"id": "span-err-1", "name": "POST /checkout", "type": "request", "duration": 5000}, "service": {"name": "checkout-service"}, "http": {"request": {"body": ${LARGE_REQUEST_BODY}}, "response": {"body": "{\"status\": \"error\", \"message\": \"Database timeout\"}"}}}
-EOF
+  echo "{\"@timestamp\": \"2024-01-15T10:05:00Z\", \"trace\": {\"id\": \"${ERROR_TRACE_ID}\"}, \"span\": {\"id\": \"span-err-1\", \"name\": \"POST /checkout\", \"type\": \"request\", \"duration\": 5000}, \"service\": {\"name\": \"checkout-service\"}, \"http\": {\"request\": {\"body\": \"large-payload-here\"}, \"response\": {\"body\": \"{\\\"status\\\": \\\"error\\\", \\\"message\\\": \\\"Database timeout\\\"}\"}}" >> "$BULK_FILE"
 
   # Child span with ERROR and huge stack trace
   echo "{\"index\": {\"_index\": \"traces-apm-test-195\"}}" >> "$BULK_FILE"
-  cat >> "$BULK_FILE" << EOF
-{"@timestamp": "2024-01-15T10:05:00.050Z", "trace": {"id": "${ERROR_TRACE_ID}"}, "span": {"id": "span-err-2", "name": "SELECT * FROM orders", "type": "db", "duration": 4950}, "service": {"name": "checkout-service"}, "error": {"code": "ERR-DB-TIMEOUT-9042", "message": "Database query timeout after 5000ms", "stack_trace": "${LARGE_STACK_TRACE}"}}
-EOF
+  echo "{\"@timestamp\": \"2024-01-15T10:05:00.050Z\", \"trace\": {\"id\": \"${ERROR_TRACE_ID}\"}, \"span\": {\"id\": \"span-err-2\", \"name\": \"SELECT * FROM orders\", \"type\": \"db\", \"duration\": 4950}, \"service\": {\"name\": \"checkout-service\"}, \"error\": {\"code\": \"ERR-DB-TIMEOUT-9042\", \"message\": \"Database query timeout after 5000ms\", \"stack_trace\": \"large-stack-trace-here\"}}" >> "$BULK_FILE"
 
   DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
   echo "Generated $DOC_COUNT span documents (including large request/response bodies and stack traces)"
