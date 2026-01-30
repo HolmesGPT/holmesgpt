@@ -46,7 +46,9 @@ before_test: |
   echo "⏳ Waiting for metrics to be scraped by Prometheus..."
   METRICS_READY=false
   for i in {1..30}; do
-    if kubectl exec -n default deploy/robusta-kube-prometheus-st-prometheus -- wget -q -O- "http://localhost:9090/api/v1/query?query=checkout_request_duration_seconds_count" 2>/dev/null | grep -q '"result":\[{'; then
+    RESULT=$(kubectl run prom-check-$i --image=curlimages/curl:8.8.0 --restart=Never --rm -i --timeout=30s -- \
+      curl -s "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/query?query=checkout_request_duration_seconds_count" 2>/dev/null || true)
+    if echo "$RESULT" | grep -q '"result":\[{'; then
       echo "✅ Metrics are being scraped!"
       METRICS_READY=true
       break
