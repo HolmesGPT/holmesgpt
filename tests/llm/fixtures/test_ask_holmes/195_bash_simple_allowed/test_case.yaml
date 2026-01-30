@@ -1,0 +1,32 @@
+user_prompt: "List all pods in the app-195 namespace using the bash tool"
+include_tool_calls: true
+expected_output:
+  - Must call the bash tool with kubectl get pods
+  - Output must include pod name 'ocean-blue'
+  - Output must include pod name 'forest-green'
+description: |
+  Tests that the bash toolset allows commands matching the allow list.
+  AI should run 'kubectl get pods' via the bash tool and get results.
+before_test: |
+  kubectl create namespace app-195 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  # Wait for pods to be ready
+  PODS_READY=false
+  for i in {1..30}; do
+    if kubectl wait --for=condition=ready pod -l app=bash-test -n app-195 --timeout=2s 2>/dev/null; then
+      echo "Pods ready!"
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PODS_READY" = false ]; then
+    echo "Pods not ready after 30 seconds"
+    kubectl get pods -n app-195
+    exit 1
+  fi
+after_test: |
+  kubectl delete namespace app-195 --ignore-not-found
+tags:
+  - kubernetes
+  - question-answer

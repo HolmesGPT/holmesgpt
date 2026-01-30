@@ -14,10 +14,6 @@ toolsets:
         - name: "kafka"
           kafka_broker: "kafka:9092" # local DNS likely need to resolve kafka to localhost
 
-  aws/security:
-    enabled: false
-  aws/rds:
-    enabled: false
   aks/core:
     enabled: false
   kubernetes/live-metrics:

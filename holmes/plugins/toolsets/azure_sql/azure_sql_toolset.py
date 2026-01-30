@@ -160,20 +160,6 @@ class AzureSQLToolset(BaseAzureSQLToolset):
             logging.exception("Failed to set up Azure SQL toolset")
             return False, str(e)
 
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = AzureSQLConfig(
-            tenant_id="{{ env.AZURE_TENANT_ID }}",
-            client_id="{{ env.AZURE_CLIENT_ID }}",
-            client_secret="{{ env.AZURE_CLIENT_SECRET }}",
-            database=AzureSQLDatabaseConfig(
-                subscription_id="12345678-1234-1234-1234-123456789012",
-                resource_group="my-resource-group",
-                server_name="myserver",
-                database_name="mydatabase",
-            ),
-        )
-        return example_config.model_dump()
-
     def _reload_llm_instructions(self):
         """Load Azure SQL specific troubleshooting instructions."""
         template_file_path = os.path.abspath(

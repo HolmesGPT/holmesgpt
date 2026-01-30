@@ -215,10 +215,26 @@ def ask(
         "--system-prompt-additions",
         help="Additional content to append to the system prompt",
     ),
+    bash_always_deny: bool = typer.Option(
+        False,
+        "--bash-always-deny",
+        help="Auto-deny all bash commands not in allow list without prompting",
+    ),
+    bash_always_allow: bool = typer.Option(
+        False,
+        "--bash-always-allow",
+        help="Bypass bash command approval checks. Recommended only for sandboxed environments",
+    ),
 ):
     """
     Ask any question and answer using available tools
     """
+    # Validate mutually exclusive flags
+    if bash_always_deny and bash_always_allow:
+        raise typer.BadParameter(
+            "--bash-always-deny and --bash-always-allow are mutually exclusive. Choose one."
+        )
+
     console = init_logging(verbose, log_costs)  # type: ignore
     # Detect and read piped input
     piped_data = None
@@ -296,6 +312,8 @@ def ask(
             config.get_runbook_catalog(),
             system_prompt_additions,
             json_output_file=json_output_file,
+            bash_always_deny=bash_always_deny,
+            bash_always_allow=bash_always_allow,
         )
         return
 
