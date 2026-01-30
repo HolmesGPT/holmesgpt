@@ -13,9 +13,6 @@ Configure HolmesGPT to use any OpenAI-compatible API.
 ## Supported Inference Servers
 
 - [LiteLLM Proxy](https://docs.litellm.ai/docs/simple_proxy){:target="_blank"} - Unified gateway for 100+ LLM providers
-- [llama-cpp-python](https://github.com/abetlen/llama-cpp-python){:target="_blank"}
-- [LocalAI](https://localai.io/){:target="_blank"}
-- [Text Generation WebUI](https://github.com/oobabooga/text-generation-webui){:target="_blank"} (with OpenAI extension)
 
 ## LiteLLM Proxy / API Gateway
 
@@ -138,24 +135,6 @@ You can also specify the model directly as a command-line parameter:
 holmes ask "what pods are failing?" --model="openai/<your-model>"
 ```
 
-## Setup Examples
-
-### LocalAI
-
-```bash
-docker run -p 8080:8080 localai/localai:latest
-export OPENAI_API_BASE="http://localhost:8080/v1"
-```
-
-### llama-cpp-python
-
-```bash
-pip install 'llama-cpp-python[server]'
-python -m llama_cpp.server --model model.gguf --chat_format chatml
-export OPENAI_API_BASE="http://localhost:8000/v1"
-holmes ask "analyze my deployment" --model=openai/your-loaded-model
-```
-
 ## Custom SSL Certificates
 
 If your LLM provider uses a custom Certificate Authority (CA):
@@ -168,7 +147,6 @@ export CERTIFICATE="base64-encoded-cert-here"
 ## Known Limitations
 
 - **vLLM**: [Does not yet support function calling](https://github.com/vllm-project/vllm/issues/1869){:target="_blank"}
-- **Text Generation WebUI**: Requires OpenAI extension enabled
 - **Some models**: May hallucinate responses instead of reporting function calling limitations
 
 ## Additional Resources
