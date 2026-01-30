@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from typing import Optional
 
 import pytest
-import requests
+import requests  # type: ignore
 from pytest_shared_session_scope import (
     CleanupToken,
     SetupToken,
@@ -73,14 +73,18 @@ def _fetch_additional_system_prompt(url: str) -> Optional[str]:
 
     # Validate structure
     if not isinstance(data, dict):
-        raise ValueError(f"Invalid format from {url}. Expected JSON dict, got: {type(data).__name__}")
+        raise ValueError(
+            f"Invalid format from {url}. Expected JSON dict, got: {type(data).__name__}"
+        )
 
     if "additional_system_prompt" not in data:
         raise ValueError(f"Missing 'additional_system_prompt' field in JSON from {url}")
 
     prompt = data["additional_system_prompt"]
     if not isinstance(prompt, str):
-        raise ValueError(f"'additional_system_prompt' field must be a string in JSON from {url}, got: {type(prompt).__name__}")
+        raise ValueError(
+            f"'additional_system_prompt' field must be a string in JSON from {url}, got: {type(prompt).__name__}"
+        )
 
     return prompt
 
@@ -426,6 +430,11 @@ def force_pytest_output(request):
 def check_llm_api_with_test_call():
     """Check if LLM API is available by testing ALL models that will be used"""
     import litellm
+
+    # Respect SSL_VERIFY env var for sandbox/proxy environments
+    ssl_verify_env = os.environ.get("SSL_VERIFY", "true").lower()
+    if ssl_verify_env in ("false", "0", "no"):
+        litellm.ssl_verify = False
 
     # Get all models that will be tested
     test_models = MODEL.split(",")

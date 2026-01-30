@@ -1,0 +1,23 @@
+# Test: Fetch runbook from Confluence (must use Confluence toolset, not internal runbook tool)
+#
+# Requirements:
+#   CONFLUENCE_USER - Email/username for Confluence
+#   CONFLUENCE_API_KEY - Atlassian API token
+#   CONFLUENCE_BASE_URL - e.g., https://robusta-llm-test.atlassian.net
+
+user_prompt: |
+  I have a runbook stored in Confluence at this URL: https://robusta-llm-test.atlassian.net/wiki/spaces/MFS/pages/2424833/AWS+Account+ID
+
+  Please fetch this runbook from Confluence and tell me the AWS account ID mentioned in it.
+
+expected_output:
+  - "FAIL if fetch_webpage tool was called - this tool must never be used for Confluence pages"
+  - "FAIL if fetch_runbook tool was called - this tool must never be used for Confluence pages, even when fetching runbooks"
+  - "Must report the AWS account ID: 938401784103"
+
+include_tool_calls: true
+
+tags:
+  - confluence
+  - question-answer
+  - medium

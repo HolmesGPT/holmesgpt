@@ -17,9 +17,9 @@ before_test: |
   kubectl apply -f app/signup-deployment.yaml
   kubectl apply -f app/payments-deployment.yaml
 
-  # Wait for expected error logs to appear (60s total) - MUST succeed or test fails
+  # Wait for expected error logs to appear - MUST succeed or test fails
   LOGS_READY=false
-  for i in {1..20}; do
+  for i in {1..40}; do
     # Check signup-service for connection refused error
     SIGNUP_ERROR=$(kubectl logs -l app=signup-service -n app-162 2>/dev/null | grep -c "Payments service check failed: <urlopen error \[Errno 111\] Connection refused>")
     
@@ -32,7 +32,7 @@ before_test: |
       LOGS_READY=true
       break
     else
-      echo "⏳ Attempt $i/20: signup errors: $SIGNUP_ERROR, payment errors: $PAYMENT_ERROR, checking in 3s..."
+      echo "⏳ Attempt $i/40: signup errors: $SIGNUP_ERROR, payment errors: $PAYMENT_ERROR, checking in 3s..."
       sleep 3
     fi
   done

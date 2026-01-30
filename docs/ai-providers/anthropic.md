@@ -17,6 +17,12 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
     **Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
 
+    You can also pass the API key directly as a command-line parameter:
+
+    ```bash
+    holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5" --api-key="your-api-key"
+    ```
+
 === "Holmes Helm Chart"
 
     **Create Kubernetes Secret:**
@@ -95,16 +101,6 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
       config:
         model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
-
-## Using CLI Parameters
-
-You can also pass the API key directly as a command-line parameter:
-
-```bash
-holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5" --api-key="your-api-key"
-```
-
-**Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
 
 ## Prompt Caching
 

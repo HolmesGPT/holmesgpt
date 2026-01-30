@@ -54,10 +54,9 @@ nav:
                 - "Connectivity Check": data-sources/builtin-toolsets/connectivity-check.md
                 - "Coralogix": data-sources/builtin-toolsets/coralogix-logs.md
                 - "DataDog": data-sources/builtin-toolsets/datadog.md
-                - "Datetime": data-sources/builtin-toolsets/datetime.md
                 - "Docker": data-sources/builtin-toolsets/docker.md
                 - "Elasticsearch / OpenSearch": data-sources/builtin-toolsets/elasticsearch.md
-                - "GitHub": data-sources/builtin-toolsets/github.md
+                - "GitHub (MCP)": data-sources/builtin-toolsets/github-mcp.md
                 - "Grafana Dashboards": data-sources/builtin-toolsets/grafanadashboards.md
                 - "Loki": data-sources/builtin-toolsets/grafanaloki.md
                 - "Tempo": data-sources/builtin-toolsets/grafanatempo.md
@@ -65,6 +64,7 @@ nav:
                 - "Internet": data-sources/builtin-toolsets/internet.md
                 - "Kafka": data-sources/builtin-toolsets/kafka.md
                 - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
+                - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
                 - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md
@@ -75,6 +75,7 @@ nav:
                 - "Robusta": data-sources/builtin-toolsets/robusta.md
                 - "ServiceNow": data-sources/builtin-toolsets/servicenow.md
                 - "Slab": data-sources/builtin-toolsets/slab.md
+                - "Splunk (MCP)": data-sources/builtin-toolsets/splunk-mcp.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
           - "Adding Permissions for Additional Resources": data-sources/permissions.md

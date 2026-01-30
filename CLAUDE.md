@@ -222,6 +222,21 @@ EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
 - `ASK_HOLMES_TEST_TYPE`: Controls message building flow in ask_holmes tests
   - `cli` (default): Uses `build_initial_ask_messages` like the CLI ask() command (skips conversation history tests)
   - `server`: Uses `build_chat_messages` with ChatRequest for server-style flow
+- `SSL_VERIFY`: Set to `false`, `0`, or `no` to disable SSL certificate verification for litellm and OpenAI client (useful for sandbox environments with TLS interception proxies)
+
+**Sandbox/Proxy SSL Issues**:
+
+When running tests in a sandbox environment with a TLS interception proxy, you may encounter SSL certificate verification errors like:
+```
+TLS_error: CERTIFICATE_VERIFY_FAILED: verify cert failed
+```
+
+To resolve this, set the `SSL_VERIFY` environment variable:
+```bash
+SSL_VERIFY=false poetry run pytest -m "confluence" --no-cov -v
+```
+
+This disables SSL verification for both litellm (used by Holmes) and the OpenAI client (used by the LLM-as-judge classifier).
 
 **Common Evaluation Patterns**:
 
@@ -303,6 +318,13 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Pre-commit hooks enforce quality checks
 - **ALWAYS place Python imports at the top of the file**, not inside functions or methods
 
+**Documentation Examples**:
+- **ALWAYS use Anthropic Claude models** in code examples and documentation:
+  - Recommended: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101`
+  - Use the latest Claude 4.5 family models (Sonnet or Opus)
+- Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
+- Do NOT use GPT-4o or Gemini models in documentation examples
+
 **Testing Requirements**:
 - All new features require unit tests
 - New toolsets require integration tests
@@ -365,6 +387,16 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
   - **Best**: Check specific values that can only be discovered by querying (e.g., unique IDs, injected error codes, exact counts)
   - **Acceptable**: Use `include_tool_calls: true` to verify the tool was called when output values are too generic to rule out hallucinations
   - **Bad**: Check generic output patterns that an LLM could plausibly guess (e.g., "cluster status is green/yellow/red", "has N nodes")
+- **expected_output is invisible to LLM**: The `expected_output` field is only used by the evaluator - the LLM never sees it. This means:
+  - You can safely put secrets/verification codes in `expected_output` that the LLM must discover
+  - `before_test` can inject a unique verification code into test data, and `expected_output` can check for it
+  - This is a powerful pattern for cloud service tests: create data with a unique code in `before_test`, ask LLM to find it, verify with `expected_output`
+  ```yaml
+  # Example: before_test creates a page with verification code "HOLMES-EVAL-7x9k2m4p"
+  # The LLM must discover this code by querying the service
+  expected_output:
+    - "Must report the verification code: HOLMES-EVAL-7x9k2m4p"
+  ```
 - **`include_tool_calls: true`**: Use when expected output is too generic to be hallucination-proof. Prefer specific answer checking when possible, but verifying tool calls is better than a test that can't rule out hallucinations.
   ```yaml
   # Use when values are generic (cluster health could be guessed)

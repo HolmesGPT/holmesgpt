@@ -63,7 +63,8 @@ HolmesGPT can fetch alerts/tickets to investigate from external systems, then wr
 
 | Integration             | Status    | Notes |
 |-------------------------|-----------|-------|
-| Slack                   | 🟡 Beta   | [Demo.](https://www.loom.com/share/afcd81444b1a4adfaa0bbe01c37a4847) Tag HolmesGPT bot in any Slack message |
+| Slack                   | ✅        | [Demo.](https://www.loom.com/share/afcd81444b1a4adfaa0bbe01c37a4847) Available via [Robusta.dev](https://home.robusta.dev/) (commercial platform) |
+| Microsoft Teams         | ✅        | Available via [Robusta.dev](https://home.robusta.dev/) (commercial platform) |
 | Prometheus/AlertManager | ✅        | Robusta SaaS or HolmesGPT CLI |
 | PagerDuty               | ✅        | HolmesGPT CLI only |
 | OpsGenie                | ✅        | HolmesGPT CLI only |

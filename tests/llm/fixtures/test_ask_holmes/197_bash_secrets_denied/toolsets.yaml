@@ -1,0 +1,23 @@
+# Bash toolset test - secrets denied
+# Enable bash with 'kubectl get' in allow list but 'kubectl get secret' in deny list
+# Disable kubernetes toolsets to force use of bash tool
+toolsets:
+  bash:
+    enabled: true
+    config:
+      allow:
+        - "kubectl get"
+        - "kubectl describe"
+      deny:
+        - "kubectl get secret"
+        - "kubectl describe secret"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  kubernetes/live-metrics:
+    enabled: false
+  kubernetes/kube-prometheus-stack:
+    enabled: false
+  kubernetes/krew-extras:
+    enabled: false

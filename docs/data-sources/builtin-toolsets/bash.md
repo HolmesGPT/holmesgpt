@@ -1,91 +1,119 @@
 # Bash Toolset
 
-The bash toolset provides secure execution of common command-line tools used for troubleshooting and system analysis. It replaces multiple YAML-based toolsets with a single, comprehensive toolset that includes safety validation and command parsing.
+!!! info "Enabled by Default"
+    This toolset is enabled by default and should typically remain enabled.
 
-**⚠️ Security Note**: This toolset executes commands on the system where Holmes is running. Only validated, safe commands are allowed, and the toolset is disabled by default for security reasons.
+The bash toolset allows Holmes to execute shell commands for troubleshooting and system analysis. Commands are validated against configurable allow/deny lists before execution.
 
-## Supported Commands
+## Configuration
 
-The bash toolset supports the following categories of commands:
+=== "Holmes CLI"
 
-### Cloud Providers
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-**AWS CLI (`aws`)**
+    ```yaml
+    toolsets:
+      bash:
+        enabled: true
+        config:
+          allow:
+            - "kubectl get"
+            - "kubectl describe"
+            - "kubectl logs"
+            - "grep"
+            - "cat"
+          deny:
+            - "kubectl get secret"
+            - "kubectl describe secret"
+    ```
 
-- Supports various AWS services and operations
-- Commands are validated for safety before execution
+    Approved commands are saved to `~/.holmes/bash_approved_prefixes.yaml` and persist across sessions.
 
-**Azure CLI (`az`)**
+    **CLI Flags:**
 
-- Supports Azure operations including AKS management
-- Network and account operations
+    | Flag | Description |
+    |------|-------------|
+    | `--bash-always-deny` | Automatically deny commands not in the allow list |
+    | `--bash-always-allow` | Automatically approve all commands (use with caution) |
 
-### Kubernetes Tools
+=== "Robusta Helm Chart"
 
-**kubectl**
+    ```yaml
+    holmes:
+      toolsets:
+        bash:
+          enabled: true
+          config:
+            include_default_allow_deny_list: true
+            allow:
+              - "my-custom-command"  # Added to defaults
+            deny:
+              - "kubectl get secret"  # Added to defaults
+    ```
 
-- Standard Kubernetes operations: get, describe, logs, events
-- Resource management and cluster inspection
-- Live metrics via `kubectl top`
+    With `include_default_allow_deny_list: true`, Holmes includes a default list of safe read-only commands:
 
-**Helm**
+    - Kubernetes: `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl events`
+    - Text processing: `grep`, `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`
+    - JSON: `jq`, `base64`
+    - File system: `ls`, `find`, `stat`, `df`, `du`
 
-- Helm chart operations
-- Repository management
-- Release inspection
+    See [default_lists.py](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py) for the complete list.
 
-**ArgoCD**
+## Command Approval
 
-- Application management
-- Deployment status checking
+When Holmes tries to run a command not in your allow list, you'll see a prompt:
 
-### Container Tools
+```text
+Bash command
 
-**Docker**
+  kubectl scale deployment nginx --replicas=3
+  Scale nginx deployment to 3 replicas
 
-- Container inspection and management
-- Image operations
-- Basic Docker commands
+Do you want to proceed?
+  1. Yes
+  2. Yes, and don't ask again for `kubectl scale deployment nginx` commands
+  3. Type here to tell Holmes what to do differently
+```
 
-### Text Processing Utilities
+- **Option 1**: Run this command once
+- **Option 2**: Run and add the prefix to your allow list (saved to `~/.holmes/bash_approved_prefixes.yaml`)
+- **Option 3**: Reject and provide feedback to Holmes
 
-**Data Processing**
+## Prefix Matching
 
-- `grep` - Text searching and pattern matching
-- `jq` - JSON processing and querying
-- `sed` - Stream editing and text transformation
-- `awk` - Pattern scanning and text processing
+Commands are matched by prefix. For example, if `kubectl get` is in your allow list:
 
-**File Utilities**
+| Command | Allowed? |
+|---------|----------|
+| `kubectl get pods` | Yes |
+| `kubectl get pods -n production` | Yes |
+| `kubectl get deployments --all-namespaces` | Yes |
+| `kubectl delete pod my-pod` | No (different subcommand) |
 
-- `cut` - Column extraction
-- `sort` - Data sorting
-- `uniq` - Duplicate removal
-- `head` - Show first lines
-- `tail` - Show last lines
-- `wc` - Word, line, and character counting
+For piped commands, each segment is checked:
 
-**Text Transformation**
+```bash
+kubectl get pods | grep error | head -10
+```
 
-- `tr` - Character translation and deletion
-- `base64` - Base64 encoding/decoding
+This requires `kubectl get`, `grep`, and `head` to all be allowed.
 
-### Special Tools
+## Blocked Commands
 
-**kubectl_run_image**
+The following are always blocked and cannot be overridden:
 
-Creates temporary debug pods in Kubernetes clusters for diagnostic commands:
+- `sudo` and `su`
+- Subshells: `$(...)`, backticks, `<(...)`, `>(...)`
 
-- Runs commands in specified container images
-- Automatically cleans up temporary pods
-- Supports custom namespaces and timeouts
-- Useful for network debugging, DNS resolution, and environment inspection
+## Tools
 
-## Command Validation
+### bash
 
-All commands undergo security validation before execution:
+Executes a shell command.
 
-- Only whitelisted commands and options are allowed
-- Dangerous operations are blocked (file writes, system calls, etc.)
-- Commands are parsed and validated for safety
-- Pipe operations between supported commands are allowed
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| command | string | Yes | The command to execute |
+| suggested_prefixes | array | Yes | Prefixes for validation (one per command segment) |
+| timeout | integer | No | Timeout in seconds (default: 30) |

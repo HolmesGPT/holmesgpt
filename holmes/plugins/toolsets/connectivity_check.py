@@ -119,6 +119,3 @@ class ConnectivityCheckToolset(Toolset):
             enabled=True,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/connectivity-check/",
         )
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}

@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -80,6 +80,18 @@ data:
     }}
     {{- end }}
     {{- $mcpServers = merge $mcpServers $gcpMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.github.enabled }}
+    {{- $githubMcpServers := dict "github" (dict
+        "description" "GitHub MCP Server - access repositories, pull requests, issues, and GitHub Actions. Debug CI failures, search code, and delegate tasks to Copilot."
+        "config" (dict
+          "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
+          "mode" "sse"
+        )
+        "llm_instructions" (include "holmes.githubMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $githubMcpServers }}
     {{- end }}
     mcp_servers: {{ toYaml $mcpServers | nindent 6 }}
   model_list.yaml: |-

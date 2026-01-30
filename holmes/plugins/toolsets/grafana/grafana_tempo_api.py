@@ -103,6 +103,7 @@ class GrafanaTempoAPI:
                 headers=self.headers,
                 params=params,
                 timeout=timeout,
+                verify=self.config.verify_ssl,
             )
             response.raise_for_status()
             return response.json()
@@ -144,6 +145,7 @@ class GrafanaTempoAPI:
                 url,
                 headers=self.headers,
                 timeout=30,
+                verify=self.config.verify_ssl,
             )
 
             # Just check status code, don't try to parse JSON

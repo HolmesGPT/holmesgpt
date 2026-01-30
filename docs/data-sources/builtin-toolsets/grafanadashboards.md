@@ -58,6 +58,36 @@ A [Grafana service account token](https://grafana.com/docs/grafana/latest/admini
 | grafana_get_home_dashboard | Get the home dashboard configuration |
 | grafana_get_dashboard_tags | List all tags used across dashboards for categorization |
 
+## Advanced Configuration
+
+### SSL Verification
+
+For self-signed certificates, you can disable SSL verification:
+
+```yaml
+toolsets:
+  grafana/dashboards:
+    enabled: true
+    config:
+      url: https://grafana.internal
+      api_key: <your api key>
+      verify_ssl: false  # Disable SSL verification (default: true)
+```
+
+### External URL
+
+If HolmesGPT accesses Grafana through an internal URL but you want clickable links in results to use a different URL:
+
+```yaml
+toolsets:
+  grafana/dashboards:
+    enabled: true
+    config:
+      url: http://grafana.internal:3000  # Internal URL for API calls
+      external_url: https://grafana.example.com  # URL for links in results
+      api_key: <your api key>
+```
+
 ## How it Works
 
 ### Dashboard Query Extraction
