@@ -12,6 +12,7 @@ tags:
   - kubernetes
   - prometheus
   - medium
+  - regression
 
 port_forwards:
   - namespace: app-161

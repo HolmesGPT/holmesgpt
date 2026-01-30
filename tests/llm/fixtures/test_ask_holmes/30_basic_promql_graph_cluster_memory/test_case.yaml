@@ -4,6 +4,7 @@ expected_output:
 tags:
   - prometheus
   - embeds
+  - regression
 evaluation:
   correctness: 1
 port_forwards:

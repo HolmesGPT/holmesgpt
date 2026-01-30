@@ -14,6 +14,7 @@ tags:
   - context_window
   - medium
   - prometheus
+  - regression
 
 # Custom timeout for setup (needs time for metrics + setup)
 setup_timeout: 480  # 8 minutes total (120s setup + 300s metrics + buffer)

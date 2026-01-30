@@ -4,6 +4,7 @@ expected_output:
 tags:
   - prometheus
   - embeds
+  - regression
 port_forwards:
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus

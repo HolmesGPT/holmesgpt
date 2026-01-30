@@ -1,4 +1,4 @@
-tags: [prometheus]
+tags: [prometheus, regression]
 expected_output:
   - This must mention the date 2025-08-25
 evaluation:

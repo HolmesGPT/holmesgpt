@@ -11,6 +11,7 @@ tags:
   - logs
   - coralogix
   - prometheus
+  - regression
 
 setup_timeout: 900
 

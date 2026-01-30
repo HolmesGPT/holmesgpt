@@ -10,6 +10,7 @@ expected_output:
   - This must mention the date 2025-08-23
 tags:
   - prometheus
+  - regression
 port_forwards:
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus

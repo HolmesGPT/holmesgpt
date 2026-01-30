@@ -8,6 +8,7 @@ tags:
   - prometheus
   - easy
   - no-cicd
+  - regression
 
 include_tool_calls: true
 
