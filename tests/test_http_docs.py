@@ -16,15 +16,26 @@ Annotation options:
 - skip: skip this test (true/false)
 - id: test identifier for -k filtering
 - desc: test description
+
+Mock Strategy:
+We mock at the litellm.completion level rather than internal Holmes classes.
+This ensures we test the full code path from HTTP request through to LLM call,
+making tests resilient to internal refactoring while still avoiding real API calls.
+
+We also mock the model registry to return a non-Robusta model, avoiding the need
+for Robusta AI credentials during tests.
 """
 
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
+from holmes.core.llm import ModelEntry
 from server import app
 from tests.utils.curl_parser import (
     DocCurlTest,
@@ -102,28 +113,47 @@ def client():
     return TestClient(app)
 
 
-@pytest.fixture
-def mock_llm():
-    """Mock LLM for testing without real API calls."""
-    mock_ai = MagicMock()
-    mock_ai.messages_call.return_value = MagicMock(
-        result="Mock analysis response for documentation test.",
-        tool_calls=[
-            {
-                "tool_call_id": "doc_test_1",
-                "tool_name": "mock_tool",
-                "description": "Mock tool for testing",
-                "result": {"status": "success", "data": "mock data"},
-            }
-        ],
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "test"},
-            {"role": "assistant", "content": "Mock response"},
-        ],
-        metadata={},
+def create_mock_model_entry() -> ModelEntry:
+    """
+    Create a mock ModelEntry for a non-Robusta model.
+
+    This avoids the Robusta AI credential check during tests while still
+    testing the full LLM code path.
+    """
+    return ModelEntry(
+        name="test-model",
+        model="gpt-4o",
+        is_robusta_model=False,
     )
-    return mock_ai
+
+
+def create_mock_litellm_response(content: str = "Mock analysis response for documentation test.") -> ModelResponse:
+    """
+    Create a mock litellm ModelResponse matching the real API structure.
+
+    This is what litellm.completion() returns. By mocking at this level,
+    we test the full Holmes code path from HTTP to LLM integration.
+    """
+    return ModelResponse(
+        id="chatcmpl-mock-doc-test",
+        choices=[
+            Choices(
+                index=0,
+                message=Message(
+                    role="assistant",
+                    content=content,
+                    tool_calls=None,
+                ),
+                finish_reason="stop",
+            )
+        ],
+        model="gpt-4o-mock",
+        usage=Usage(
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        ),
+    )
 
 
 def collect_doc_curl_tests() -> list[tuple[str, DocCurlTest]]:
@@ -246,21 +276,29 @@ COMPLEX_ENDPOINTS = {
     DOC_CURL_TESTS,
     ids=[t[0] for t in DOC_CURL_TESTS],
 )
-@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("litellm.completion")
+@patch("holmes.core.llm.LLMModelRegistry.get_model_params")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+@patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key-for-docs"})
 def test_documented_curl(
     mock_get_global_instructions,
-    mock_create_toolcalling_llm,
+    mock_get_model_params,
+    mock_litellm_completion,
     test_id: str,
     doc_test: DocCurlTest,
     client,
-    mock_llm,
 ):
     """
     Test a curl command extracted from documentation.
 
     This test validates that documented curl examples actually work
-    and return expected responses.
+    and return expected responses. We mock at the litellm.completion level
+    to test the full Holmes code path while avoiding real API calls.
+
+    Mock strategy:
+    - LLMModelRegistry.get_model_params: Returns a non-Robusta model to avoid credential checks
+    - litellm.completion: Returns a mock response to avoid real API calls
+    - SupabaseDal.get_global_instructions_for_account: Returns empty list
     """
     # Check if this is a complex endpoint that needs special handling
     endpoint = get_endpoint_from_url(doc_test.curl.url)
@@ -271,7 +309,11 @@ def test_documented_curl(
         )
 
     # Setup mocks
-    mock_create_toolcalling_llm.return_value = mock_llm
+    # 1. Model registry returns a non-Robusta model (avoids credential checks)
+    mock_get_model_params.return_value = create_mock_model_entry()
+    # 2. litellm.completion returns a mock response (tests full code path)
+    mock_litellm_completion.return_value = create_mock_litellm_response()
+    # 3. Global instructions returns empty list
     mock_get_global_instructions.return_value = []
 
     # Execute the curl
@@ -310,22 +352,28 @@ class TestHttpApiDocs:
     """Tests for http-api.md documentation."""
 
     @pytest.fixture(autouse=True)
-    def setup_mocks(self):
-        """Setup common mocks for all tests."""
-        with patch("holmes.config.Config.create_toolcalling_llm") as mock_llm, \
+    def setup_mocks(self, monkeypatch):
+        """
+        Setup common mocks for all tests.
+
+        Mock strategy:
+        - OPENAI_API_KEY env var: Set fake key to pass credential validation
+        - LLMModelRegistry.get_model_params: Returns a non-Robusta model to avoid credential checks
+        - litellm.completion: Returns a mock response to avoid real API calls
+        - SupabaseDal.get_global_instructions_for_account: Returns empty list
+        """
+        # Set fake API key to pass credential validation
+        monkeypatch.setenv("OPENAI_API_KEY", "test-api-key-for-docs")
+
+        with patch("litellm.completion") as mock_completion, \
+             patch("holmes.core.llm.LLMModelRegistry.get_model_params") as mock_model, \
              patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account") as mock_instr:
 
-            mock_ai = MagicMock()
-            mock_ai.messages_call.return_value = MagicMock(
-                result="Test response",
-                tool_calls=[],
-                messages=[],
-                metadata={},
-            )
-            mock_llm.return_value = mock_ai
+            mock_model.return_value = create_mock_model_entry()
+            mock_completion.return_value = create_mock_litellm_response("Test response")
             mock_instr.return_value = []
 
-            yield {"mock_llm": mock_llm, "mock_ai": mock_ai}
+            yield {"mock_completion": mock_completion, "mock_model": mock_model}
 
     def test_chat_endpoint_documented(self, client):
         """Verify /api/chat endpoint works as documented."""
