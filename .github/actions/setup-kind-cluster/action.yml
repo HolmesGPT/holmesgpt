@@ -250,61 +250,24 @@ runs:
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
         helm repo update
 
-        # Create values file with annotation-based pod scraping config
-        cat > /tmp/prometheus-values.yaml << 'VALUESEOF'
-prometheus:
-  prometheusSpec:
-    podMonitorSelectorNilUsesHelmValues: false
-    serviceMonitorSelectorNilUsesHelmValues: false
-    scrapeInterval: 15s
-    resources:
-      requests:
-        memory: 256Mi
-        cpu: 100m
-      limits:
-        memory: 512Mi
-        cpu: 500m
-    additionalScrapeConfigs:
-      - job_name: kubernetes-pods
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
-            action: keep
-            regex: "true"
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
-          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            regex: ([^:]+)(?::\d+)?;(\d+)
-            replacement: $1:$2
-            target_label: __address__
-          - action: labelmap
-            regex: __meta_kubernetes_pod_label_(.+)
-          - source_labels: [__meta_kubernetes_namespace]
-            action: replace
-            target_label: namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            action: replace
-            target_label: pod
-alertmanager:
-  enabled: false
-grafana:
-  enabled: false
-kubeStateMetrics:
-  enabled: true
-nodeExporter:
-  enabled: true
-VALUESEOF
-
-        # Install with values file - pin version for reproducibility
+        # Install with minimal config - pin version for reproducibility
         # Release name 'robusta' creates service 'robusta-kube-prometheus-st-prometheus'
+        # Note: additionalScrapeConfigs for annotation-based pod discovery is complex to
+        # configure inline. Tests needing custom app metrics should use ServiceMonitors.
         helm install robusta prometheus-community/kube-prometheus-stack \
           --version 72.6.2 \
           --namespace default \
-          -f /tmp/prometheus-values.yaml \
+          --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+          --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+          --set prometheus.prometheusSpec.scrapeInterval=15s \
+          --set prometheus.prometheusSpec.resources.requests.memory=256Mi \
+          --set prometheus.prometheusSpec.resources.requests.cpu=100m \
+          --set prometheus.prometheusSpec.resources.limits.memory=512Mi \
+          --set prometheus.prometheusSpec.resources.limits.cpu=500m \
+          --set alertmanager.enabled=false \
+          --set grafana.enabled=false \
+          --set kubeStateMetrics.enabled=true \
+          --set nodeExporter.enabled=true \
           --wait \
           --timeout 5m
 
