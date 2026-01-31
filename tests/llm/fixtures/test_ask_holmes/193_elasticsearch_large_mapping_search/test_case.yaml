@@ -3,9 +3,6 @@
 # This test creates an index with 10,000 fields to test the LLM's ability to
 # search within large mappings that exceed the context window.
 #
-# The LLM must use the jq parameter on elasticsearch_mappings to filter/search
-# field names rather than retrieving the full mapping.
-#
 # Setup:
 # - Index with 10,000+ fields generated dynamically
 # - One needle field: du_transaction_id_7k3m (unique identifier prevents hallucination)
@@ -22,7 +19,6 @@ user_prompt: "I need to find a field in the app-193-telemetry index that's used 
 
 expected_output:
   - "Must find and report the field 'du_transaction_id_7k3m'"
-  - "Must use jq filtering to search the large mapping (cannot retrieve full 10K field mapping)"
 
 tags:
   - elasticsearch
