@@ -142,6 +142,15 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   }'
 ```
 
+**Example (validation error - missing required field):**
+
+```bash
+<!-- test: status=422, id=chat_missing_ask_field -->
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"conversation_history": []}'
+```
+
 **Example Response:**
 
 ```json
@@ -500,22 +509,6 @@ curl -X POST http://<HOLMES-URL>/api/workload_health_chat \
 ```bash
 <!-- test: status=200, has_fields=model_name, id=model_list -->
 curl http://<HOLMES-URL>/api/model
-```
-
-**Example (validation error - missing required field):**
-```bash
-<!-- test: status=422, id=chat_missing_ask_field -->
-curl -X POST http://<HOLMES-URL>/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"conversation_history": []}'
-```
-
-**Example (DELIBERATELY BROKEN - expects wrong status to test CI catches it):**
-```bash
-<!-- test: status=200, has_fields=analysis, id=deliberately_broken_expects_wrong_status -->
-curl -X POST http://<HOLMES-URL>/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"this_field_does_not_exist": true}'
 ```
 
 **Example** Response

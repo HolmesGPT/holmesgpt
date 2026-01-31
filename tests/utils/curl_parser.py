@@ -13,6 +13,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 ```
 """
 
+import copy
 import json
 import re
 import shlex
@@ -276,8 +277,6 @@ def substitute_placeholders(
     - <HOLMES-URL> -> localhost:8080
     - <your-api-key> -> test-api-key
     """
-    import copy
-
     result = copy.deepcopy(curl)
 
     # Substitute in URL

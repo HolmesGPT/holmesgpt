@@ -181,7 +181,6 @@ def normalize_url(url: str) -> str:
 def execute_curl_test(
     client: TestClient,
     doc_test: DocCurlTest,
-    mock_ai: Any,
 ) -> dict[str, Any]:
     """Execute a curl command using TestClient and return result."""
     curl = substitute_placeholders(doc_test.curl, PLACEHOLDER_SUBSTITUTIONS)
@@ -276,7 +275,7 @@ def test_documented_curl(
     mock_get_global_instructions.return_value = []
 
     # Execute the curl
-    result = execute_curl_test(client, doc_test, mock_llm)
+    result = execute_curl_test(client, doc_test)
 
     # Validate status code
     if result["status_code"] != doc_test.curl.expected_status:
