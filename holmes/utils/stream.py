@@ -75,7 +75,6 @@ def stream_investigate_formatter(
                     {
                         "sections": sections or {},
                         "analysis": text_response,
-                        "instructions": [],
                         "metadata": message.data.get("metadata") or {},
                     },
                 )
