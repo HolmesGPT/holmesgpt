@@ -5,11 +5,6 @@ Configure HolmesGPT to use any OpenAI-compatible API.
 !!! warning "Function Calling Required"
     Your model and inference server must support function calling (tool calling). Models that lack this capability may produce incorrect results.
 
-## Requirements
-
-- **Function calling support** - OpenAI-style tool calling
-- **OpenAI-compatible API** - Standard endpoints and request/response format
-
 ## Supported Inference Servers
 
 - [LiteLLM Proxy](https://docs.litellm.ai/docs/simple_proxy){:target="_blank"} - Unified gateway for 100+ LLM providers
