@@ -25,7 +25,7 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 
-user_prompt: "Search the traces-apm-test-195 index for traces from the checkout-service that have errors. What error code was returned?"
+user_prompt: "Search the traces-apm-test-195 index for traces from the checkout-service that have errors. The index contains spans with large http.request.body and http.response.body fields that should be excluded from the query results to avoid retrieving too much data. What error code was returned?"
 
 expected_output:
   - "Must find error code ERR-DB-TIMEOUT-9042"
