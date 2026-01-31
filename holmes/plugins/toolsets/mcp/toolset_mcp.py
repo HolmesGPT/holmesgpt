@@ -112,6 +112,11 @@ class MCPConfig(BaseModel):
             }
         ],
     )
+    icon_url: str = Field(
+        default="https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png",
+        description="Icon URL for this MCP server, displayed in the UI for tool calls.",
+        examples=["https://cdn.simpleicons.org/github/181717"],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.url)
@@ -136,6 +141,11 @@ class StdioMCPConfig(BaseModel):
         default=None,
         description="Environment variables to set for the MCP server process.",
         examples=[{"GITHUB_PERSONAL_ACCESS_TOKEN": "{{ env.GITHUB_TOKEN }}"}],
+    )
+    icon_url: str = Field(
+        default="https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png",
+        description="Icon URL for this MCP server, displayed in the UI for tool calls.",
+        examples=["https://cdn.simpleicons.org/github/181717"],
     )
 
     def get_lock_string(self) -> str:
@@ -302,7 +312,6 @@ class RemoteMCPToolset(Toolset):
         StdioMCPConfig,
     ]
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
-    icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
 
     def _render_headers(
@@ -400,6 +409,9 @@ class RemoteMCPToolset(Toolset):
         self.prerequisites = [
             CallablePrerequisite(callable=self.prerequisites_callable)
         ]
+        # Set icon from config if specified
+        if self.icon_url is None and self.config:
+            self.icon_url = self.config.get("icon_url")
 
     @model_validator(mode="before")
     @classmethod
