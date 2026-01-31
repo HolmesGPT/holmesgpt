@@ -148,5 +148,4 @@ def get_investigation_context(
         runbooks_ctx,
     )
 
-    # Return empty list for instructions for backwards compatibility
-    return ai, system_prompt, user_prompt, response_format, sections, []
+    return ai, system_prompt, user_prompt, response_format, sections
