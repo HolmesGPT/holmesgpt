@@ -5,27 +5,25 @@ Configure HolmesGPT to use any OpenAI-compatible API.
 !!! warning "Function Calling Required"
     Your model and inference server must support function calling (tool calling). Models that lack this capability may produce incorrect results.
 
-## Supported Inference Servers
+## Overview
 
-- [LiteLLM Proxy](https://docs.litellm.ai/docs/simple_proxy){:target="_blank"} - Unified gateway for 100+ LLM providers
+HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes API gateways, proxy servers, and local inference servers—as long as they expose an OpenAI-compatible interface with function calling support.
 
-## LiteLLM Proxy / API Gateway
+## Quick Start
 
-If your organization uses [LiteLLM Proxy](https://docs.litellm.ai/docs/simple_proxy){:target="_blank"} or another OpenAI-compatible API gateway to manage LLM access, configure HolmesGPT to route requests through it:
+Point HolmesGPT at your OpenAI-compatible endpoint:
 
 ```bash
-export OPENAI_API_BASE="https://your-litellm-proxy.example.com"
-export OPENAI_API_KEY="your-gateway-api-key"
+export OPENAI_API_BASE="https://your-gateway.example.com"
+export OPENAI_API_KEY="your-api-key"
 holmes ask "what pods are failing?" --model="openai/<your-model>"
 ```
 
 **Key points:**
 
-- Set `OPENAI_API_BASE` to your gateway's URL (the proxy handles routing to the actual LLM provider)
-- Set `OPENAI_API_KEY` to whatever API key your gateway expects
-- Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your gateway expects
-
-This works with any OpenAI-compatible gateway, including enterprise LLM gateways and self-hosted LiteLLM instances.
+- Set `OPENAI_API_BASE` to your endpoint URL
+- Set `OPENAI_API_KEY` to whatever API key your endpoint expects
+- Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your endpoint expects
 
 ## Configuration
 
