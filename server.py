@@ -13,6 +13,7 @@ import json
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import List, Optional
 
 import colorlog
@@ -36,7 +37,7 @@ from holmes.common.env_vars import (
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
 )
-from holmes.config import Config
+from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core import investigation
 from holmes.core.conversations import (
     build_chat_messages,
@@ -50,11 +51,13 @@ from holmes.core.models import (
     InvestigationResult,
     IssueChatRequest,
 )
+from holmes.core.prompt import generate_user_prompt
+from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
+from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
-from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
 
 # removed: add_runbooks_to_user_prompt
@@ -87,8 +90,29 @@ init_logging()
 
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
-config = Config.load_from_env()
-dal = config.dal
+
+
+def init_config():
+    """
+    Initialize configuration from file if it exists at the default location,
+    otherwise load from environment variables.
+
+    Returns:
+        tuple: (config, dal) - The initialized Config object and its DAL instance
+    """
+    default_config_path = Path(DEFAULT_CONFIG_LOCATION)
+    if default_config_path.exists():
+        logging.info(f"Loading config from file: {default_config_path}")
+        config = Config.load_from_file(default_config_path)
+    else:
+        logging.info("No config file found, loading from environment variables")
+        config = Config.load_from_env()
+
+    dal = config.dal
+    return config, dal
+
+
+config, dal = init_config()
 
 
 def sync_before_server_start():
@@ -435,7 +459,9 @@ def readiness_check():
         raise HTTPException(status_code=503, detail="Service not ready")
 
 
-if __name__ == "__main__":
+def main():
+    """Holmes AI Server entry point"""
+    # Configure uvicorn logging
     log_config = uvicorn.config.LOGGING_CONFIG
     log_config["formatters"]["access"]["fmt"] = (
         "%(asctime)s %(levelname)-8s %(message)s"
@@ -443,6 +469,14 @@ if __name__ == "__main__":
     log_config["formatters"]["default"]["fmt"] = (
         "%(asctime)s %(levelname)-8s %(message)s"
     )
+
+    # Sync before server start
     sync_before_server_start()
     _toolset_status_refresh_loop()
+
+    # Start server
     uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
+
+
+if __name__ == "__main__":
+    main()
