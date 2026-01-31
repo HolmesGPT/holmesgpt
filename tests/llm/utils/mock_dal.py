@@ -133,9 +133,6 @@ class MockSupabaseDal(SupabaseDal):
 
         return None
 
-    def get_workload_issues(self, *args) -> list:
-        return []
-
     def get_resource_recommendation(
         self,
         limit: int = 10,

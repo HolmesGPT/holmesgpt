@@ -221,9 +221,9 @@ mcpAddons:
       enabled: true
 
     config:
-      project: ""            # Primary GCP project ID (optional - can query any project with --project flag)
+      project: ""            # Optional: Holmes uses this if not asked about a specific project
       projectNumber: ""      # GCP project number (only needed if using Workload Identity)
-      region: "us-central1"  # Default GCP region (can override with --region flag)
+      region: "us-central1"  # Optional: Holmes uses this if not asked about a specific region
       namespace: ""          # MCP server installation namespace (defaults to release namespace if empty)
 
     # Individual MCP server toggles and configurations
