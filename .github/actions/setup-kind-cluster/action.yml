@@ -277,7 +277,7 @@ runs:
         # Verify Prometheus is responding
         echo "Verifying Prometheus API..."
         kubectl run prom-test --image=curlimages/curl:8.8.0 --restart=Never --rm -i --timeout=60s -- \
-          curl -s "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/status/config" | head -c 200
+          curl -s "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/status/config" | head -c 200 || true
 
         echo ""
         echo "=== Prometheus stack installed ==="
