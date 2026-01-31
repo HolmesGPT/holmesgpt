@@ -16,6 +16,7 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 - Set `OPENAI_API_BASE` to your endpoint URL
 - Set `OPENAI_API_KEY` to whatever API key your endpoint expects
 - Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your endpoint expects
+- (Optional) Set `CERTIFICATE` to a base64-encoded CA certificate if your endpoint uses a custom CA
 
 === "Holmes CLI"
 
