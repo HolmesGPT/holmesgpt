@@ -10,15 +10,15 @@ HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes API g
 Point HolmesGPT at your OpenAI-compatible endpoint:
 
 - Set `OPENAI_API_BASE` to your endpoint URL
-- Set `OPENAI_API_KEY` to your endpoint's API key (always required; use any value like `"none"` if your endpoint doesn't require authentication)
+- Set `OPENAI_API_KEY` to your endpoint's API key, or any placeholder value like `"none"` if your endpoint doesn't require authentication (this parameter is always required by LiteLLM)
 - Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your endpoint expects
-- (Optional) Set `CERTIFICATE` to a base64-encoded CA certificate if your endpoint uses a custom CA
+- Optional: Set `CERTIFICATE` to a base64-encoded CA certificate if your endpoint uses a custom CA
 
 === "Holmes CLI"
 
     ```bash
     export OPENAI_API_BASE="http://localhost:8000/v1"
-    export OPENAI_API_KEY="none"  # Required; use "none" if endpoint doesn't need auth
+    export OPENAI_API_KEY="none"  # Or any placeholder if endpoint doesn't need auth
     # Optional: Custom CA certificate (base64-encoded)
     # export CERTIFICATE="$(cat /path/to/ca.crt | base64)"
     holmes ask "what pods are failing?" --model="openai/<your-model>"
@@ -32,7 +32,7 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
       - name: OPENAI_API_BASE
         value: "http://your-inference-server:8000/v1"
       - name: OPENAI_API_KEY
-        value: "none"  # Required; use "none" if endpoint doesn't need auth
+        value: "none"  # Or any placeholder if endpoint doesn't need auth
         # If authentication is required, use a secret instead:
         # valueFrom:
         #   secretKeyRef:
@@ -62,7 +62,7 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         - name: OPENAI_API_BASE
           value: "http://your-inference-server:8000/v1"
         - name: OPENAI_API_KEY
-          value: "none"  # Required; use "none" if endpoint doesn't need auth
+          value: "none"  # Or any placeholder if endpoint doesn't need auth
           # If authentication is required, use a secret instead:
           # valueFrom:
           #   secretKeyRef:
