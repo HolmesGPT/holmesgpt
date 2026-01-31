@@ -1,13 +1,9 @@
 # OpenAI-Compatible Models
 
-Configure HolmesGPT to use any OpenAI-compatible API.
+HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes API gateways, proxy servers, and local inference servers—as long as they expose an OpenAI-compatible interface with function calling support.
 
 !!! warning "Function Calling Required"
     Your model and inference server must support function calling (tool calling). Models that lack this capability may produce incorrect results.
-
-## Overview
-
-HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes API gateways, proxy servers, and local inference servers—as long as they expose an OpenAI-compatible interface with function calling support.
 
 ## Quick Start
 
