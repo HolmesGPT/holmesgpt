@@ -104,7 +104,6 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 
 ## Known Limitations
 
-- **vLLM**: [Does not yet support function calling](https://github.com/vllm-project/vllm/issues/1869){:target="_blank"}
 - **Some models**: May hallucinate responses instead of reporting function calling limitations
 
 ## Additional Resources
