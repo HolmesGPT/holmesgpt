@@ -13,19 +13,9 @@ HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes API g
 
 Point HolmesGPT at your OpenAI-compatible endpoint:
 
-```bash
-export OPENAI_API_BASE="https://your-gateway.example.com"
-export OPENAI_API_KEY="your-api-key"
-holmes ask "what pods are failing?" --model="openai/<your-model>"
-```
-
-**Key points:**
-
 - Set `OPENAI_API_BASE` to your endpoint URL
 - Set `OPENAI_API_KEY` to whatever API key your endpoint expects
 - Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your endpoint expects
-
-## Configuration
 
 === "Holmes CLI"
 
@@ -119,14 +109,6 @@ holmes ask "what pods are failing?" --model="openai/<your-model>"
       config:
         model: "local-llama"  # This refers to the key name in modelList above
     ```
-
-## Using CLI Parameters
-
-You can also specify the model directly as a command-line parameter:
-
-```bash
-holmes ask "what pods are failing?" --model="openai/<your-model>"
-```
 
 ## Custom SSL Certificates
 
