@@ -243,7 +243,7 @@ runs:
     - name: Install kube-prometheus-stack
       shell: bash
       run: |
-        set -e
+        set -euo pipefail
         echo "Installing kube-prometheus-stack for Prometheus evals..."
 
         # Add helm repo
