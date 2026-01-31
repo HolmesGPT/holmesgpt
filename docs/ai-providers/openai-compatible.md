@@ -22,19 +22,13 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
     ```bash
     export OPENAI_API_BASE="http://localhost:8000/v1"
     export OPENAI_API_KEY="not-needed"
+    # Optional: Custom CA certificate (base64-encoded)
+    # export CERTIFICATE="$(cat /path/to/ca.crt | base64)"
     holmes ask "what pods are failing?" --model="openai/<your-model>"
     ```
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret (if authentication is required):**
-    ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="your-api-key-if-needed" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
     ```yaml
     # values.yaml
     additionalEnvVars:
@@ -47,6 +41,9 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         #   secretKeyRef:
         #     name: holmes-secrets
         #     key: openai-api-key
+
+    # Optional: Custom CA certificate (base64-encoded)
+    # certificate: "LS0tLS1CRUdJTi..."
 
     # Configure at least one model using modelList
     modelList:
@@ -69,14 +66,6 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret (if authentication is required):**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="your-api-key-if-needed" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
     ```yaml
     # values.yaml
     holmes:
@@ -90,6 +79,9 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
           #   secretKeyRef:
           #     name: robusta-holmes-secret
           #     key: openai-api-key
+
+      # Optional: Custom CA certificate (base64-encoded)
+      # certificate: "LS0tLS1CRUdJTi..."
 
       # Configure at least one model using modelList
       modelList:
@@ -109,15 +101,6 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
       config:
         model: "local-llama"  # This refers to the key name in modelList above
     ```
-
-## Custom SSL Certificates
-
-If your LLM provider uses a custom Certificate Authority (CA):
-
-```bash
-# Base64 encode your certificate and set it as an environment variable
-export CERTIFICATE="base64-encoded-cert-here"
-```
 
 ## Known Limitations
 
