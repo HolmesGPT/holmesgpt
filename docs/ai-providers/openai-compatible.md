@@ -101,7 +101,7 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 
 ## Known Limitations
 
-- **Some models**: May hallucinate responses instead of reporting function calling limitations. See [benchmark results](../development/evaluations/full-benchmark-results.md) for recommended models.
+- **Some models**: May hallucinate responses instead of reporting function calling limitations. See [benchmark results](../development/evaluations/index.md) for recommended models.
 
 ## Additional Resources
 
