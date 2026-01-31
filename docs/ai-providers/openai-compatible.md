@@ -10,7 +10,7 @@ HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes API g
 Point HolmesGPT at your OpenAI-compatible endpoint:
 
 - Set `OPENAI_API_BASE` to your endpoint URL
-- Set `OPENAI_API_KEY` to whatever API key your endpoint expects
+- Set `OPENAI_API_KEY` to your endpoint's API key (always required; use any value like `"none"` if your endpoint doesn't require authentication)
 - Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your endpoint expects
 - (Optional) Set `CERTIFICATE` to a base64-encoded CA certificate if your endpoint uses a custom CA
 
@@ -18,7 +18,7 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 
     ```bash
     export OPENAI_API_BASE="http://localhost:8000/v1"
-    export OPENAI_API_KEY="not-needed"
+    export OPENAI_API_KEY="none"  # Required; use "none" if endpoint doesn't need auth
     # Optional: Custom CA certificate (base64-encoded)
     # export CERTIFICATE="$(cat /path/to/ca.crt | base64)"
     holmes ask "what pods are failing?" --model="openai/<your-model>"
@@ -32,8 +32,8 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
       - name: OPENAI_API_BASE
         value: "http://your-inference-server:8000/v1"
       - name: OPENAI_API_KEY
-        value: "not-needed"
-        # OR if authentication is required:
+        value: "none"  # Required; use "none" if endpoint doesn't need auth
+        # If authentication is required, use a secret instead:
         # valueFrom:
         #   secretKeyRef:
         #     name: holmes-secrets
@@ -42,23 +42,15 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
     # Optional: Custom CA certificate (base64-encoded)
     # certificate: "LS0tLS1CRUdJTi..."
 
-    # Configure at least one model using modelList
     modelList:
-      local-llama:
-        api_key: "not-needed"
-        api_base: "{{ env.OPENAI_API_BASE }}"
-        model: openai/llama3
-        temperature: 1
-
-      custom-model:
+      my-model:
         api_key: "{{ env.OPENAI_API_KEY }}"
         api_base: "{{ env.OPENAI_API_BASE }}"
-        model: openai/your-custom-model
+        model: openai/your-model-name
         temperature: 1
 
-    # Optional: Set default model (use modelList key name)
     config:
-      model: "local-llama"  # This refers to the key name in modelList above
+      model: "my-model"
     ```
 
 === "Robusta Helm Chart"
@@ -70,8 +62,8 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         - name: OPENAI_API_BASE
           value: "http://your-inference-server:8000/v1"
         - name: OPENAI_API_KEY
-          value: "not-needed"
-          # OR if authentication is required:
+          value: "none"  # Required; use "none" if endpoint doesn't need auth
+          # If authentication is required, use a secret instead:
           # valueFrom:
           #   secretKeyRef:
           #     name: robusta-holmes-secret
@@ -80,23 +72,15 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
       # Optional: Custom CA certificate (base64-encoded)
       # certificate: "LS0tLS1CRUdJTi..."
 
-      # Configure at least one model using modelList
       modelList:
-        local-llama:
-          api_key: "not-needed"
-          api_base: "{{ env.OPENAI_API_BASE }}"
-          model: openai/llama3
-          temperature: 1
-
-        custom-model:
+        my-model:
           api_key: "{{ env.OPENAI_API_KEY }}"
           api_base: "{{ env.OPENAI_API_BASE }}"
-          model: openai/your-custom-model
+          model: openai/your-model-name
           temperature: 1
 
-      # Optional: Set default model (use modelList key name)
       config:
-        model: "local-llama"  # This refers to the key name in modelList above
+        model: "my-model"
     ```
 
 ## Known Limitations
