@@ -1,7 +1,7 @@
 # HolmesGPT API Reference
 
 ## Overview
-The HolmesGPT API provides endpoints for automated investigations, workload health checks, and conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
+The HolmesGPT API provides endpoints for automated investigations and conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
 
 ## Model Parameter Behavior
 

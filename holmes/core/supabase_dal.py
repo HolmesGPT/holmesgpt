@@ -677,56 +677,6 @@ class SupabaseDal:
 
         return self.account_id, session_token
 
-    def get_workload_issues(self, resource: dict, since_hours: float) -> List[str]:
-        if not self.enabled or not resource:
-            return []
-
-        cluster = resource.get("cluster")
-        if not cluster:
-            logging.debug("Missing workload cluster for issues.")
-            return []
-
-        since: str = (datetime.now() - timedelta(hours=since_hours)).isoformat()
-
-        svc_key = f"{resource.get('namespace', '')}/{resource.get('kind', '')}/{resource.get('name', '')}"
-        logging.debug(f"getting issues for workload {svc_key}")
-        try:
-            res = (
-                self.client.table(ISSUES_TABLE)
-                .select("id, creation_date, aggregation_key")
-                .eq("account_id", self.account_id)
-                .eq("cluster", cluster)
-                .eq("service_key", svc_key)
-                .gte("creation_date", since)
-                .order("creation_date")
-                .execute()
-            )
-
-            if not res.data:
-                return []
-
-            issue_dict = dict()
-            for issue in res.data:
-                issue_dict[issue.get("aggregation_key")] = issue.get("id")
-
-            unique_issues: list[str] = list(issue_dict.values())
-
-            res = (
-                self.client.table(EVIDENCE_TABLE)
-                .select("data, enrichment_type")
-                .in_("issue_id", unique_issues)
-                .not_.in_("enrichment_type", ENRICHMENT_BLACKLIST)
-                .execute()
-            )
-
-            relevant_issues = self.extract_relevant_issues(res)
-            truncate_evidences_entities_if_necessary(relevant_issues)
-            return relevant_issues
-
-        except Exception:
-            logging.exception("failed to fetch workload issues data", exc_info=True)
-            return []
-
     def upsert_holmes_status(self, holmes_status_data: dict) -> None:
         if not self.enabled:
             logging.info(
