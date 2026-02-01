@@ -283,3 +283,23 @@ runs:
         echo "=== Prometheus stack installed ==="
         kubectl get pods -l "release=robusta" -n default
         echo "✅ kube-prometheus-stack ready for evals"
+
+    - name: Install metrics-server
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Installing metrics-server for HPA support..."
+
+        # Install metrics-server
+        kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+        # Patch for KIND (needs insecure TLS since kubelet certs aren't valid)
+        kubectl patch deployment metrics-server -n kube-system \
+          --type='json' \
+          -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+
+        # Wait for metrics-server to be ready
+        echo "Waiting for metrics-server to be available..."
+        kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=120s
+
+        echo "✅ metrics-server installed and ready"
