@@ -1,0 +1,71 @@
+# Test that Holmes can find and describe custom Prometheus alerting rules
+user_prompt: "What Prometheus alerting rule monitors order processing time in the app-195 namespace? Tell me the rule name, the PromQL expression, and what severity it has."
+
+expected_output:
+  - "Must identify the alert name: OrderProcessingLatencyHigh"
+  - "Must include the PromQL expression containing histogram_quantile and order_processing_duration"
+  - "Must mention the severity label is 'warning'"
+
+tags:
+  - prometheus
+  - question-answer
+
+include_tool_calls: true
+
+port_forwards:
+  - namespace: app-195
+    service: prometheus
+    local_port: 10195
+    remote_port: 9090
+
+before_test: |
+  set -e
+  echo "📁 Creating namespace app-195..."
+  kubectl create namespace app-195 --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "⚙️ Applying Prometheus config with custom rules..."
+  kubectl apply -f prometheus-config.yaml -n app-195
+  kubectl apply -f prometheus-with-rules.yaml -n app-195
+
+  echo "⏳ Waiting for Prometheus pod to be ready..."
+  PROM_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-195 --timeout=5s 2>/dev/null; then
+      echo "✅ Prometheus pod is ready!"
+      PROM_READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/60: Prometheus not ready yet..."
+    sleep 1
+  done
+
+  if [ "$PROM_READY" = false ]; then
+    echo "❌ Prometheus failed to become ready"
+    kubectl get pods -n app-195 -l app=prometheus
+    kubectl logs -n app-195 -l app=prometheus --tail=30
+    exit 1
+  fi
+
+  echo "🔍 Verifying rules are loaded..."
+  RULES_LOADED=false
+  for i in {1..30}; do
+    if kubectl exec -n app-195 deployment/prometheus -- wget -q -O- http://localhost:9090/api/v1/rules 2>/dev/null | grep -q "OrderProcessingLatencyHigh"; then
+      echo "✅ Custom alerting rules are loaded!"
+      RULES_LOADED=true
+      break
+    fi
+    echo "⏳ Attempt $i/30: Rules not loaded yet..."
+    sleep 1
+  done
+
+  if [ "$RULES_LOADED" = false ]; then
+    echo "❌ Rules failed to load"
+    kubectl exec -n app-195 deployment/prometheus -- wget -q -O- http://localhost:9090/api/v1/rules 2>/dev/null || true
+    kubectl logs -n app-195 -l app=prometheus --tail=30
+    exit 1
+  fi
+
+  echo "✅ Test setup completed successfully"
+
+after_test: |
+  kubectl delete namespace app-195 || true
