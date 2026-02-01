@@ -132,7 +132,9 @@ before_test: |
   if echo "$RESPONSE" | grep -q '"errors":false'; then
     echo "✅ Trace data inserted successfully"
   else
-    echo "⚠️ Some errors during bulk insert"
+    echo "❌ Bulk insert failed: $RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
   fi
 
   rm -f "$BULK_FILE"
