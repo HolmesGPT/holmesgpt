@@ -403,10 +403,18 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                 ),
                 "source": ToolParameter(
                     description=(
-                        "Fields to include in response. Can be boolean (true/false), "
-                        "string (single field), or array of field names"
+                        "Fields to include/exclude in response. Supported formats:\n"
+                        "• Array: ['field1', 'field2'] - Include only these fields\n"
+                        "• String: 'field1' - Include single field\n"
+                        "• Object: {\"includes\": [\"trace.*\", \"span.*\"], \"excludes\": [\"*.body\", \"*.stack_trace\"]}\n"
+                        "  - Use wildcards (*) for pattern matching\n"
+                        "  - Excludes are useful for filtering large fields (http.request.body, error.stack_trace, http.response.*)\n"
+                        "• Boolean: false - Exclude all source (metadata only)\n\n"
+                        "Examples:\n"
+                        "- Trace query: {\"includes\": [\"trace.*\", \"span.*\", \"service.*\"], \"excludes\": [\"*.request.*\", \"*.response.*\"]}\n"
+                        "- Logs: [\"@timestamp\", \"message\", \"level\", \"service.name\"]"
                     ),
-                    type="string",
+                    type="object",
                     required=False,
                 ),
                 "aggregations": ToolParameter(
