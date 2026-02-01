@@ -178,13 +178,6 @@ def generate_markdown_report(
     investigate_skipped = 0
     investigate_setup_failures = 0
 
-    workload_health_total = 0
-    workload_health_passed = 0
-    workload_health_regressions = 0
-    workload_health_mock_failures = 0
-    workload_health_skipped = 0
-    workload_health_setup_failures = 0
-
     for result in sorted_results:
         status = TestStatus(result)
 
@@ -212,18 +205,6 @@ def generate_markdown_report(
                 investigate_regressions += 1
             elif status.is_mock_failure:
                 investigate_mock_failures += 1
-        elif result["test_type"] == "workload_health":
-            workload_health_total += 1
-            if status.is_skipped:
-                workload_health_skipped += 1
-            elif status.is_setup_failure:
-                workload_health_setup_failures += 1
-            elif status.passed:
-                workload_health_passed += 1
-            elif status.is_regression:
-                workload_health_regressions += 1
-            elif status.is_mock_failure:
-                workload_health_mock_failures += 1
 
     # Generate summary lines
     if ask_holmes_total > 0:
@@ -243,15 +224,6 @@ def generate_markdown_report(
             markdown += f", {investigate_setup_failures} setup failures"
         if investigate_mock_failures > 0:
             markdown += f", {investigate_mock_failures} mock failures"
-        markdown += "\n"
-    if workload_health_total > 0:
-        markdown += f"- workload_health: {workload_health_passed}/{workload_health_total} test cases were successful, {workload_health_regressions} regressions"
-        if workload_health_skipped > 0:
-            markdown += f", {workload_health_skipped} skipped"
-        if workload_health_setup_failures > 0:
-            markdown += f", {workload_health_setup_failures} setup failures"
-        if workload_health_mock_failures > 0:
-            markdown += f", {workload_health_mock_failures} mock failures"
         markdown += "\n"
 
     # Generate detailed table
@@ -339,5 +311,5 @@ def generate_markdown_report(
     return (
         markdown,
         sorted_results,
-        ask_holmes_regressions + investigate_regressions + workload_health_regressions,
+        ask_holmes_regressions + investigate_regressions,
     )

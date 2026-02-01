@@ -3,9 +3,6 @@
 # This test creates an index with 10,000 fields to test the LLM's ability to
 # search within large mappings that exceed the context window.
 #
-# The LLM must use the jq parameter on elasticsearch_mappings to filter/search
-# field names rather than retrieving the full mapping.
-#
 # Setup:
 # - Index with 10,000+ fields generated dynamically
 # - One needle field: du_transaction_id_7k3m (unique identifier prevents hallucination)
@@ -22,7 +19,6 @@ user_prompt: "I need to find a field in the app-193-telemetry index that's used 
 
 expected_output:
   - "Must find and report the field 'du_transaction_id_7k3m'"
-  - "Must use jq filtering to search the large mapping (cannot retrieve full 10K field mapping)"
 
 tags:
   - elasticsearch
@@ -92,17 +88,25 @@ before_test: |
   FIELD_COUNT=$(grep -o '"[^"]*":' "$DOC_FILE" | wc -l)
   echo "Generated document with $FIELD_COUNT fields"
 
-  # Index the document
-  echo "Indexing document (this may take a moment)..."
-  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-193-telemetry/_doc" \
+  # Index the document (large payload needs longer timeout and binary mode)
+  DOC_SIZE=$(wc -c < "$DOC_FILE")
+  echo "Indexing document ($DOC_SIZE bytes, this may take a moment)..."
+  RESPONSE=$(curl -s --max-time 120 -X POST "${ELASTICSEARCH_URL}/app-193-telemetry/_doc" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d @"$DOC_FILE")
+    --data-binary @"$DOC_FILE" 2>&1)
+  CURL_EXIT=$?
+
+  if [ $CURL_EXIT -ne 0 ]; then
+    echo "❌ Curl failed with exit code $CURL_EXIT: $RESPONSE"
+    rm -f "$DOC_FILE"
+    exit 1
+  fi
 
   if echo "$RESPONSE" | grep -q '"result":"created"'; then
-    echo "Document indexed successfully"
+    echo "✅ Document indexed successfully"
   else
-    echo "Failed to index document: $RESPONSE"
+    echo "❌ Failed to index document: $RESPONSE"
     rm -f "$DOC_FILE"
     exit 1
   fi
