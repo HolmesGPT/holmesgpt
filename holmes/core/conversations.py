@@ -283,7 +283,6 @@ def build_chat_messages(
         cluster_name=config.cluster_name,
         ask_user_enabled=False,
         file_paths=None,
-        console=None,
         include_todowrite_reminder=False,
         images=images,
     )

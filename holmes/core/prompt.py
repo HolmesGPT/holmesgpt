@@ -3,8 +3,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from rich.console import Console
-
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils.global_instructions import Instructions, generate_runbooks_args
@@ -101,14 +99,11 @@ def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
 def append_all_files_to_user_prompt(
     user_prompt: str,
     file_paths: Optional[List[Path]],
-    console: Optional[Console] = None,
 ) -> str:
     if not file_paths:
         return user_prompt
 
     for file_path in file_paths:
-        if console:
-            console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
         user_prompt = append_file_to_user_prompt(user_prompt, file_path)
 
     return user_prompt
@@ -192,7 +187,6 @@ def build_user_prompt(
     runbooks: Union[RunbookCatalog, Dict, None],
     global_instructions: Optional[Instructions],
     file_paths: Optional[List[Path]],
-    console: Optional[Console],
     include_todowrite_reminder: bool,
     images: Optional[List[Union[str, Dict[str, Any]]]],
 ) -> UserPromptContent:
@@ -203,7 +197,7 @@ def build_user_prompt(
     """
     # Handle file attachments (CLI mode passes files, server mode passes None)
     if file_paths and is_prompt_enabled(PromptComponent.FILES):
-        user_prompt = append_all_files_to_user_prompt(user_prompt, file_paths, console)
+        user_prompt = append_all_files_to_user_prompt(user_prompt, file_paths)
 
     # Handle todowrite reminder (CLI mode passes True, server mode passes False)
     if include_todowrite_reminder and is_prompt_enabled(PromptComponent.TODOWRITE_REMINDER):
@@ -232,7 +226,6 @@ def build_prompts(
     cluster_name: Optional[str],
     ask_user_enabled: bool,
     file_paths: Optional[List[Path]],
-    console: Optional[Console],
     include_todowrite_reminder: bool,
     images: Optional[List[Union[str, Dict[str, Any]]]],
 ) -> Tuple[Optional[str], UserPromptContent]:
@@ -248,7 +241,6 @@ def build_prompts(
         runbooks=runbooks,
         global_instructions=global_instructions,
         file_paths=file_paths,
-        console=console,
         include_todowrite_reminder=include_todowrite_reminder,
         images=images,
     )
@@ -256,7 +248,6 @@ def build_prompts(
 
 
 def build_initial_ask_messages(
-    console: Console,
     initial_user_prompt: str,
     file_paths: Optional[List[Path]],
     tool_executor: Any,  # ToolExecutor type
@@ -275,7 +266,6 @@ def build_initial_ask_messages(
         cluster_name=cluster_name,
         ask_user_enabled=True,
         file_paths=file_paths,
-        console=console,
         include_todowrite_reminder=True,
         images=None,
     )

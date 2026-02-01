@@ -317,8 +317,11 @@ def ask(
         )
         return
 
+    if include_file:
+        for file_path in include_file:
+            console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+
     messages = build_initial_ask_messages(
-        console,
         prompt,  # type: ignore
         include_file,
         ai.tool_executor,
