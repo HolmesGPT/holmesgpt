@@ -215,23 +215,6 @@ def execute_curl_test(client: TestClient, doc_test: DocCurlTest) -> dict[str, An
     }
 
 
-def get_endpoint_from_url(url: str) -> str:
-    """Extract the endpoint path from a URL."""
-    url = url.replace("<HOLMES-URL>", "localhost")
-    if "://" in url:
-        url = "/" + url.split("/", 3)[-1]
-    return url.split("?")[0]
-
-
-# Endpoints that require complex mocking (investigation workflows)
-COMPLEX_ENDPOINTS = {
-    "/api/investigate",
-    "/api/stream/investigate",
-    "/api/workload_health_check",
-    "/api/workload_health_chat",
-}
-
-
 @pytest.mark.skipif(
     len(DOC_CURL_TESTS) == 0,
     reason="No testable curl commands found in documentation",
@@ -259,10 +242,6 @@ def test_documented_curl(
     Validates that documented curl examples return expected responses.
     Tests the full path: HTTP -> server -> config -> LLM -> litellm mock
     """
-    endpoint = get_endpoint_from_url(doc_test.curl.url)
-    if endpoint in COMPLEX_ENDPOINTS:
-        pytest.skip(f"Endpoint {endpoint} requires complex mocking")
-
     # Setup mocks
     mock_get_model_params.return_value = create_mock_model_entry()
     mock_litellm_completion.return_value = create_mock_litellm_response()
