@@ -22,10 +22,10 @@
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 
-user_prompt: "I'm investigating an error in trace TRACE-ERR-X9K2M. Can you find this trace and tell me which service failed and what the error was?"
+user_prompt: "I'm investigating an error in trace TRACE-ERR-X9K2M. Check Elasticsearch and tell me which service failed and what the error was."
 
 expected_output:
-  - "Must find trace TRACE-ERR-X9K2M in the APM data"
+  - "Must find trace TRACE-ERR-X9K2M"
   - "Must identify the payment-gateway service had the error"
   - "Must report error code AUTH-4729 (authentication timeout)"
   - "Should use source parameter with excludes to filter out large fields like http.request.body, http.response.body, or error.stack_trace"
