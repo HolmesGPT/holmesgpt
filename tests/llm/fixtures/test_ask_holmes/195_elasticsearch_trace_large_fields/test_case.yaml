@@ -67,15 +67,16 @@ before_test: |
 
   # Generate 10 normal successful traces (small data)
   for i in $(seq 1 10); do
+    PADDED_MIN=$(printf "%02d" $i)
     TRACE_ID="TRACE-OK-$((10000 + RANDOM % 90000))"
 
     # API Gateway span
     echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
-    echo "{\"@timestamp\": \"2024-01-15T10:0${i}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 245, \"http.method\": \"POST\", \"http.status_code\": 200}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 245, \"http.method\": \"POST\", \"http.status_code\": 200}" >> "$BULK_FILE"
 
     # Payment service span
     echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
-    echo "{\"@timestamp\": \"2024-01-15T10:0${i}:00.050Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-pay-${i}\", \"parent_span_id\": \"span-gw-${i}\", \"service\": \"payment-service\", \"operation\": \"process_payment\", \"duration_ms\": 180, \"http.status_code\": 200}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00.050Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-pay-${i}\", \"parent_span_id\": \"span-gw-${i}\", \"service\": \"payment-service\", \"operation\": \"process_payment\", \"duration_ms\": 180, \"http.status_code\": 200}" >> "$BULK_FILE"
   done
 
   # Generate THE ERROR TRACE with HUGE fields
