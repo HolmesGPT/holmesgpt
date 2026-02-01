@@ -1,3 +1,5 @@
+import os
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -6,6 +8,58 @@ from rich.console import Console
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils.global_instructions import generate_runbooks_args
+
+
+class PromptComponent(str, Enum):
+    # User prompt components
+    FILES = "files"
+    TODOWRITE_REMINDER = "todowrite_reminder"
+    TIME_RUNBOOKS = "time_runbooks"
+    # System prompt components
+    INTRO = "intro"
+    TODOWRITE_INSTRUCTIONS = "todowrite_instructions"
+    AI_SAFETY = "ai_safety"
+    TOOLSET_INSTRUCTIONS = "toolset_instructions"
+    PERMISSION_ERRORS = "permission_errors"
+    GENERAL_INSTRUCTIONS = "general_instructions"
+    STYLE_GUIDE = "style_guide"
+
+
+def is_prompt_enabled(component: PromptComponent) -> bool:
+    """
+    Check if a specific prompt component is enabled.
+
+    Environment variable: ENABLED_PROMPTS
+    - If not set: all prompts are ENABLED (production default)
+    - If set to "none": all prompts are disabled
+    - Comma-separated names (e.g., "files,ai_safety,time_runbooks")
+    """
+    enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
+
+    if not enabled_prompts:
+        return True  # Default: all enabled
+    if enabled_prompts.lower() == "none":
+        return False
+
+    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
+    return component.value in enabled_names
+
+
+# System prompt components list
+SYSTEM_PROMPT_COMPONENTS = [
+    PromptComponent.INTRO,
+    PromptComponent.TODOWRITE_INSTRUCTIONS,
+    PromptComponent.AI_SAFETY,
+    PromptComponent.TOOLSET_INSTRUCTIONS,
+    PromptComponent.PERMISSION_ERRORS,
+    PromptComponent.GENERAL_INSTRUCTIONS,
+    PromptComponent.STYLE_GUIDE,
+]
+
+
+def is_any_system_prompt_component_enabled() -> bool:
+    """Check if any system prompt component is enabled."""
+    return any(is_prompt_enabled(c) for c in SYSTEM_PROMPT_COMPONENTS)
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
@@ -89,38 +143,52 @@ def build_initial_ask_messages(
         runbooks: Optional runbook catalog
         system_prompt_additions: Optional additional system prompt content
     """
-    # Load and render system prompt internally
-    system_prompt_template = "builtin://generic_ask.jinja2"
-    template_context = {
-        "toolsets": tool_executor.toolsets,
-        "runbooks_enabled": True if runbooks else False,
-        "system_prompt_additions": system_prompt_additions or "",
-    }
-    system_prompt_rendered = load_and_render_prompt(
-        system_prompt_template, template_context
-    )
-
     # [PROMPT #1] Append files to user prompt
-    user_prompt_with_files = append_all_files_to_user_prompt(
-        console, initial_user_prompt, file_paths
-    )
+    if is_prompt_enabled(PromptComponent.FILES):
+        user_prompt_with_files = append_all_files_to_user_prompt(
+            console, initial_user_prompt, file_paths
+        )
+    else:
+        user_prompt_with_files = initial_user_prompt
 
     # [PROMPT #2] TodoWrite reminder (added to user prompt)
-    # user_prompt_with_files += get_tasks_management_system_reminder()
+    if is_prompt_enabled(PromptComponent.TODOWRITE_REMINDER):
+        user_prompt_with_files += get_tasks_management_system_reminder()
 
     # [PROMPT #3] Runbook context + time period text (added to user prompt)
-    # runbooks_ctx = generate_runbooks_args(
-    #     runbook_catalog=runbooks,  # type: ignore
-    # )
-    # user_prompt_with_files = generate_user_prompt(
-    #     user_prompt_with_files,
-    #     runbooks_ctx,
-    # )
+    if is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
+        runbooks_ctx = generate_runbooks_args(
+            runbook_catalog=runbooks,  # type: ignore
+        )
+        user_prompt_with_files = generate_user_prompt(
+            user_prompt_with_files,
+            runbooks_ctx,
+        )
 
-    messages = [
-        # [PROMPT #4] System prompt from generic_ask.jinja2 template
-        # {"role": "system", "content": system_prompt_rendered},
-        {"role": "user", "content": user_prompt_with_files},
-    ]
+    messages = []
+
+    # [PROMPT #4] System prompt from generic_ask.jinja2 template
+    # System prompt is sent if ANY of its components are enabled
+    if is_any_system_prompt_component_enabled():
+        system_prompt_template = "builtin://generic_ask.jinja2"
+        template_context = {
+            "toolsets": tool_executor.toolsets,
+            "runbooks_enabled": True if runbooks else False,
+            "system_prompt_additions": system_prompt_additions or "",
+            # Pass individual component flags to templates
+            "intro_enabled": is_prompt_enabled(PromptComponent.INTRO),
+            "todowrite_enabled": is_prompt_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
+            "ai_safety_enabled": is_prompt_enabled(PromptComponent.AI_SAFETY),
+            "toolset_instructions_enabled": is_prompt_enabled(PromptComponent.TOOLSET_INSTRUCTIONS),
+            "permission_errors_enabled": is_prompt_enabled(PromptComponent.PERMISSION_ERRORS),
+            "general_instructions_enabled": is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS),
+            "style_guide_enabled": is_prompt_enabled(PromptComponent.STYLE_GUIDE),
+        }
+        system_prompt_rendered = load_and_render_prompt(
+            system_prompt_template, template_context
+        )
+        messages.append({"role": "system", "content": system_prompt_rendered})
+
+    messages.append({"role": "user", "content": user_prompt_with_files})
 
     return messages

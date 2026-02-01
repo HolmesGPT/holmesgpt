@@ -8,7 +8,12 @@ from holmes.core.models import (
     ToolCallConversationResult,
     WorkloadHealthChatRequest,
 )
-from holmes.core.prompt import generate_user_prompt
+from holmes.core.prompt import (
+    PromptComponent,
+    generate_user_prompt,
+    is_any_system_prompt_component_enabled,
+    is_prompt_enabled,
+)
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
@@ -336,6 +341,12 @@ def add_or_update_system_prompt(
     config: Config,
     additional_system_prompt: Optional[str] = None,
     runbooks: Optional[RunbookCatalog] = None,
+    todowrite_enabled: bool = True,
+    ai_safety_enabled: bool = True,
+    toolset_instructions_enabled: bool = True,
+    permission_errors_enabled: bool = True,
+    general_instructions_enabled: bool = True,
+    style_guide_enabled: bool = True,
 ):
     """Either add the system prompt or replace an existing system prompt.
     As a 'defensive' measure, this code will only replace an existing system prompt if it is the
@@ -348,6 +359,12 @@ def add_or_update_system_prompt(
         "toolsets": ai.tool_executor.toolsets,
         "cluster_name": config.cluster_name,
         "runbooks_enabled": True if runbooks else False,
+        "todowrite_enabled": todowrite_enabled,
+        "ai_safety_enabled": ai_safety_enabled,
+        "toolset_instructions_enabled": toolset_instructions_enabled,
+        "permission_errors_enabled": permission_errors_enabled,
+        "general_instructions_enabled": general_instructions_enabled,
+        "style_guide_enabled": style_guide_enabled,
     }
 
     system_prompt = load_and_render_prompt(template_path, context)
@@ -437,23 +454,32 @@ def build_chat_messages(
         conversation_history = conversation_history.copy()
 
     # [PROMPT #5] System prompt from generic_ask_conversation.jinja2 template (server mode)
-    # conversation_history = add_or_update_system_prompt(
-    #     conversation_history=conversation_history,
-    #     ai=ai,
-    #     config=config,
-    #     additional_system_prompt=additional_system_prompt,
-    #     runbooks=runbooks,
-    # )
+    # System prompt is sent if ANY of its components are enabled
+    if is_any_system_prompt_component_enabled():
+        conversation_history = add_or_update_system_prompt(
+            conversation_history=conversation_history,
+            ai=ai,
+            config=config,
+            additional_system_prompt=additional_system_prompt,
+            runbooks=runbooks,
+            todowrite_enabled=is_prompt_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
+            ai_safety_enabled=is_prompt_enabled(PromptComponent.AI_SAFETY),
+            toolset_instructions_enabled=is_prompt_enabled(PromptComponent.TOOLSET_INSTRUCTIONS),
+            permission_errors_enabled=is_prompt_enabled(PromptComponent.PERMISSION_ERRORS),
+            general_instructions_enabled=is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS),
+            style_guide_enabled=is_prompt_enabled(PromptComponent.STYLE_GUIDE),
+        )
 
     # [PROMPT #6] Runbook context + time period text (server mode, added to user prompt)
-    # runbooks_ctx = generate_runbooks_args(
-    #     runbook_catalog=runbooks,
-    #     global_instructions=global_instructions,
-    # )
-    # ask = generate_user_prompt(
-    #     ask,
-    #     runbooks_ctx,
-    # )
+    if is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
+        runbooks_ctx = generate_runbooks_args(
+            runbook_catalog=runbooks,
+            global_instructions=global_instructions,
+        )
+        ask = generate_user_prompt(
+            ask,
+            runbooks_ctx,
+        )
 
     # Build user message with optional images
     if images:
