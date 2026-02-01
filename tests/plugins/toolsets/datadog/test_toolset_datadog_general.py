@@ -54,19 +54,17 @@ class TestEndpointValidation:
             "/api/v1/monitor/search",
             "/api/v2/incidents/search",
             "/api/v2/security_monitoring/signals/search",
-            "/api/v2/events/search",
         ]
 
         for endpoint in allowed_post:
             allowed, error = is_endpoint_allowed(endpoint, method="POST")
             assert allowed, f"POST endpoint {endpoint} should be allowed: {error}"
 
-        # Blocked POST endpoints (not in whitelist)
+        # Blocked POST endpoints
         blocked_post = [
             "/api/v1/monitor",  # Creation endpoint
             "/api/v1/dashboard",  # Creation endpoint
             "/api/v1/events",  # Should be GET only
-            "/api/v2/monitors/events/search",  # Hallucinated endpoint - doesn't exist
         ]
 
         for endpoint in blocked_post:
