@@ -30,7 +30,6 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     preprocess_time_fields,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import (
-    MAX_RESPONSE_SIZE,
     DatadogGeneralConfig,
 )
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
@@ -43,8 +42,8 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 WHITELISTED_ENDPOINTS = [
     # Monitors
     (r"^/api/v\d+/monitor(/search)?$", ""),
-    (r"^/api/v\d+/monitor/\d+(/downtimes)?$", ""),
-    (r"^/api/v\d+/monitor/groups/search$", ""),
+    (r"^/api/v\d+/monitor/\d+$", "Get a specific monitor by ID"),
+    (r"^/api/v\d+/monitor/groups/search$", "Search monitor groups"),
     # Dashboards
     (r"^/api/v\d+/dashboard(/lists)?$", ""),
     (r"^/api/v\d+/dashboard/[^/]+$", ""),
@@ -95,6 +94,12 @@ WHITELISTED_ENDPOINTS = [
     (r"^/api/v\d+/usage/estimated_cost$", ""),
     # Processes
     (r"^/api/v\d+/processes$", ""),
+    # Containers
+    (r"^/api/v2/containers$", "List running containers"),
+    (r"^/api/v2/container_images$", "List container images"),
+    # Downtimes
+    (r"^/api/v\d+/downtime$", "List scheduled downtimes"),
+    (r"^/api/v\d+/downtime/\d+$", "Get specific downtime"),
     # Tags
     (r"^/api/v\d+/tags/hosts(/[^/]+)?$", ""),
     # Notebooks
@@ -767,8 +772,14 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
             if search_pattern and not search_pattern.search(example_endpoint):
                 continue
 
-            # Determine HTTP methods
-            if "search" in pattern or "query" in pattern or "aggregate" in pattern:
+            # Determine HTTP methods for display purposes only (cosmetic, doesn't affect validation)
+            # Check for POST search endpoints (path ends with /search, /query, or /aggregate)
+            # Note: /monitor/groups/search is GET but displays as POST here - no functional impact
+            if (
+                "/search$" in pattern
+                or "/query$" in pattern
+                or "/aggregate$" in pattern
+            ):
                 methods = "POST"
             elif "/search)?$" in pattern:
                 methods = "GET/POST"
