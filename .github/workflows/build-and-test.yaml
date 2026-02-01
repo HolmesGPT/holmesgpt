@@ -75,7 +75,6 @@ jobs:
       - name: Show test summary
         if: always()
         run: |
-          # Show which tests ran (for verification)
           python3 -c "
           import json
           with open('test-results.json') as f:
@@ -84,8 +83,6 @@ jobs:
           failed = [t['nodeid'] for t in data.get('tests', []) if t['outcome'] == 'failed']
           skipped = [t['nodeid'] for t in data.get('tests', []) if t['outcome'] == 'skipped']
           print(f'Tests: {len(passed)} passed, {len(failed)} failed, {len(skipped)} skipped')
-          if 'test_http_docs' in str(passed):
-              print('✓ HTTP docs tests ran')
           if failed:
               print('Failed tests:')
               for t in failed[:10]:
