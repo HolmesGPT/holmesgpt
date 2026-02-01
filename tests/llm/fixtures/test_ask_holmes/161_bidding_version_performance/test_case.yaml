@@ -53,6 +53,9 @@ before_test: |
   kubectl apply -f k6-v2-traffic.yaml -n app-161
   kubectl wait --for=condition=complete job/k6-v2-traffic -n app-161 --timeout=150s
 
+  echo "⏳ Waiting for HPA to scale up..."
+  ./wait-for-scaling.sh
+
   echo "🧹 Cleaning up k6 jobs to prevent AI detection"
   kubectl delete jobs -n app-161 -l app=k6 --ignore-not-found=true
 
