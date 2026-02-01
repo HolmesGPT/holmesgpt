@@ -7,7 +7,7 @@ from rich.console import Console
 
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
-from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.utils.global_instructions import Instructions, generate_runbooks_args
 
 
 class PromptComponent(str, Enum):
@@ -17,6 +17,7 @@ class PromptComponent(str, Enum):
     TIME_RUNBOOKS = "time_runbooks"
     # System prompt components
     INTRO = "intro"
+    ASK_USER = "ask_user"
     TODOWRITE_INSTRUCTIONS = "todowrite_instructions"
     AI_SAFETY = "ai_safety"
     TOOLSET_INSTRUCTIONS = "toolset_instructions"
@@ -43,23 +44,6 @@ def is_prompt_enabled(component: PromptComponent) -> bool:
 
     enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
     return component.value in enabled_names
-
-
-# System prompt components list
-SYSTEM_PROMPT_COMPONENTS = [
-    PromptComponent.INTRO,
-    PromptComponent.TODOWRITE_INSTRUCTIONS,
-    PromptComponent.AI_SAFETY,
-    PromptComponent.TOOLSET_INSTRUCTIONS,
-    PromptComponent.PERMISSION_ERRORS,
-    PromptComponent.GENERAL_INSTRUCTIONS,
-    PromptComponent.STYLE_GUIDE,
-]
-
-
-def is_any_system_prompt_component_enabled() -> bool:
-    """Check if any system prompt component is enabled."""
-    return any(is_prompt_enabled(c) for c in SYSTEM_PROMPT_COMPONENTS)
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
@@ -93,9 +77,6 @@ def get_tasks_management_system_reminder() -> str:
 
 
 def _has_content(value: Optional[str]) -> bool:
-    """
-    Check if the value is a non-empty string and not None.
-    """
     return bool(value and isinstance(value, str) and value.strip())
 
 
@@ -125,6 +106,56 @@ def generate_user_prompt(
     )
 
 
+def enrich_user_prompt_with_runbooks(
+    user_prompt: str,
+    runbooks: Union[RunbookCatalog, Dict, None] = None,
+    global_instructions: Optional[Instructions] = None,
+) -> str:
+    """Add runbook context and time period text to user prompt."""
+    if not is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
+        return user_prompt
+
+    runbooks_ctx = generate_runbooks_args(
+        runbook_catalog=runbooks,  # type: ignore
+        global_instructions=global_instructions,
+    )
+    return generate_user_prompt(user_prompt, runbooks_ctx)
+
+
+def build_system_prompt(
+    toolsets: List[Any],
+    system_prompt_additions: Optional[str] = None,
+    cluster_name: Optional[str] = None,
+    ask_user_enabled: bool = True,
+) -> Optional[str]:
+    """
+    Build the system prompt for both CLI and server modes.
+    Returns None if the rendered prompt is empty.
+    """
+    intro_enabled = is_prompt_enabled(PromptComponent.INTRO)
+    toolset_instructions_enabled = is_prompt_enabled(PromptComponent.TOOLSET_INSTRUCTIONS)
+    general_instructions_enabled = is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS)
+
+    template_context = {
+        # Component flags
+        "intro_enabled": intro_enabled,
+        "ask_user_enabled": ask_user_enabled and is_prompt_enabled(PromptComponent.ASK_USER),
+        "todowrite_enabled": is_prompt_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
+        "ai_safety_enabled": is_prompt_enabled(PromptComponent.AI_SAFETY),
+        "toolset_instructions_enabled": toolset_instructions_enabled,
+        "permission_errors_enabled": is_prompt_enabled(PromptComponent.PERMISSION_ERRORS),
+        "general_instructions_enabled": general_instructions_enabled,
+        "style_guide_enabled": is_prompt_enabled(PromptComponent.STYLE_GUIDE),
+        # Data for specific components
+        "toolsets": toolsets if toolset_instructions_enabled else [],
+        "cluster_name": cluster_name if general_instructions_enabled else None,
+        "system_prompt_additions": system_prompt_additions or "",
+    }
+
+    result = load_and_render_prompt("builtin://generic_ask.jinja2", template_context)
+    return result if result and result.strip() else None
+
+
 def build_initial_ask_messages(
     console: Console,
     initial_user_prompt: str,
@@ -133,17 +164,7 @@ def build_initial_ask_messages(
     runbooks: Union[RunbookCatalog, Dict, None] = None,
     system_prompt_additions: Optional[str] = None,
 ) -> List[Dict]:
-    """Build the initial messages for the AI call.
-
-    Args:
-        console: Rich console for output
-        initial_user_prompt: The user's prompt
-        file_paths: Optional list of files to include
-        tool_executor: The tool executor with available toolsets
-        runbooks: Optional runbook catalog
-        system_prompt_additions: Optional additional system prompt content
-    """
-    # [PROMPT #1] Append files to user prompt
+    """Build the initial messages for the CLI ask command."""
     if is_prompt_enabled(PromptComponent.FILES):
         user_prompt_with_files = append_all_files_to_user_prompt(
             console, initial_user_prompt, file_paths
@@ -151,43 +172,19 @@ def build_initial_ask_messages(
     else:
         user_prompt_with_files = initial_user_prompt
 
-    # [PROMPT #2] TodoWrite reminder (added to user prompt)
     if is_prompt_enabled(PromptComponent.TODOWRITE_REMINDER):
         user_prompt_with_files += get_tasks_management_system_reminder()
 
-    # [PROMPT #3] Runbook context + time period text (added to user prompt)
-    if is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
-        runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=runbooks,  # type: ignore
-        )
-        user_prompt_with_files = generate_user_prompt(
-            user_prompt_with_files,
-            runbooks_ctx,
-        )
+    user_prompt_with_files = enrich_user_prompt_with_runbooks(user_prompt_with_files, runbooks)
 
     messages = []
 
-    # [PROMPT #4] System prompt from generic_ask.jinja2 template
-    # System prompt is sent if ANY of its components are enabled
-    if is_any_system_prompt_component_enabled():
-        system_prompt_template = "builtin://generic_ask.jinja2"
-        template_context = {
-            "toolsets": tool_executor.toolsets,
-            "runbooks_enabled": True if runbooks else False,
-            "system_prompt_additions": system_prompt_additions or "",
-            # Pass individual component flags to templates
-            "intro_enabled": is_prompt_enabled(PromptComponent.INTRO),
-            "todowrite_enabled": is_prompt_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
-            "ai_safety_enabled": is_prompt_enabled(PromptComponent.AI_SAFETY),
-            "toolset_instructions_enabled": is_prompt_enabled(PromptComponent.TOOLSET_INSTRUCTIONS),
-            "permission_errors_enabled": is_prompt_enabled(PromptComponent.PERMISSION_ERRORS),
-            "general_instructions_enabled": is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS),
-            "style_guide_enabled": is_prompt_enabled(PromptComponent.STYLE_GUIDE),
-        }
-        system_prompt_rendered = load_and_render_prompt(
-            system_prompt_template, template_context
-        )
-        messages.append({"role": "system", "content": system_prompt_rendered})
+    system_prompt = build_system_prompt(
+        toolsets=tool_executor.toolsets,
+        system_prompt_additions=system_prompt_additions,
+    )
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
 
     messages.append({"role": "user", "content": user_prompt_with_files})
 
