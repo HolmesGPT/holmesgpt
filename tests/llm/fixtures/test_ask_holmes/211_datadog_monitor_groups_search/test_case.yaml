@@ -7,16 +7,17 @@ description: |
 before_test: |
   # Create a test monitor that will be in OK state (threshold is impossibly high)
   # This ensures Holmes has something to find when searching
+  # Note: Uses realistic business naming to avoid giving hints to the LLM
   curl -s -X POST "https://api.datadoghq.com/api/v1/monitor" \
     -H "Content-Type: application/json" \
     -H "DD-API-KEY: ${DATADOG_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
     -d '{
-      "name": "HolmesGPT Eval Test Monitor",
+      "name": "Checkout API CPU Usage",
       "type": "metric alert",
       "query": "avg(last_5m):avg:system.cpu.user{*} by {host} > 99.9",
-      "message": "CPU threshold exceeded",
-      "tags": ["env:holmesgpt-eval", "service:eval211"],
+      "message": "CPU threshold exceeded on checkout service",
+      "tags": ["env:production", "service:checkout-api", "team:payments"],
       "options": {
         "thresholds": {"critical": 99.9, "warning": 95},
         "notify_no_data": false

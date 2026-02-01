@@ -30,7 +30,6 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     preprocess_time_fields,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import (
-    MAX_RESPONSE_SIZE,
     DatadogGeneralConfig,
 )
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
@@ -45,7 +44,10 @@ WHITELISTED_ENDPOINTS = [
     (r"^/api/v\d+/monitor(/search)?$", ""),
     (r"^/api/v\d+/monitor/\d+(/downtimes)?$", ""),
     (r"^/api/v\d+/monitor/\d+/alerts$", "Get monitor alert history"),
-    (r"^/api/v\d+/monitor/\d+/groups_search$", "Search monitor groups for a specific monitor"),
+    (
+        r"^/api/v\d+/monitor/\d+/groups_search$",
+        "Search monitor groups for a specific monitor",
+    ),
     (r"^/api/v\d+/monitor/groups_search$", "Search monitor groups globally"),
     (r"^/api/v\d+/monitor/groups/search$", ""),
     # Monitors v2 API (note: plural "monitors")
@@ -106,8 +108,6 @@ WHITELISTED_ENDPOINTS = [
     # Downtimes
     (r"^/api/v\d+/downtime$", "List scheduled downtimes"),
     (r"^/api/v\d+/downtime/\d+$", "Get specific downtime"),
-    # Service Checks
-    (r"^/api/v1/check_run$", "Query service check results"),
     # Tags
     (r"^/api/v\d+/tags/hosts(/[^/]+)?$", ""),
     # Notebooks
@@ -192,7 +192,6 @@ BLACKLISTED_SEGMENTS = [
 # POST endpoints that are allowed (search/query operations only)
 WHITELISTED_POST_ENDPOINTS = [
     r"^/api/v\d+/monitor/search$",
-    r"^/api/v2/monitors/events/search$",
     r"^/api/v\d+/dashboard/lists$",
     r"^/api/v\d+/slo/search$",
     r"^/api/v\d+/events/search$",
@@ -782,7 +781,13 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
                 continue
 
             # Determine HTTP methods
-            if "search" in pattern or "query" in pattern or "aggregate" in pattern:
+            # Check for POST search endpoints (path ends with /search, /query, or /aggregate)
+            # but not groups_search which is a GET endpoint
+            if (
+                "/search$" in pattern
+                or "/query$" in pattern
+                or "/aggregate$" in pattern
+            ):
                 methods = "POST"
             elif "/search)?$" in pattern:
                 methods = "GET/POST"
