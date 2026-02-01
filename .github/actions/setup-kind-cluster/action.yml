@@ -290,8 +290,8 @@ runs:
         set -euo pipefail
         echo "Installing metrics-server for HPA support..."
 
-        # Install metrics-server
-        kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+        # Install metrics-server - pinned version for reproducibility
+        kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
 
         # Patch for KIND (needs insecure TLS since kubelet certs aren't valid)
         kubectl patch deployment metrics-server -n kube-system \
