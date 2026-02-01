@@ -1,0 +1,177 @@
+# Test: Elasticsearch Trace Query with Large Fields
+#
+# This test validates that the LLM can query traces with large payload fields
+# by using the source parameter to exclude unnecessary large fields.
+#
+# Setup:
+# - Multiple traces in app-195-apm-traces index
+# - One error trace (TRACE-ERR-X9K2M) with legitimately large fields:
+#   - http.request.body: 10KB+ JSON payload
+#   - http.response.body: 10KB+ error HTML
+#   - error.stack_trace: 10KB+ stack trace
+# - The essential info (service name, error message) is in small fields
+#
+# Without source filtering: Response would be 30KB+ and overflow context
+# With source filtering: Response is compact and contains just what's needed
+#
+# Anti-hallucination: The specific error code (AUTH-4729) and service name
+# (payment-gateway) can only be found by querying. The trace ID is provided
+# but everything else must be discovered.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "I'm investigating an error in trace TRACE-ERR-X9K2M. Check Elasticsearch and tell me which service failed and what the error was."
+
+expected_output:
+  - "Must find trace TRACE-ERR-X9K2M"
+  - "Must identify the payment-gateway service had the error"
+  - "Must report error code AUTH-4729 (authentication timeout)"
+  - "Should use source parameter with excludes to filter out large fields like http.request.body, http.response.body, or error.stack_trace"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - traces
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating APM traces index with large payload fields..."
+
+  # Clean up any existing test data
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-195-apm-traces" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create index with APM trace mapping
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-195-apm-traces" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"parent_span_id":{"type":"keyword"},"service":{"type":"keyword"},"operation":{"type":"keyword"},"duration_ms":{"type":"integer"},"http.method":{"type":"keyword"},"http.status_code":{"type":"integer"},"http.request.body":{"type":"text"},"http.response.body":{"type":"text"},"error.type":{"type":"keyword"},"error.message":{"type":"text"},"error.stack_trace":{"type":"text"}}}}')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "⚠️ Warning creating index: $CREATE_RESPONSE"
+  fi
+
+  echo "✅ Index created, generating trace data..."
+
+  BULK_FILE="/tmp/es_trace_195_$$.ndjson"
+  > "$BULK_FILE"
+
+  # Generate 10 normal successful traces (small data)
+  for i in $(seq 1 10); do
+    PADDED_MIN=$(printf "%02d" $i)
+    TRACE_ID="TRACE-OK-$((10000 + RANDOM % 90000))"
+
+    # API Gateway span
+    echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 245, \"http.method\": \"POST\", \"http.status_code\": 200}" >> "$BULK_FILE"
+
+    # Payment service span
+    echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00.050Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-pay-${i}\", \"parent_span_id\": \"span-gw-${i}\", \"service\": \"payment-service\", \"operation\": \"process_payment\", \"duration_ms\": 180, \"http.status_code\": 200}" >> "$BULK_FILE"
+  done
+
+  # Generate THE ERROR TRACE with HUGE fields
+  ERROR_TRACE="TRACE-ERR-X9K2M"
+
+  # Generate 10KB request body (realistic API request payload)
+  REQUEST_BODY="{"
+  REQUEST_BODY="${REQUEST_BODY}\\\"payment_method\\\":{\\\"type\\\":\\\"credit_card\\\",\\\"card_number\\\":\\\"4532XXXXXXXX1234\\\",\\\"cvv\\\":\\\"***\\\"},"
+  REQUEST_BODY="${REQUEST_BODY}\\\"customer\\\":{\\\"id\\\":\\\"cust_9847239847\\\",\\\"email\\\":\\\"customer@example.com\\\"},"
+  REQUEST_BODY="${REQUEST_BODY}\\\"items\\\":["
+  # Add 200 items to bulk up the payload to 10KB+
+  for item_i in $(seq 1 200); do
+    if [ $item_i -gt 1 ]; then REQUEST_BODY="${REQUEST_BODY},"; fi
+    REQUEST_BODY="${REQUEST_BODY}{\\\"sku\\\":\\\"PROD-${item_i}\\\",\\\"name\\\":\\\"Product ${item_i} with extended description and details\\\",\\\"price\\\":29.99,\\\"quantity\\\":1,\\\"metadata\\\":{\\\"warehouse\\\":\\\"US-EAST-1\\\",\\\"vendor\\\":\\\"VENDOR-${item_i}\\\",\\\"tags\\\":[\\\"popular\\\",\\\"sale\\\",\\\"featured\\\"]}}"
+  done
+  REQUEST_BODY="${REQUEST_BODY}]}"
+
+  # Generate 10KB HTML error response (realistic error page)
+  RESPONSE_BODY="<!DOCTYPE html><html><head><title>Payment Gateway Error</title></head><body><h1>Service Unavailable</h1><p>The payment authentication service is currently unavailable.</p>"
+  # Pad with diagnostic information to reach 10KB
+  for diag_i in $(seq 1 150); do
+    RESPONSE_BODY="${RESPONSE_BODY}<div class='debug-info'>Request ID: req_${diag_i}_9847239847 | Timestamp: 2024-01-15T10:15:${diag_i}Z | Server: pay-gw-node-${diag_i} | Correlation: corr_${diag_i}_detailed_trace_information</div>"
+  done
+  RESPONSE_BODY="${RESPONSE_BODY}</body></html>"
+
+  # Generate 10KB stack trace (realistic error stack)
+  STACK_TRACE="Traceback (most recent call last):"
+  for frame_i in $(seq 1 200); do
+    STACK_TRACE="${STACK_TRACE}\\n  File \\\"/app/payment_gateway/handlers/payment_handler.py\\\", line $((100 + frame_i)), in process_payment"
+    STACK_TRACE="${STACK_TRACE}\\n    result = await self.auth_client.authenticate(payment_method, customer_id, amount)"
+    STACK_TRACE="${STACK_TRACE}\\n  File \\\"/app/payment_gateway/clients/auth_client.py\\\", line $((200 + frame_i)), in authenticate"
+    STACK_TRACE="${STACK_TRACE}\\n    response = await self.http_client.post(auth_url, json=payload, timeout=5.0)"
+  done
+  STACK_TRACE="${STACK_TRACE}\\nConnectionTimeout: Authentication service did not respond within 5.0 seconds"
+
+  # API Gateway - received request (NO large fields here)
+  echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+  echo "{\"@timestamp\": \"2024-01-15T10:15:00Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-gw-err\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 5234, \"http.method\": \"POST\", \"http.status_code\": 503}" >> "$BULK_FILE"
+
+  # Payment Gateway - THE ERROR with HUGE fields
+  echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+  echo "{\"@timestamp\": \"2024-01-15T10:15:00.050Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-pay-err\", \"parent_span_id\": \"span-gw-err\", \"service\": \"payment-gateway\", \"operation\": \"authenticate_payment\", \"duration_ms\": 5180, \"http.status_code\": 503, \"http.request.body\": \"${REQUEST_BODY}\", \"http.response.body\": \"${RESPONSE_BODY}\", \"error.type\": \"ConnectionTimeout\", \"error.message\": \"Authentication service timeout - error code AUTH-4729\", \"error.stack_trace\": \"${STACK_TRACE}\"}" >> "$BULK_FILE"
+
+  DOC_COUNT=$(grep -c '\"index\"' "$BULK_FILE")
+  FILE_SIZE=$(wc -c < "$BULK_FILE")
+  echo "Generated $DOC_COUNT trace spans, bulk file size: ${FILE_SIZE} bytes"
+
+  # Bulk insert
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$RESPONSE" | grep -q '"errors":false'; then
+    echo "✅ Trace data inserted successfully"
+  else
+    echo "❌ Bulk insert failed: $RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+
+  rm -f "$BULK_FILE"
+
+  # Refresh index
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-195-apm-traces/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 2
+
+  # Verify the error trace exists and has large fields
+  echo "Verifying error trace with large fields..."
+  VERIFY=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-195-apm-traces/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "query": {"term": {"trace_id": "TRACE-ERR-X9K2M"}},
+      "_source": ["service", "error.message", "error.type"],
+      "size": 10
+    }')
+
+  SPAN_COUNT=$(echo "$VERIFY" | python3 -c "import sys,json; print(json.load(sys.stdin)['hits']['total']['value'])")
+  echo "✅ Found $SPAN_COUNT spans for error trace TRACE-ERR-X9K2M"
+
+  if [ "$SPAN_COUNT" -lt 1 ]; then
+    echo "❌ Error trace not found!"
+    exit 1
+  fi
+
+  echo "✅ Setup complete!"
+
+after_test: |
+  echo "Cleaning up test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-195-apm-traces" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_trace_195_*.ndjson
+
+  echo "✅ Cleanup complete"
