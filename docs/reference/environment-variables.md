@@ -6,6 +6,7 @@ This page documents all environment variables that can be used to configure Holm
 
 ### OpenAI
 - `OPENAI_API_KEY` - API key for OpenAI models
+- `OPENAI_API_BASE` - Custom base URL for OpenAI-compatible APIs (e.g., LiteLLM proxy, local inference servers). See [OpenAI-Compatible](../ai-providers/openai-compatible.md) for details.
 
 ### Anthropic
 - `ANTHROPIC_API_KEY` - API key for Anthropic Claude models

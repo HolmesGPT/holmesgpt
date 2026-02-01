@@ -1,7 +1,7 @@
 # HolmesGPT API Reference
 
 ## Overview
-The HolmesGPT API provides endpoints for automated investigations, workload health checks, and conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
+The HolmesGPT API provides endpoints for automated investigations and conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
 
 ## Model Parameter Behavior
 
@@ -386,103 +386,6 @@ curl -X POST http://<HOLMES-URL>/api/issue_chat \
   ],
   "tool_calls": [...],
   "follow_up_actions": [...]
-}
-```
-
----
-
-### `/api/workload_health_check` (POST)
-**Description:** Performs a health check on a specified workload (e.g., a Kubernetes deployment).
-
-#### Request Fields
-
-| Field                   | Required | Default                                    | Type      | Description                                      |
-|-------------------------|----------|--------------------------------------------|-----------|--------------------------------------------------|
-| ask                     | Yes      |                                            | string    | User's question                                  |
-| resource                | Yes      |                                            | object    | Resource details (e.g., name, kind)              |
-| alert_history_since_hours| No       | 24                                         | float     | How many hours back to check alerts              |
-| alert_history           | No       | true                                       | boolean   | Whether to include alert history                 |
-| stored_instructions     | No       | true                                       | boolean   | Use stored instructions                          |
-| instructions            | No       | []                                         | list      | Additional instructions                          |
-| include_tool_calls      | No       | false                                      | boolean   | Include tool calls in response                   |
-| include_tool_call_results| No       | false                                      | boolean   | Include tool call results in response            |
-| prompt_template         | No       | "builtin://kubernetes_workload_ask.jinja2" | string    | Prompt template to use                           |
-| model                   | No       |                                            | string    | Model name from your `modelList` configuration  |
-
-**Example**
-```bash
-curl -X POST http://<HOLMES-URL>/api/workload_health_check \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ask": "Why is my deployment unhealthy?",
-    "resource": {"name": "my-deployment", "kind": "Deployment"},
-    "alert_history_since_hours": 12
-  }'
-```
-
-**Example** Response
-```json
-{
-  "analysis": "Deployment 'my-deployment' is unhealthy due to repeated CrashLoopBackOff events.",
-  "sections": null,
-  "tool_calls": [
-    {
-      "tool_call_id": "2",
-      "tool_name": "kubectl_get_events",
-      "description": "Fetch recent events",
-      "result": {"events": "..."}
-    }
-  ],
-  "instructions": [...]
-}
-```
-
----
-
-### `/api/workload_health_chat` (POST)
-**Description:** Conversational interface for discussing the health of a workload.
-
-#### Request Fields
-
-| Field                   | Required | Default | Type      | Description                                      |
-|-------------------------|----------|---------|-----------|--------------------------------------------------|
-| ask                     | Yes      |         | string    | User's question                                  |
-| workload_health_result  | Yes      |         | object    | Previous health check result (see below)         |
-| resource                | Yes      |         | object    | Resource details                                 |
-| conversation_history    | No       |         | list      | Conversation history (first message must be system)|
-| model                   | No       |         | string    | Model name from your `modelList` configuration  |
-
-**workload_health_result** object:
-- `analysis` (string, optional): Previous analysis
-- `tools` (list, optional): Tools used/results
-
-**Example**
-```bash
-curl -X POST http://<HOLMES-URL>/api/workload_health_chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ask": "Check the workload health.",
-    "workload_health_result": {
-      "analysis": "Previous health check: all good.",
-      "tools": []
-    },
-    "resource": {"name": "my-deployment", "kind": "Deployment"},
-    "conversation_history": [
-      {"role": "system", "content": "You are a helpful assistant."}
-    ]
-  }'
-```
-
-**Example** Response
-```json
-{
-  "analysis": "The deployment 'my-deployment' is healthy. No recent issues detected.",
-  "conversation_history": [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "Check the workload health."},
-    {"role": "assistant", "content": "The deployment 'my-deployment' is healthy. No recent issues detected."}
-  ],
-  "tool_calls": [...]
 }
 ```
 
