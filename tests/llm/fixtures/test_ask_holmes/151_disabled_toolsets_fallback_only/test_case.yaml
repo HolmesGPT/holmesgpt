@@ -4,7 +4,6 @@ expected_output: "Result must include a tool call to Prometheus"
 tags:
   - transparency
   - prometheus
-  - regression
 include_tool_calls: true
 port_forwards:
   - namespace: default

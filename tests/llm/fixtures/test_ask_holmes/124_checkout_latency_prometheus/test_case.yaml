@@ -10,7 +10,6 @@ tags:
   - hard
   - chain-of-causation
   - prometheus
-  - regression
 
 port_forwards:
   - namespace: app-124

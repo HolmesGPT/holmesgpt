@@ -244,6 +244,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        PROM_START_TIME=$(date +%s)
+        echo "::group::Installing kube-prometheus-stack"
         echo "Installing kube-prometheus-stack for Prometheus evals..."
 
         # Add helm repo
@@ -282,12 +284,17 @@ runs:
         echo ""
         echo "=== Prometheus stack installed ==="
         kubectl get pods -l "release=robusta" -n default
-        echo "✅ kube-prometheus-stack ready for evals"
+        PROM_END_TIME=$(date +%s)
+        PROM_ELAPSED=$((PROM_END_TIME - PROM_START_TIME))
+        echo "::endgroup::"
+        echo "⏱️ kube-prometheus-stack installation took ${PROM_ELAPSED} seconds"
 
     - name: Install metrics-server
       shell: bash
       run: |
         set -euo pipefail
+        METRICS_START_TIME=$(date +%s)
+        echo "::group::Installing metrics-server"
         echo "Installing metrics-server for HPA support..."
 
         # Install metrics-server - pinned version for reproducibility
@@ -302,4 +309,7 @@ runs:
         echo "Waiting for metrics-server to be available..."
         kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=120s
 
-        echo "✅ metrics-server installed and ready"
+        METRICS_END_TIME=$(date +%s)
+        METRICS_ELAPSED=$((METRICS_END_TIME - METRICS_START_TIME))
+        echo "::endgroup::"
+        echo "⏱️ metrics-server installation took ${METRICS_ELAPSED} seconds"
