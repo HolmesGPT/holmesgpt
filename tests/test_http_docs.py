@@ -249,6 +249,12 @@ def test_documented_curl(
 
     result = execute_curl_test(client, doc_test)
 
+    # Log response for debugging (visible in CI artifacts/extended logs)
+    print(f"\n=== Test: {test_id} ===")
+    print(f"Endpoint: {doc_test.curl.method} {doc_test.curl.url}")
+    print(f"Status: {result['status_code']} (expected: {doc_test.curl.expected_status})")
+    print(f"Response: {result.get('json', result.get('response', 'N/A'))}")
+
     # Validate status code
     if result["status_code"] != doc_test.curl.expected_status:
         pytest.fail(
