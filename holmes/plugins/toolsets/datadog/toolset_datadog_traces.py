@@ -7,7 +7,6 @@ import os
 import re
 from typing import Any, Dict, Optional, Tuple
 
-from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,

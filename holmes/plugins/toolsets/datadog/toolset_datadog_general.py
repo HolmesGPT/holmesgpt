@@ -30,7 +30,6 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     preprocess_time_fields,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import (
-    MAX_RESPONSE_SIZE,
     DatadogGeneralConfig,
 )
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (

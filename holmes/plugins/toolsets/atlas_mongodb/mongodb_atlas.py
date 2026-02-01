@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
 import requests  # type: ignore
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import Field, PrivateAttr
 from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import (
@@ -23,16 +23,20 @@ from holmes.core.tools import (
     Type,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
-class MongoDBConfig(BaseModel):
+class MongoDBConfig(ToolsetConfig):
     public_key: str = Field(
+        title="Public Key",
         description="MongoDB Atlas public key for API authentication",
     )
     private_key: str = Field(
+        title="Private Key",
         description="MongoDB Atlas private key for API authentication",
     )
     project_id: str = Field(
+        title="Project ID",
         description="MongoDB Atlas project ID",
     )
 

@@ -13,7 +13,7 @@ from prometrix.models.prometheus_config import (
     AzurePrometheusConfig as PrometrixAzureConfig,
 )
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
 from requests.exceptions import SSLError  # type: ignore
 

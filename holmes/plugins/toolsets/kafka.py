@@ -21,7 +21,7 @@ from confluent_kafka.admin import (
     TopicMetadata,
 )
 from confluent_kafka.admin import _TopicPartition as TopicPartition
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -37,15 +37,17 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.utils import get_param_or_raise, toolset_name_for_one_liner
-from holmes.utils.pydantic_utils import build_config_example
+from holmes.utils.pydantic_utils import ToolsetConfig, build_config_example
 
 
-class KafkaClusterConfig(BaseModel):
+class KafkaClusterConfig(ToolsetConfig):
     name: str = Field(
+        title="Name",
         description="Name identifier for this Kafka cluster",
         examples=["us-west-kafka", "eu-central-kafka"],
     )
     kafka_broker: str = Field(
+        title="Broker Address",
         description="Kafka broker address",
         examples=[
             "broker1.example.com:9092,broker2.example.com:9092",
@@ -55,32 +57,38 @@ class KafkaClusterConfig(BaseModel):
     )
     kafka_security_protocol: Optional[str] = Field(
         default=None,
+        title="Security Protocol",
         description="Security protocol (e.g., PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)",
         examples=["SASL_SSL", "SSL", "PLAINTEXT"],
     )
     kafka_sasl_mechanism: Optional[str] = Field(
         default=None,
+        title="SASL Mechanism",
         description="SASL mechanism (e.g., PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)",
         examples=["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"],
     )
     kafka_username: Optional[str] = Field(
         default=None,
+        title="Username",
         description="Username for SASL authentication",
         examples=["{{ env.KAFKA_USERNAME }}"],
     )
     kafka_password: Optional[str] = Field(
         default=None,
+        title="Password",
         description="Password for SASL authentication",
         examples=["{{ env.KAFKA_PASSWORD }}"],
     )
     kafka_client_id: Optional[str] = Field(
         default="holmes-kafka-client",
+        title="Client ID",
         description="Client ID for Kafka connections",
     )
 
 
-class KafkaConfig(BaseModel):
+class KafkaConfig(ToolsetConfig):
     kafka_clusters: List[KafkaClusterConfig] = Field(
+        title="Clusters",
         description="List of Kafka clusters to connect to",
         examples=[[build_config_example(KafkaClusterConfig)]]
     )
