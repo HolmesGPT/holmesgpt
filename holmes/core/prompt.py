@@ -1,7 +1,7 @@
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rich.console import Console
 
@@ -24,6 +24,50 @@ class PromptComponent(str, Enum):
     PERMISSION_ERRORS = "permission_errors"
     GENERAL_INSTRUCTIONS = "general_instructions"
     STYLE_GUIDE = "style_guide"
+
+
+class InvalidImageDictError(ValueError):
+    """Raised when an image dict is missing required keys or is malformed."""
+
+    def __init__(self, provided_keys: List[str]):
+        self.provided_keys = provided_keys
+        super().__init__(
+            f"Image dict must contain a 'url' key. Got keys: {provided_keys}"
+        )
+
+
+def build_vision_content(
+    text: str, images: List[Union[str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Build content array for vision models with text and images.
+
+    Args:
+        text: The text content
+        images: List of images, each can be:
+            - str: URL or base64 data URI
+            - dict: Object with 'url' (required), 'detail', and 'format' fields
+
+    Returns:
+        List of content items in OpenAI vision format
+
+    Raises:
+        InvalidImageDictError: If an image dict is missing the 'url' key
+    """
+    content: List[Dict[str, Any]] = [{"type": "text", "text": text}]
+    for image_item in images:
+        if isinstance(image_item, str):
+            content.append({"type": "image_url", "image_url": {"url": image_item}})
+        else:
+            if "url" not in image_item:
+                raise InvalidImageDictError(list(image_item.keys()))
+            image_url_obj: Dict[str, Any] = {"url": image_item["url"]}
+            if "detail" in image_item:
+                image_url_obj["detail"] = image_item["detail"]
+            if "format" in image_item:
+                image_url_obj["format"] = image_item["format"]
+            content.append({"type": "image_url", "image_url": image_url_obj})
+    return content
 
 
 def is_prompt_enabled(component: PromptComponent) -> bool:
@@ -54,13 +98,16 @@ def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
 
 
 def append_all_files_to_user_prompt(
-    console: Console, user_prompt: str, file_paths: Optional[List[Path]]
+    user_prompt: str,
+    file_paths: Optional[List[Path]],
+    console: Optional[Console] = None,
 ) -> str:
     if not file_paths:
         return user_prompt
 
     for file_path in file_paths:
-        console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+        if console:
+            console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
         user_prompt = append_file_to_user_prompt(user_prompt, file_path)
 
     return user_prompt
@@ -156,6 +203,56 @@ def build_system_prompt(
     return result if result and result.strip() else None
 
 
+UserPromptContent = Union[str, List[Dict[str, Any]]]
+
+
+def build_prompts(
+    toolsets: List[Any],
+    user_prompt: str,
+    runbooks: Union[RunbookCatalog, Dict, None] = None,
+    global_instructions: Optional[Instructions] = None,
+    system_prompt_additions: Optional[str] = None,
+    cluster_name: Optional[str] = None,
+    ask_user_enabled: bool = True,
+    file_paths: Optional[List[Path]] = None,
+    console: Optional[Console] = None,
+    include_todowrite_reminder: bool = True,
+    images: Optional[List[Union[str, Dict[str, Any]]]] = None,
+) -> Tuple[Optional[str], UserPromptContent]:
+    """Build both system and user prompts.
+
+    Returns:
+        Tuple of (system_prompt, user_content) where user_content is either
+        a string or a list of content dicts (for vision models with images).
+    """
+    # Handle file attachments (CLI mode passes files, server mode passes None)
+    if file_paths and is_prompt_enabled(PromptComponent.FILES):
+        user_prompt = append_all_files_to_user_prompt(user_prompt, file_paths, console)
+
+    # Handle todowrite reminder (CLI mode passes True, server mode passes False)
+    if include_todowrite_reminder and is_prompt_enabled(PromptComponent.TODOWRITE_REMINDER):
+        user_prompt += get_tasks_management_system_reminder()
+
+    system_prompt = build_system_prompt(
+        toolsets=toolsets,
+        system_prompt_additions=system_prompt_additions,
+        cluster_name=cluster_name,
+        ask_user_enabled=ask_user_enabled,
+    )
+    enriched_user_prompt = enrich_user_prompt_with_runbooks(
+        user_prompt, runbooks, global_instructions
+    )
+
+    # Handle images (server mode may pass images, CLI mode passes None)
+    user_content: UserPromptContent
+    if images:
+        user_content = build_vision_content(enriched_user_prompt, images)
+    else:
+        user_content = enriched_user_prompt
+
+    return system_prompt, user_content
+
+
 def build_initial_ask_messages(
     console: Console,
     initial_user_prompt: str,
@@ -165,27 +262,18 @@ def build_initial_ask_messages(
     system_prompt_additions: Optional[str] = None,
 ) -> List[Dict]:
     """Build the initial messages for the CLI ask command."""
-    if is_prompt_enabled(PromptComponent.FILES):
-        user_prompt_with_files = append_all_files_to_user_prompt(
-            console, initial_user_prompt, file_paths
-        )
-    else:
-        user_prompt_with_files = initial_user_prompt
-
-    if is_prompt_enabled(PromptComponent.TODOWRITE_REMINDER):
-        user_prompt_with_files += get_tasks_management_system_reminder()
-
-    user_prompt_with_files = enrich_user_prompt_with_runbooks(user_prompt_with_files, runbooks)
+    system_prompt, user_prompt = build_prompts(
+        toolsets=tool_executor.toolsets,
+        user_prompt=initial_user_prompt,
+        runbooks=runbooks,
+        system_prompt_additions=system_prompt_additions,
+        file_paths=file_paths,
+        console=console,
+        include_todowrite_reminder=True,
+    )
 
     messages = []
-
-    system_prompt = build_system_prompt(
-        toolsets=tool_executor.toolsets,
-        system_prompt_additions=system_prompt_additions,
-    )
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
-
-    messages.append({"role": "user", "content": user_prompt_with_files})
-
+    messages.append({"role": "user", "content": user_prompt})
     return messages

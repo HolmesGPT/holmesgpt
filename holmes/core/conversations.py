@@ -9,8 +9,7 @@ from holmes.core.models import (
     WorkloadHealthChatRequest,
 )
 from holmes.core.prompt import (
-    build_system_prompt,
-    enrich_user_prompt_with_runbooks,
+    build_prompts,
     generate_user_prompt,
 )
 from holmes.core.tool_calling_llm import ToolCallingLLM
@@ -22,56 +21,6 @@ from holmes.utils.global_instructions import (
 )
 
 DEFAULT_TOOL_SIZE = 10000
-
-
-class InvalidImageDictError(ValueError):
-    """Raised when an image dict is missing required keys or is malformed."""
-
-    def __init__(self, provided_keys: List[str]):
-        self.provided_keys = provided_keys
-        super().__init__(
-            f"Image dict must contain a 'url' key. Got keys: {provided_keys}"
-        )
-
-
-def build_vision_content(
-    text: str, images: List[Union[str, Dict[str, Any]]]
-) -> List[Dict[str, Any]]:
-    """
-    Build content array for vision models with text and images.
-
-    Args:
-        text: The text content
-        images: List of images, each can be:
-            - str: URL or base64 data URI
-            - dict: Object with 'url' (required), 'detail', and 'format' fields
-
-    Returns:
-        List of content items in OpenAI vision format
-
-    Raises:
-        InvalidImageDictError: If an image dict is missing the 'url' key
-    """
-    content = [{"type": "text", "text": text}]
-    for image_item in images:
-        # Support both simple string and dict format
-        if isinstance(image_item, str):
-            # Simple URL or data URI string
-            content.append({"type": "image_url", "image_url": {"url": image_item}})
-        else:
-            # Dict with url, detail, format fields (full LiteLLM format)
-            # Validate that the dict contains a "url" key
-            if "url" not in image_item:
-                raise InvalidImageDictError(list(image_item.keys()))
-            image_url_obj = {"url": image_item["url"]}
-            # Add optional detail parameter (OpenAI-specific: low/high/auto)
-            if "detail" in image_item:
-                image_url_obj["detail"] = image_item["detail"]
-            # Add optional format parameter (MIME type)
-            if "format" in image_item:
-                image_url_obj["format"] = image_item["format"]
-            content.append({"type": "image_url", "image_url": image_url_obj})
-    return content
 
 
 @sentry_sdk.trace
@@ -195,18 +144,9 @@ def build_issue_chat_messages(
             ai, messages_without_tools, number_of_tools_for_investigation
         )
 
-        truncated_investigation_result_tool_calls = [
-            ToolCallConversationResult(
-                name=tool.name,
-                description=tool.description,
-                output=tool.output[:tool_size],
-            )
-            for tool in tools_for_investigation  # type: ignore
-        ]
-
         truncated_template_context = {
             "investigation": investigation_analysis,
-            "tools_called_for_investigation": truncated_investigation_result_tool_calls,
+            "tools_called_for_investigation": truncate_tool_outputs(tools_for_investigation, tool_size),  # type: ignore
             "issue": issue_chat_request.issue_type,
             "toolsets": ai.tool_executor.toolsets,
             "cluster_name": config.cluster_name,
@@ -268,16 +208,9 @@ def build_issue_chat_messages(
         ai, conversation_history_without_tools, number_of_tools
     )
 
-    truncated_investigation_result_tool_calls = [
-        ToolCallConversationResult(
-            name=tool.name, description=tool.description, output=tool.output[:tool_size]
-        )
-        for tool in tools_for_investigation  # type: ignore
-    ]
-
     template_context = {
         "investigation": investigation_analysis,
-        "tools_called_for_investigation": truncated_investigation_result_tool_calls,
+        "tools_called_for_investigation": truncate_tool_outputs(tools_for_investigation, tool_size),  # type: ignore
         "issue": issue_chat_request.issue_type,
         "toolsets": ai.tool_executor.toolsets,
         "cluster_name": config.cluster_name,
@@ -295,23 +228,13 @@ def build_issue_chat_messages(
 
 def add_or_update_system_prompt(
     conversation_history: List[Dict[str, str]],
-    ai: ToolCallingLLM,
-    config: Config,
-    additional_system_prompt: Optional[str] = None,
-    runbooks: Optional[RunbookCatalog] = None,
+    system_prompt: Optional[str],
 ):
     """Add or replace the system prompt in conversation history.
 
     Only replaces an existing system prompt if it's the first message.
     Otherwise inserts at position 0 if no system message exists.
     """
-    system_prompt = build_system_prompt(
-        toolsets=ai.tool_executor.toolsets,
-        system_prompt_additions=additional_system_prompt,
-        cluster_name=config.cluster_name,
-        ask_user_enabled=False,  # Server mode doesn't include "ask user for more info" paragraph
-    )
-
     if system_prompt is None:
         return conversation_history
 
@@ -351,28 +274,25 @@ def build_chat_messages(
     For existing conversations, updates the system prompt and truncates tool outputs as needed.
     """
 
+    system_prompt, user_prompt = build_prompts(
+        toolsets=ai.tool_executor.toolsets,
+        user_prompt=ask,
+        runbooks=runbooks,
+        global_instructions=global_instructions,
+        system_prompt_additions=additional_system_prompt,
+        cluster_name=config.cluster_name,
+        ask_user_enabled=False,  # Server mode doesn't include "ask user for more info" paragraph
+        include_todowrite_reminder=False,  # Server mode doesn't include todowrite reminder
+        images=images,  # Server mode may pass images for vision models
+    )
+
     if not conversation_history:
         conversation_history = []
     else:
         conversation_history = conversation_history.copy()
+    conversation_history = add_or_update_system_prompt(conversation_history, system_prompt)
 
-    conversation_history = add_or_update_system_prompt(
-        conversation_history=conversation_history,
-        ai=ai,
-        config=config,
-        additional_system_prompt=additional_system_prompt,
-        runbooks=runbooks,
-    )
-
-    ask = enrich_user_prompt_with_runbooks(ask, runbooks, global_instructions)
-
-    if images:
-        content = build_vision_content(ask, images)
-        user_message = {"role": "user", "content": content}
-    else:
-        user_message = {"role": "user", "content": ask}
-
-    conversation_history.append(user_message)  # type: ignore
+    conversation_history.append({"role": "user", "content": user_prompt})  # type: ignore
 
     number_of_tools = len(
         [message for message in conversation_history if message.get("role") == "tool"]  # type: ignore
@@ -474,18 +394,9 @@ def build_workload_health_chat_messages(
             ai, messages_without_tools, number_of_tools_for_workload
         )
 
-        truncated_workload_result_tool_calls = [
-            ToolCallConversationResult(
-                name=tool.name,
-                description=tool.description,
-                output=tool.output[:tool_size],
-            )
-            for tool in tools_for_workload  # type: ignore
-        ]
-
         truncated_template_context = {
             "workload_analysis": workload_analysis,
-            "tools_called_for_workload": truncated_workload_result_tool_calls,
+            "tools_called_for_workload": truncate_tool_outputs(tools_for_workload, tool_size),  # type: ignore
             "resource": resource,
             "toolsets": ai.tool_executor.toolsets,
             "cluster_name": config.cluster_name,
@@ -547,16 +458,9 @@ def build_workload_health_chat_messages(
         ai, conversation_history_without_tools, number_of_tools
     )
 
-    truncated_workload_result_tool_calls = [
-        ToolCallConversationResult(
-            name=tool.name, description=tool.description, output=tool.output[:tool_size]
-        )
-        for tool in tools_for_workload  # type: ignore
-    ]
-
     template_context = {
         "workload_analysis": workload_analysis,
-        "tools_called_for_workload": truncated_workload_result_tool_calls,
+        "tools_called_for_workload": truncate_tool_outputs(tools_for_workload, tool_size),  # type: ignore
         "resource": resource,
         "toolsets": ai.tool_executor.toolsets,
         "cluster_name": config.cluster_name,
