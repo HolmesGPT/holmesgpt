@@ -230,20 +230,6 @@ class IssueChatRequest(ChatRequestBaseModel):
     investigation_result: IssueInvestigationResult
     issue_type: str
 
-
-class WorkloadHealthRequest(BaseModel):
-    ask: str
-    resource: dict
-    alert_history_since_hours: float = 24
-    alert_history: bool = True
-    stored_instrucitons: bool = True
-    instructions: Optional[List[str]] = []
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
-    prompt_template: str = "builtin://kubernetes_workload_ask.jinja2"
-    model: Optional[str] = None
-
-
 class ChatRequest(ChatRequestBaseModel):
     ask: str
     images: Optional[List[Union[str, Dict[str, Any]]]] = Field(
@@ -277,45 +263,3 @@ class ChatResponse(BaseModel):
     follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None
-
-
-class WorkloadHealthInvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    tools: Optional[List[ToolCallConversationResult]] = []
-
-    @model_validator(mode="before")
-    def check_analysis_and_result(cls, values):
-        if "result" in values and "analysis" not in values:
-            values["analysis"] = values["result"]
-            del values["result"]
-        return values
-
-
-class WorkloadHealthChatRequest(ChatRequestBaseModel):
-    ask: str
-    workload_health_result: WorkloadHealthInvestigationResult
-    resource: dict
-
-
-workload_health_structured_output = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "WorkloadHealthResult",
-        "strict": False,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "workload_healthy": {
-                    "type": "boolean",
-                    "description": "is the workload in healthy state or in error state",
-                },
-                "root_cause_summary": {
-                    "type": "string",
-                    "description": "concise short explaination leading to the workload_healthy result, pinpoint reason and root cause for the workload issues if any.",
-                },
-            },
-            "required": ["root_cause_summary", "workload_healthy"],
-            "additionalProperties": False,
-        },
-    },
-}
