@@ -24,6 +24,7 @@ class PromptComponent(str, Enum):
     PERMISSION_ERRORS = "permission_errors"
     GENERAL_INSTRUCTIONS = "general_instructions"
     STYLE_GUIDE = "style_guide"
+    CLUSTER_NAME = "cluster_name"
 
 
 class InvalidImageDictError(ValueError):
@@ -153,49 +154,29 @@ def generate_user_prompt(
     )
 
 
-def enrich_user_prompt_with_runbooks(
-    user_prompt: str,
-    runbooks: Union[RunbookCatalog, Dict, None] = None,
-    global_instructions: Optional[Instructions] = None,
-) -> str:
-    """Add runbook context and time period text to user prompt."""
-    if not is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
-        return user_prompt
-
-    runbooks_ctx = generate_runbooks_args(
-        runbook_catalog=runbooks,  # type: ignore
-        global_instructions=global_instructions,
-    )
-    return generate_user_prompt(user_prompt, runbooks_ctx)
-
-
 def build_system_prompt(
     toolsets: List[Any],
-    system_prompt_additions: Optional[str] = None,
-    cluster_name: Optional[str] = None,
-    ask_user_enabled: bool = True,
+    system_prompt_additions: Optional[str],
+    cluster_name: Optional[str],
+    ask_user_enabled: bool,
 ) -> Optional[str]:
     """
     Build the system prompt for both CLI and server modes.
     Returns None if the rendered prompt is empty.
     """
-    intro_enabled = is_prompt_enabled(PromptComponent.INTRO)
     toolset_instructions_enabled = is_prompt_enabled(PromptComponent.TOOLSET_INSTRUCTIONS)
-    general_instructions_enabled = is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS)
 
     template_context = {
-        # Component flags
-        "intro_enabled": intro_enabled,
+        "intro_enabled": is_prompt_enabled(PromptComponent.INTRO),
         "ask_user_enabled": ask_user_enabled and is_prompt_enabled(PromptComponent.ASK_USER),
         "todowrite_enabled": is_prompt_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
         "ai_safety_enabled": is_prompt_enabled(PromptComponent.AI_SAFETY),
         "toolset_instructions_enabled": toolset_instructions_enabled,
         "permission_errors_enabled": is_prompt_enabled(PromptComponent.PERMISSION_ERRORS),
-        "general_instructions_enabled": general_instructions_enabled,
+        "general_instructions_enabled": is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS),
         "style_guide_enabled": is_prompt_enabled(PromptComponent.STYLE_GUIDE),
-        # Data for specific components
+        "cluster_name": cluster_name if is_prompt_enabled(PromptComponent.CLUSTER_NAME) else None,
         "toolsets": toolsets if toolset_instructions_enabled else [],
-        "cluster_name": cluster_name if general_instructions_enabled else None,
         "system_prompt_additions": system_prompt_additions or "",
     }
 
@@ -206,24 +187,19 @@ def build_system_prompt(
 UserPromptContent = Union[str, List[Dict[str, Any]]]
 
 
-def build_prompts(
-    toolsets: List[Any],
+def build_user_prompt(
     user_prompt: str,
-    runbooks: Union[RunbookCatalog, Dict, None] = None,
-    global_instructions: Optional[Instructions] = None,
-    system_prompt_additions: Optional[str] = None,
-    cluster_name: Optional[str] = None,
-    ask_user_enabled: bool = True,
-    file_paths: Optional[List[Path]] = None,
-    console: Optional[Console] = None,
-    include_todowrite_reminder: bool = True,
-    images: Optional[List[Union[str, Dict[str, Any]]]] = None,
-) -> Tuple[Optional[str], UserPromptContent]:
-    """Build both system and user prompts.
+    runbooks: Union[RunbookCatalog, Dict, None],
+    global_instructions: Optional[Instructions],
+    file_paths: Optional[List[Path]],
+    console: Optional[Console],
+    include_todowrite_reminder: bool,
+    images: Optional[List[Union[str, Dict[str, Any]]]],
+) -> UserPromptContent:
+    """Build the user prompt with all enrichments.
 
     Returns:
-        Tuple of (system_prompt, user_content) where user_content is either
-        a string or a list of content dicts (for vision models with images).
+        Either a string or a list of content dicts (for vision models with images).
     """
     # Handle file attachments (CLI mode passes files, server mode passes None)
     if file_paths and is_prompt_enabled(PromptComponent.FILES):
@@ -233,23 +209,49 @@ def build_prompts(
     if include_todowrite_reminder and is_prompt_enabled(PromptComponent.TODOWRITE_REMINDER):
         user_prompt += get_tasks_management_system_reminder()
 
+    # Enrich with runbooks (if TIME_RUNBOOKS component is enabled)
+    if is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
+        runbooks_ctx = generate_runbooks_args(
+            runbook_catalog=runbooks,  # type: ignore
+            global_instructions=global_instructions,
+        )
+        user_prompt = generate_user_prompt(user_prompt, runbooks_ctx)
+
+    # Handle images (server mode may pass images, CLI mode passes None)
+    if images:
+        return build_vision_content(user_prompt, images)
+    return user_prompt
+
+
+def build_prompts(
+    toolsets: List[Any],
+    user_prompt: str,
+    runbooks: Union[RunbookCatalog, Dict, None],
+    global_instructions: Optional[Instructions],
+    system_prompt_additions: Optional[str],
+    cluster_name: Optional[str],
+    ask_user_enabled: bool,
+    file_paths: Optional[List[Path]],
+    console: Optional[Console],
+    include_todowrite_reminder: bool,
+    images: Optional[List[Union[str, Dict[str, Any]]]],
+) -> Tuple[Optional[str], UserPromptContent]:
+    """Build both system and user prompts."""
     system_prompt = build_system_prompt(
         toolsets=toolsets,
         system_prompt_additions=system_prompt_additions,
         cluster_name=cluster_name,
         ask_user_enabled=ask_user_enabled,
     )
-    enriched_user_prompt = enrich_user_prompt_with_runbooks(
-        user_prompt, runbooks, global_instructions
+    user_content = build_user_prompt(
+        user_prompt=user_prompt,
+        runbooks=runbooks,
+        global_instructions=global_instructions,
+        file_paths=file_paths,
+        console=console,
+        include_todowrite_reminder=include_todowrite_reminder,
+        images=images,
     )
-
-    # Handle images (server mode may pass images, CLI mode passes None)
-    user_content: UserPromptContent
-    if images:
-        user_content = build_vision_content(enriched_user_prompt, images)
-    else:
-        user_content = enriched_user_prompt
-
     return system_prompt, user_content
 
 
@@ -260,16 +262,22 @@ def build_initial_ask_messages(
     tool_executor: Any,  # ToolExecutor type
     runbooks: Union[RunbookCatalog, Dict, None] = None,
     system_prompt_additions: Optional[str] = None,
+    global_instructions: Optional[Instructions] = None,
+    cluster_name: Optional[str] = None,
 ) -> List[Dict]:
     """Build the initial messages for the CLI ask command."""
     system_prompt, user_prompt = build_prompts(
         toolsets=tool_executor.toolsets,
         user_prompt=initial_user_prompt,
         runbooks=runbooks,
+        global_instructions=global_instructions,
         system_prompt_additions=system_prompt_additions,
+        cluster_name=cluster_name,
+        ask_user_enabled=True,
         file_paths=file_paths,
         console=console,
         include_todowrite_reminder=True,
+        images=None,
     )
 
     messages = []

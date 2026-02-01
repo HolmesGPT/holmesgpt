@@ -274,16 +274,18 @@ def build_chat_messages(
     For existing conversations, updates the system prompt and truncates tool outputs as needed.
     """
 
-    system_prompt, user_prompt = build_prompts(
+    system_prompt, user_content = build_prompts(
         toolsets=ai.tool_executor.toolsets,
         user_prompt=ask,
         runbooks=runbooks,
         global_instructions=global_instructions,
         system_prompt_additions=additional_system_prompt,
         cluster_name=config.cluster_name,
-        ask_user_enabled=False,  # Server mode doesn't include "ask user for more info" paragraph
-        include_todowrite_reminder=False,  # Server mode doesn't include todowrite reminder
-        images=images,  # Server mode may pass images for vision models
+        ask_user_enabled=False,
+        file_paths=None,
+        console=None,
+        include_todowrite_reminder=False,
+        images=images,
     )
 
     if not conversation_history:
@@ -292,7 +294,7 @@ def build_chat_messages(
         conversation_history = conversation_history.copy()
     conversation_history = add_or_update_system_prompt(conversation_history, system_prompt)
 
-    conversation_history.append({"role": "user", "content": user_prompt})  # type: ignore
+    conversation_history.append({"role": "user", "content": user_content})  # type: ignore
 
     number_of_tools = len(
         [message for message in conversation_history if message.get("role") == "tool"]  # type: ignore

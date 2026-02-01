@@ -563,7 +563,7 @@ def test_append_all_files_to_user_prompt(console, tmp_path):
     file2.write_text("Content 2")
 
     prompt = "Original prompt"
-    result = append_all_files_to_user_prompt(console, prompt, [file1, file2])
+    result = append_all_files_to_user_prompt(prompt, [file1, file2], console)
 
     assert "Original prompt" in result
     assert "Content 1" in result
@@ -578,10 +578,10 @@ def test_append_all_files_to_user_prompt(console, tmp_path):
 def test_append_all_files_to_user_prompt_no_files(console):
     """Test appending files when no files are provided."""
     prompt = "Original prompt"
-    result = append_all_files_to_user_prompt(console, prompt, None)
+    result = append_all_files_to_user_prompt(prompt, None, console)
 
     assert result == "Original prompt"
 
     # Also test with empty list
-    result = append_all_files_to_user_prompt(console, prompt, [])
+    result = append_all_files_to_user_prompt(prompt, [], console)
     assert result == "Original prompt"
