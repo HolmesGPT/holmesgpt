@@ -152,6 +152,7 @@ def generate_user_prompt(
 
 def build_system_prompt(
     toolsets: List[Any],
+    runbooks: Union[RunbookCatalog, Dict, None],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
     ask_user_enabled: bool,
@@ -171,6 +172,7 @@ def build_system_prompt(
         "permission_errors_enabled": is_prompt_enabled(PromptComponent.PERMISSION_ERRORS),
         "general_instructions_enabled": is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS),
         "style_guide_enabled": is_prompt_enabled(PromptComponent.STYLE_GUIDE),
+        "runbooks_enabled": bool(runbooks) and is_prompt_enabled(PromptComponent.TIME_RUNBOOKS),
         "cluster_name": cluster_name if is_prompt_enabled(PromptComponent.CLUSTER_NAME) else None,
         "toolsets": toolsets if toolset_instructions_enabled else [],
         "system_prompt_additions": system_prompt_additions if is_prompt_enabled(PromptComponent.SYSTEM_PROMPT_ADDITIONS) else "",
@@ -233,6 +235,7 @@ def build_prompts(
     """Build both system and user prompts."""
     system_prompt = build_system_prompt(
         toolsets=toolsets,
+        runbooks=runbooks,
         system_prompt_additions=system_prompt_additions,
         cluster_name=cluster_name,
         ask_user_enabled=ask_user_enabled,
