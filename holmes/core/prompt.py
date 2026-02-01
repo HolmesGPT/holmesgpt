@@ -23,6 +23,7 @@ class PromptComponent(str, Enum):
     GENERAL_INSTRUCTIONS = "general_instructions"
     STYLE_GUIDE = "style_guide"
     CLUSTER_NAME = "cluster_name"
+    SYSTEM_PROMPT_ADDITIONS = "system_prompt_additions"
 
 
 class InvalidImageDictError(ValueError):
@@ -172,7 +173,7 @@ def build_system_prompt(
         "style_guide_enabled": is_prompt_enabled(PromptComponent.STYLE_GUIDE),
         "cluster_name": cluster_name if is_prompt_enabled(PromptComponent.CLUSTER_NAME) else None,
         "toolsets": toolsets if toolset_instructions_enabled else [],
-        "system_prompt_additions": system_prompt_additions or "",
+        "system_prompt_additions": system_prompt_additions if is_prompt_enabled(PromptComponent.SYSTEM_PROMPT_ADDITIONS) else "",
     }
 
     result = load_and_render_prompt("builtin://generic_ask.jinja2", template_context)
