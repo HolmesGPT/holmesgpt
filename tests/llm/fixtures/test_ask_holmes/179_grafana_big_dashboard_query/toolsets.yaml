@@ -1,6 +1,6 @@
 toolsets:
-#  kubernetes/core:
-#    enabled: true
+  kubernetes/core:
+    enabled: true
   grafana/dashboards:
     enabled: true
     config:

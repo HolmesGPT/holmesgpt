@@ -352,18 +352,17 @@ def get_historical_metrics(
                 )
             )
 
-        # logging.info(
-        #     f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})"
-        # )
-        # metrics = build_historical_metrics(experiments)
-        #
-        # if not metrics:
-        if True:
+        logging.info(
+            f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})"
+        )
+        metrics = build_historical_metrics(experiments)
+
+        if not metrics:
             details.status = f"No historical metrics found (no passing tests with duration data, {filter_desc})"
             return {}, details
 
-        # details.metrics_count = len(metrics)
-        # return metrics, details
+        details.metrics_count = len(metrics)
+        return metrics, details
     except Exception as e:
         # Get the full traceback to identify exact location
         tb = traceback.format_exc()
