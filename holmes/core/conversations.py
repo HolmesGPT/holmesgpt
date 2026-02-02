@@ -226,7 +226,7 @@ def build_issue_chat_messages(
 
 
 def add_or_update_system_prompt(
-    conversation_history: List[Dict[str, str]],
+    conversation_history: List[Dict[str, Any]],
     system_prompt: Optional[str],
 ):
     """Add or replace the system prompt in conversation history.
