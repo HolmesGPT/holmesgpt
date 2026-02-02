@@ -11,15 +11,12 @@ from holmes.config import Config
 from holmes.core.conversations import (
     build_chat_messages,
     build_issue_chat_messages,
-    build_workload_health_chat_messages,
 )
 from holmes.core.investigation import get_investigation_context
 from holmes.core.models import (
     InvestigateRequest,
     IssueChatRequest,
     IssueInvestigationResult,
-    WorkloadHealthChatRequest,
-    WorkloadHealthInvestigationResult,
 )
 from holmes.core.prompt import (
     append_all_files_to_user_prompt,
@@ -83,7 +80,6 @@ def mock_dal():
     dal.get_global_instructions_for_account = Mock(return_value=None)
     dal.get_resource_instructions = Mock(return_value=None)
     dal.get_issue_data = Mock(return_value=None)
-    dal.get_workload_issues = Mock(return_value=[])
     return dal
 
 
@@ -161,22 +157,6 @@ def create_issue_chat_request(user_ask: str, issue_type: str = "prometheus"):
             tools=[],
         ),
         issue_type=issue_type,
-    )
-
-
-def create_workload_health_chat_request(user_ask: str, resource: Optional[dict] = None):
-    """Create a WorkloadHealthChatRequest for testing."""
-    if resource is None:
-        resource = {"kind": "Deployment", "name": "my-app"}
-
-    return WorkloadHealthChatRequest(
-        ask=user_ask,
-        conversation_history=None,
-        workload_health_result=WorkloadHealthInvestigationResult(
-            analysis="Workload is healthy",
-            tools=[],
-        ),
-        resource=resource,
     )
 
 
@@ -407,55 +387,6 @@ class TestServerFlows:
             user_content,
             user_ask,
             expected_global_instructions=extract_instructions(global_instructions),
-        )
-
-    def test_workload_health_chat_user_prompt(self, mock_ai, mock_config):
-        """Test user prompt in /api/workload_health_chat flow."""
-        user_ask = "Why is my pod unhealthy?"
-        workload_health_chat_request = create_workload_health_chat_request(user_ask)
-
-        messages = build_workload_health_chat_messages(
-            workload_health_chat_request=workload_health_chat_request,
-            ai=mock_ai,
-            config=mock_config,
-            global_instructions=None,
-            runbooks=None,
-        )
-
-        user_content = get_user_message_from_messages(messages)
-        validate_user_prompt(user_content, user_ask)
-
-    @pytest.mark.parametrize(
-        "user_ask,global_instructions,issue_instructions",
-        [
-            ("Check health", None, None),
-            (
-                "Check health with instructions",
-                DummyInstructions(["Verify replicas"]),
-                ["Check pod status"],
-            ),
-        ],
-    )
-    def test_workload_health_check_user_prompt(
-        self,
-        user_ask,
-        global_instructions,
-        issue_instructions,
-    ):
-        """Test user prompt in /api/workload_health_check flow."""
-        runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=None,
-            global_instructions=global_instructions,
-            issue_instructions=issue_instructions,
-        )
-
-        final_prompt = generate_user_prompt(user_ask, runbooks_ctx)
-
-        validate_user_prompt(
-            final_prompt,
-            user_ask,
-            expected_global_instructions=extract_instructions(global_instructions),
-            expected_issue_instructions=issue_instructions,
         )
 
 
