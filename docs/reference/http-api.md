@@ -145,7 +145,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 **Example (validation error - missing required field):**
 
 ```bash
-<!-- test: status=200, id=chat_missing_ask_field_EXPECT_FAIL -->
+<!-- test: status=422, id=chat_missing_ask_field -->
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{"conversation_history": []}'
