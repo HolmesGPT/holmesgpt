@@ -15,16 +15,16 @@ include_tool_calls: true
 port_forwards:
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus
-    local_port: 10195
+    local_port: 10211
     remote_port: 9090
 
 before_test: |
   set -e
-  echo "📁 Creating namespace app-195..."
-  kubectl create namespace app-195 --dry-run=client -o yaml | kubectl apply -f -
+  echo "📁 Creating namespace app-211..."
+  kubectl create namespace app-211 --dry-run=client -o yaml | kubectl apply -f -
 
   echo "⚙️ Applying PrometheusRule CRD..."
-  kubectl apply -f prometheus-rule.yaml -n app-195
+  kubectl apply -f prometheus-rule.yaml -n app-211
 
   echo "🔍 Verifying rule is loaded by Prometheus..."
   RULES_LOADED=false
@@ -42,7 +42,7 @@ before_test: |
   if [ "$RULES_LOADED" = false ]; then
     echo "❌ Rule failed to load after 120 seconds"
     echo "PrometheusRule status:"
-    kubectl get prometheusrule -n app-195 -o yaml || true
+    kubectl get prometheusrule -n app-211 -o yaml || true
     echo "Prometheus rules API output:"
     kubectl exec -n default deployment/robusta-kube-prometheus-st-prometheus -- wget -q -O- http://localhost:9090/api/v1/rules 2>/dev/null | head -100 || true
     exit 1
@@ -51,4 +51,4 @@ before_test: |
   echo "✅ Test setup completed successfully"
 
 after_test: |
-  kubectl delete namespace app-195 || true
+  kubectl delete namespace app-211 || true
