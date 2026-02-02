@@ -152,7 +152,7 @@ def generate_user_prompt(
 
 def build_system_prompt(
     toolsets: List[Any],
-    runbooks: Union[RunbookCatalog, Dict, None],
+    runbooks: Optional[RunbookCatalog],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
     ask_user_enabled: bool,
@@ -187,7 +187,7 @@ UserPromptContent = Union[str, List[Dict[str, Any]]]
 
 def build_user_prompt(
     user_prompt: str,
-    runbooks: Union[RunbookCatalog, Dict, None],
+    runbooks: Optional[RunbookCatalog],
     global_instructions: Optional[Instructions],
     file_paths: Optional[List[Path]],
     include_todowrite_reminder: bool,
@@ -209,7 +209,7 @@ def build_user_prompt(
     # Enrich with runbooks (if TIME_RUNBOOKS component is enabled)
     if is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
         runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=runbooks,  # type: ignore
+            runbook_catalog=runbooks,
             global_instructions=global_instructions,
         )
         user_prompt = generate_user_prompt(user_prompt, runbooks_ctx)
@@ -223,7 +223,7 @@ def build_user_prompt(
 def build_prompts(
     toolsets: List[Any],
     user_prompt: str,
-    runbooks: Union[RunbookCatalog, Dict, None],
+    runbooks: Optional[RunbookCatalog],
     global_instructions: Optional[Instructions],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
@@ -255,7 +255,7 @@ def build_initial_ask_messages(
     initial_user_prompt: str,
     file_paths: Optional[List[Path]],
     tool_executor: Any,  # ToolExecutor type
-    runbooks: Union[RunbookCatalog, Dict, None] = None,
+    runbooks: Optional[RunbookCatalog] = None,
     system_prompt_additions: Optional[str] = None,
     global_instructions: Optional[Instructions] = None,
     cluster_name: Optional[str] = None,
