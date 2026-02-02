@@ -1,9 +1,9 @@
 toolsets:
   # Core generic Kubernetes toolsets
-#  kubernetes/core:
-#    enabled: true
-#  kubernetes/logs:
-#    enabled: true
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
   
   # Helm toolset
   helm/core:
