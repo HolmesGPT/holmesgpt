@@ -20,11 +20,20 @@ port_forwards:
 
 before_test: |
   set -e
-  echo "📁 Creating namespace app-211..."
-  kubectl create namespace app-211 --dry-run=client -o yaml | kubectl apply -f -
 
-  echo "⚙️ Applying PrometheusRule CRD..."
-  kubectl apply -f prometheus-rule.yaml -n app-211
+  echo "⚙️ Applying PrometheusRule CRD to default namespace..."
+  # PrometheusRule must be in default namespace because kube-prometheus-stack
+  # only watches its own namespace for rules by default (unless ruleSelectorNilUsesHelmValues=false)
+  kubectl apply -f prometheus-rule.yaml -n default
+
+  echo "🔍 Checking Prometheus ruleSelector configuration..."
+  kubectl get prometheus -n default -o jsonpath='{.items[0].spec.ruleSelector}' || echo "No ruleSelector found"
+  echo ""
+  kubectl get prometheus -n default -o jsonpath='{.items[0].spec.ruleNamespaceSelector}' || echo "No ruleNamespaceSelector found"
+  echo ""
+
+  echo "🔍 Listing all PrometheusRules in cluster..."
+  kubectl get prometheusrule -A
 
   echo "🔍 Verifying rule is loaded by Prometheus..."
   RULES_LOADED=false
@@ -41,14 +50,19 @@ before_test: |
 
   if [ "$RULES_LOADED" = false ]; then
     echo "❌ Rule failed to load after 120 seconds"
-    echo "PrometheusRule status:"
-    kubectl get prometheusrule -n app-211 -o yaml || true
-    echo "Prometheus rules API output:"
-    kubectl exec -n default deployment/robusta-kube-prometheus-st-prometheus -- wget -q -O- http://localhost:9090/api/v1/rules 2>/dev/null | head -100 || true
+    echo ""
+    echo "=== PrometheusRule status ==="
+    kubectl get prometheusrule -n default order-processing-alerts -o yaml || true
+    echo ""
+    echo "=== Prometheus Operator logs (last 50 lines) ==="
+    kubectl logs -n default -l app.kubernetes.io/name=prometheus-operator --tail=50 || true
+    echo ""
+    echo "=== Prometheus rules API output ==="
+    kubectl exec -n default deployment/robusta-kube-prometheus-st-prometheus -- wget -q -O- http://localhost:9090/api/v1/rules 2>/dev/null | head -200 || true
     exit 1
   fi
 
   echo "✅ Test setup completed successfully"
 
 after_test: |
-  kubectl delete namespace app-211 || true
+  kubectl delete prometheusrule -n default order-processing-alerts || true
