@@ -144,6 +144,9 @@ def run_holmes_check(
                 dal=None, refresh_toolsets=False, tracer=tracer
             )
 
+        # Load checks configuration
+        checks_config = load_checks_config(checks_file)
+
         # Create check runner
         runner = CheckRunner(
             config=config,
@@ -151,15 +154,12 @@ def run_holmes_check(
             verbose=True,
             parallel=False,
             ai=ai,
+            destinations_config=checks_config.destinations,
         )
-
-        # Load checks configuration
-        checks_config = load_checks_config(checks_file)
 
         # Run checks
         results = runner.run_checks(
             checks=checks_config.checks,
-            destinations_config=checks_config.destinations,
         )
 
         # Convert results to dict of status by check name
