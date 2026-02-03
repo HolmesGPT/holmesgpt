@@ -17,8 +17,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
 from requests.exceptions import SSLError  # type: ignore
 
-from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
-from holmes.common.openshift import load_openshift_token
+from holmes.common.env_vars import MAX_GRAPH_POINTS
+from holmes.common.openshift import (
+    OPENSHIFT_THANOS_URL,
+    is_openshift_cluster,
+    load_openshift_token,
+)
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
@@ -174,15 +178,34 @@ class PrometheusConfig(ToolsetConfig):
     @model_validator(mode="after")
     def validate_prom_config(self):
 
-        # If openshift is enabled, and the user didn't configure auth headers, we will try to load the token from the service account.
-        if IS_OPENSHIFT:
-            if self.headers.get("Authorization"):
-                return self
+        # If OpenShift is detected (auto or manual), configure authentication and URL
+        if is_openshift_cluster():
+            # Auto-configure Prometheus URL if not set
+            if not self.prometheus_url:
+                # Try Thanos Querier first (preferred for federated queries)
+                self.prometheus_url = OPENSHIFT_THANOS_URL
+                logging.info(
+                    f"OpenShift detected - auto-configured Prometheus URL: {self.prometheus_url}"
+                )
 
-            openshift_token = load_openshift_token()
-            if openshift_token:
-                logging.info("Using openshift token for prometheus toolset auth")
-                self.headers["Authorization"] = f"Bearer {openshift_token}"
+            # Auto-configure authentication if not already set
+            if not self.headers.get("Authorization"):
+                openshift_token = load_openshift_token()
+                if openshift_token:
+                    logging.info(
+                        "OpenShift detected - using service account token for Prometheus auth"
+                    )
+                    self.headers["Authorization"] = f"Bearer {openshift_token}"
+
+            # OpenShift Prometheus typically uses self-signed certs in-cluster
+            # If URL points to internal OpenShift monitoring, disable SSL verification by default
+            if self.prometheus_url and "openshift-monitoring" in self.prometheus_url:
+                # Only override if user hasn't explicitly set verify_ssl
+                if "verify_ssl" not in (self.model_extra or {}):
+                    self.verify_ssl = False
+                    logging.debug(
+                        "OpenShift internal monitoring detected - disabled SSL verification"
+                    )
 
         return self
 
@@ -1815,6 +1838,12 @@ class PrometheusToolset(Toolset):
             return False, str(e)
 
     def auto_detect_prometheus_url(self) -> Optional[str]:
+        # Check for OpenShift first - use known OpenShift Prometheus endpoints
+        if is_openshift_cluster():
+            logging.info("OpenShift detected - using OpenShift Prometheus URL")
+            return OPENSHIFT_THANOS_URL
+
+        # Try standard Prometheus discovery
         url: Optional[str] = PrometheusDiscovery.find_prometheus_url()
         if not url:
             url = PrometheusDiscovery.find_vm_url()

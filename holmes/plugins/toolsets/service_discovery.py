@@ -75,6 +75,9 @@ class PrometheusDiscovery(ServiceDiscovery):
                 "app.kubernetes.io/name=thanos-query",
                 "app=thanos-query",
                 "app=thanos-querier",
+                # OpenShift Prometheus services (note: these use HTTPS and require auth)
+                "app.kubernetes.io/name=thanos-query,app.kubernetes.io/part-of=openshift-monitoring",
+                "app.kubernetes.io/name=prometheus,app.kubernetes.io/part-of=openshift-monitoring",
             ],
             error_msg="Prometheus url could not be found. Add 'prometheus_url' under your prometheus tools config",
         )

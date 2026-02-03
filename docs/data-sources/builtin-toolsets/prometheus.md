@@ -112,6 +112,68 @@ holmes:
 
 ---
 
+### OpenShift Prometheus
+
+HolmesGPT automatically detects OpenShift clusters and configures Prometheus access without manual configuration.
+
+**Auto-Detection Features:**
+
+- **Cluster detection**: Automatically identifies OpenShift by checking for OpenShift-specific API groups (`route.openshift.io`, `apps.openshift.io`)
+- **URL auto-configuration**: Uses the built-in Thanos Querier at `https://thanos-querier.openshift-monitoring.svc:9091`
+- **Authentication**: Automatically uses the service account token mounted at `/var/run/secrets/kubernetes.io/serviceaccount/token`
+- **SSL handling**: Automatically disables SSL verification for internal OpenShift monitoring endpoints
+
+**Automatic Setup (Recommended):**
+
+When deploying to OpenShift, HolmesGPT automatically:
+
+1. Detects it's running on OpenShift
+2. Configures the Prometheus URL
+3. Sets up authentication using the service account token
+
+No additional configuration is needed! Just ensure your service account has the `cluster-monitoring-view` role:
+
+```yaml
+# Helm automatically adds this when openshift: true is set
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: holmes-cluster-monitoring
+subjects:
+  - kind: ServiceAccount
+    name: holmes
+    namespace: your-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+```
+
+**Manual Override:**
+
+If you need to override the auto-detected settings:
+
+```yaml
+holmes:
+  toolsets:
+    prometheus/metrics:
+      enabled: true
+      config:
+        # Override the auto-detected URL
+        prometheus_url: https://prometheus-k8s.openshift-monitoring.svc:9091
+        # Optional: Disable SSL verification (auto-enabled for OpenShift internal URLs)
+        verify_ssl: false
+```
+
+**Notes:**
+
+- Auto-detection works when running inside the OpenShift cluster
+- The `openshift: true` Helm value is no longer strictly required - OpenShift is auto-detected
+- You can still set `openshift: true` explicitly to force OpenShift mode
+- Set `IS_OPENSHIFT=false` environment variable to disable auto-detection
+
+---
+
 ### Google Managed Prometheus
 
 Before configuring Holmes, make sure you have:
