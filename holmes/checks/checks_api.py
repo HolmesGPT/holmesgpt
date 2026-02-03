@@ -10,7 +10,9 @@ from holmes.config import Config
 from holmes.checks.models import Check, CheckMode
 from holmes.checks.checks import execute_check
 from holmes.core.tool_calling_llm import ToolCallingLLM
-
+from holmes.core.issue import Issue, IssueStatus
+from holmes.core.tool_calling_llm import LLMResult
+from holmes.plugins.destinations.slack.plugin import SlackDestination
 
 checks_app = FastAPI()
 
@@ -112,10 +114,6 @@ def execute_health_check(
         # Send alerts if check failed and has destinations configured
         if result.status.value == "fail" and request.destinations:
             try:
-                # Import here to avoid circular dependencies
-                from holmes.core.issue import Issue, IssueStatus
-                from holmes.core.tool_calling_llm import LLMResult
-
                 # Create an Issue object for the failed check
                 issue = Issue(
                     id=f"healthcheck-{x_check_name or 'api-check'}-{int(time.time())}",
@@ -152,17 +150,11 @@ def execute_health_check(
                         try:
                             # Check if SLACK_TOKEN is configured
                             slack_token = os.environ.get("SLACK_TOKEN")
-                            if slack_token:
-                                from holmes.plugins.destinations.slack.plugin import (
-                                    SlackDestination,
-                                )
-
-                                # Use channel from destination config or fallback to env var
-                                slack_channel = dest_config.get(
-                                    "channel"
-                                ) or os.environ.get("SLACK_CHANNEL", "#alerts")
+                            slack_channel = dest_config.get(
+                                "channel"
+                            ) or os.environ.get("SLACK_CHANNEL")
+                            if slack_token and slack_channel:
                                 notification.channel = slack_channel
-
                                 slack_dest = SlackDestination(
                                     token=slack_token, channel=slack_channel
                                 )
@@ -174,9 +166,11 @@ def execute_health_check(
                                 )
                             else:
                                 notification.status = "skipped"
-                                notification.error = "SLACK_TOKEN not configured"
+                                notification.error = (
+                                    "SLACK_TOKEN or SLACK_CHANNEL not configured"
+                                )
                                 logging.warning(
-                                    "SLACK_TOKEN not configured, skipping Slack notification"
+                                    "SLACK_TOKEN or SLACK_CHANNEL not configured, skipping Slack notification"
                                 )
                         except Exception as e:
                             notification.status = "failed"
@@ -210,5 +204,5 @@ def execute_health_check(
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except Exception as e:
-        logging.error(f"Error in /api/check/execute: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Error in /api/checks/execute: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
