@@ -497,6 +497,14 @@ class LLMModelRegistry:
                 api_version=self.config.api_version,
             )
 
+        # Validate that at least one model was successfully loaded
+        if not self._llms:
+            raise Exception(
+                "Could not load any configured LLM models. Please check your API keys and model configuration. \n See https://holmesgpt.dev/ai-providers/ for setup instructions."
+            )
+
+        logging.info(f"Loaded models: {list(self._llms.keys())}")
+
     def _should_load_config_model(self) -> bool:
         if self.config.model is not None:
             if self._llms and self.config.model in self._llms:
@@ -583,7 +591,9 @@ class LLMModelRegistry:
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
         with self._lock:
             if not self._llms:
-                raise Exception("No llm models were loaded")
+                raise Exception(
+                    "Could not load any configured LLM models. Please check your API keys and model configuration. \n See https://holmesgpt.dev/ai-providers/ for setup instructions."
+                )
 
             if model_key:
                 model_params = self._llms.get(model_key)
