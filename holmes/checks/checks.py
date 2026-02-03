@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import requests  # type:ignore
 import yaml
 from jinja2 import Template
 from rich.console import Console
@@ -21,7 +22,10 @@ from holmes.checks.models import (
     DestinationConfig,
 )
 from holmes.config import Config
+from holmes.core.issue import Issue, IssueStatus
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
+from holmes.plugins.destinations.pagerduty.plugin import PagerDutyDestination
+from holmes.plugins.destinations.slack.plugin import SlackDestination
 
 CHECK_RESPONSE_FORMAT = {
     "type": "json_schema",
@@ -168,6 +172,7 @@ class CheckRunner:
         ai: ToolCallingLLM,
         verbose: bool = False,
         parallel: bool = False,
+        destinations_config: Optional[Dict[str, DestinationConfig]] = None,
     ):
         self.config = config
         self.console = console
@@ -175,6 +180,19 @@ class CheckRunner:
         self.parallel = parallel
         self.ai: ToolCallingLLM = ai
         self._destinations_config: Dict[str, DestinationConfig] = {}
+        if destinations_config:
+            errors = self.validate_destinations(destinations_config)
+            if errors:
+                self.console.print(
+                    "[bold red]Destination configuration errors:[/bold red]"
+                )
+                for error in errors:
+                    self.console.print(f"  • {error}")
+                self.console.print(
+                    "\n[yellow]Fix these errors or use --mode monitor to skip alerts[/yellow]"
+                )
+            else:
+                self._destinations_config = destinations_config
 
     # TODO: refactor this, why we suppose the name will be slack or pagerduty?
     def validate_destinations(
@@ -197,10 +215,7 @@ class CheckRunner:
                 if slack_token:
                     try:
                         # Ensure it's a string and not SecretStr
-                        token_str = str(slack_token)
-                        if hasattr(slack_token, "get_secret_value"):
-                            token_str = slack_token.get_secret_value()
-
+                        token_str = slack_token.get_secret_value()
                         if not token_str or not token_str.strip():
                             errors.append(f"Slack destination '{name}': Token is empty")
                     except Exception as e:
@@ -251,14 +266,15 @@ class CheckRunner:
             ]
         return filtered_checks
 
-    def _validate_alert_destinations(self, filtered_checks, destinations_config):
+    def _validate_alert_destinations(self, filtered_checks):
         """Warn if any alert-mode checks have no destinations configured."""
         alert_checks_with_no_destinations = [
             c.name
             for c in filtered_checks
             if c.mode == CheckMode.ALERT
-            and not c.destinations
-            or (not destinations_config and c.destinations)
+            and (
+                not c.destinations or (not self._destinations_config and c.destinations)
+            )
         ]
         if alert_checks_with_no_destinations:
             self.console.print(
@@ -287,35 +303,15 @@ class CheckRunner:
         checks: List[Check],
         name_filter: Optional[str] = None,
         tag_filter: Optional[List[str]] = None,
-        destinations_config: Optional[Dict[str, DestinationConfig]] = None,
     ) -> List[CheckResult]:
         """Run multiple checks with optional filtering."""
-        # Store destinations config for use in _send_alerts
-        # TODO: why we need it here?
-        if destinations_config:
-            self._destinations_config = destinations_config
-
-        # TODO: do we really need it here and not in the runner init?
-        # Validate destinations upfront
-        if destinations_config:
-            validation_errors = self.validate_destinations(destinations_config)
-            if validation_errors:
-                self.console.print(
-                    "[bold red]Destination configuration errors:[/bold red]"
-                )
-                for error in validation_errors:
-                    self.console.print(f"  • {error}")
-                self.console.print(
-                    "\n[yellow]Fix these errors or use --mode monitor to skip alerts[/yellow]"
-                )
-                return []
 
         filtered_checks = self._filter_checks(checks, name_filter, tag_filter)
         if not filtered_checks:
             self.console.print("[yellow]No checks match the specified filters[/yellow]")
             return []
 
-        self._validate_alert_destinations(filtered_checks, destinations_config)
+        self._validate_alert_destinations(filtered_checks)
 
         self.console.print(
             f"[bold]Running {len(filtered_checks)} checks{' in parallel' if self.parallel else ''}...[/bold]"
@@ -375,83 +371,58 @@ class CheckRunner:
 
         return results
 
-    def _format_slack_webֹhook_payload(self, check: Check, result: CheckResult) -> dict:
-        """Format a consistent Slack message payload for webhook delivery."""
-        # Determine color based on status
-        color_map = {
-            CheckStatus.PASS: "good",  # green
-            CheckStatus.FAIL: "danger",  # red
-            CheckStatus.ERROR: "warning",  # yellow
-        }
-        color = color_map.get(result.status, "danger")
-
-        # Build fields
-        fields = [
-            {
-                "title": "Query",
-                "value": check.query,
-                "short": False,
-            }
-        ]
-
-        if check.description:
-            fields.append(
-                {
-                    "title": "Description",
-                    "value": check.description,
-                    "short": False,
-                }
-            )
-
-        if check.tags:
-            fields.append(
-                {
-                    "title": "Tags",
-                    "value": ", ".join(check.tags),
-                    "short": True,
-                }
-            )
-
-        # Build payload
-        return {
-            "text": f"Holmes Health Check: {check.name}",
-            "attachments": [
-                {
-                    "color": color,
-                    "title": check.name,
-                    "text": result.message,
-                    "fields": fields,
-                    "footer": f"Holmes • {result.status.value.upper()}",
-                    "ts": int(time.time()),
-                }
-            ],
-        }
-
     def _send_alerts(self, check: Check, result: CheckResult):
         """Send alerts to configured destinations."""
-        import requests  # type:ignore
+        issue_status = (
+            IssueStatus.OPEN
+            if result.status == CheckStatus.FAIL
+            else IssueStatus.CLOSED
+        )
+        issue = Issue(
+            id=f"check-{check.name}",
+            name=f"Health Check: {check.name}",
+            source_type="holmes-check",
+            presentation_status=issue_status,
+            show_status_in_title=False,  # Don't append "- open/closed" for health checks
+            raw={
+                "check": check.name,
+                "description": check.description,
+                "query": check.query,
+                "result": result.message,
+                "tags": check.tags,
+                "status": result.status.value,
+            },
+            source_instance_id="holmes-check",
+        )
 
-        from holmes.core.issue import Issue, IssueStatus
-        from holmes.core.tool_calling_llm import LLMResult
-        from holmes.plugins.destinations.pagerduty.plugin import PagerDutyDestination
-        from holmes.plugins.destinations.slack.plugin import SlackDestination
+        # Create a mock LLM result
+        llm_result = LLMResult(
+            result=result.message,
+            tool_calls=[],
+        )
 
         for dest_name in check.destinations:
             if dest_name == "slack":
                 # Check if we have a webhook URL in destinations config
-                destinations_config = getattr(self, "_destinations_config", {})
-                slack_dest_config = destinations_config.get(dest_name, {})
-                webhook_url = (
-                    slack_dest_config.webhook_url if slack_dest_config else None
+                slack_dest_config: Optional[DestinationConfig] = (
+                    self._destinations_config.get(dest_name)
                 )
+                if not slack_dest_config:
+                    self.console.print(
+                        "  [yellow]Slack not configured (missing webhook_url)[/yellow]"
+                    )
+                    continue
 
+                webhook_url = slack_dest_config.webhook_url
                 if webhook_url:
                     # Use webhook URL for posting
                     try:
                         webhook_payload = self._format_slack_webhook_payload(
                             check, result
                         )
-                        response = requests.post(webhook_url, json=webhook_payload)
+                        response = requests.post(
+                            webhook_url, json=webhook_payload, timeout=10
+                        )
                         response.raise_for_status()
 
                         self.console.print(
@@ -479,50 +450,10 @@ class CheckRunner:
                     continue
 
                 try:
-                    # Handle SecretStr properly
-                    token_str: str
-                    if hasattr(slack_token, "get_secret_value"):
-                        token_str = slack_token.get_secret_value()
-                    elif hasattr(slack_token, "__str__"):
-                        token_str = str(slack_token)
-                    else:
-                        token_str = str(slack_token)
-
-                    # Ensure it's actually a string
-                    if not isinstance(token_str, str):
-                        raise ValueError(f"Invalid token type: {type(slack_token)}")
-
-                    # Create a mock issue for the check result
-                    # Set presentation_status for color coding but don't show in title
-                    issue_status = (
-                        IssueStatus.OPEN
-                        if result.status == CheckStatus.FAIL
-                        else IssueStatus.CLOSED
-                    )
-                    issue = Issue(
-                        id=f"check-{check.name}",
-                        name=f"Health Check: {check.name}",
-                        source_type="holmes-check",
-                        presentation_status=issue_status,
-                        show_status_in_title=False,  # Don't append "- open/closed" for health checks
-                        raw={
-                            "check": check.name,
-                            "description": check.description,
-                            "query": check.query,
-                            "result": result.message,
-                            "tags": check.tags,
-                            "status": result.status.value,
-                        },
-                        source_instance_id="holmes-check",
+                    token_str: str = (
+                        slack_token.get_secret_value() if slack_token else ""
                     )
 
-                    # Create a mock LLM result
-                    llm_result = LLMResult(
-                        result=result.message,
-                        tool_calls=[],
-                    )
-
-                    # Send to Slack
                     slack = SlackDestination(token_str, slack_channel)
                     slack.send_issue(issue, llm_result)
 
@@ -535,9 +466,14 @@ class CheckRunner:
                     )
 
             elif dest_name == "pagerduty":
-                # Get PagerDuty configuration from destinations config
-                destinations_config = getattr(self, "_destinations_config", {})
-                pagerduty_config = destinations_config.get(dest_name, {})
+                pagerduty_config: Optional[DestinationConfig] = (
+                    self._destinations_config.get(dest_name)
+                )
+                if not pagerduty_config:
+                    self.console.print(
+                        "[yellow]PagerDuty not configured (missing integration_key)[/yellow]"
+                    )
+                    continue
 
                 if not pagerduty_config or not pagerduty_config.integration_key:
                     if self.verbose:
@@ -547,37 +483,6 @@ class CheckRunner:
                     continue
 
                 try:
-                    # Create a mock issue for the check result
-                    # Set presentation_status for color coding but don't show in title
-                    issue_status = (
-                        IssueStatus.OPEN
-                        if result.status == CheckStatus.FAIL
-                        else IssueStatus.CLOSED
-                    )
-                    issue = Issue(
-                        id=f"check-{check.name}",
-                        name=f"Health Check: {check.name}",
-                        source_type="holmes-check",
-                        presentation_status=issue_status,
-                        show_status_in_title=False,  # Don't append "- open/closed" for health checks
-                        raw={
-                            "check": check.name,
-                            "description": check.description,
-                            "query": check.query,
-                            "result": result.message,
-                            "tags": check.tags,
-                            "status": result.status.value,
-                        },
-                        source_instance_id="holmes-check",
-                    )
-
-                    # Create a mock LLM result
-                    llm_result = LLMResult(
-                        result=result.message,
-                        tool_calls=[],
-                    )
-
-                    # Send to PagerDuty
                     pagerduty = PagerDutyDestination(pagerduty_config.integration_key)
                     pagerduty.send_issue(issue, llm_result)
 
