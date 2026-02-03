@@ -154,10 +154,10 @@ def check(
             checks_config = load_checks_config(checks_file)
         except FileNotFoundError:
             console.print(f"[red]Checks file not found: {checks_file}[/red]")
-            return 1
+            raise typer.Exit(1)
         except Exception as e:
             console.print(f"[red]Error loading checks file: {e}[/red]")
-            return 1
+            raise typer.Exit(1) from e
 
     # Load config
     config = Config.load_from_file(
@@ -168,9 +168,8 @@ def check(
         slack_channel=slack_channel,
     )
 
-    if mode:
-        for check in checks_config.checks:
-            check.mode = mode
+    for check in checks_config.checks:
+        check.mode = mode
 
     # Run checks
     exit_code = run_check_command(
@@ -204,7 +203,14 @@ def run_check_command(
 
     # Create runner
     llm = config.create_console_toolcalling_llm()
-    runner = CheckRunner(config, console, llm, verbose, parallel)
+    runner = CheckRunner(
+        config,
+        console,
+        llm,
+        verbose,
+        parallel,
+        destinations_config=checks_config.destinations,
+    )
 
     # Run checks (with watch support)
     while True:
@@ -215,7 +221,6 @@ def run_check_command(
             checks_config.checks,
             name_filter=name_filter,
             tag_filter=tag_filter,
-            destinations_config=checks_config.destinations,
         )
 
         if results:
