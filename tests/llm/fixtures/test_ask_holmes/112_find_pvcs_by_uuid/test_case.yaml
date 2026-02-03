@@ -2,8 +2,8 @@ user_prompt: "Find all PVCs that were created from backup ID b7f3a521-8c4d-4e6a-
 tags:
   - kubernetes
   - medium
-  - benchmark
-# This test works well when the llm uses the bash toolset vs the kubectl toolset
+  - regression
+# The llm usually tries the kubectl toolset and reverts to the bash toolset or in rarer cases calls kubernetes_tabular_query
 expected_output:
   - Found 4 PVCs with the specified backup ID
   - database-pvc in namespace app-112-prod (2Mi)
