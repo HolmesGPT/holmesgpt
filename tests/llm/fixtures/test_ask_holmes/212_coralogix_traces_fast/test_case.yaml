@@ -58,11 +58,11 @@ before_test: |
   END_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
   SPANS_READY=false
-  for i in {1..180}; do
-    # Query spans source for the error code
-    # Note: lucene 'ERR-5847' works for spans (full-text search on all fields)
+  for i in {1..240}; do
+    # Query spans source for EVAL_RUN_ID which is unique to THIS test run
+    # (searching for generic ERROR_CODE could find old cached spans)
     JSON_PAYLOAD=$(jq -n \
-      --arg query "source spans | lucene '$ERROR_CODE' | limit 10" \
+      --arg query "source spans | lucene '$EVAL_RUN_ID' | limit 10" \
       --arg start "$START_DATE" \
       --arg end "$END_DATE" \
       '{query: $query, metadata: {syntax: "QUERY_SYNTAX_DATAPRIME", startDate: $start, endDate: $end}}')
@@ -75,13 +75,13 @@ before_test: |
       echo "   Debug query response (attempt $i, ${#RESULT} bytes): ${RESULT:0:500}"
     fi
 
-    if echo "$RESULT" | grep -q "$ERROR_CODE"; then
+    if echo "$RESULT" | grep -q "$EVAL_RUN_ID"; then
       echo "✅ Spans are queryable after $((i * 5)) seconds"
       SPANS_READY=true
       break
     fi
 
-    echo "   Attempt $i/180: Spans not yet indexed, waiting 5s..."
+    echo "   Attempt $i/240: Spans not yet indexed, waiting 5s..."
     sleep 5
   done
 

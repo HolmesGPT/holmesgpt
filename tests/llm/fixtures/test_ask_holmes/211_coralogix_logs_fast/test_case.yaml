@@ -49,14 +49,16 @@ before_test: |
 
   # Build log entries JSON - Coralogix /singles API expects an ARRAY of entries
   # Each entry must include applicationName and subsystemName
+  # IMPORTANT: Include EVAL_RUN_ID in log text so we can search for THIS run's logs specifically
+  # (lucene searches text content, not labels like applicationName)
   # See: https://coralogix.com/docs/developer-portal/apis/log-ingestion/coralogix-rest-api-singles/
   LOG_ENTRIES="[
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 3, \"text\": \"Service started successfully - payment-api initialized\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"Database connection timeout - $ERROR_CODE_1: Failed to connect to primary database after 30s\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 4, \"text\": \"Retrying database connection attempt 1\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"Payment validation failed - $ERROR_CODE_2: Invalid card number format for user U-12345\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 3, \"text\": \"Processing order batch complete - 150 orders processed\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"Stock sync failed - $ERROR_CODE_3: External inventory API returned 503\"}
+    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 3, \"text\": \"[${EVAL_RUN_ID}] Service started successfully - payment-api initialized\"},
+    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"[${EVAL_RUN_ID}] Database connection timeout - $ERROR_CODE_1: Failed to connect to primary database after 30s\"},
+    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 4, \"text\": \"[${EVAL_RUN_ID}] Retrying database connection attempt 1\"},
+    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"[${EVAL_RUN_ID}] Payment validation failed - $ERROR_CODE_2: Invalid card number format for user U-12345\"},
+    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 3, \"text\": \"[${EVAL_RUN_ID}] Processing order batch complete - 150 orders processed\"},
+    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"[${EVAL_RUN_ID}] Stock sync failed - $ERROR_CODE_3: External inventory API returned 503\"}
   ]"
 
   # Send logs via REST API
@@ -100,11 +102,11 @@ before_test: |
   echo "   Query time range: $START_DATE to $END_DATE"
 
   LOGS_READY=false
-  for i in {1..180}; do
-    # Search for the error code using lucene full-text search
-    # Note: lucene does full-text search across all fields including userData JSON
+  for i in {1..240}; do
+    # Search for EVAL_RUN_ID which is unique to THIS test run
+    # This ensures we find logs from THIS run, not cached logs from previous runs
     JSON_PAYLOAD=$(jq -n \
-      --arg query "source logs | lucene '$ERROR_CODE_1' | limit 1" \
+      --arg query "source logs | lucene '$EVAL_RUN_ID' | limit 1" \
       --arg start "$START_DATE" \
       --arg end "$END_DATE" \
       '{query: $query, metadata: {syntax: "QUERY_SYNTAX_DATAPRIME", startDate: $start, endDate: $end}}')
@@ -118,13 +120,13 @@ before_test: |
       echo "   Debug query response (attempt $i, ${#RESULT} bytes): ${RESULT:0:500}"
     fi
 
-    if echo "$RESULT" | grep -q "$ERROR_CODE_1"; then
+    if echo "$RESULT" | grep -q "$EVAL_RUN_ID"; then
       echo "✅ Logs are queryable after $((i * 5)) seconds"
       LOGS_READY=true
       break
     fi
 
-    echo "   Attempt $i/180: Logs not yet indexed, waiting 5s..."
+    echo "   Attempt $i/240: Logs not yet indexed, waiting 5s..."
     sleep 5
   done
 
@@ -137,11 +139,12 @@ before_test: |
     exit 1
   fi
 
-  # Verify all 3 error codes are queryable
-  echo "🔍 Verifying all error codes are queryable..."
+  # Verify all 3 error codes are queryable for THIS run specifically
+  echo "🔍 Verifying all error codes are queryable for run ${EVAL_RUN_ID}..."
   for CODE in $ERROR_CODE_1 $ERROR_CODE_2 $ERROR_CODE_3; do
+    # Search for both EVAL_RUN_ID AND error code to ensure we're checking THIS run's logs
     JSON_PAYLOAD=$(jq -n \
-      --arg query "source logs | lucene '$CODE' | limit 1" \
+      --arg query "source logs | lucene '$EVAL_RUN_ID AND $CODE' | limit 1" \
       --arg start "$START_DATE" \
       --arg end "$END_DATE" \
       '{query: $query, metadata: {syntax: "QUERY_SYNTAX_DATAPRIME", startDate: $start, endDate: $end}}')
@@ -151,7 +154,7 @@ before_test: |
       -d "$JSON_PAYLOAD" 2>/dev/null || true)
 
     if ! echo "$VERIFY" | grep -q "$CODE"; then
-      echo "❌ Could not find error code $CODE"
+      echo "❌ Could not find error code $CODE for run ${EVAL_RUN_ID}"
       echo "   Query result: $VERIFY"
       exit 1
     fi
