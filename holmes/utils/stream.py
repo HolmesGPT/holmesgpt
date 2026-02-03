@@ -91,6 +91,7 @@ def stream_chat_formatter(
 ):
     try:
         for message in call_stream:
+            sse_message = None
             if message.event == StreamEvents.ANSWER_END:
                 response_data = {
                     "analysis": message.data.get("content"),
@@ -99,7 +100,9 @@ def stream_chat_formatter(
                     "metadata": message.data.get("metadata") or {},
                 }
 
-                yield create_sse_message(StreamEvents.ANSWER_END.value, response_data)
+                sse_message = create_sse_message(
+                    StreamEvents.ANSWER_END.value, response_data
+                )
             elif message.event == StreamEvents.APPROVAL_REQUIRED:
                 response_data = {
                     "analysis": message.data.get("content"),
@@ -112,19 +115,40 @@ def stream_chat_formatter(
                     "pending_approvals", []
                 )
 
-                yield create_sse_message(
+                sse_message = create_sse_message(
                     StreamEvents.APPROVAL_REQUIRED.value, response_data
                 )
             else:
-                yield create_sse_message(message.event.value, message.data)
+                sse_message = create_sse_message(message.event.value, message.data)
+
+            logging.info(
+                "Streaming /api/chat event %s: %s",
+                message.event.value,
+                sse_message.strip(),
+            )
+            yield sse_message
     except litellm.exceptions.RateLimitError as e:
-        yield create_rate_limit_error_message(str(e))
+        sse_message = create_rate_limit_error_message(str(e))
+        logging.info(
+            "Streaming /api/chat event %s: %s",
+            StreamEvents.ERROR.value,
+            sse_message.strip(),
+        )
+        yield sse_message
     except Exception as e:
         logging.error(e)
         if "Model is getting throttled" in str(e):  # happens for bedrock
-            yield create_rate_limit_error_message(str(e))
+            sse_message = create_rate_limit_error_message(str(e))
         else:
-            yield create_sse_error_message(description=str(e), error_code=1, msg=str(e))
+            sse_message = create_sse_error_message(
+                description=str(e), error_code=1, msg=str(e)
+            )
+        logging.info(
+            "Streaming /api/chat event %s: %s",
+            StreamEvents.ERROR.value,
+            sse_message.strip(),
+        )
+        yield sse_message
 
 
 def add_token_count_to_metadata(

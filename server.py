@@ -418,13 +418,15 @@ def chat(chat_request: ChatRequest, http_request: Request):
             # For non-streaming, we need to handle approvals differently
             # This is a simplified version - in practice, non-streaming with approvals
             # would require a different approach or conversion to streaming
-            return ChatResponse(
+            response = ChatResponse(
                 analysis=llm_call.result,
                 tool_calls=llm_call.tool_calls,
                 conversation_history=llm_call.messages,
                 follow_up_actions=follow_up_actions,
                 metadata=llm_call.metadata,
             )
+            logging.info("Completed /api/chat response: %s", response.model_dump())
+            return response
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:
