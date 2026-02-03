@@ -14,7 +14,6 @@ class TestAISafetyPromptInclusion:
             "builtin://generic_ask.jinja2",
             "builtin://generic_ask_conversation.jinja2",
             "builtin://generic_ask_for_issue_conversation.jinja2",
-            "builtin://kubernetes_workload_ask.jinja2",
             "builtin://generic_investigation.jinja2",
         ],
     )

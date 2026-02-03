@@ -90,7 +90,7 @@ class TestStatus:
         if self.failed_due_to_throttling:
             return ":no_entry_sign:"
         elif self.is_skipped:
-            return ":minus:"
+            return ":heavy_minus_sign:"
         elif self.is_setup_failure:
             return ":construction:"
         elif self.is_mock_failure:
