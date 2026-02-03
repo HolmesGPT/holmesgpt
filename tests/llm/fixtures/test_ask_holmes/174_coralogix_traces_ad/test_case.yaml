@@ -10,7 +10,7 @@ tags:
   - traces
   - coralogix
 
-setup_timeout: 900
+setup_timeout: 1200  # 20 minutes - pod scheduling + Coralogix indexing delays
 
 before_test: |
   # Validate required Coralogix environment variables

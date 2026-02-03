@@ -14,7 +14,7 @@
 # Anti-hallucination: Uses unique EVAL_RUN_ID in application name to prevent
 # tests from succeeding on cached data from previous runs.
 
-user_prompt: "Search the Coralogix logs for the 'order-service-{{ env.EVAL_RUN_ID }}' application. Find ERROR level messages and report what error codes (format ERR-XXXX) appear in the logs."
+user_prompt: "Search the Coralogix logs for application 'order-service-{{ env.EVAL_RUN_ID }}'. IMPORTANT: Only query logs from this EXACT application name, not any other application. Find ERROR level messages and report what error codes (format ERR-XXXX) appear in the logs for this specific application."
 
 expected_output:
   - "Must find error code ERR-7291 associated with database connection timeout"
@@ -26,7 +26,7 @@ tags:
   - logs
   - medium
 
-setup_timeout: 900
+setup_timeout: 1200  # 20 minutes - Coralogix indexing can take 5-15 minutes
 
 before_test: |
   set -e

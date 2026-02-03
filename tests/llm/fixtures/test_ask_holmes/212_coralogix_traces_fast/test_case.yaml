@@ -10,7 +10,7 @@
 # Anti-hallucination: Uses unique EVAL_RUN_ID in service name to prevent
 # tests from succeeding on cached data from previous runs.
 
-user_prompt: "Search the Coralogix spans for the 'checkout-flow-{{ env.EVAL_RUN_ID }}' service. Look for failed spans and report what error codes you find. Also identify which operation failed."
+user_prompt: "Search the Coralogix spans for service 'checkout-flow-{{ env.EVAL_RUN_ID }}'. IMPORTANT: Only query spans from this EXACT service name, not any other service. Look for failed spans and report what error codes you find. Also identify which operation failed."
 
 expected_output:
   - "Must identify that there are error/failed spans"
@@ -22,7 +22,7 @@ tags:
   - traces
   - medium
 
-setup_timeout: 900
+setup_timeout: 1200  # 20 minutes - Coralogix indexing can take 5-15 minutes
 
 before_test: |
   set -e

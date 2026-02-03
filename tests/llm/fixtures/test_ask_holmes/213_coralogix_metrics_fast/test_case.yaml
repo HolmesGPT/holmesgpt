@@ -12,7 +12,7 @@
 # Anti-hallucination: Uses unique EVAL_RUN_ID in metric prefix to prevent
 # tests from succeeding on cached data from previous runs.
 
-user_prompt: "Query the Prometheus metrics to find HTTP request metrics with the 'eval_{{ env.EVAL_RUN_ID }}_' prefix. Tell me which endpoints have errors and report the error counts."
+user_prompt: "Query the Prometheus metrics to find HTTP request metrics with EXACTLY the 'eval_{{ env.EVAL_RUN_ID }}_' prefix. IMPORTANT: Only query metrics that start with this exact prefix, not any other metrics. Tell me which endpoints have errors and report the error counts."
 
 expected_output:
   - "Must identify metrics with the eval_<run_id>_ prefix"
@@ -25,7 +25,7 @@ tags:
   - metrics
   - medium
 
-setup_timeout: 900
+setup_timeout: 1200  # 20 minutes - Coralogix indexing can take 5-15 minutes
 
 before_test: |
   set -e
