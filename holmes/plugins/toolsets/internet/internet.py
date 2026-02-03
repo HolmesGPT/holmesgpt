@@ -3,7 +3,7 @@ import os
 import re
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 import requests  # type: ignore
 from bs4 import BeautifulSoup
 from markdownify import markdownify
@@ -20,6 +20,7 @@ from holmes.core.tools import (
     ToolsetTag,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 # TODO: change and make it holmes
 INTERNET_TOOLSET_USER_AGENT = os.environ.get(
@@ -221,11 +222,12 @@ class FetchWebpage(Tool):
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Webpage {url}"
 
 
-class InternetBaseToolsetConfig(BaseModel):
+class InternetBaseToolsetConfig(ToolsetConfig):
     additional_headers: Dict[str, str] = Field(
         default_factory=dict,
+        title="Headers",
         description="Additional HTTP headers to include in requests",
-        examples=[ 
+        examples=[
             {},
             {"Authorization": "Basic <base64_encoded_credentials>"},
             {"Authorization": "Bearer <token>"},

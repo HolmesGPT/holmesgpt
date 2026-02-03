@@ -1,46 +1,55 @@
 from typing import ClassVar, Optional, Tuple, Type
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from holmes.core.tools import Tool, Toolset
 from holmes.plugins.toolsets.azure_sql.apis.azure_sql_api import AzureSQLAPIClient
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
-class AzureSQLDatabaseConfig(BaseModel):
+class AzureSQLDatabaseConfig(ToolsetConfig):
     subscription_id: str = Field(
+        title="Subscription ID",
         description="Azure subscription ID",
         examples=["12345678-1234-1234-1234-123456789012"],
     )
     resource_group: str = Field(
+        title="Resource Group",
         description="Azure resource group name",
         examples=["my-resource-group"],
     )
     server_name: str = Field(
+        title="Server Name",
         description="Azure SQL server name",
         examples=["myserver"],
     )
     database_name: str = Field(
+        title="Database Name",
         description="Azure SQL database name",
         examples=["mydatabase"],
     )
 
 
-class AzureSQLConfig(BaseModel):
+class AzureSQLConfig(ToolsetConfig):
     database: AzureSQLDatabaseConfig = Field(
+        title="Database",
         description="Azure SQL database connection details",
     )
     tenant_id: Optional[str] = Field(
         default=None,
+        title="Tenant ID",
         description="Azure AD tenant ID (required for service principal auth)",
         examples=["{{ env.AZURE_TENANT_ID }}"],
     )
     client_id: Optional[str] = Field(
         default=None,
+        title="Client ID",
         description="Azure AD client/application ID (required for service principal auth)",
         examples=["{{ env.AZURE_CLIENT_ID }}"],
     )
     client_secret: Optional[str] = Field(
         default=None,
+        title="Client Secret",
         description="Azure AD client secret (required for service principal auth)",
         examples=["{{ env.AZURE_CLIENT_SECRET }}"],
     )

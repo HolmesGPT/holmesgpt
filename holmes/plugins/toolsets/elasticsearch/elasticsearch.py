@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -17,9 +17,10 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
-class ElasticsearchConfig(BaseModel):
+class ElasticsearchConfig(ToolsetConfig):
     """Configuration for Elasticsearch/OpenSearch API access.
 
     Example configuration:
@@ -37,28 +38,34 @@ class ElasticsearchConfig(BaseModel):
     """
 
     url: str = Field(
+        title="URL",
         description="Elasticsearch/OpenSearch base URL",
         examples=["https://your-cluster.es.cloud.io"],
     )
     api_key: Optional[str] = Field(
         default=None,
+        title="API Key",
         description="API key for authentication (preferred over basic auth when available)",
         examples=["{{ env.ELASTICSEARCH_API_KEY }}"],
     )
     username: Optional[str] = Field(
         default=None,
+        title="Username",
         description="Username for basic auth authentication (used if api_key is not provided)",
     )
     password: Optional[str] = Field(
         default=None,
+        title="Password",
         description="Password for basic auth authentication (used if api_key is not provided)",
     )
     verify_ssl: bool = Field(
         default=True,
+        title="Verify SSL",
         description="Whether to verify SSL certificates",
     )
     timeout: int = Field(
         default=10,
+        title="Timeout",
         description="Default request timeout in seconds",
     )
 
