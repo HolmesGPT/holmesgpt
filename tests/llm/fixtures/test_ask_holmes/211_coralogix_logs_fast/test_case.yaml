@@ -26,7 +26,7 @@ tags:
   - logs
   - medium
 
-setup_timeout: 1800  # 30 minutes - Coralogix EU2 indexing can take 20-25 minutes
+setup_timeout: 2700  # 45 minutes - Coralogix EU2 indexing can take 30+ minutes
 
 before_test: |
   set -e
@@ -102,7 +102,7 @@ before_test: |
   echo "   Query time range: $START_DATE to $END_DATE"
 
   LOGS_READY=false
-  for i in {1..360}; do
+  for i in {1..540}; do
     # Search for EVAL_RUN_ID which is unique to THIS test run
     # This ensures we find logs from THIS run, not cached logs from previous runs
     JSON_PAYLOAD=$(jq -n \
@@ -126,7 +126,7 @@ before_test: |
       break
     fi
 
-    echo "   Attempt $i/360: Logs not yet indexed, waiting 5s..."
+    echo "   Attempt $i/540: Logs not yet indexed, waiting 5s..."
     sleep 5
   done
 

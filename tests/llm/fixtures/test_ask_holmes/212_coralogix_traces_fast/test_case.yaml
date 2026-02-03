@@ -22,7 +22,7 @@ tags:
   - traces
   - medium
 
-setup_timeout: 1800  # 30 minutes - Coralogix EU2 indexing can take 20-25 minutes
+setup_timeout: 2700  # 45 minutes - Coralogix EU2 indexing can take 30+ minutes
 
 before_test: |
   set -e
@@ -58,7 +58,7 @@ before_test: |
   END_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
   SPANS_READY=false
-  for i in {1..360}; do
+  for i in {1..540}; do
     # Query spans source for EVAL_RUN_ID which is unique to THIS test run
     # (searching for generic ERROR_CODE could find old cached spans)
     JSON_PAYLOAD=$(jq -n \
@@ -81,7 +81,7 @@ before_test: |
       break
     fi
 
-    echo "   Attempt $i/360: Spans not yet indexed, waiting 5s..."
+    echo "   Attempt $i/540: Spans not yet indexed, waiting 5s..."
     sleep 5
   done
 
