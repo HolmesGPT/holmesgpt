@@ -9,7 +9,6 @@ from typing import Optional
 from unittest.mock import patch
 
 import pytest
-
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
