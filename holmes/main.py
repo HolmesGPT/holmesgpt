@@ -29,7 +29,7 @@ from holmes.config import (
     SourceFactory,
     SupportedTicketSources,
 )
-from holmes.core.prompt import build_initial_ask_messages, generate_user_prompt
+from holmes.core.prompt import build_initial_ask_messages, build_system_prompt, generate_user_prompt
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import SpanType, TracingFactory
@@ -317,8 +317,11 @@ def ask(
         )
         return
 
+    if include_file:
+        for file_path in include_file:
+            console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+
     messages = build_initial_ask_messages(
-        console,
         prompt,  # type: ignore
         include_file,
         ai.tool_executor,
@@ -620,9 +623,6 @@ def ticket(
         help="ticket ID to investigate (e.g., 'KAN-1')",
     ),
     config_file: Optional[Path] = opt_config_file,  # type: ignore
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_ticket.jinja2", help=system_prompt_help
-    ),
     model: Optional[str] = opt_model,
 ):
     """
@@ -656,15 +656,24 @@ def ticket(
         )
         return
 
-    system_prompt = load_and_render_prompt(
-        prompt=system_prompt,  # type: ignore
+    ai = ticket_source.config.create_console_issue_investigator(model_name=model)
+
+    # Render ticket-specific additions
+    ticket_additions = load_and_render_prompt(
+        prompt="builtin://_ticket_additions.jinja2",
         context={
             "source": source,
             "output_instructions": ticket_source.output_instructions,
         },
     )
 
-    ai = ticket_source.config.create_console_issue_investigator(model_name=model)
+    system_prompt = build_system_prompt(
+        toolsets=ai.tool_executor.toolsets,
+        runbooks=None,
+        system_prompt_additions=ticket_additions,
+        cluster_name=ticket_source.config.cluster_name,
+        ask_user_enabled=False,
+    )
     console.print(
         f"[bold yellow]Analyzing ticket: {issue_to_investigate.name}...[/bold yellow]"
     )

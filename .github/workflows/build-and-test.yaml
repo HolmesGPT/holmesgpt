@@ -55,7 +55,7 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          poetry run pytest -m "not llm"
+          poetry run pytest -m "not llm" -n auto --no-cov --tb=short -rF
 
       - name: Test the binary
         shell: bash

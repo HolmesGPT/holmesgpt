@@ -66,13 +66,13 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
         Tuple of (allow_list, deny_list) - always returns copies, never references
     """
     if config.include_default_allow_deny_list:
-        # Merge user lists with defaults (creates new lists)
-        allow_list = list(set(DEFAULT_ALLOW_LIST + config.allow))
-        deny_list = list(set(DEFAULT_DENY_LIST + config.deny))
+        # Merge user lists with defaults (creates new lists), sorted for deterministic output
+        allow_list = sorted(set(DEFAULT_ALLOW_LIST + config.allow))
+        deny_list = sorted(set(DEFAULT_DENY_LIST + config.deny))
     else:
-        # Return copies to prevent mutation of shared config
-        allow_list = list(config.allow)
-        deny_list = list(config.deny)
+        # Return sorted copies for deterministic output
+        allow_list = sorted(config.allow)
+        deny_list = sorted(config.deny)
 
     return allow_list, deny_list
 

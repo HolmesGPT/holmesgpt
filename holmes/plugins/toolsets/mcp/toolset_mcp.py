@@ -14,7 +14,7 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCP_Tool
-from pydantic import AnyUrl, BaseModel, Field, model_validator
+from pydantic import AnyUrl, Field, model_validator
 
 from holmes.common.env_vars import SSE_READ_TIMEOUT
 from holmes.core.tools import (
@@ -26,6 +26,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
 )
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}
@@ -82,28 +83,33 @@ class MCPMode(str, Enum):
     STDIO = "stdio"
 
 
-class MCPConfig(BaseModel):
+class MCPConfig(ToolsetConfig):
     url: AnyUrl = Field(
+        title="URL",
         description="MCP server URL (for SSE or Streamable HTTP modes).",
         examples=["http://example.com:8000/mcp/messages"],
     )
     mode: MCPMode = Field(
         default=MCPMode.SSE,
+        title="Mode",
         description="Connection mode to use when talking to the MCP server.",
         examples=[MCPMode.STREAMABLE_HTTP],
     )
     headers: Optional[Dict[str, str]] = Field(
         default=None,
+        title="Headers",
         description="Optional HTTP headers to include in requests (e.g., Authorization).",
         examples=[{"Authorization": "Bearer YOUR_TOKEN"}],
     )
     verify_ssl: bool = Field(
         default=True,
+        title="Verify SSL",
         description="Whether to verify SSL certificates (set to false for local/dev servers without valid SSL).",
         examples=[False],
     )
     extra_headers: Optional[Dict[str, str]] = Field(
         default=None,
+        title="Extra Headers",
         description="Template headers that will be rendered with request context and environment variables.",
         examples=[
             {
@@ -117,23 +123,27 @@ class MCPConfig(BaseModel):
         return str(self.url)
 
 
-class StdioMCPConfig(BaseModel):
+class StdioMCPConfig(ToolsetConfig):
     mode: MCPMode = Field(
         default=MCPMode.STDIO,
+        title="Mode",
         description="Stdio mode runs an MCP server as a local subprocess.",
         examples=[MCPMode.STDIO],
     )
     command: str = Field(
+        title="Command",
         description="The command to start the MCP server (e.g., npx, uv, python).",
         examples=["npx"],
     )
     args: Optional[List[str]] = Field(
         default=None,
+        title="Arguments",
         description="Arguments to pass to the MCP server command.",
         examples=[["-y", "@modelcontextprotocol/server-github"]],
     )
     env: Optional[Dict[str, str]] = Field(
         default=None,
+        title="Environment Variables",
         description="Environment variables to set for the MCP server process.",
         examples=[{"GITHUB_PERSONAL_ACCESS_TOKEN": "{{ env.GITHUB_TOKEN }}"}],
     )

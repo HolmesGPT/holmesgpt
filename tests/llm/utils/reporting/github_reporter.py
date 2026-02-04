@@ -116,7 +116,7 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
 def handle_github_output(sorted_results: List[dict]) -> None:
     """Generate and write GitHub Actions report files."""
     # Generate markdown report
-    markdown, _, total_regressions = generate_markdown_report(sorted_results)
+    markdown, _, total_regressions = generate_markdown_report(sorted_results, False)
 
     # Always write markdown report
     with open("evals_report.md", "w", encoding="utf-8") as file:
@@ -129,7 +129,7 @@ def handle_github_output(sorted_results: List[dict]) -> None:
 
 def generate_markdown_report(
     sorted_results: List[dict],
-    include_historical: bool = True,
+    include_historical: bool,
 ) -> Tuple[str, List[dict], int]:
     """Generate markdown report from sorted test results.
 

@@ -228,7 +228,6 @@ class TestBuildInitialAskMessages:
     )
     def test_ask_command_user_prompt(
         self,
-        console,
         mock_tool_executor,
         tmp_path,
         user_prompt,
@@ -239,7 +238,6 @@ class TestBuildInitialAskMessages:
         test_files = create_test_files(file_paths, tmp_path)
 
         messages = build_initial_ask_messages(
-            console,
             user_prompt,
             test_files,
             mock_tool_executor,
@@ -266,12 +264,11 @@ class TestBuildInitialAskMessages:
                 assert "<attached-file" in user_content
 
     def test_build_initial_ask_messages_with_system_prompt_additions(
-        self, console, mock_tool_executor
+        self, mock_tool_executor
     ):
         """Test message building with system prompt additions."""
         system_additions = "Additional system instructions here."
         messages = build_initial_ask_messages(
-            console,
             "Test prompt",
             None,
             mock_tool_executor,
@@ -484,7 +481,7 @@ def test_append_file_to_user_prompt(tmp_path):
     assert "</attached-file>" in result
 
 
-def test_append_all_files_to_user_prompt(console, tmp_path):
+def test_append_all_files_to_user_prompt(tmp_path):
     """Test appending multiple files to user prompt."""
     # Create multiple test files
     file1 = tmp_path / "file1.txt"
@@ -494,7 +491,7 @@ def test_append_all_files_to_user_prompt(console, tmp_path):
     file2.write_text("Content 2")
 
     prompt = "Original prompt"
-    result = append_all_files_to_user_prompt(console, prompt, [file1, file2])
+    result = append_all_files_to_user_prompt(prompt, [file1, file2])
 
     assert "Original prompt" in result
     assert "Content 1" in result
@@ -506,13 +503,13 @@ def test_append_all_files_to_user_prompt(console, tmp_path):
     assert result.count("</attached-file>") == 2
 
 
-def test_append_all_files_to_user_prompt_no_files(console):
+def test_append_all_files_to_user_prompt_no_files():
     """Test appending files when no files are provided."""
     prompt = "Original prompt"
-    result = append_all_files_to_user_prompt(console, prompt, None)
+    result = append_all_files_to_user_prompt(prompt, None)
 
     assert result == "Original prompt"
 
     # Also test with empty list
-    result = append_all_files_to_user_prompt(console, prompt, [])
+    result = append_all_files_to_user_prompt(prompt, [])
     assert result == "Original prompt"
