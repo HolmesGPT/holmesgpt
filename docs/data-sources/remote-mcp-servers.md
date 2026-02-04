@@ -7,7 +7,7 @@ HolmesGPT can integrate with MCP (Model Context Protocol) servers to access exte
 HolmesGPT supports three MCP transport modes:
 
 1. **`streamable-http`** (Recommended): Modern HTTP-based transport. Use this for new integrations.
-2. **`stdio`**: Direct process communication via standard input/output. For CLI usage; Kubernetes deployments require Supergateway.
+2. **`stdio`**: Direct process communication via standard input/output. Supported directly in CLI; supported on Kubernetes via [Supergateway](https://github.com/supercorp-ai/supergateway).
 3. **`sse`** (Deprecated): Legacy Server-Sent Events transport. Use `streamable-http` instead.
 
 ## Streamable-HTTP (Recommended)
