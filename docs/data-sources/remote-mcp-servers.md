@@ -20,18 +20,19 @@ HolmesGPT supports three MCP transport modes:
 
     ```yaml
     mcp_servers:
-      my_server:
-        description: "My MCP server"
+      dynatrace:
+        description: "Dynatrace observability platform"
         config:
-          url: "http://example.com:8000/mcp/messages"
+          url: "http://dynatrace-mcp:8000/mcp/messages"
           mode: streamable-http
           headers:
-            Authorization: "Bearer {{ env.MY_MCP_API_KEY }}"
-        llm_instructions: "Use this server to access external data and perform remote operations."
+            Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+        # llm_instructions tells Holmes WHEN and HOW to use this server
+        llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
 
     ```bash
-    holmes ask -t custom_toolset.yaml "Query my MCP server"
+    holmes ask -t custom_toolset.yaml "What services have high error rates in Dynatrace?"
     ```
 
     Alternatively, add the config to `~/.holmes/config.yaml` and run without `-t`.
@@ -42,21 +43,22 @@ HolmesGPT supports three MCP transport modes:
 
     ```yaml
     additionalEnvVars:
-      - name: MY_MCP_API_KEY
+      - name: DYNATRACE_API_KEY
         valueFrom:
           secretKeyRef:
             name: mcp-credentials
             key: api_key
 
     mcp_servers:
-      my_server:
-        description: "My MCP server"
+      dynatrace:
+        description: "Dynatrace observability platform"
         config:
-          url: "http://example.com:8000/mcp/messages"
+          url: "http://dynatrace-mcp:8000/mcp/messages"
           mode: streamable-http
           headers:
-            Authorization: "Bearer {{ env.MY_MCP_API_KEY }}"
-        llm_instructions: "Use this server to access external data and perform remote operations."
+            Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+        # llm_instructions tells Holmes WHEN and HOW to use this server
+        llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
 
     ```bash
@@ -70,21 +72,22 @@ HolmesGPT supports three MCP transport modes:
     ```yaml
     holmes:
       additionalEnvVars:
-        - name: MY_MCP_API_KEY
+        - name: DYNATRACE_API_KEY
           valueFrom:
             secretKeyRef:
               name: mcp-credentials
               key: api_key
 
       mcp_servers:
-        my_server:
-          description: "My MCP server"
+        dynatrace:
+          description: "Dynatrace observability platform"
           config:
-            url: "http://example.com:8000/mcp/messages"
+            url: "http://dynatrace-mcp:8000/mcp/messages"
             mode: streamable-http
             headers:
-              Authorization: "Bearer {{ env.MY_MCP_API_KEY }}"
-          llm_instructions: "Use this server to access external data and perform remote operations."
+              Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+          # llm_instructions tells Holmes WHEN and HOW to use this server
+          llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
 
     ```bash
@@ -105,8 +108,8 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
 
     ```yaml
     mcp_servers:
-      my_stdio_server:
-        description: "Custom stdio MCP server"
+      ticket_db:
+        description: "Internal ticket database"
         config:
           mode: stdio
           command: "python3"
@@ -114,11 +117,12 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
             - "./my_mcp_server.py"
           env:
             CUSTOM_VAR: "value"
-        llm_instructions: "Use this server to access custom tools provided by the stdio server."
+        # llm_instructions tells Holmes WHEN and HOW to use this server
+        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
     ```
 
     ```bash
-    holmes ask -t custom_toolset.yaml "Run my MCP server tools"
+    holmes ask -t custom_toolset.yaml "Find tickets related to payment service errors"
     ```
 
     Ensure required dependencies (e.g., `mcp`, `fastmcp` packages) are installed in your environment.
@@ -153,9 +157,9 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     apiVersion: v1
     kind: Pod
     metadata:
-      name: my-mcp-server
+      name: ticket-db-mcp
       labels:
-        app: my-mcp-server
+        app: ticket-db-mcp
     spec:
       containers:
         - name: supergateway
@@ -183,10 +187,10 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     apiVersion: v1
     kind: Service
     metadata:
-      name: my-mcp-server
+      name: ticket-db-mcp
     spec:
       selector:
-        app: my-mcp-server
+        app: ticket-db-mcp
       ports:
         - protocol: TCP
           port: 8000
@@ -198,12 +202,13 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
 
     ```yaml
     mcp_servers:
-      my_mcp_server:
-        description: "My stdio MCP server via Supergateway"
+      ticket_db:
+        description: "Internal ticket database"
         config:
-          url: "http://my-mcp-server.default.svc.cluster.local:8000/sse"
+          url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
           mode: sse
-        llm_instructions: "Use this server to access custom tools."
+        # llm_instructions tells Holmes WHEN and HOW to use this server
+        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
     ```
 
     ```bash
@@ -240,9 +245,9 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     apiVersion: v1
     kind: Pod
     metadata:
-      name: my-mcp-server
+      name: ticket-db-mcp
       labels:
-        app: my-mcp-server
+        app: ticket-db-mcp
     spec:
       containers:
         - name: supergateway
@@ -270,10 +275,10 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     apiVersion: v1
     kind: Service
     metadata:
-      name: my-mcp-server
+      name: ticket-db-mcp
     spec:
       selector:
-        app: my-mcp-server
+        app: ticket-db-mcp
       ports:
         - protocol: TCP
           port: 8000
@@ -289,9 +294,10 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
         my_mcp_server:
           description: "My stdio MCP server via Supergateway"
           config:
-            url: "http://my-mcp-server.default.svc.cluster.local:8000/sse"
+            url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
             mode: sse
-          llm_instructions: "Use this server to access custom tools."
+          # llm_instructions tells Holmes WHEN and HOW to use this server
+        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
     ```
 
     ```bash
@@ -306,24 +312,24 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
 
     ```yaml
     mcp_servers:
-      legacy_server:
-        description: "Legacy MCP server using SSE"
+      legacy_analytics:
+        description: "Legacy analytics platform (SSE transport)"
         config:
-          url: "http://example.com:8000/sse"
+          url: "http://analytics-mcp:8000/sse"
           mode: sse
-        llm_instructions: "Legacy server."
+        llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
     ```
 
 === "Holmes Helm Chart"
 
     ```yaml
     mcp_servers:
-      legacy_server:
-        description: "Legacy MCP server using SSE"
+      legacy_analytics:
+        description: "Legacy analytics platform (SSE transport)"
         config:
-          url: "http://example.com:8000/sse"
+          url: "http://analytics-mcp:8000/sse"
           mode: sse
-        llm_instructions: "Legacy server."
+        llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
     ```
 
 === "Robusta Helm Chart"
@@ -355,14 +361,14 @@ MCP servers can use dynamic headers populated from the incoming HTTP request. Th
 
     ```yaml
     mcp_servers:
-      my_server:
-        description: "MCP server with dynamic auth"
+      customer_data:
+        description: "Customer data API (requires per-request auth)"
         config:
-          url: "http://mcp-server:8000/mcp"
+          url: "http://customer-api:8000/mcp"
           mode: streamable-http
           extra_headers:
             X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-        llm_instructions: "Use this server with per-request authentication."
+        llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
     ```
 
 === "Robusta Helm Chart"
