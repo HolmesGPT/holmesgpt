@@ -552,27 +552,13 @@ def render_user_prompt(test_case: AskHolmesTestCase) -> str:
         raise ValueError(f"Expected string user_prompt, got {type(prompt)}")
 
     # Also make EVAL_RUN_ID available from test_case.run_id if set
-    # Temporarily set it for this call, then restore original state to avoid leaking
-    # between tests running sequentially
-    original_eval_run_id = os.environ.get("EVAL_RUN_ID")
-    try:
-        if test_case.run_id:
-            os.environ["EVAL_RUN_ID"] = test_case.run_id
-        elif "{{ env.EVAL_RUN_ID }}" in prompt and not original_eval_run_id:
-            # Prompt needs EVAL_RUN_ID but none exists - generate one
-            # This can happen if --skip-setup is used
-            generated_run_id = generate_run_id()
-            os.environ["EVAL_RUN_ID"] = generated_run_id
-            # Store it on test_case for consistency
-            object.__setattr__(test_case, "run_id", generated_run_id)
+    if test_case.run_id and "EVAL_RUN_ID" not in os.environ:
+        os.environ["EVAL_RUN_ID"] = test_case.run_id
 
-        # Apply env var templating using the same mechanism as toolset config
-        # Let ValueError propagate if env var is missing - better to fail early
+    # Apply env var templating using the same mechanism as toolset config
+    try:
         rendered = get_env_replacement(prompt)
         return rendered if rendered else prompt
-    finally:
-        # Restore original EVAL_RUN_ID state
-        if original_eval_run_id is not None:
-            os.environ["EVAL_RUN_ID"] = original_eval_run_id
-        elif "EVAL_RUN_ID" in os.environ and test_case.run_id:
-            del os.environ["EVAL_RUN_ID"]
+    except ValueError:
+        # If env var not found but no {{ env. }} patterns, return original
+        return prompt
