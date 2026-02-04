@@ -13,7 +13,6 @@ Run with:
 Results are printed as a summary table at the end.
 """
 
-import json
 import os
 import statistics
 import sys
@@ -21,11 +20,16 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import requests
+import urllib3
 
 # Configuration
 DOMAIN = os.environ.get("CORALOGIX_DOMAIN", "eu2.coralogix.com")
-SEND_API_KEY = os.environ.get("CORALOGIX_SEND_DATA_API_KEY") or os.environ.get("CORALOGIX_SEND_API_KEY")
-QUERY_API_KEY = os.environ.get("CORALOGIX_QUERY_DATA_API_KEY") or os.environ.get("CORALOGIX_API_KEY")
+SEND_API_KEY = os.environ.get("CORALOGIX_SEND_DATA_API_KEY") or os.environ.get(
+    "CORALOGIX_SEND_API_KEY"
+)
+QUERY_API_KEY = os.environ.get("CORALOGIX_QUERY_DATA_API_KEY") or os.environ.get(
+    "CORALOGIX_API_KEY"
+)
 
 INGRESS_URL = f"https://ingress.{DOMAIN}"
 QUERY_URL = f"https://ng-api-http.{DOMAIN}/api/v1/dataprime/query"
@@ -53,7 +57,9 @@ def send_log_singles(marker: str) -> bool:
     ]
 
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30, verify=False)
+        resp = requests.post(
+            url, headers=headers, json=payload, timeout=30, verify=False
+        )
         return resp.status_code == 200
     except Exception as e:
         print(f"  Error sending log: {e}")
@@ -77,11 +83,13 @@ def query_for_marker(marker: str) -> bool:
             "syntax": "QUERY_SYNTAX_DATAPRIME",
             "startDate": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "endDate": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }
+        },
     }
 
     try:
-        resp = requests.post(QUERY_URL, headers=headers, json=payload, timeout=60, verify=False)
+        resp = requests.post(
+            QUERY_URL, headers=headers, json=payload, timeout=60, verify=False
+        )
         return marker in resp.text
     except Exception:
         return False
@@ -108,7 +116,9 @@ def measure_ingestion_time(test_num: int) -> float | None:
         attempts += 1
         if query_for_marker(marker):
             elapsed = time.time() - start_time
-            print(f"  Test {test_num}: Found after {elapsed:.1f}s ({attempts} attempts)")
+            print(
+                f"  Test {test_num}: Found after {elapsed:.1f}s ({attempts} attempts)"
+            )
             return elapsed
         time.sleep(POLL_INTERVAL)
 
@@ -118,11 +128,12 @@ def measure_ingestion_time(test_num: int) -> float | None:
 
 def main():
     # Suppress SSL warnings
-    import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     if not SEND_API_KEY or not QUERY_API_KEY:
-        print("Error: Missing API keys. Set CORALOGIX_SEND_DATA_API_KEY and CORALOGIX_QUERY_DATA_API_KEY")
+        print(
+            "Error: Missing API keys. Set CORALOGIX_SEND_DATA_API_KEY and CORALOGIX_QUERY_DATA_API_KEY"
+        )
         sys.exit(1)
 
     print("=" * 60)
@@ -152,7 +163,7 @@ def main():
     print("=" * 60)
     print("RESULTS SUMMARY")
     print("=" * 60)
-    print(f"Endpoint: REST API /logs/v1/singles")
+    print("Endpoint: REST API /logs/v1/singles")
     print(f"Successful tests: {len(results)}/{NUM_TESTS}")
 
     if results:
@@ -176,7 +187,7 @@ def main():
     if results:
         suggested = max(results) * 1.5
         print(f"Suggested setup_timeout: {int(suggested)}s (max * 1.5)")
-        print(f"Current recommendation: 1200s (20 minutes) for safety margin")
+        print("Current recommendation: 600s (10 minutes) based on testing")
 
 
 if __name__ == "__main__":
