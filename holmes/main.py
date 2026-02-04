@@ -29,7 +29,11 @@ from holmes.config import (
     SourceFactory,
     SupportedTicketSources,
 )
-from holmes.core.prompt import build_initial_ask_messages, build_system_prompt, generate_user_prompt
+from holmes.core.prompt import (
+    build_initial_ask_messages,
+    build_system_prompt,
+    generate_user_prompt,
+)
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import SpanType, TracingFactory
@@ -319,7 +323,9 @@ def ask(
 
     if include_file:
         for file_path in include_file:
-            console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+            console.print(
+                f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+            )
 
     messages = build_initial_ask_messages(
         prompt,  # type: ignore
@@ -673,6 +679,7 @@ def ticket(
         system_prompt_additions=ticket_additions,
         cluster_name=ticket_source.config.cluster_name,
         ask_user_enabled=False,
+        prompt_component_overrides={},
     )
     console.print(
         f"[bold yellow]Analyzing ticket: {issue_to_investigate.name}...[/bold yellow]"

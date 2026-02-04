@@ -146,7 +146,9 @@ def build_issue_chat_messages(
 
         truncated_template_context = {
             "investigation": investigation_analysis,
-            "tools_called_for_investigation": truncate_tool_outputs(tools_for_investigation, tool_size),  # type: ignore
+            "tools_called_for_investigation": truncate_tool_outputs(
+                tools_for_investigation, tool_size
+            ),  # type: ignore
             "issue": issue_chat_request.issue_type,
             "toolsets": ai.tool_executor.toolsets,
             "cluster_name": config.cluster_name,
@@ -210,7 +212,9 @@ def build_issue_chat_messages(
 
     template_context = {
         "investigation": investigation_analysis,
-        "tools_called_for_investigation": truncate_tool_outputs(tools_for_investigation, tool_size),  # type: ignore
+        "tools_called_for_investigation": truncate_tool_outputs(
+            tools_for_investigation, tool_size
+        ),  # type: ignore
         "issue": issue_chat_request.issue_type,
         "toolsets": ai.tool_executor.toolsets,
         "cluster_name": config.cluster_name,
@@ -293,7 +297,9 @@ def build_chat_messages(
         conversation_history = []
     else:
         conversation_history = conversation_history.copy()
-    conversation_history = add_or_update_system_prompt(conversation_history, system_prompt)
+    conversation_history = add_or_update_system_prompt(
+        conversation_history, system_prompt
+    )
 
     conversation_history.append({"role": "user", "content": user_content})  # type: ignore
 

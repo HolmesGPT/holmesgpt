@@ -230,6 +230,7 @@ class IssueChatRequest(ChatRequestBaseModel):
     investigation_result: IssueInvestigationResult
     issue_type: str
 
+
 class ChatRequest(ChatRequestBaseModel):
     ask: str
     images: Optional[List[Union[str, Dict[str, Any]]]] = Field(

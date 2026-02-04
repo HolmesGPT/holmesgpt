@@ -48,12 +48,10 @@ from holmes.core.models import (
     ChatResponse,
     FollowUpAction,
     InvestigateRequest,
-    InvestigationResult,
     IssueChatRequest,
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
-from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
@@ -361,7 +359,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
-            logging.info(f"Applying behavior_controls: {chat_request.behavior_controls}")
+            logging.info(
+                f"Applying behavior_controls: {chat_request.behavior_controls}"
+            )
             prompt_component_overrides = {}
             for k, v in chat_request.behavior_controls.items():
                 try:
