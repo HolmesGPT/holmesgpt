@@ -247,7 +247,7 @@ def investigate_issues(investigate_request: InvestigateRequest, http_request: Re
 @app.post("/api/stream/investigate")
 def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
     try:
-        ai, system_prompt, user_prompt, response_format, sections, runbooks = (
+        ai, system_prompt, user_prompt, response_format, sections = (
             investigation.get_investigation_context(req, dal, config)
         )
         request_context = extract_passthrough_headers(http_request)
@@ -261,7 +261,6 @@ def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
                     sections=sections,
                     request_context=request_context,
                 ),
-                runbooks,
             ),
             media_type="text/event-stream",
         )
