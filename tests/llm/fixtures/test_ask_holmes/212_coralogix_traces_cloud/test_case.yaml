@@ -13,9 +13,9 @@
 user_prompt: "Search the Coralogix spans for service 'checkout-flow-{{ env.EVAL_RUN_ID }}'. IMPORTANT: Only query spans from this EXACT service name, not any other service. Look for failed spans and report what error codes you find. Also identify which operation failed."
 
 expected_output:
-  - "Must identify that there are error/failed spans"
+  - "Must identify error/failed spans in the trace"
   - "Must find the error code ERR-5847"
-  - "Must mention that the external_api_call or payment gateway operation failed"
+  - "Must identify that the external_api_call span failed (payment gateway timeout)"
 
 tags:
   - coralogix

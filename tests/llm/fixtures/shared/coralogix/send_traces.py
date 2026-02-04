@@ -93,14 +93,19 @@ def send_traces(domain: str, api_key: str, app_name: str, subsystem: str,
         root_span.set_attribute("error", True)
 
     # Force flush to ensure spans are sent
-    provider.force_flush()
+    flush_success = provider.force_flush()
+    if not flush_success:
+        print("❌ FAILURE: provider.force_flush() returned False - spans may not have been exported")
+        provider.shutdown()
+        return False
+
     provider.shutdown()
 
     print(f"✅ Traces sent successfully with trace_id={trace_id}, error_code={error_code}")
     return True
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Send test traces to Coralogix")
     parser.add_argument("--domain", default=os.environ.get("CORALOGIX_DOMAIN", "eu2.coralogix.com"),
                         help="Coralogix domain (e.g., eu2.coralogix.com)")

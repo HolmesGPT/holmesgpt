@@ -556,9 +556,6 @@ def render_user_prompt(test_case: AskHolmesTestCase) -> str:
         os.environ["EVAL_RUN_ID"] = test_case.run_id
 
     # Apply env var templating using the same mechanism as toolset config
-    try:
-        rendered = get_env_replacement(prompt)
-        return rendered if rendered else prompt
-    except ValueError:
-        # If env var not found but no {{ env. }} patterns, return original
-        return prompt
+    # Let ValueError propagate if env var is missing - better to fail early
+    rendered = get_env_replacement(prompt)
+    return rendered if rendered else prompt
