@@ -47,50 +47,17 @@ before_test: |
 
   echo "⏳ Sending logs to Coralogix for app: $APP_NAME..."
 
-  # Build log entries JSON - Coralogix /singles API expects an ARRAY of entries
-  # Each entry must include applicationName and subsystemName
-  # IMPORTANT: Include EVAL_RUN_ID in log text so we can search for THIS run's logs specifically
-  # (lucene searches text content, not labels like applicationName)
-  # See: https://coralogix.com/docs/developer-portal/apis/log-ingestion/coralogix-rest-api-singles/
-  LOG_ENTRIES="[
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 3, \"text\": \"[${EVAL_RUN_ID}] Service started successfully - payment-api initialized\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"[${EVAL_RUN_ID}] Database connection timeout - $ERROR_CODE_1: Failed to connect to primary database after 30s\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 4, \"text\": \"[${EVAL_RUN_ID}] Retrying database connection attempt 1\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"[${EVAL_RUN_ID}] Payment validation failed - $ERROR_CODE_2: Invalid card number format for user U-12345\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 3, \"text\": \"[${EVAL_RUN_ID}] Processing order batch complete - 150 orders processed\"},
-    {\"applicationName\": \"$APP_NAME\", \"subsystemName\": \"$SUBSYSTEM\", \"severity\": 5, \"text\": \"[${EVAL_RUN_ID}] Stock sync failed - $ERROR_CODE_3: External inventory API returned 503\"}
-  ]"
+  # Send logs using Python script with proper HTTP library
+  # Using Python instead of curl to match the approach that works for traces/metrics (tests 212/213)
+  # The script includes verbose debug output for troubleshooting CI issues
+  SSL_VERIFY=false python3 ../../shared/coralogix/send_logs.py \
+    --app-name "$APP_NAME" \
+    --subsystem "$SUBSYSTEM" \
+    --run-id "$EVAL_RUN_ID" \
+    --error-codes "$ERROR_CODE_1,$ERROR_CODE_2,$ERROR_CODE_3" \
+    --verbose
 
-  # Send logs via REST API
-  INGRESS_URL=$(cx_ingress_url)
-
-  # Use unique temp file to avoid parallel test collisions
-  RESPONSE_FILE=$(mktemp)
-  trap "rm -f $RESPONSE_FILE" EXIT
-
-  # Check HTTP status code to validate write succeeded
-  HTTP_CODE=$(curl -sk -o "$RESPONSE_FILE" -w "%{http_code}" -X POST "${INGRESS_URL}/logs/v1/singles" \
-    -H "Authorization: Bearer ${CORALOGIX_SEND_API_KEY}" \
-    -H "Content-Type: application/json" \
-    -d "$LOG_ENTRIES")
-  RESPONSE=$(cat "$RESPONSE_FILE" 2>/dev/null || echo "")
-
-  echo "   Ingestion HTTP status: $HTTP_CODE"
-  echo "   Ingestion response: $RESPONSE"
-
-  # Validate write succeeded - must get HTTP 200
-  if [ "$HTTP_CODE" != "200" ]; then
-    echo "❌ Ingestion failed with HTTP $HTTP_CODE"
-    echo "   This usually means CORALOGIX_SEND_API_KEY is invalid or has wrong permissions"
-    exit 1
-  fi
-
-  if echo "$RESPONSE" | grep -q "Dropped"; then
-    echo "❌ Logs were dropped by Coralogix: $RESPONSE"
-    exit 1
-  fi
-
-  echo "✅ Logs sent to $APP_NAME/$SUBSYSTEM (HTTP 200)"
+  echo "✅ Logs sent to $APP_NAME/$SUBSYSTEM"
 
   # Wait for logs to be queryable (Coralogix has some ingestion delay)
   echo "⏳ Waiting for logs to be queryable in Coralogix..."
