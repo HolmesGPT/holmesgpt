@@ -10,7 +10,7 @@ tags:
   - traces
   - coralogix
 
-setup_timeout: 900  # 15 minutes - pod scheduling + Coralogix indexing
+setup_timeout: 600  # 10 minutes
 
 before_test: |
   # Validate required Coralogix environment variables
@@ -46,13 +46,13 @@ before_test: |
 
   echo "⏳ Waiting for ad-service pod to be ready (timeout 780s)"
   AD_POD_READY=false
-  for i in {1..156}; do
+  for i in {1..120}; do
     if kubectl wait --for=condition=ready pod -l app=ad-service -n app-174 --timeout=5s 2>/dev/null; then
       echo "✅ ad-service pod is ready!"
       AD_POD_READY=true
       break
     else
-      echo "⏳ Attempt $i/156: ad-service pod not ready yet, waiting 5s..."
+      echo "⏳ Attempt $i/120: ad-service pod not ready yet, waiting 5s..."
       sleep 5
     fi
   done
@@ -81,13 +81,13 @@ before_test: |
 
   echo "⏳ Waiting for ad-generator pod to be ready (timeout 780s)"
   TRAFFIC_POD_READY=false
-  for i in {1..156}; do
+  for i in {1..120}; do
     if kubectl wait --for=condition=ready pod -l app=ad-generator -n app-174 --timeout=5s 2>/dev/null; then
       echo "✅ ad-generator pod is ready!"
       TRAFFIC_POD_READY=true
       break
     else
-      echo "⏳ Attempt $i/156: ad-generator pod not ready yet, waiting 5s..."
+      echo "⏳ Attempt $i/120: ad-generator pod not ready yet, waiting 5s..."
       sleep 5
     fi
   done
