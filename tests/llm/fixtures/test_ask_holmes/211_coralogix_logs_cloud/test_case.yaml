@@ -2,7 +2,7 @@
 # Tests that Holmes can search logs using Coralogix DataPrime query language
 #
 # This is a cloud-only test that writes logs directly to Coralogix via REST API,
-# no Kubernetes cluster required. Note: Coralogix EU2 indexing can take 30+ minutes.
+# no Kubernetes cluster required.
 #
 # Requirements:
 # - CORALOGIX_SEND_API_KEY: API key with SendData permissions (for ingestion)
@@ -26,7 +26,7 @@ tags:
   - logs
   - medium
 
-setup_timeout: 2700  # 45 minutes - Coralogix EU2 indexing can take 30+ minutes
+setup_timeout: 600  # 10 minutes
 
 before_test: |
   set -e
@@ -69,7 +69,7 @@ before_test: |
   echo "   Query time range: $START_DATE to $END_DATE"
 
   LOGS_READY=false
-  for i in {1..540}; do
+  for i in {1..120}; do
     # Search for EVAL_RUN_ID which is unique to THIS test run
     # This ensures we find logs from THIS run, not cached logs from previous runs
     JSON_PAYLOAD=$(jq -n \
@@ -93,7 +93,7 @@ before_test: |
       break
     fi
 
-    echo "   Attempt $i/540: Logs not yet indexed, waiting 5s..."
+    echo "   Attempt $i/120: Logs not yet indexed, waiting 5s..."
     sleep 5
   done
 
