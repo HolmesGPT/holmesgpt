@@ -44,6 +44,19 @@ from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
+
+
+def _warn_deprecated_custom_runbooks(custom_runbooks: Optional[List[Path]]) -> None:
+    """Warn user about deprecated --custom-runbooks CLI flag."""
+    if custom_runbooks:
+        logging.warning(
+            "The --custom-runbooks (-r) flag is deprecated. "
+            "HolmesGPT now uses a more powerful catalog-based runbook system where the LLM can intelligently "
+            "fetch relevant runbooks on-demand. Please use the 'custom_runbook_catalogs' config field in "
+            "~/.holmes/config.yaml instead to specify runbook catalog files."
+        )
+
+
 investigate_app = typer.Typer(
     add_completion=False,
     name="investigate",
@@ -92,7 +105,7 @@ opt_custom_runbooks: Optional[List[Path]] = typer.Option(
     [],
     "--custom-runbooks",
     "-r",
-    help="Path to a custom runbooks (can specify -r multiple times to add multiple runbooks)",
+    help="[DEPRECATED] Replaced by the more powerful 'custom_runbook_catalogs' config field, which enables intelligent on-demand runbook fetching.",
 )
 opt_max_steps: Optional[int] = typer.Option(
     40,
@@ -410,6 +423,7 @@ def alertmanager(
     Investigate a Prometheus/Alertmanager alert
     """
     console = init_logging(verbose)
+    _warn_deprecated_custom_runbooks(custom_runbooks)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -424,7 +438,6 @@ def alertmanager(
         slack_token=slack_token,
         slack_channel=slack_channel,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
 
     ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
@@ -541,6 +554,7 @@ def jira(
     Investigate a Jira ticket
     """
     console = init_logging(verbose)
+    _warn_deprecated_custom_runbooks(custom_runbooks)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -551,7 +565,6 @@ def jira(
         jira_api_key=jira_api_key,
         jira_query=jira_query,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
     ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
     source = config.create_jira_source()
@@ -735,6 +748,7 @@ def github(
     Investigate a GitHub issue
     """
     console = init_logging(verbose)  # type: ignore
+    _warn_deprecated_custom_runbooks(custom_runbooks)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -746,7 +760,6 @@ def github(
         github_repository=github_repository,
         github_query=github_query,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
     ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_github_source()
@@ -818,6 +831,7 @@ def pagerduty(
     Investigate a PagerDuty incident
     """
     console = init_logging(verbose)
+    _warn_deprecated_custom_runbooks(custom_runbooks)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -827,7 +841,6 @@ def pagerduty(
         pagerduty_user_email=pagerduty_user_email,
         pagerduty_incident_key=pagerduty_incident_key,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
     ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_pagerduty_source()
@@ -901,6 +914,7 @@ def opsgenie(
     Investigate an OpsGenie alert
     """
     console = init_logging(verbose)  # type: ignore
+    _warn_deprecated_custom_runbooks(custom_runbooks)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -910,7 +924,6 @@ def opsgenie(
         opsgenie_team_integration_key=opsgenie_team_integration_key,
         opsgenie_query=opsgenie_query,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
     ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_opsgenie_source()
