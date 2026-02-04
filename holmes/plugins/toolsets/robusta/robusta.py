@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from holmes.common.env_vars import load_bool
 from holmes.core.supabase_dal import FindingType, SupabaseDal

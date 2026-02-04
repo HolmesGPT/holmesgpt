@@ -2,9 +2,9 @@ import base64
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -20,6 +20,7 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
 def _build_newrelic_query_url(
@@ -224,21 +225,25 @@ class ListOrganizationAccounts(Tool):
         return f"{toolset_name_for_one_liner(self._toolset.name)}: List organization accounts"
 
 
-class NewrelicConfig(BaseModel):
+class NewrelicConfig(ToolsetConfig):
     nr_api_key: str = Field(
+        title="API Key",
         description="New Relic API key for authentication",
         examples=["NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX"],
     )
     nr_account_id: str = Field(
+        title="Account ID",
         description="New Relic account ID",
         examples=["1234567"],
     )
     is_eu_datacenter: Optional[bool] = Field(
         default=False,
+        title="EU Datacenter",
         description="Whether to use EU datacenter (api.eu.newrelic.com) instead of US",
     )
     enable_multi_account: Optional[bool] = Field(
         default=False,
+        title="Multi-Account Mode",
         description="Enable multi-account support for querying across accounts",
     )
 

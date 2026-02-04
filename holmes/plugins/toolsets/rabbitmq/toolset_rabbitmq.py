@@ -3,7 +3,7 @@ import os
 from typing import Any, ClassVar, List, Optional, Tuple, Type
 from urllib.parse import urljoin
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from requests import RequestException  # type: ignore
 
 from holmes.core.tools import (
@@ -23,11 +23,12 @@ from holmes.plugins.toolsets.rabbitmq.api import (
     make_request,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
-from holmes.utils.pydantic_utils import build_config_example
+from holmes.utils.pydantic_utils import ToolsetConfig, build_config_example
 
 
-class RabbitMQConfig(BaseModel):
+class RabbitMQConfig(ToolsetConfig):
     clusters: List[RabbitMQClusterConfig] = Field(
+        title="Clusters",
         description="List of RabbitMQ clusters to connect to",
         examples=[
             [build_config_example(RabbitMQClusterConfig)]

@@ -1,18 +1,27 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from tests.llm.utils.test_case_utils import (  # type: ignore[attr-defined]
     Evaluation,
     HolmesTestCase,
 )
 
+if TYPE_CHECKING:
+    from tests.llm.utils.env_config import EnvConfig
 
-def set_initial_properties(request, test_case: HolmesTestCase, model: str) -> None:
+
+def set_initial_properties(
+    request,
+    test_case: HolmesTestCase,
+    model: str,
+    env_config: Optional["EnvConfig"] = None,
+) -> None:
     """Set initial properties at the beginning of a test so they're available even if test fails early.
 
     Args:
         request: The pytest request object
         test_case: The test case being executed
         model: The model being used for this test run
+        env_config: Optional environment configuration being used for this test run
     """
     expected = test_case.expected_output
     if not isinstance(expected, list):
@@ -52,6 +61,10 @@ def set_initial_properties(request, test_case: HolmesTestCase, model: str) -> No
     request.node.user_properties.append(("clean_test_case_id", test_case.id))
     # Add tags for tag-based performance analysis
     request.node.user_properties.append(("tags", test_case.tags or []))
+
+    # Add env_config tracking
+    config_name = env_config.name if env_config else "default"
+    request.node.user_properties.append(("env_config", config_name))
 
 
 def set_trace_properties(request, eval_span) -> None:

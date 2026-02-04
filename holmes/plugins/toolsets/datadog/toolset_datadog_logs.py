@@ -3,7 +3,6 @@ import logging
 import os
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
-from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
