@@ -558,6 +558,13 @@ def render_user_prompt(test_case: AskHolmesTestCase) -> str:
     try:
         if test_case.run_id:
             os.environ["EVAL_RUN_ID"] = test_case.run_id
+        elif "{{ env.EVAL_RUN_ID }}" in prompt and not original_eval_run_id:
+            # Prompt needs EVAL_RUN_ID but none exists - generate one
+            # This can happen if --skip-setup is used
+            generated_run_id = generate_run_id()
+            os.environ["EVAL_RUN_ID"] = generated_run_id
+            # Store it on test_case for consistency
+            object.__setattr__(test_case, "run_id", generated_run_id)
 
         # Apply env var templating using the same mechanism as toolset config
         # Let ValueError propagate if env var is missing - better to fail early
