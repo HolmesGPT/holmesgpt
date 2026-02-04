@@ -247,6 +247,10 @@ class ChatRequest(ChatRequestBaseModel):
         default=None,
         description="Optional JSON schema for structured output. Format: {'type': 'json_schema', 'json_schema': {'name': 'ResultName', 'strict': true, 'schema': {...}}}",
     )
+    behavior_controls: Optional[Dict[str, bool]] = Field(
+        default=None,
+        description="Override prompt components (e.g., {'todowrite_instructions': false}). Env var ENABLED_PROMPTS takes precedence.",
+    )
 
 
 class FollowUpAction(BaseModel):

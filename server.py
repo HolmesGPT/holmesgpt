@@ -51,7 +51,7 @@ from holmes.core.models import (
     InvestigationResult,
     IssueChatRequest,
 )
-from holmes.core.prompt import generate_user_prompt
+from holmes.core.prompt import PromptComponent
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.connection_utils import patch_socket_create_connection
@@ -358,6 +358,17 @@ def chat(chat_request: ChatRequest, http_request: Request):
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
+
+        prompt_component_overrides = None
+        if chat_request.behavior_controls:
+            logging.info(f"Applying behavior_controls: {chat_request.behavior_controls}")
+            prompt_component_overrides = {}
+            for k, v in chat_request.behavior_controls.items():
+                try:
+                    prompt_component_overrides[PromptComponent(k.lower())] = v
+                except ValueError:
+                    logging.warning(f"Unknown behavior_controls key '{k}', ignoring")
+
         messages = build_chat_messages(
             chat_request.ask,
             chat_request.conversation_history,
@@ -367,6 +378,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             additional_system_prompt=chat_request.additional_system_prompt,
             runbooks=runbooks,
             images=chat_request.images,
+            prompt_component_overrides=prompt_component_overrides,
         )
         request_context = extract_passthrough_headers(http_request)
 
