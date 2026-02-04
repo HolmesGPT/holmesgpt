@@ -297,6 +297,7 @@ def build_initial_ask_messages(
     system_prompt_additions: Optional[str] = None,
     global_instructions: Optional[Instructions] = None,
     cluster_name: Optional[str] = None,
+    prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
 ) -> List[Dict]:
     """Build the initial messages for the CLI ask command."""
     system_prompt, user_prompt = build_prompts(
@@ -310,6 +311,7 @@ def build_initial_ask_messages(
         file_paths=file_paths,
         include_todowrite_reminder=True,
         images=None,
+        prompt_component_overrides=prompt_component_overrides,
     )
 
     messages = []
