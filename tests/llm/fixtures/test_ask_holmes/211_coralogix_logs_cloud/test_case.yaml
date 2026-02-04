@@ -1,8 +1,8 @@
 # Test: Coralogix Log Search with DataPrime
 # Tests that Holmes can search logs using Coralogix DataPrime query language
 #
-# This is a fast cloud-only test that writes logs directly to Coralogix via REST API,
-# no Kubernetes cluster required.
+# This is a cloud-only test that writes logs directly to Coralogix via REST API,
+# no Kubernetes cluster required. Note: Coralogix EU2 indexing can take 30+ minutes.
 #
 # Requirements:
 # - CORALOGIX_SEND_API_KEY: API key with SendData permissions (for ingestion)
