@@ -17,6 +17,20 @@ EVAL_SETUP_TIMEOUT = int(
     os.environ.get("EVAL_SETUP_TIMEOUT", "300")
 )  # Default timeout in seconds
 
+# Module-level storage for run_ids to ensure they persist between setup and test execution
+# Key: test_case.id, Value: generated run_id
+_TEST_RUN_IDS: Dict[str, str] = {}
+
+
+def get_test_run_id(test_case_id: str) -> str:
+    """Get the run_id for a test case.
+
+    This retrieves the run_id that was generated during setup for reliable
+    use in render_user_prompt. Using module-level storage because
+    object.__setattr__ on Pydantic models is unreliable.
+    """
+    return _TEST_RUN_IDS.get(test_case_id, "")
+
 
 def _get_pod_diagnostics(test_case: Optional[HolmesTestCase], operation: str) -> str:
     """Get pod and event diagnostics for debugging failures.
@@ -234,14 +248,16 @@ def run_commands(
     extra_env: Dict[str, str] = {}
     if operation == "setup":
         run_id = generate_run_id()
-        # Store on test_case for later use in user_prompt templating
-        # Use object.__setattr__ to bypass Pydantic's frozen model validation
-        object.__setattr__(test_case, "run_id", run_id)
+        # Store in module-level dict for reliable retrieval in render_user_prompt
+        # object.__setattr__ on Pydantic models is unreliable
+        _TEST_RUN_IDS[test_case.id] = run_id
         extra_env["EVAL_RUN_ID"] = run_id
         logging.debug(f"Generated EVAL_RUN_ID={run_id} for test {test_case.id}")
-    elif operation == "cleanup" and test_case.run_id:
+    elif operation == "cleanup":
         # Reuse the same run_id for cleanup
-        extra_env["EVAL_RUN_ID"] = test_case.run_id
+        run_id = _TEST_RUN_IDS.get(test_case.id, "")
+        if run_id:
+            extra_env["EVAL_RUN_ID"] = run_id
 
     try:
         # Execute the entire commands string as a single bash script

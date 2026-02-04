@@ -551,9 +551,13 @@ def render_user_prompt(test_case: AskHolmesTestCase) -> str:
         # For list prompts, this should be the specific variant
         raise ValueError(f"Expected string user_prompt, got {type(prompt)}")
 
-    # Also make EVAL_RUN_ID available from test_case.run_id if set
-    if test_case.run_id and "EVAL_RUN_ID" not in os.environ:
-        os.environ["EVAL_RUN_ID"] = test_case.run_id
+    # Get run_id from module-level storage (more reliable than test_case.run_id)
+    # object.__setattr__ on Pydantic models is unreliable
+    from tests.llm.utils.commands import get_test_run_id
+
+    run_id = get_test_run_id(test_case.id)
+    if run_id and "EVAL_RUN_ID" not in os.environ:
+        os.environ["EVAL_RUN_ID"] = run_id
 
     # Apply env var templating using the same mechanism as toolset config
     try:
