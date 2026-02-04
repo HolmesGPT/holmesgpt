@@ -552,10 +552,20 @@ def render_user_prompt(test_case: AskHolmesTestCase) -> str:
         raise ValueError(f"Expected string user_prompt, got {type(prompt)}")
 
     # Also make EVAL_RUN_ID available from test_case.run_id if set
-    if test_case.run_id and "EVAL_RUN_ID" not in os.environ:
-        os.environ["EVAL_RUN_ID"] = test_case.run_id
+    # Temporarily set it for this call, then restore original state to avoid leaking
+    # between tests running sequentially
+    original_eval_run_id = os.environ.get("EVAL_RUN_ID")
+    try:
+        if test_case.run_id:
+            os.environ["EVAL_RUN_ID"] = test_case.run_id
 
-    # Apply env var templating using the same mechanism as toolset config
-    # Let ValueError propagate if env var is missing - better to fail early
-    rendered = get_env_replacement(prompt)
-    return rendered if rendered else prompt
+        # Apply env var templating using the same mechanism as toolset config
+        # Let ValueError propagate if env var is missing - better to fail early
+        rendered = get_env_replacement(prompt)
+        return rendered if rendered else prompt
+    finally:
+        # Restore original EVAL_RUN_ID state
+        if original_eval_run_id is not None:
+            os.environ["EVAL_RUN_ID"] = original_eval_run_id
+        elif "EVAL_RUN_ID" in os.environ and test_case.run_id:
+            del os.environ["EVAL_RUN_ID"]
