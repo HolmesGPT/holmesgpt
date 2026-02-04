@@ -165,6 +165,15 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
           image: your-registry/your-mcp-server:latest
           ports:
             - containerPort: 8000
+          args:
+            - "--stdio"
+            # Replace with your MCP server command
+            # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
+            - "python3 -m your_mcp_module"
+            - "--port"
+            - "8000"
+            - "--logLevel"
+            - "debug"
           env:
             - name: API_KEY
               valueFrom:
@@ -245,6 +254,15 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
           image: your-registry/your-mcp-server:latest
           ports:
             - containerPort: 8000
+          args:
+            - "--stdio"
+            # Replace with your MCP server command
+            # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
+            - "python3 -m your_mcp_module"
+            - "--port"
+            - "8000"
+            - "--logLevel"
+            - "debug"
           env:
             - name: API_KEY
               valueFrom:
