@@ -41,24 +41,22 @@ HolmesGPT supports three MCP transport modes:
     Add to your Helm values:
 
     ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MY_MCP_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: mcp-credentials
-              key: api_key
+    additionalEnvVars:
+      - name: MY_MCP_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: mcp-credentials
+            key: api_key
 
-      custom_toolsets:
-        mcp_servers:
-          my_server:
-            description: "My MCP server"
-            config:
-              url: "http://example.com:8000/mcp/messages"
-              mode: streamable-http
-              headers:
-                Authorization: "Bearer {{ env.MY_MCP_API_KEY }}"
-            llm_instructions: "Use this server to access external data and perform remote operations."
+    mcp_servers:
+      my_server:
+        description: "My MCP server"
+        config:
+          url: "http://example.com:8000/mcp/messages"
+          mode: streamable-http
+          headers:
+            Authorization: "Bearer {{ env.MY_MCP_API_KEY }}"
+        llm_instructions: "Use this server to access external data and perform remote operations."
     ```
 
     ```bash
@@ -78,16 +76,15 @@ HolmesGPT supports three MCP transport modes:
               name: mcp-credentials
               key: api_key
 
-      custom_toolsets:
-        mcp_servers:
-          my_server:
-            description: "My MCP server"
-            config:
-              url: "http://example.com:8000/mcp/messages"
-              mode: streamable-http
-              headers:
-                Authorization: "Bearer {{ env.MY_MCP_API_KEY }}"
-            llm_instructions: "Use this server to access external data and perform remote operations."
+      mcp_servers:
+        my_server:
+          description: "My MCP server"
+          config:
+            url: "http://example.com:8000/mcp/messages"
+            mode: streamable-http
+            headers:
+              Authorization: "Bearer {{ env.MY_MCP_API_KEY }}"
+          llm_instructions: "Use this server to access external data and perform remote operations."
     ```
 
     ```bash
@@ -200,15 +197,13 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     **Connect Holmes to the MCP server:**
 
     ```yaml
-    holmes:
-      custom_toolsets:
-        mcp_servers:
-          my_mcp_server:
-            description: "My stdio MCP server via Supergateway"
-            config:
-              url: "http://my-mcp-server.default.svc.cluster.local:8000/sse"
-              mode: sse
-            llm_instructions: "Use this server to access custom tools."
+    mcp_servers:
+      my_mcp_server:
+        description: "My stdio MCP server via Supergateway"
+        config:
+          url: "http://my-mcp-server.default.svc.cluster.local:8000/sse"
+          mode: sse
+        llm_instructions: "Use this server to access custom tools."
     ```
 
     ```bash
@@ -290,14 +285,13 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
 
     ```yaml
     holmes:
-      custom_toolsets:
-        mcp_servers:
-          my_mcp_server:
-            description: "My stdio MCP server via Supergateway"
-            config:
-              url: "http://my-mcp-server.default.svc.cluster.local:8000/sse"
-              mode: sse
-            llm_instructions: "Use this server to access custom tools."
+      mcp_servers:
+        my_mcp_server:
+          description: "My stdio MCP server via Supergateway"
+          config:
+            url: "http://my-mcp-server.default.svc.cluster.local:8000/sse"
+            mode: sse
+          llm_instructions: "Use this server to access custom tools."
     ```
 
     ```bash
@@ -323,29 +317,26 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
 === "Holmes Helm Chart"
 
     ```yaml
-    holmes:
-      custom_toolsets:
-        mcp_servers:
-          legacy_server:
-            description: "Legacy MCP server using SSE"
-            config:
-              url: "http://example.com:8000/sse"
-              mode: sse
-            llm_instructions: "Legacy server."
+    mcp_servers:
+      legacy_server:
+        description: "Legacy MCP server using SSE"
+        config:
+          url: "http://example.com:8000/sse"
+          mode: sse
+        llm_instructions: "Legacy server."
     ```
 
 === "Robusta Helm Chart"
 
     ```yaml
     holmes:
-      custom_toolsets:
-        mcp_servers:
-          legacy_server:
-            description: "Legacy MCP server using SSE"
-            config:
-              url: "http://example.com:8000/sse"
-              mode: sse
-            llm_instructions: "Legacy server."
+      mcp_servers:
+        legacy_server:
+          description: "Legacy MCP server using SSE"
+          config:
+            url: "http://example.com:8000/sse"
+            mode: sse
+          llm_instructions: "Legacy server."
     ```
 
 The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically append it.
@@ -363,33 +354,30 @@ MCP servers can use dynamic headers populated from the incoming HTTP request. Th
 === "Holmes Helm Chart"
 
     ```yaml
-    holmes:
-      custom_toolsets:
-        mcp_servers:
-          my_server:
-            description: "MCP server with dynamic auth"
-            config:
-              url: "http://mcp-server:8000/mcp"
-              mode: streamable-http
-              extra_headers:
-                X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-            llm_instructions: "Use this server with per-request authentication."
+    mcp_servers:
+      my_server:
+        description: "MCP server with dynamic auth"
+        config:
+          url: "http://mcp-server:8000/mcp"
+          mode: streamable-http
+          extra_headers:
+            X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
+        llm_instructions: "Use this server with per-request authentication."
     ```
 
 === "Robusta Helm Chart"
 
     ```yaml
     holmes:
-      custom_toolsets:
-        mcp_servers:
-          my_server:
-            description: "MCP server with dynamic auth"
-            config:
-              url: "http://mcp-server:8000/mcp"
-              mode: streamable-http
-              extra_headers:
-                X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-            llm_instructions: "Use this server with per-request authentication."
+      mcp_servers:
+        my_server:
+          description: "MCP server with dynamic auth"
+          config:
+            url: "http://mcp-server:8000/mcp"
+            mode: streamable-http
+            extra_headers:
+              X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
+          llm_instructions: "Use this server with per-request authentication."
     ```
 
 When making requests to HolmesGPT, include the required header:
