@@ -274,6 +274,7 @@ class SupabaseDal:
         name_pattern: Optional[str] = None,
         kind: Optional[str] = None,
         container: Optional[str] = None,
+        clusters: Optional[List[str]] = None,
     ) -> Optional[List[Dict]]:
         """
         Fetch top N resource recommendations with optional filters and sorting.
@@ -292,6 +293,8 @@ class SupabaseDal:
             name_pattern: Filter by workload name (supports SQL LIKE pattern, e.g., '%app%')
             kind: Filter by Kubernetes resource kind (e.g., Deployment, StatefulSet, DaemonSet, Job)
             container: Filter by container name (exact match)
+            clusters: List of cluster names to query. If None, queries current cluster only.
+                      Use ["*"] to query all clusters in the account.
 
         Returns:
             List of recommendations sorted by the specified metric
@@ -299,58 +302,82 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        scans_meta_response = (
-            self.client.table(SCANS_META_TABLE)
-            .select("*")
-            .eq("account_id", self.account_id)
-            .eq("cluster_id", self.cluster)
-            .eq("latest", True)
-            .execute()
-        )
-        if not len(scans_meta_response.data):
-            logging.warning("No scan metadata found for latest krr scan")
+        # Determine which clusters to query
+        if clusters is None:
+            target_clusters = [self.cluster]
+        elif clusters == ["*"]:
+            # Query all clusters - get distinct cluster_ids from scans_meta
+            all_clusters_response = (
+                self.client.table(SCANS_META_TABLE)
+                .select("cluster_id")
+                .eq("account_id", self.account_id)
+                .eq("latest", True)
+                .execute()
+            )
+            target_clusters = list(
+                set(row["cluster_id"] for row in all_clusters_response.data)
+            )
+            if not target_clusters:
+                logging.warning("No clusters found with KRR scan data")
+                return None
+        else:
+            target_clusters = clusters
+
+        all_results: List[Dict] = []
+
+        for cluster_id in target_clusters:
+            scans_meta_response = (
+                self.client.table(SCANS_META_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("cluster_id", cluster_id)
+                .eq("latest", True)
+                .execute()
+            )
+            if not len(scans_meta_response.data):
+                logging.debug(f"No scan metadata found for cluster {cluster_id}")
+                continue
+
+            scan_id = scans_meta_response.data[0]["scan_id"]
+
+            query = (
+                self.client.table(SCANS_RESULTS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("cluster_id", cluster_id)
+                .eq("scan_id", scan_id)
+            )
+
+            if namespace:
+                query = query.eq("namespace", namespace)
+            if name_pattern:
+                query = query.like("name", name_pattern)
+            if kind:
+                query = query.eq("kind", kind)
+            if container:
+                query = query.eq("container", container)
+
+            # For multi-cluster queries, we fetch all and sort later
+            # For single cluster with priority sort, use DB ordering
+            if len(target_clusters) == 1 and sort_by == "priority":
+                query = query.order("priority", desc=True).limit(limit)
+
+            scans_results_response = query.execute()
+            all_results.extend(scans_results_response.data)
+
+        if not all_results:
             return None
 
-        scan_id = scans_meta_response.data[0]["scan_id"]
+        if len(all_results) <= 1:
+            return all_results
 
-        query = (
-            self.client.table(SCANS_RESULTS_TABLE)
-            .select("*")
-            .eq("account_id", self.account_id)
-            .eq("cluster_id", self.cluster)
-            .eq("scan_id", scan_id)
-        )
-
-        if namespace:
-            query = query.eq("namespace", namespace)
-        if name_pattern:
-            query = query.like("name", name_pattern)
-        if kind:
-            query = query.eq("kind", kind)
-        if container:
-            query = query.eq("container", container)
-
-        # For priority sorting, we can use the database's order
-        if sort_by == "priority":
-            query = query.order("priority", desc=True).limit(limit)
-
-        scans_results_response = query.execute()
-
-        if not len(scans_results_response.data):
-            return None
-
-        results = scans_results_response.data
-
-        if len(results) <= 1:
-            return results
-
-        # If sorting by priority, we already ordered and limited in the query
-        if sort_by == "priority":
-            return results
+        # If single cluster with priority sorting, already ordered and limited
+        if len(target_clusters) == 1 and sort_by == "priority":
+            return all_results
 
         # Sort by calculated savings (descending)
         results_with_savings = [
-            (result, calculate_krr_savings(result, sort_by)) for result in results
+            (result, calculate_krr_savings(result, sort_by)) for result in all_results
         ]
         results_with_savings.sort(key=lambda x: x[1], reverse=True)
 
@@ -363,57 +390,121 @@ class SupabaseDal:
         limit: int = 100,
         workload: Optional[str] = None,
         ns: Optional[str] = None,
-        cluster: Optional[str] = None,
+        clusters: Optional[List[str]] = None,
+        include_external: bool = True,
         finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
+        """
+        Fetch issues/changes metadata with multi-cluster support.
+
+        Args:
+            start_datetime: Start time boundary in RFC3339 format
+            end_datetime: End time boundary in RFC3339 format
+            limit: Maximum number of results to return
+            workload: Filter by workload name (exact match)
+            ns: Filter by namespace (exact match)
+            clusters: List of cluster names to query. If None, queries current cluster only.
+                      Use ["*"] to query all clusters in the account.
+            include_external: If True, also include external changes (not associated with
+                             any k8s cluster, e.g., LaunchDarkly changes). Default True.
+            finding_type: Type of finding to fetch (CONFIGURATION_CHANGE or ISSUE)
+
+        Returns:
+            List of issues/changes metadata or None if no data found
+        """
         if not self.enabled:
             return []
-        if not cluster:
-            cluster = self.cluster
+
+        # Determine which clusters to query
+        if clusters is None:
+            target_clusters = [self.cluster]
+        elif clusters == ["*"]:
+            # Will query without cluster filter to get all clusters
+            target_clusters = ["*"]
+        else:
+            target_clusters = clusters
+
+        all_results: List[Dict] = []
+
         try:
-            query = (
-                self.client.table(ISSUES_TABLE)
-                .select(
-                    "id",
-                    "title",
-                    "subject_name",
-                    "subject_namespace",
-                    "subject_type",
-                    "description",
-                    "starts_at",
-                    "ends_at",
-                )
-                .eq("account_id", self.account_id)
-                .eq("cluster", cluster)
-                .gte("creation_date", start_datetime)
-                .lte("creation_date", end_datetime)
-                .limit(limit)
+            # Build base query
+            base_select = (
+                "id",
+                "title",
+                "subject_name",
+                "subject_namespace",
+                "subject_type",
+                "description",
+                "starts_at",
+                "ends_at",
+                "cluster",
             )
 
-            query = query.eq("finding_type", finding_type.value)
-            if workload:
-                query.eq("subject_name", workload)
-            if ns:
-                query.eq("subject_namespace", ns)
+            if target_clusters == ["*"]:
+                # Query all clusters at once (no cluster filter)
+                query = (
+                    self.client.table(ISSUES_TABLE)
+                    .select(*base_select)
+                    .eq("account_id", self.account_id)
+                    .neq("cluster", "external")  # Exclude external, handled separately
+                    .gte("creation_date", start_datetime)
+                    .lte("creation_date", end_datetime)
+                    .eq("finding_type", finding_type.value)
+                )
+                if workload:
+                    query = query.eq("subject_name", workload)
+                if ns:
+                    query = query.eq("subject_namespace", ns)
 
-            res = query.execute()
-            if not res.data:
+                res = query.limit(limit).execute()
+                all_results.extend(res.data)
+            else:
+                # Query specific clusters
+                for cluster_id in target_clusters:
+                    query = (
+                        self.client.table(ISSUES_TABLE)
+                        .select(*base_select)
+                        .eq("account_id", self.account_id)
+                        .eq("cluster", cluster_id)
+                        .gte("creation_date", start_datetime)
+                        .lte("creation_date", end_datetime)
+                        .eq("finding_type", finding_type.value)
+                    )
+                    if workload:
+                        query = query.eq("subject_name", workload)
+                    if ns:
+                        query = query.eq("subject_namespace", ns)
+
+                    res = query.limit(limit).execute()
+                    all_results.extend(res.data)
+
+            # Include external changes if requested
+            if include_external:
+                external_query = (
+                    self.client.table(ISSUES_TABLE)
+                    .select(*base_select)
+                    .eq("account_id", self.account_id)
+                    .eq("cluster", "external")
+                    .gte("creation_date", start_datetime)
+                    .lte("creation_date", end_datetime)
+                    .eq("finding_type", finding_type.value)
+                )
+                # Note: workload/ns filters not applied to external as they don't have k8s context
+                external_res = external_query.limit(limit).execute()
+                all_results.extend(external_res.data)
+
+            if not all_results:
                 return None
+
+            # Sort by creation date (starts_at) descending and limit
+            all_results.sort(
+                key=lambda x: x.get("starts_at") or "", reverse=True
+            )
+            return all_results[:limit]
 
         except Exception:
             logging.exception("Supabase error while retrieving change data")
             return None
-
-        logging.debug(
-            "Change history metadata for %s-%s workload %s in ns %s: %s",
-            start_datetime,
-            end_datetime,
-            workload,
-            ns,
-            res.data,
-        )
-
-        return res.data
 
     def unzip_evidence_file(self, data):
         try:
