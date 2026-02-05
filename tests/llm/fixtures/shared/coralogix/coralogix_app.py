@@ -31,52 +31,33 @@ METRICS_ENABLED = os.environ.get("CORALOGIX_METRICS_ENABLED", "false").lower() =
 SERVICE_NAME = os.environ.get("SERVICE_NAME", "payment-service")
 SERVICE_LABEL = os.environ.get("SERVICE_LABEL", "payment")
 
-# Coralogix configuration - send directly to Coralogix ingress (no local collector needed)
-CORALOGIX_DOMAIN = os.environ.get("CORALOGIX_DOMAIN", "eu2.coralogix.com")
-CORALOGIX_API_KEY = os.environ.get("CORALOGIX_SEND_API_KEY", "")
-
-# Configure OpenTelemetry resource with Coralogix-specific attributes
+# Configure OpenTelemetry resource
 resource = Resource.create(
     {
         "service.name": SERVICE_NAME,
-        "cx.application.name": SERVICE_NAME,
-        "cx.subsystem.name": SERVICE_LABEL,
         "k8s.namespace.name": os.environ.get("K8S_NAMESPACE", "app-173"),
         "k8s.pod.name": os.environ.get("K8S_POD_NAME", "unknown"),
     }
 )
 
-# Build Coralogix OTLP endpoint and headers
-otlp_base_url = f"https://ingress.{CORALOGIX_DOMAIN}/v1"
-otlp_headers = {
-    "Authorization": f"Bearer {CORALOGIX_API_KEY}",
-    "CX-Application-Name": SERVICE_NAME,
-    "CX-Subsystem-Name": SERVICE_LABEL,
-}
+# Send telemetry to local OTLP collector; it will forward to Coralogix.
+K8S_NODE_IP = os.environ.get("K8S_NODE_IP", "192.168.13.204")
+otlp_endpoint = f"http://{K8S_NODE_IP}:4318/v1/"
 
 if TRACES_ENABLED:
-    trace_exporter = OTLPSpanExporter(
-        endpoint=f"{otlp_base_url}/traces",
-        headers=otlp_headers,
-    )
+    trace_exporter = OTLPSpanExporter(endpoint=f"{otlp_endpoint}traces")
     tracer_provider = TracerProvider(resource=resource)
     tracer_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
     set_tracer_provider(tracer_provider)
 
 if LOGS_ENABLED:
-    log_exporter = OTLPLogExporter(
-        endpoint=f"{otlp_base_url}/logs",
-        headers=otlp_headers,
-    )
+    log_exporter = OTLPLogExporter(endpoint=f"{otlp_endpoint}logs")
     logger_provider = LoggerProvider(resource=resource)
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
     set_logger_provider(logger_provider)
 
 if METRICS_ENABLED:
-    metric_exporter = OTLPMetricExporter(
-        endpoint=f"{otlp_base_url}/metrics",
-        headers=otlp_headers,
-    )
+    metric_exporter = OTLPMetricExporter(endpoint=f"{otlp_endpoint}metrics")
     reader = PeriodicExportingMetricReader(metric_exporter)
     meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     set_meter_provider(meter_provider)
@@ -128,15 +109,14 @@ def payment():
             f"Processing {SERVICE_LABEL} request for user {user_id}, amount: ${amount}"
         )
 
-        # Simulate database query that is consistently slow (elevated latency)
-        # Base latency is 1.0-2.0s (elevated), with 30% chance of very slow 3.0-5.0s queries
+        # Simulate database query that sometimes times out
         with tracer.start_as_current_span("database_query") as db_span:
             db_span.set_attribute("db.system", "postgresql")
             db_span.set_attribute("db.operation", "SELECT")
 
-            query_time = random.uniform(1.0, 2.0)  # Base elevated latency
-            if random.random() < 0.3:  # 30% chance of very slow query
-                query_time = random.uniform(3.0, 5.0)
+            query_time = random.uniform(0.1, 0.3)
+            if random.random() < 0.3:  # 30% chance of slow query
+                query_time = random.uniform(2.5, 5.0)
                 logger.warning(f"Slow database query detected: {query_time:.2f}s")
                 db_span.set_attribute("db.query.duration", f"{query_time:.2f}s")
                 db_span.set_attribute("db.slow_query", True)

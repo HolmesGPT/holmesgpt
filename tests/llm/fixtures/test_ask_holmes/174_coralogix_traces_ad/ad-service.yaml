@@ -48,10 +48,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: CORALOGIX_DOMAIN
-          value: "eu2.coralogix.com"
-        - name: CORALOGIX_SEND_API_KEY
-          value: "${CORALOGIX_SEND_API_KEY}"
+        - name: K8S_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
         resources:
           requests:
             memory: "64Mi"

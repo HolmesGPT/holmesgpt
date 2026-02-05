@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import uuid
 from pathlib import Path
 from typing import Any, List, Literal, Optional, TypeVar, Union, cast
 
@@ -15,7 +14,6 @@ from holmes.core.llm import DefaultLLM
 from holmes.core.models import InvestigateRequest
 from holmes.core.prompt import append_file_to_user_prompt
 from holmes.core.resource_instruction import ResourceInstructions
-from holmes.utils.env import get_env_replacement
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
 from tests.llm.utils.test_env_vars import (
     CLASSIFIER_MODEL,
@@ -116,22 +114,12 @@ class Message(BaseModel):
 T = TypeVar("T")
 
 
-def generate_run_id() -> str:
-    """Generate a unique run ID for test isolation.
-
-    Returns an 8-character hex string that is unique per test execution.
-    This prevents tests from succeeding on cached data from previous runs.
-    """
-    return uuid.uuid4().hex[:8]
-
-
 class HolmesTestCase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     folder: str
     base_id: Optional[str] = None  # Base test case ID for parameterized tests
-    run_id: str = ""  # Unique ID per test execution, set before setup runs
     mocked_date: Optional[str] = None
     tags: Optional[list[ALLOWED_EVAL_TAGS]] = None
     skip: Optional[bool] = None
@@ -531,38 +519,3 @@ def create_eval_llm(model: str, tracer=None) -> DefaultLLM:
         config = Config()
         return config._get_llm(model_key=model, tracer=tracer)  # type: ignore[arg-type]
     return DefaultLLM(model, tracer=tracer)
-
-
-def render_user_prompt(test_case: AskHolmesTestCase) -> str:
-    """Render user_prompt with environment variable templating.
-
-    Supports {{ env.VAR_NAME }} syntax for environment variable substitution.
-    The EVAL_RUN_ID env var is automatically set during setup and can be used
-    to include unique identifiers in prompts to prevent cache hits.
-
-    Example:
-        user_prompt: "Find logs for application {{ env.EVAL_RUN_ID }}"
-
-    This function should be called at test execution time (after before_test runs)
-    so that EVAL_RUN_ID is available.
-    """
-    prompt = test_case.user_prompt
-    if not isinstance(prompt, str):
-        # For list prompts, this should be the specific variant
-        raise ValueError(f"Expected string user_prompt, got {type(prompt)}")
-
-    # Get run_id from module-level storage (more reliable than test_case.run_id)
-    # Uses base_id for variant tests to match setup deduplication logic
-    from tests.llm.utils.commands import get_test_run_id
-
-    run_id = get_test_run_id(test_case)
-    if run_id and "EVAL_RUN_ID" not in os.environ:
-        os.environ["EVAL_RUN_ID"] = run_id
-
-    # Apply env var templating using the same mechanism as toolset config
-    try:
-        rendered = get_env_replacement(prompt)
-        return rendered if rendered else prompt
-    except ValueError:
-        # If env var not found but no {{ env. }} patterns, return original
-        return prompt

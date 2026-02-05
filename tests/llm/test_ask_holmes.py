@@ -39,7 +39,6 @@ from tests.llm.utils.test_case_utils import (
     check_and_skip_test,
     create_eval_llm,
     get_models,
-    render_user_prompt,
 )
 
 TEST_CASES_FOLDER = Path(
@@ -224,20 +223,16 @@ def ask_holmes(
                         f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
                         f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
                     ) from e
-            # Render user_prompt with env var templating (e.g., {{ env.EVAL_RUN_ID }})
-            rendered_prompt = render_user_prompt(test_case)
             messages = build_initial_ask_messages(
-                initial_user_prompt=rendered_prompt,
+                initial_user_prompt=test_case.user_prompt,
                 file_paths=None,
                 tool_executor=ai.tool_executor,
                 runbooks=runbooks,
                 system_prompt_additions=additional_system_prompt,
             )
     else:
-        # Render user_prompt with env var templating (e.g., {{ env.EVAL_RUN_ID }})
-        rendered_prompt = render_user_prompt(test_case)
         chat_request = ChatRequest(
-            ask=rendered_prompt, additional_system_prompt=additional_system_prompt
+            ask=test_case.user_prompt, additional_system_prompt=additional_system_prompt
         )
         config = Config()
         if test_case.cluster_name:

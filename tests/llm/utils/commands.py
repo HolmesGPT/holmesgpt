@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Dict, Optional
 
 from tests.llm.utils.env_vars import is_run_live_enabled
-from tests.llm.utils.test_case_utils import HolmesTestCase, generate_run_id
+from tests.llm.utils.test_case_utils import HolmesTestCase
 
 if TYPE_CHECKING:
     from tests.llm.utils.env_config import EnvConfig
@@ -16,33 +16,6 @@ if TYPE_CHECKING:
 EVAL_SETUP_TIMEOUT = int(
     os.environ.get("EVAL_SETUP_TIMEOUT", "300")
 )  # Default timeout in seconds
-
-# Module-level storage for run_ids to ensure they persist between setup and test execution
-# Key: test_case.id, Value: generated run_id
-_TEST_RUN_IDS: Dict[str, str] = {}
-
-
-def _get_storage_id(test_case: HolmesTestCase) -> str:
-    """Get the storage key for a test case's run_id.
-
-    Uses base_id if present (for variant tests), otherwise test_case.id.
-    This matches the deduplication logic in setup_cleanup.py.
-    """
-    return getattr(test_case, "base_id", None) or test_case.id
-
-
-def get_test_run_id(test_case: HolmesTestCase) -> str:
-    """Get the run_id for a test case.
-
-    This retrieves the run_id that was generated during setup for reliable
-    use in render_user_prompt. Using module-level storage because
-    object.__setattr__ on Pydantic models is unreliable.
-
-    For variant tests (tests with array user_prompt), all variants share
-    the same run_id since setup only runs once per base test.
-    """
-    storage_id = _get_storage_id(test_case)
-    return _TEST_RUN_IDS.get(storage_id, "")
 
 
 def _get_pod_diagnostics(test_case: Optional[HolmesTestCase], operation: str) -> str:
@@ -179,17 +152,10 @@ def _invoke_command(
     cwd: str,
     timeout: Optional[int] = None,
     suppress_logging: bool = False,
-    extra_env: Optional[Dict[str, str]] = None,
 ) -> str:
     try:
         actual_timeout = timeout if timeout is not None else EVAL_SETUP_TIMEOUT
         logging.debug(f"Running `{command}` in {cwd} with timeout {actual_timeout}s")
-
-        # Merge extra env vars with current environment
-        env = os.environ.copy()
-        if extra_env:
-            env.update(extra_env)
-
         result = subprocess.run(
             command,
             shell=True,
@@ -200,7 +166,6 @@ def _invoke_command(
             stdin=subprocess.DEVNULL,
             cwd=cwd,
             timeout=actual_timeout,
-            env=env,
         )
 
         output = f"{result.stdout}\n{result.stderr}"
@@ -237,25 +202,7 @@ def _invoke_command(
 def run_commands(
     test_case: HolmesTestCase, commands_str: str, operation: str
 ) -> CommandResult:
-    """Generic command runner for setup/cleanup operations.
-
-    For setup operations, generates a unique EVAL_RUN_ID that is:
-    - Available as env var in the before_test script
-    - Stored in module-level dict for use in user_prompt templating
-    - Used to prevent tests from succeeding on cached data
-
-    Note: EVAL_RUN_ID is always generated for setup operations, even when
-    --skip-setup is used or no before_test script exists. This ensures
-    tests that use {{ env.EVAL_RUN_ID }} in their prompts still work.
-    """
-    # Generate and store run_id for setup operations if not already set
-    # (generate_all_run_ids may have already set it, e.g., for --skip-setup support)
-    storage_id = _get_storage_id(test_case)
-    if operation == "setup" and storage_id not in _TEST_RUN_IDS:
-        run_id = generate_run_id()
-        _TEST_RUN_IDS[storage_id] = run_id
-        logging.debug(f"Generated EVAL_RUN_ID={run_id} for test {test_case.id} (storage_id={storage_id})")
-
+    """Generic command runner for setup/cleanup operations."""
     if not commands_str or not is_run_live_enabled():
         return CommandResult(
             command=f"(no {operation} needed)",
@@ -269,17 +216,6 @@ def run_commands(
     # This preserves multi-line bash constructs like if/then/else, for loops, etc.
     script = commands_str.strip()
 
-    # Set up environment variables for the script
-    extra_env: Dict[str, str] = {}
-    if operation == "setup":
-        # Use the run_id we already generated and stored above
-        extra_env["EVAL_RUN_ID"] = _TEST_RUN_IDS[storage_id]
-    elif operation == "cleanup":
-        # Reuse the same run_id for cleanup
-        run_id = _TEST_RUN_IDS.get(storage_id, "")
-        if run_id:
-            extra_env["EVAL_RUN_ID"] = run_id
-
     try:
         # Execute the entire commands string as a single bash script
         # Use per-test timeout if specified, otherwise use default
@@ -289,11 +225,7 @@ def run_commands(
             else None
         )
         _invoke_command(
-            command=script,
-            cwd=test_case.folder,
-            timeout=timeout,
-            suppress_logging=True,
-            extra_env=extra_env,
+            command=script, cwd=test_case.folder, timeout=timeout, suppress_logging=True
         )
 
         elapsed_time = time.time() - start_time
@@ -392,22 +324,8 @@ def _temporary_env_vars(env_vars: Dict[str, str]):
 
 @contextmanager
 def set_test_env_vars(test_case: HolmesTestCase):
-    """Context manager to set test case environment variables during execution.
-
-    Also sets EVAL_RUN_ID from module-level storage if available, making the unique
-    run identifier available during test execution (for toolset configs, etc.).
-    """
-    # Build env vars to set, including EVAL_RUN_ID if available
-    env_vars_to_set: Dict[str, str] = {}
-    if test_case.test_env_vars:
-        env_vars_to_set.update(test_case.test_env_vars)
-
-    # Set EVAL_RUN_ID from module-level storage (test_case.run_id is never populated)
-    run_id = get_test_run_id(test_case)
-    if run_id:
-        env_vars_to_set["EVAL_RUN_ID"] = run_id
-
-    with _temporary_env_vars(env_vars_to_set):
+    """Context manager to set test case environment variables during execution."""
+    with _temporary_env_vars(test_case.test_env_vars or {}):
         yield
 
 
