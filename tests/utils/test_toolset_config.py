@@ -3,7 +3,6 @@
 import logging
 from typing import ClassVar, Dict, Optional
 
-import pytest
 from pydantic import Field
 
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -70,7 +69,7 @@ class TestToolsetConfig:
     def test_no_warning_for_new_fields(self, caplog):
         """Test that using new field names doesn't trigger warnings."""
         with caplog.at_level(logging.WARNING):
-            config = SampleConfig(new_field="test", another_new=5)
+            _config = SampleConfig(new_field="test", another_new=5)
 
         assert "deprecated" not in caplog.text.lower()
 
@@ -117,3 +116,72 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 30
         assert "deprecated" not in caplog.text.lower()
+
+
+class TestServiceNowConfigBackwardCompatibility:
+    """Test backward compatibility for ServiceNowTablesConfig deprecated fields."""
+
+    def test_deprecated_servicenow_fields(self, caplog):
+        """Test that deprecated ServiceNow config fields are migrated."""
+        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+            ServiceNowTablesConfig,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            old_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                instance_url="https://test.service-now.com",
+            )
+
+        # Verify field was migrated
+        assert old_config.api_url == "https://test.service-now.com"
+        assert "instance_url -> api_url" in caplog.text
+
+    def test_new_servicenow_fields_no_warning(self, caplog):
+        """Test that new ServiceNow field names don't trigger warnings."""
+        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+            ServiceNowTablesConfig,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            new_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                api_url="https://test.service-now.com",
+            )
+
+        assert new_config.api_url == "https://test.service-now.com"
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_deprecated_and_new_servicenow_configs_equivalent(self, caplog):
+        """Test that configs created with old and new fields are equivalent."""
+        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+            ServiceNowTablesConfig,
+        )
+
+        # Create config using deprecated field name
+        with caplog.at_level(logging.WARNING):
+            old_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                instance_url="https://test.service-now.com",
+                api_key_header="custom-header",
+            )
+
+        caplog.clear()
+
+        # Create config using new field name
+        with caplog.at_level(logging.WARNING):
+            new_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                api_url="https://test.service-now.com",
+                api_key_header="custom-header",
+            )
+
+        # Verify both configs have the same values
+        assert old_config.api_key == new_config.api_key
+        assert old_config.api_url == new_config.api_url
+        assert old_config.api_key_header == new_config.api_key_header
+
+        # Verify model_dump() produces equivalent output (excluding model_extra)
+        old_dump = {k: v for k, v in old_config.model_dump().items() if k != "model_extra"}
+        new_dump = {k: v for k, v in new_config.model_dump().items() if k != "model_extra"}
+        assert old_dump == new_dump
