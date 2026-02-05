@@ -176,9 +176,9 @@ toolsets:
   kafka/admin:
     enabled: true
     config:
-      kafka_clusters:
+      clusters:
         - name: "kafka"
-          kafka_broker: "kafka:9092"
+          broker: "kafka:9092"
 ```
 
 ### Port Forwarding

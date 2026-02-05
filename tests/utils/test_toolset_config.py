@@ -3,7 +3,6 @@
 import logging
 from typing import ClassVar, Dict, Optional
 
-import pytest
 from pydantic import Field
 
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -70,7 +69,7 @@ class TestToolsetConfig:
     def test_no_warning_for_new_fields(self, caplog):
         """Test that using new field names doesn't trigger warnings."""
         with caplog.at_level(logging.WARNING):
-            config = SampleConfig(new_field="test", another_new=5)
+            _config = SampleConfig(new_field="test", another_new=5)
 
         assert "deprecated" not in caplog.text.lower()
 
@@ -101,7 +100,10 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
-        assert "default_query_timeout_seconds -> query_timeout_seconds_default" in caplog.text
+        assert (
+            "default_query_timeout_seconds -> query_timeout_seconds_default"
+            in caplog.text
+        )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
 
     def test_new_prometheus_fields_no_warning(self, caplog):
@@ -117,3 +119,154 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 30
         assert "deprecated" not in caplog.text.lower()
+
+
+class TestKafkaConfigBackwardCompatibility:
+    """Test backward compatibility for KafkaConfig and KafkaClusterConfig deprecated fields."""
+
+    def test_deprecated_kafka_cluster_fields(self, caplog):
+        """Test that deprecated KafkaClusterConfig fields are migrated."""
+        from holmes.plugins.toolsets.kafka import KafkaClusterConfig
+
+        with caplog.at_level(logging.WARNING):
+            config = KafkaClusterConfig(
+                name="test-cluster",
+                kafka_broker="broker1:9092,broker2:9092",
+                kafka_security_protocol="SASL_SSL",
+                kafka_sasl_mechanism="SCRAM-SHA-512",
+                kafka_client_id="my-client",
+            )
+
+        assert config.broker == "broker1:9092,broker2:9092"
+        assert config.security_protocol == "SASL_SSL"
+        assert config.sasl_mechanism == "SCRAM-SHA-512"
+        assert config.client_id == "my-client"
+        assert "kafka_broker -> broker" in caplog.text
+        assert "kafka_security_protocol -> security_protocol" in caplog.text
+        assert "kafka_sasl_mechanism -> sasl_mechanism" in caplog.text
+        assert "kafka_client_id -> client_id" in caplog.text
+
+    def test_new_kafka_cluster_fields_no_warning(self, caplog):
+        """Test that new KafkaClusterConfig field names don't trigger warnings."""
+        from holmes.plugins.toolsets.kafka import KafkaClusterConfig
+
+        with caplog.at_level(logging.WARNING):
+            config = KafkaClusterConfig(
+                name="test-cluster",
+                broker="broker1:9092",
+                security_protocol="SSL",
+                sasl_mechanism="PLAIN",
+                client_id="custom-client",
+            )
+
+        assert config.broker == "broker1:9092"
+        assert config.security_protocol == "SSL"
+        assert config.sasl_mechanism == "PLAIN"
+        assert config.client_id == "custom-client"
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_deprecated_kafka_config_clusters_field(self, caplog):
+        """Test that deprecated KafkaConfig.kafka_clusters field is migrated."""
+        from holmes.plugins.toolsets.kafka import KafkaConfig
+
+        with caplog.at_level(logging.WARNING):
+            config = KafkaConfig(
+                kafka_clusters=[
+                    {"name": "cluster1", "broker": "broker1:9092"},
+                    {"name": "cluster2", "broker": "broker2:9092"},
+                ]
+            )
+
+        assert len(config.clusters) == 2
+        assert config.clusters[0].name == "cluster1"
+        assert config.clusters[0].broker == "broker1:9092"
+        assert config.clusters[1].name == "cluster2"
+        assert "kafka_clusters -> clusters" in caplog.text
+
+    def test_new_kafka_config_clusters_field_no_warning(self, caplog):
+        """Test that new KafkaConfig.clusters field doesn't trigger warnings."""
+        from holmes.plugins.toolsets.kafka import KafkaConfig
+
+        with caplog.at_level(logging.WARNING):
+            config = KafkaConfig(
+                clusters=[
+                    {"name": "cluster1", "broker": "broker1:9092"},
+                ]
+            )
+
+        assert len(config.clusters) == 1
+        assert config.clusters[0].name == "cluster1"
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_mixed_old_and_new_field_names_kafka(self, caplog):
+        """Test that old KafkaConfig fields with old KafkaClusterConfig fields work."""
+        from holmes.plugins.toolsets.kafka import KafkaConfig
+
+        with caplog.at_level(logging.WARNING):
+            # Use old field names throughout
+            config = KafkaConfig(
+                kafka_clusters=[
+                    {
+                        "name": "legacy-cluster",
+                        "kafka_broker": "legacy-broker:9092",
+                        "kafka_security_protocol": "PLAINTEXT",
+                    },
+                ]
+            )
+
+        assert len(config.clusters) == 1
+        assert config.clusters[0].name == "legacy-cluster"
+        assert config.clusters[0].broker == "legacy-broker:9092"
+        assert config.clusters[0].security_protocol == "PLAINTEXT"
+        assert "kafka_clusters -> clusters" in caplog.text
+        assert "kafka_broker -> broker" in caplog.text
+        assert "kafka_security_protocol -> security_protocol" in caplog.text
+
+    def test_kafka_cluster_config_equivalence(self):
+        """Test that configs created with old and new field names are equivalent."""
+        from holmes.plugins.toolsets.kafka import KafkaClusterConfig
+
+        # Config using old field names
+        old_config = KafkaClusterConfig(
+            name="test",
+            kafka_broker="broker:9092",
+            kafka_security_protocol="SSL",
+            kafka_sasl_mechanism="PLAIN",
+            kafka_client_id="my-client",
+        )
+
+        # Config using new field names
+        new_config = KafkaClusterConfig(
+            name="test",
+            broker="broker:9092",
+            security_protocol="SSL",
+            sasl_mechanism="PLAIN",
+            client_id="my-client",
+        )
+
+        assert old_config.broker == new_config.broker
+        assert old_config.security_protocol == new_config.security_protocol
+        assert old_config.sasl_mechanism == new_config.sasl_mechanism
+        assert old_config.client_id == new_config.client_id
+
+    def test_kafka_config_equivalence(self):
+        """Test that KafkaConfigs created with old and new field names are equivalent."""
+        from holmes.plugins.toolsets.kafka import KafkaConfig
+
+        # Config using old field names
+        old_config = KafkaConfig(
+            kafka_clusters=[
+                {"name": "cluster1", "kafka_broker": "broker:9092"},
+            ]
+        )
+
+        # Config using new field names
+        new_config = KafkaConfig(
+            clusters=[
+                {"name": "cluster1", "broker": "broker:9092"},
+            ]
+        )
+
+        assert len(old_config.clusters) == len(new_config.clusters)
+        assert old_config.clusters[0].name == new_config.clusters[0].name
+        assert old_config.clusters[0].broker == new_config.clusters[0].broker
