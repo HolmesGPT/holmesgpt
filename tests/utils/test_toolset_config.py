@@ -5,8 +5,12 @@ from typing import ClassVar, Dict, Optional
 
 from pydantic import Field
 
+from holmes.plugins.toolsets.elasticsearch.elasticsearch import ElasticsearchConfig
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+    ServiceNowTablesConfig,
+)
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -124,10 +128,6 @@ class TestElasticsearchConfigBackwardCompatibility:
 
     def test_deprecated_elasticsearch_fields(self, caplog):
         """Test that deprecated Elasticsearch config fields are migrated."""
-        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
-            ElasticsearchConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             config = ElasticsearchConfig(
                 url="https://elasticsearch:9200",
@@ -141,10 +141,6 @@ class TestElasticsearchConfigBackwardCompatibility:
 
     def test_new_elasticsearch_fields_no_warning(self, caplog):
         """Test that new Elasticsearch field names don't trigger warnings."""
-        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
-            ElasticsearchConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             config = ElasticsearchConfig(
                 api_url="https://elasticsearch:9200",
@@ -157,10 +153,6 @@ class TestElasticsearchConfigBackwardCompatibility:
 
     def test_old_and_new_elasticsearch_config_equal(self):
         """Test that config created with old fields equals config with new fields."""
-        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
-            ElasticsearchConfig,
-        )
-
         # Config using old field names
         old_config = ElasticsearchConfig(
             url="https://elasticsearch:9200",
@@ -189,10 +181,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_deprecated_servicenow_fields(self, caplog):
         """Test that deprecated ServiceNow config fields are migrated."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -205,10 +193,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_new_servicenow_fields_no_warning(self, caplog):
         """Test that new ServiceNow field names don't trigger warnings."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             new_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -220,10 +204,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_deprecated_and_new_servicenow_configs_equivalent(self, caplog):
         """Test that configs created with old and new fields are equivalent."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         # Create config using deprecated field name
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
