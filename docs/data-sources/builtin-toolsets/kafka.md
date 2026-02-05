@@ -14,14 +14,14 @@ toolsets:
             clusters:
                 - name: aks-prod-kafka
                   broker: kafka-1.aks-prod-kafka-brokers.kafka.svc:9095
-                  kafka_username: kafka-plaintext-user
-                  kafka_password: ******
+                  username: kafka-plaintext-user
+                  password: ******
                   sasl_mechanism: SCRAM-SHA-512
                   security_protocol: SASL_PLAINTEXT
                 - name: gke-stg-kafka
                   broker: gke-kafka.gke-stg-kafka-brokers.kafka.svc:9095
-                  kafka_username: kafka-plaintext-user
-                  kafka_password: ****
+                  username: kafka-plaintext-user
+                  password: ****
                   sasl_mechanism: SCRAM-SHA-512
                   security_protocol: SASL_PLAINTEXT
 ```
@@ -32,8 +32,8 @@ Below is a description of the configuration field for each cluster:
 |------------|-------------|
 | name | Give a meaningful name to your cluster. Holmes will use it to decide what cluster to look into. Names must be unique across all clusters. |
 | broker | List of host/port pairs to use for establishing the initial connection to the Kafka cluster |
-| kafka_username | Username for SASL authentication |
-| kafka_password | Password for SASL authentication |
+| username | Username for SASL authentication |
+| password | Password for SASL authentication |
 | sasl_mechanism | SASL mechanism (e.g., SCRAM-SHA-512) |
 | security_protocol | Security protocol (e.g., SASL_PLAINTEXT) |
 

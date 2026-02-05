@@ -46,6 +46,8 @@ class KafkaClusterConfig(ToolsetConfig):
         "kafka_security_protocol": "security_protocol",
         "kafka_sasl_mechanism": "sasl_mechanism",
         "kafka_client_id": "client_id",
+        "kafka_username": "username",
+        "kafka_password": "password",
     }
 
     name: str = Field(
@@ -74,13 +76,13 @@ class KafkaClusterConfig(ToolsetConfig):
         description="SASL mechanism (e.g., PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)",
         examples=["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"],
     )
-    kafka_username: Optional[str] = Field(
+    username: Optional[str] = Field(
         default=None,
         title="Username",
         description="Username for SASL authentication",
         examples=["{{ env.KAFKA_USERNAME }}"],
     )
-    kafka_password: Optional[str] = Field(
+    password: Optional[str] = Field(
         default=None,
         title="Password",
         description="Password for SASL authentication",
@@ -663,9 +665,9 @@ class KafkaToolset(Toolset):
                         admin_config["security.protocol"] = cluster.security_protocol
                     if cluster.sasl_mechanism:
                         admin_config["sasl.mechanisms"] = cluster.sasl_mechanism
-                    if cluster.kafka_username and cluster.kafka_password:
-                        admin_config["sasl.username"] = cluster.kafka_username
-                        admin_config["sasl.password"] = cluster.kafka_password
+                    if cluster.username and cluster.password:
+                        admin_config["sasl.username"] = cluster.username
+                        admin_config["sasl.password"] = cluster.password
 
                     client = AdminClient(admin_config)
                     # Test the connection by trying to list topics with a timeout

@@ -135,16 +135,22 @@ class TestKafkaConfigBackwardCompatibility:
                 kafka_security_protocol="SASL_SSL",
                 kafka_sasl_mechanism="SCRAM-SHA-512",
                 kafka_client_id="my-client",
+                kafka_username="my-user",
+                kafka_password="my-password",
             )
 
         assert config.broker == "broker1:9092,broker2:9092"
         assert config.security_protocol == "SASL_SSL"
         assert config.sasl_mechanism == "SCRAM-SHA-512"
         assert config.client_id == "my-client"
+        assert config.username == "my-user"
+        assert config.password == "my-password"
         assert "kafka_broker -> broker" in caplog.text
         assert "kafka_security_protocol -> security_protocol" in caplog.text
         assert "kafka_sasl_mechanism -> sasl_mechanism" in caplog.text
         assert "kafka_client_id -> client_id" in caplog.text
+        assert "kafka_username -> username" in caplog.text
+        assert "kafka_password -> password" in caplog.text
 
     def test_new_kafka_cluster_fields_no_warning(self, caplog):
         """Test that new KafkaClusterConfig field names don't trigger warnings."""
@@ -157,12 +163,16 @@ class TestKafkaConfigBackwardCompatibility:
                 security_protocol="SSL",
                 sasl_mechanism="PLAIN",
                 client_id="custom-client",
+                username="my-user",
+                password="my-password",
             )
 
         assert config.broker == "broker1:9092"
         assert config.security_protocol == "SSL"
         assert config.sasl_mechanism == "PLAIN"
         assert config.client_id == "custom-client"
+        assert config.username == "my-user"
+        assert config.password == "my-password"
         assert "deprecated" not in caplog.text.lower()
 
     def test_deprecated_kafka_config_clusters_field(self, caplog):
@@ -233,6 +243,8 @@ class TestKafkaConfigBackwardCompatibility:
             kafka_security_protocol="SSL",
             kafka_sasl_mechanism="PLAIN",
             kafka_client_id="my-client",
+            kafka_username="my-user",
+            kafka_password="my-password",
         )
 
         # Config using new field names
@@ -242,12 +254,16 @@ class TestKafkaConfigBackwardCompatibility:
             security_protocol="SSL",
             sasl_mechanism="PLAIN",
             client_id="my-client",
+            username="my-user",
+            password="my-password",
         )
 
         assert old_config.broker == new_config.broker
         assert old_config.security_protocol == new_config.security_protocol
         assert old_config.sasl_mechanism == new_config.sasl_mechanism
         assert old_config.client_id == new_config.client_id
+        assert old_config.username == new_config.username
+        assert old_config.password == new_config.password
 
     def test_kafka_config_equivalence(self):
         """Test that KafkaConfigs created with old and new field names are equivalent."""
