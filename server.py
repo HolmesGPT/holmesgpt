@@ -184,6 +184,7 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
             profiles_sample_rate=0,
             environment=environment,
+            release=get_version(),
         )
         sentry_sdk.set_tags(
             {
