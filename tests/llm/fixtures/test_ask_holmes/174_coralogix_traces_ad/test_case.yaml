@@ -10,11 +10,12 @@ tags:
   - traces
   - coralogix
 
-setup_timeout: 900
+setup_timeout: 600  # 10 minutes
 
 before_test: |
   # Validate required Coralogix environment variables
-  [ -n "${CORALOGIX_API_KEY:-}" ] && [ -n "${CORALOGIX_DOMAIN:-}" ] && [ -n "${CORALOGIX_TEAM_HOSTNAME:-}" ] || { for v in CORALOGIX_API_KEY CORALOGIX_DOMAIN CORALOGIX_TEAM_HOSTNAME; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+  [ -n "${CORALOGIX_API_KEY:-}" ] || { echo "Missing env var: CORALOGIX_API_KEY"; exit 1; }
+  [ -n "${CORALOGIX_SEND_API_KEY:-}" ] || { echo "Missing env var: CORALOGIX_SEND_API_KEY"; exit 1; }
 
   echo "🚀 Setting up test 174 - Creating namespace app-174"
   kubectl create namespace app-174 || true
@@ -31,7 +32,7 @@ before_test: |
     -n app-174 --dry-run=client -o yaml | kubectl apply -f -
 
   echo "📦 Deploying ad service"
-  kubectl apply -f ad-service.yaml -n app-174
+  envsubst < ad-service.yaml | kubectl apply -f - -n app-174
 
   echo "⏳ Waiting for ad-service pod to exist"
   for i in {1..60}; do
@@ -45,13 +46,13 @@ before_test: |
 
   echo "⏳ Waiting for ad-service pod to be ready (timeout 780s)"
   AD_POD_READY=false
-  for i in {1..156}; do
+  for i in {1..120}; do
     if kubectl wait --for=condition=ready pod -l app=ad-service -n app-174 --timeout=5s 2>/dev/null; then
       echo "✅ ad-service pod is ready!"
       AD_POD_READY=true
       break
     else
-      echo "⏳ Attempt $i/156: ad-service pod not ready yet, waiting 5s..."
+      echo "⏳ Attempt $i/120: ad-service pod not ready yet, waiting 5s..."
       sleep 5
     fi
   done
@@ -80,13 +81,13 @@ before_test: |
 
   echo "⏳ Waiting for ad-generator pod to be ready (timeout 780s)"
   TRAFFIC_POD_READY=false
-  for i in {1..156}; do
+  for i in {1..120}; do
     if kubectl wait --for=condition=ready pod -l app=ad-generator -n app-174 --timeout=5s 2>/dev/null; then
       echo "✅ ad-generator pod is ready!"
       TRAFFIC_POD_READY=true
       break
     else
-      echo "⏳ Attempt $i/156: ad-generator pod not ready yet, waiting 5s..."
+      echo "⏳ Attempt $i/120: ad-generator pod not ready yet, waiting 5s..."
       sleep 5
     fi
   done
@@ -106,7 +107,7 @@ before_test: |
   echo "⏳ Waiting for at least 10 traces in Coralogix (poll every 5s)"
   TRACES_READY=false
   for i in {1..60}; do
-    TRACE_COUNT=$(curl -s -X POST "https://ng-api-http.${CORALOGIX_DOMAIN}/api/v1/dataprime/query" \
+    TRACE_COUNT=$(curl -s -X POST "https://ng-api-http.eu2.coralogix.com/api/v1/dataprime/query" \
       -H "Authorization: Bearer ${CORALOGIX_API_KEY}" \
       -H "Content-Type: application/json" \
       -d '{"query": "source spans | lucene '\''app-174 AND ad-service'\'' | limit 50"}' \
