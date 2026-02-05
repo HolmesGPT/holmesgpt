@@ -7,6 +7,10 @@ from pydantic import Field
 
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
+from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+    ServiceNowTablesConfig,
+)
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -124,8 +128,6 @@ class TestRabbitMQConfigBackwardCompatibility:
 
     def test_deprecated_rabbitmq_fields(self, caplog):
         """Test that deprecated RabbitMQ config fields are migrated."""
-        from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
-
         with caplog.at_level(logging.WARNING):
             # Use old field names (deprecated)
             old_config = RabbitMQClusterConfig(
@@ -141,8 +143,6 @@ class TestRabbitMQConfigBackwardCompatibility:
 
     def test_new_rabbitmq_fields_no_warning(self, caplog):
         """Test that new RabbitMQ field names don't trigger warnings."""
-        from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
-
         with caplog.at_level(logging.WARNING):
             # Use new field names (current)
             new_config = RabbitMQClusterConfig(
@@ -156,8 +156,6 @@ class TestRabbitMQConfigBackwardCompatibility:
 
     def test_old_and_new_configs_produce_same_result(self, caplog):
         """Test that configs created with old and new field names produce identical results."""
-        from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
-
         with caplog.at_level(logging.WARNING):
             # Create config using old field names
             old_config = RabbitMQClusterConfig(
@@ -189,8 +187,6 @@ class TestRabbitMQConfigBackwardCompatibility:
 
     def test_new_field_takes_precedence_over_deprecated(self, caplog):
         """Test that new field takes precedence if both old and new are provided."""
-        from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
-
         with caplog.at_level(logging.WARNING):
             config = RabbitMQClusterConfig(
                 management_url="http://old-url:15672",
@@ -209,10 +205,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_deprecated_servicenow_fields(self, caplog):
         """Test that deprecated ServiceNow config fields are migrated."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -225,10 +217,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_new_servicenow_fields_no_warning(self, caplog):
         """Test that new ServiceNow field names don't trigger warnings."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             new_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -240,10 +228,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_deprecated_and_new_servicenow_configs_equivalent(self, caplog):
         """Test that configs created with old and new fields are equivalent."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         # Create config using deprecated field name
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
