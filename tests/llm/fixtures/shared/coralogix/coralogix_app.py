@@ -109,15 +109,14 @@ def payment():
             f"Processing {SERVICE_LABEL} request for user {user_id}, amount: ${amount}"
         )
 
-        # Simulate database query that is consistently slow (elevated latency)
-        # Base latency is 1.0-2.0s (elevated), with 30% chance of very slow 3.0-5.0s queries
+        # Simulate database query that sometimes times out
         with tracer.start_as_current_span("database_query") as db_span:
             db_span.set_attribute("db.system", "postgresql")
             db_span.set_attribute("db.operation", "SELECT")
 
-            query_time = random.uniform(1.0, 2.0)  # Base elevated latency
-            if random.random() < 0.3:  # 30% chance of very slow query
-                query_time = random.uniform(3.0, 5.0)
+            query_time = random.uniform(0.1, 0.3)
+            if random.random() < 0.3:  # 30% chance of slow query
+                query_time = random.uniform(2.5, 5.0)
                 logger.warning(f"Slow database query detected: {query_time:.2f}s")
                 db_span.set_attribute("db.query.duration", f"{query_time:.2f}s")
                 db_span.set_attribute("db.slow_query", True)

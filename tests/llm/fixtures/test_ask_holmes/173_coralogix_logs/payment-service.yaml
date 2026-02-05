@@ -51,6 +51,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.hostIP
+        - name: CORALOGIX_DOMAIN
+          value: "${CORALOGIX_DOMAIN}"
+        - name: CORALOGIX_API_KEY
+          value: "${CORALOGIX_API_KEY}"
         resources:
           requests:
             memory: "64Mi"
