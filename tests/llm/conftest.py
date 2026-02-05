@@ -30,6 +30,7 @@ from tests.llm.utils.reporting.github_reporter import handle_github_output
 from tests.llm.utils.reporting.terminal_reporter import handle_console_output
 from tests.llm.utils.setup_cleanup import (
     extract_llm_test_cases,
+    generate_all_run_ids,
     log,
     run_all_test_setup,
 )
@@ -219,6 +220,10 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         tests_to_run = [
             tc for tc in test_cases if tc.id not in tests_to_skip_port_conflicts
         ]
+
+        # Always generate run_ids for all tests, regardless of --skip-setup
+        # This ensures {{ env.EVAL_RUN_ID }} templates can be rendered
+        generate_all_run_ids(tests_to_run)
 
         # Check skip-setup option and only-cleanup option
         skip_setup = request.config.getoption("--skip-setup")

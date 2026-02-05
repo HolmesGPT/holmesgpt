@@ -10,8 +10,15 @@ from typing import Dict, List
 
 from strenum import StrEnum
 
-from tests.llm.utils.commands import run_commands  # type: ignore[attr-defined]
-from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore[attr-defined]
+from tests.llm.utils.commands import (
+    _TEST_RUN_IDS,
+    _get_storage_id,
+    run_commands,
+)
+from tests.llm.utils.test_case_utils import (
+    HolmesTestCase,
+    generate_run_id,
+)
 
 # Configuration
 # Use as many workers as there are setups to run them all concurrently
@@ -222,6 +229,26 @@ def run_all_test_commands(
     )
 
     return failed_setup_info
+
+
+def generate_all_run_ids(test_cases: List[HolmesTestCase]) -> None:
+    """Generate and store run_ids for all test cases.
+
+    This must be called BEFORE tests run, regardless of whether --skip-setup is used.
+    The run_ids are stored in the module-level _TEST_RUN_IDS dict for retrieval
+    during test execution (in render_user_prompt and set_test_env_vars).
+
+    For tests that use {{ env.EVAL_RUN_ID }} in their prompts, this ensures the
+    template can be rendered even when setup is skipped.
+    """
+    for test_case in test_cases:
+        storage_id = _get_storage_id(test_case)
+        if storage_id not in _TEST_RUN_IDS:
+            run_id = generate_run_id()
+            _TEST_RUN_IDS[storage_id] = run_id
+            logging.debug(
+                f"Generated EVAL_RUN_ID={run_id} for test {test_case.id} (storage_id={storage_id})"
+            )
 
 
 def run_all_test_setup(

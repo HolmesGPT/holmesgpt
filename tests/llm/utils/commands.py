@@ -248,10 +248,10 @@ def run_commands(
     --skip-setup is used or no before_test script exists. This ensures
     tests that use {{ env.EVAL_RUN_ID }} in their prompts still work.
     """
-    # Always generate and store run_id for setup operations BEFORE early return
-    # This ensures run_id is available even with --skip-setup
+    # Generate and store run_id for setup operations if not already set
+    # (generate_all_run_ids may have already set it, e.g., for --skip-setup support)
     storage_id = _get_storage_id(test_case)
-    if operation == "setup":
+    if operation == "setup" and storage_id not in _TEST_RUN_IDS:
         run_id = generate_run_id()
         _TEST_RUN_IDS[storage_id] = run_id
         logging.debug(f"Generated EVAL_RUN_ID={run_id} for test {test_case.id} (storage_id={storage_id})")
