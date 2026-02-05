@@ -5,8 +5,12 @@ from typing import ClassVar, Dict, Optional
 
 from pydantic import Field
 
+from holmes.plugins.toolsets.kafka import KafkaClusterConfig, KafkaConfig
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+    ServiceNowTablesConfig,
+)
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -124,8 +128,6 @@ class TestKafkaConfigBackwardCompatibility:
 
     def test_deprecated_kafka_cluster_fields(self, caplog):
         """Test that deprecated KafkaClusterConfig fields are migrated."""
-        from holmes.plugins.toolsets.kafka import KafkaClusterConfig
-
         with caplog.at_level(logging.WARNING):
             config = KafkaClusterConfig(
                 name="test-cluster",
@@ -152,8 +154,6 @@ class TestKafkaConfigBackwardCompatibility:
 
     def test_new_kafka_cluster_fields_no_warning(self, caplog):
         """Test that new KafkaClusterConfig field names don't trigger warnings."""
-        from holmes.plugins.toolsets.kafka import KafkaClusterConfig
-
         with caplog.at_level(logging.WARNING):
             config = KafkaClusterConfig(
                 name="test-cluster",
@@ -175,8 +175,6 @@ class TestKafkaConfigBackwardCompatibility:
 
     def test_deprecated_kafka_config_clusters_field(self, caplog):
         """Test that deprecated KafkaConfig.kafka_clusters field is migrated."""
-        from holmes.plugins.toolsets.kafka import KafkaConfig
-
         with caplog.at_level(logging.WARNING):
             config = KafkaConfig(
                 kafka_clusters=[
@@ -193,8 +191,6 @@ class TestKafkaConfigBackwardCompatibility:
 
     def test_new_kafka_config_clusters_field_no_warning(self, caplog):
         """Test that new KafkaConfig.clusters field doesn't trigger warnings."""
-        from holmes.plugins.toolsets.kafka import KafkaConfig
-
         with caplog.at_level(logging.WARNING):
             config = KafkaConfig(
                 clusters=[
@@ -208,8 +204,6 @@ class TestKafkaConfigBackwardCompatibility:
 
     def test_mixed_old_and_new_field_names_kafka(self, caplog):
         """Test that old KafkaConfig fields with old KafkaClusterConfig fields work."""
-        from holmes.plugins.toolsets.kafka import KafkaConfig
-
         with caplog.at_level(logging.WARNING):
             # Use old field names throughout
             config = KafkaConfig(
@@ -232,8 +226,6 @@ class TestKafkaConfigBackwardCompatibility:
 
     def test_kafka_cluster_config_equivalence(self):
         """Test that configs created with old and new field names are equivalent."""
-        from holmes.plugins.toolsets.kafka import KafkaClusterConfig
-
         # Config using old field names
         old_config = KafkaClusterConfig(
             name="test",
@@ -265,8 +257,6 @@ class TestKafkaConfigBackwardCompatibility:
 
     def test_kafka_config_equivalence(self):
         """Test that KafkaConfigs created with old and new field names are equivalent."""
-        from holmes.plugins.toolsets.kafka import KafkaConfig
-
         # Config using old field names
         old_config = KafkaConfig(
             kafka_clusters=[
@@ -284,15 +274,13 @@ class TestKafkaConfigBackwardCompatibility:
         assert len(old_config.clusters) == len(new_config.clusters)
         assert old_config.clusters[0].name == new_config.clusters[0].name
         assert old_config.clusters[0].broker == new_config.clusters[0].broker
+
+
 class TestServiceNowConfigBackwardCompatibility:
     """Test backward compatibility for ServiceNowTablesConfig deprecated fields."""
 
     def test_deprecated_servicenow_fields(self, caplog):
         """Test that deprecated ServiceNow config fields are migrated."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -305,10 +293,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_new_servicenow_fields_no_warning(self, caplog):
         """Test that new ServiceNow field names don't trigger warnings."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             new_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -320,10 +304,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_deprecated_and_new_servicenow_configs_equivalent(self, caplog):
         """Test that configs created with old and new fields are equivalent."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         # Create config using deprecated field name
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
