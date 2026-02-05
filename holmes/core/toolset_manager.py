@@ -479,7 +479,6 @@ class ToolsetManager:
                 - env:
                     - API_ENDPOINT
                 - command: "curl ${API_ENDPOINT}"
-            additional_instructions: "jq -r '.result.results[].userData | fromjson | .text | fromjson | .log'"
             tools:
                 - name: "curl_example"
                   description: "Perform a curl request to example.com using variables"
