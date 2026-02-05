@@ -51,16 +51,15 @@ class RunbookFetcher(Tool):
                     if file.endswith(".md") and file not in available_runbooks:
                         available_runbooks.append(f"{file}")
 
-        runbook_list = ", ".join([f'"{rb}"' for rb in available_runbooks])
-
         super().__init__(
             name="fetch_runbook",
             description="Get runbook content by runbook link. Use this to get troubleshooting steps for incidents",
             parameters={
                 "runbook_id": ToolParameter(
-                    description=f"The runbook_id: either a UUID or a .md filename. Must be one of: {runbook_list}",
+                    description="The runbook_id: either a UUID or a .md filename",
                     type="string",
                     required=True,
+                    enum=available_runbooks if available_runbooks else None,
                 ),
             },
             toolset=toolset,  # type: ignore[call-arg]
