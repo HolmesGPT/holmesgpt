@@ -212,7 +212,7 @@ toolsets:
     config:
       api_key: "{{ env.DD_API_KEY }}"
       app_key: "{{ env.DD_APP_KEY }}"
-      api_url: https://app.datadoghq.com
+      api_url: https://api.datadoghq.com
       timeout_seconds: 60  # Timeout in seconds (default: 60)
 
       # Optional: Log search configuration
@@ -256,7 +256,7 @@ toolsets:
     config:
       api_key: "{{ env.DD_API_KEY }}"
       app_key: "{{ env.DD_APP_KEY }}"
-      api_url: https://app.datadoghq.com
+      api_url: https://api.datadoghq.com
       timeout_seconds: 60  # Timeout in seconds (default: 60)
 
       # Optional
@@ -298,7 +298,7 @@ toolsets:
     config:
       api_key: "{{ env.DD_API_KEY }}"
       app_key: "{{ env.DD_APP_KEY }}"
-      api_url: https://app.datadoghq.com
+      api_url: https://api.datadoghq.com
       timeout_seconds: 60  # Timeout in seconds (default: 60)
 ```
 
@@ -335,7 +335,7 @@ toolsets:
     config:
       api_key: "{{ env.DD_API_KEY }}"
       app_key: "{{ env.DD_APP_KEY }}"
-      api_url: https://app.datadoghq.com
+      api_url: https://api.datadoghq.com
       timeout_seconds: 60  # Timeout in seconds (default: 60)
 
       # Optional
