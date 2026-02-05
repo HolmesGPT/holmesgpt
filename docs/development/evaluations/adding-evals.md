@@ -223,7 +223,7 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: "http://custom-prometheus:9090"
+      api_url: "http://custom-prometheus:9090"
   grafana/dashboards:
     enabled: false  # Disable specific toolsets
 ```

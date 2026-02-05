@@ -362,7 +362,7 @@ class TestToolsetsYamlConfiguration:
                     "kubernetes/logs": {"enabled": False},
                     "prometheus/metrics": {
                         "enabled": True,
-                        "config": {"prometheus_url": "http://custom-prometheus:9090"},
+                        "config": {"api_url": "http://custom-prometheus:9090"},
                     },
                 }
             }
@@ -431,7 +431,7 @@ class TestToolsetsYamlConfiguration:
                 prometheus_toolset is not None
             ), "prometheus/metrics toolset should exist"
             assert (
-                prometheus_toolset.config.get("prometheus_url")
+                prometheus_toolset.config.get("api_url")
                 == "http://custom-prometheus:9090"
             ), "prometheus/metrics should have custom config"
 

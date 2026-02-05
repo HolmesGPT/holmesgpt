@@ -3,7 +3,6 @@
 import logging
 from typing import ClassVar, Dict, Optional
 
-import pytest
 from pydantic import Field
 
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -70,7 +69,7 @@ class TestToolsetConfig:
     def test_no_warning_for_new_fields(self, caplog):
         """Test that using new field names doesn't trigger warnings."""
         with caplog.at_level(logging.WARNING):
-            config = SampleConfig(new_field="test", another_new=5)
+            _config = SampleConfig(new_field="test", another_new=5)
 
         assert "deprecated" not in caplog.text.lower()
 
@@ -99,10 +98,36 @@ class TestPrometheusConfigBackwardCompatibility:
                 prometheus_ssl_enabled=False,
             )
 
+        # prometheus_url should be migrated to api_url
+        assert config.api_url == "http://prometheus:9090/"
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
-        assert "default_query_timeout_seconds -> query_timeout_seconds_default" in caplog.text
+        assert "prometheus_url -> api_url" in caplog.text
+        assert (
+            "default_query_timeout_seconds -> query_timeout_seconds_default"
+            in caplog.text
+        )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
+
+    def test_prometheus_url_to_api_url_migration(self, caplog):
+        """Test that prometheus_url is properly migrated to api_url."""
+        from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+
+        with caplog.at_level(logging.WARNING):
+            # Create config using deprecated prometheus_url field
+            old_config = PrometheusConfig(
+                prometheus_url="http://prometheus:9090",
+            )
+
+        # Create config using new api_url field
+        new_config = PrometheusConfig(
+            api_url="http://prometheus:9090",
+        )
+
+        # Both should result in the same api_url value
+        assert old_config.api_url == new_config.api_url
+        assert old_config.api_url == "http://prometheus:9090/"
+        assert "prometheus_url -> api_url" in caplog.text
 
     def test_new_prometheus_fields_no_warning(self, caplog):
         """Test that new Prometheus field names don't trigger warnings."""
@@ -110,10 +135,11 @@ class TestPrometheusConfigBackwardCompatibility:
 
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
-                prometheus_url="http://prometheus:9090",
+                api_url="http://prometheus:9090",
                 query_timeout_seconds_default=30,
                 verify_ssl=True,
             )
 
+        assert config.api_url == "http://prometheus:9090/"
         assert config.query_timeout_seconds_default == 30
         assert "deprecated" not in caplog.text.lower()

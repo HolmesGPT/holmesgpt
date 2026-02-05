@@ -28,7 +28,7 @@ toolsets:
     config:
       headers:
         Authorization: "Bearer <your Coralogix API key>"
-      prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
+      api_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
 
 
 ```

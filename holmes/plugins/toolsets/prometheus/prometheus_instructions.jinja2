@@ -1,7 +1,7 @@
 
 # Prometheus/PromQL queries
 
-{%- if config and config.prometheus_url and "coralogix" in config.prometheus_url %}
+{%- if config and config.api_url and "coralogix" in config.api_url %}
 You are using Coralogix Prometheus.
 * Metrics/labels may differ; discover names with `get_metric_names` first.
 * For high-cardinality, wrap with `topk(5, <query>)`.

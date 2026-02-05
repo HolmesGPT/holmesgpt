@@ -14,7 +14,7 @@ toolsets:
     prometheus/metrics:
         enabled: true
         config:
-            prometheus_url: http://<your-prometheus-service>:9090
+            api_url: http://<your-prometheus-service>:9090
 
             # Optional:
             #headers:
@@ -74,7 +74,7 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
         prometheus/metrics:
           enabled: true
           config:
-            prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
+            api_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
             headers:
               token: "{{ env.CORALOGIX_API_KEY }}"
             discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
@@ -93,7 +93,7 @@ holmes:
     prometheus/metrics:
       enabled: true
       config:
-        prometheus_url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
+        api_url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
         aws_region: us-east-1
         aws_service_name: aps  # Default value, can be omitted
         # Optional: Specify credentials (otherwise uses default AWS credential chain)
@@ -130,7 +130,7 @@ holmes:
       enabled: true
       config:
         # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
-        prometheus_url: http://frontend.default.svc.cluster.local:9090
+        api_url: http://frontend.default.svc.cluster.local:9090
 ```
 
 **Notes:**
@@ -154,7 +154,7 @@ holmes:
     prometheus/metrics:
       enabled: true
       config:
-        prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+        api_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
   additionalEnvVars:
     - name: AZURE_CLIENT_ID
       value: "<your-app-client-id>"
@@ -165,7 +165,7 @@ holmes:
 ```
 
 **Notes:**
-- `prometheus_url` must point to the Azure Managed Prometheus workspace endpoint (include the trailing slash).
+- `api_url` must point to the Azure Managed Prometheus workspace endpoint (include the trailing slash).
 - No extra headers are required; authentication is handled through Azure AD (service principal or managed identity).
 - SSL is enabled by default (`verify_ssl: true`). Disable only if you know you need to trust a custom cert.
 
@@ -192,7 +192,7 @@ To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
        prometheus/metrics:
          enabled: true
          config:
-           prometheus_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
+           api_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
            headers:
              Authorization: Bearer YOUR_GLSA_TOKEN
    ```
@@ -213,7 +213,7 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: http://prometheus-server.monitoring.svc.cluster.local:9090
+      api_url: http://prometheus-server.monitoring.svc.cluster.local:9090
       headers:
         Authorization: "Basic <base64_encoded_credentials>"
 
@@ -238,7 +238,7 @@ toolsets:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `prometheus_url` | - | Prometheus server URL (include protocol and port) |
+| `api_url` | - | Prometheus server URL (include protocol and port) |
 | `headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
 | `discover_metrics_from_last_hours` | `1` | Only discover metrics with data in last N hours |
 | `query_timeout_seconds_default` | `20` | Default PromQL query timeout |

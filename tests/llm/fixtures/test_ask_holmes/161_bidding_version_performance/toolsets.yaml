@@ -6,4 +6,4 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: http://localhost:10161
+      api_url: http://localhost:10161

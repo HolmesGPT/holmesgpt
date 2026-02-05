@@ -22,7 +22,7 @@ PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", None)
 def tool_executor():
     toolset = PrometheusToolset()
     toolset.enabled = True
-    toolset.config = {"prometheus_url": PROMETHEUS_URL}
+    toolset.config = {"api_url": PROMETHEUS_URL}
     toolset.check_prerequisites()
     assert toolset.status == ToolsetStatusEnum.ENABLED
     tool_executor = ToolExecutor(toolsets=[toolset])
