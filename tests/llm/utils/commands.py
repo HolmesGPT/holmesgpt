@@ -241,9 +241,21 @@ def run_commands(
 
     For setup operations, generates a unique EVAL_RUN_ID that is:
     - Available as env var in the before_test script
-    - Stored on test_case.run_id for use in user_prompt templating
+    - Stored in module-level dict for use in user_prompt templating
     - Used to prevent tests from succeeding on cached data
+
+    Note: EVAL_RUN_ID is always generated for setup operations, even when
+    --skip-setup is used or no before_test script exists. This ensures
+    tests that use {{ env.EVAL_RUN_ID }} in their prompts still work.
     """
+    # Always generate and store run_id for setup operations BEFORE early return
+    # This ensures run_id is available even with --skip-setup
+    storage_id = _get_storage_id(test_case)
+    if operation == "setup":
+        run_id = generate_run_id()
+        _TEST_RUN_IDS[storage_id] = run_id
+        logging.debug(f"Generated EVAL_RUN_ID={run_id} for test {test_case.id} (storage_id={storage_id})")
+
     if not commands_str or not is_run_live_enabled():
         return CommandResult(
             command=f"(no {operation} needed)",
@@ -257,16 +269,11 @@ def run_commands(
     # This preserves multi-line bash constructs like if/then/else, for loops, etc.
     script = commands_str.strip()
 
-    # For setup operations, generate a unique run_id to prevent cache hits
+    # Set up environment variables for the script
     extra_env: Dict[str, str] = {}
-    storage_id = _get_storage_id(test_case)
     if operation == "setup":
-        run_id = generate_run_id()
-        # Store in module-level dict for reliable retrieval in render_user_prompt
-        # Use storage_id (base_id or id) to match setup deduplication logic
-        _TEST_RUN_IDS[storage_id] = run_id
-        extra_env["EVAL_RUN_ID"] = run_id
-        logging.debug(f"Generated EVAL_RUN_ID={run_id} for test {test_case.id} (storage_id={storage_id})")
+        # Use the run_id we already generated and stored above
+        extra_env["EVAL_RUN_ID"] = _TEST_RUN_IDS[storage_id]
     elif operation == "cleanup":
         # Reuse the same run_id for cleanup
         run_id = _TEST_RUN_IDS.get(storage_id, "")
