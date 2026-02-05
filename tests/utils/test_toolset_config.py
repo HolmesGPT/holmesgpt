@@ -3,6 +3,7 @@
 import logging
 from typing import ClassVar, Dict, Optional
 
+from _pytest.logging import LogCaptureFixture
 from pydantic import Field
 
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
@@ -116,7 +117,9 @@ class TestPrometheusConfigBackwardCompatibility:
         )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
 
-    def test_prometheus_url_to_api_url_migration(self, caplog):
+    def test_prometheus_url_to_api_url_migration(
+        self, caplog: LogCaptureFixture
+    ) -> None:
         """Test that prometheus_url is properly migrated to api_url."""
         with caplog.at_level(logging.WARNING):
             # Create config using deprecated prometheus_url field
@@ -134,7 +137,9 @@ class TestPrometheusConfigBackwardCompatibility:
         assert old_config.api_url == "http://prometheus:9090/"
         assert "prometheus_url -> api_url" in caplog.text
 
-    def test_headers_to_additional_headers_migration(self, caplog):
+    def test_headers_to_additional_headers_migration(
+        self, caplog: LogCaptureFixture
+    ) -> None:
         """Test that headers is properly migrated to additional_headers."""
         with caplog.at_level(logging.WARNING):
             # Create config using deprecated headers field
