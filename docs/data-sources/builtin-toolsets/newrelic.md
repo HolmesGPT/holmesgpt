@@ -20,8 +20,8 @@ You can find these in your New Relic account under Administration > API keys and
       newrelic:
         enabled: true
         config:
-          nr_api_key: "<your New Relic API key>"
-          nr_account_id: "<your New Relic account ID>"
+          api_key: "<your New Relic API key>"
+          account_id: "<your New Relic account ID>"
           is_eu_datacenter: false  # Set to true if using New Relic EU region
     ```
 
@@ -35,8 +35,8 @@ You can find these in your New Relic account under Administration > API keys and
         newrelic:
           enabled: true
           config:
-            nr_api_key: "<your New Relic API key>"
-            nr_account_id: "<your New Relic account ID>"
+            api_key: "<your New Relic API key>"
+            account_id: "<your New Relic account ID>"
             is_eu_datacenter: false  # Set to true if using New Relic EU region
     ```
 
