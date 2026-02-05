@@ -17,7 +17,18 @@ LLMS_WITH_STRICT_TOOL_CALLS_LIST = [
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
-    param_type = param_attributes.type.strip()
+    # Handle both string types ("string") and list types (["string", "null"])
+    raw_type = param_attributes.type
+    is_nullable_from_schema = False
+
+    if isinstance(raw_type, list):
+        # JSON Schema union type like ["string", "null"] - extract primary type
+        non_null_types = [t.strip() if isinstance(t, str) else t for t in raw_type if t != "null"]
+        is_nullable_from_schema = "null" in raw_type
+        param_type = non_null_types[0] if non_null_types else "string"
+    else:
+        param_type = raw_type.strip()
+
     type_obj: Optional[dict[str, Any]] = None
 
     if param_type == "object":
@@ -61,8 +72,14 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
         else:
             type_obj = {"type": match.group("simple_type")}
 
-    if strict_mode and type_obj and not param_attributes.required:
-        type_obj["type"] = [type_obj["type"], "null"]
+    # Make type nullable if: strict_mode + not required, OR if schema already defined it as nullable
+    if type_obj and (is_nullable_from_schema or (strict_mode and not param_attributes.required)):
+        current_type = type_obj.get("type")
+        # Only convert to list if not already a list containing null
+        if isinstance(current_type, str):
+            type_obj["type"] = [current_type, "null"]
+        elif isinstance(current_type, list) and "null" not in current_type:
+            type_obj["type"] = current_type + ["null"]
 
     return type_obj
 

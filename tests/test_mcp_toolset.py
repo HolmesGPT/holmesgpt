@@ -35,12 +35,12 @@ def suppress_migration_warnings():
 class TestToolParameter:
     """Tests for the ToolParameter model."""
 
-    def test_type_accepts_string(self):
+    def test_type_accepts_string(self) -> None:
         """Test that ToolParameter.type accepts a string value."""
         param = ToolParameter(type="string")
         assert param.type == "string"
 
-    def test_type_accepts_list_for_nullable(self):
+    def test_type_accepts_list_for_nullable(self) -> None:
         """Test that ToolParameter.type accepts a list for nullable types.
 
         This is the fix for issue #1459: MCP tools may define nullable types
@@ -49,12 +49,12 @@ class TestToolParameter:
         param = ToolParameter(type=["string", "null"])
         assert param.type == ["string", "null"]
 
-    def test_type_accepts_list_for_union_types(self):
+    def test_type_accepts_list_for_union_types(self) -> None:
         """Test that ToolParameter.type accepts a list for union types."""
         param = ToolParameter(type=["string", "integer"])
         assert param.type == ["string", "integer"]
 
-    def test_default_type_is_string(self):
+    def test_default_type_is_string(self) -> None:
         """Test that the default type is 'string'."""
         param = ToolParameter()
         assert param.type == "string"
@@ -127,7 +127,8 @@ class TestMCPGeneral:
         assert tool.parameters == expected_schema
         assert tool.description == "desc"
 
-    def test_nullable_type_schema_parses_correctly(self, suppress_migration_warnings):
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_nullable_type_schema_parses_correctly(self) -> None:
         """Test that nullable types (e.g., ['string', 'null']) are parsed correctly.
 
         Fixes issue #1459: MCP Tool Validation Error when type is a list like
