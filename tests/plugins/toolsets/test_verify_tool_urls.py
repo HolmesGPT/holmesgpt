@@ -793,9 +793,9 @@ class TestDatadogMetricsURLs:
     @pytest.fixture
     def config(self):
         return DatadogMetricsConfig(
-            dd_api_key="test-key",
-            dd_app_key="test-app-key",
-            site_api_url=self.BASE_URL,
+            api_key="test-key",
+            app_key="test-app-key",
+            api_url=self.BASE_URL,
         )
 
     @pytest.fixture
@@ -895,9 +895,9 @@ class TestDatadogTracesURLs:
     @pytest.fixture
     def config(self):
         return DatadogTracesConfig(
-            dd_api_key="test-key",
-            dd_app_key="test-app-key",
-            site_api_url=self.BASE_URL,
+            api_key="test-key",
+            app_key="test-app-key",
+            api_url=self.BASE_URL,
         )
 
     @pytest.fixture
@@ -965,9 +965,9 @@ class TestDatadogGeneralURLs:
     @pytest.fixture
     def config(self):
         return DatadogGeneralConfig(
-            dd_api_key="test-key",
-            dd_app_key="test-app-key",
-            site_api_url=self.BASE_URL,
+            api_key="test-key",
+            app_key="test-app-key",
+            api_url=self.BASE_URL,
         )
 
     @pytest.fixture

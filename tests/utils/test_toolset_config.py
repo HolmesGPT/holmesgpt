@@ -117,3 +117,93 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 30
         assert "deprecated" not in caplog.text.lower()
+
+
+class TestDatadogConfigBackwardCompatibility:
+    """Test backward compatibility for DatadogBaseConfig deprecated fields."""
+
+    def test_deprecated_datadog_fields(self, caplog):
+        """Test that deprecated Datadog config fields are migrated."""
+        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
+
+        with caplog.at_level(logging.WARNING):
+            config = DatadogBaseConfig(
+                dd_api_key="test-api-key",
+                dd_app_key="test-app-key",
+                site_api_url="https://api.datadoghq.com",
+                request_timeout=120,
+            )
+
+        assert config.api_key == "test-api-key"
+        assert config.app_key == "test-app-key"
+        assert str(config.api_url) == "https://api.datadoghq.com/"
+        assert config.timeout_seconds == 120
+        assert "dd_api_key -> api_key" in caplog.text
+        assert "dd_app_key -> app_key" in caplog.text
+        assert "site_api_url -> api_url" in caplog.text
+        assert "request_timeout -> timeout_seconds" in caplog.text
+
+    def test_new_datadog_fields_no_warning(self, caplog):
+        """Test that new Datadog field names don't trigger warnings."""
+        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
+
+        with caplog.at_level(logging.WARNING):
+            config = DatadogBaseConfig(
+                api_key="test-api-key",
+                app_key="test-app-key",
+                api_url="https://api.datadoghq.com",
+                timeout_seconds=60,
+            )
+
+        assert config.api_key == "test-api-key"
+        assert config.app_key == "test-app-key"
+        assert config.timeout_seconds == 60
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_old_and_new_datadog_fields_new_takes_precedence(self, caplog):
+        """Test that new Datadog field names take precedence over deprecated ones."""
+        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
+
+        with caplog.at_level(logging.WARNING):
+            config = DatadogBaseConfig(
+                dd_api_key="old-api-key",
+                api_key="new-api-key",
+                dd_app_key="old-app-key",
+                app_key="new-app-key",
+                site_api_url="https://old.api.datadoghq.com",
+                api_url="https://new.api.datadoghq.com",
+                request_timeout=30,
+                timeout_seconds=90,
+            )
+
+        # New fields should take precedence
+        assert config.api_key == "new-api-key"
+        assert config.app_key == "new-app-key"
+        assert str(config.api_url) == "https://new.api.datadoghq.com/"
+        assert config.timeout_seconds == 90
+
+    def test_old_fields_produce_same_config_as_new_fields(self):
+        """Test that config created with old fields equals config created with new fields."""
+        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
+
+        # Create config using old (deprecated) field names
+        config_old = DatadogBaseConfig(
+            dd_api_key="test-api-key",
+            dd_app_key="test-app-key",
+            site_api_url="https://api.datadoghq.com",
+            request_timeout=120,
+        )
+
+        # Create config using new field names
+        config_new = DatadogBaseConfig(
+            api_key="test-api-key",
+            app_key="test-app-key",
+            api_url="https://api.datadoghq.com",
+            timeout_seconds=120,
+        )
+
+        # Both configs should have identical field values
+        assert config_old.api_key == config_new.api_key
+        assert config_old.app_key == config_new.app_key
+        assert str(config_old.api_url) == str(config_new.api_url)
+        assert config_old.timeout_seconds == config_new.timeout_seconds
