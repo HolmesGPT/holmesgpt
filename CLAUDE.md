@@ -548,7 +548,7 @@ toolsets:
   grafana/dashboards:
     enabled: true
     config:  # All toolset-specific config under 'config'
-      url: http://localhost:10177
+      api_url: http://localhost:10177
 ```
 
 ## Documentation Lookup
