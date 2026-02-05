@@ -404,7 +404,7 @@ class TestInvestigationFlow:
             prompt_template="builtin://generic_investigation.jinja2",
         )
 
-        _, _, user_prompt, _, _, _ = get_investigation_context(
+        _, _, user_prompt, _, _ = get_investigation_context(
             investigate_request, mock_dal, mock_config
         )
 
