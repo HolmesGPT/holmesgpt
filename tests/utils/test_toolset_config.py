@@ -3,9 +3,10 @@
 import logging
 from typing import ClassVar, Dict, Optional
 
-import pytest
 from pydantic import Field
 
+from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
+from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -70,7 +71,7 @@ class TestToolsetConfig:
     def test_no_warning_for_new_fields(self, caplog):
         """Test that using new field names doesn't trigger warnings."""
         with caplog.at_level(logging.WARNING):
-            config = SampleConfig(new_field="test", another_new=5)
+            _ = SampleConfig(new_field="test", another_new=5)
 
         assert "deprecated" not in caplog.text.lower()
 
@@ -90,8 +91,6 @@ class TestPrometheusConfigBackwardCompatibility:
 
     def test_deprecated_prometheus_fields(self, caplog):
         """Test that deprecated Prometheus config fields are migrated."""
-        from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
-
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
                 prometheus_url="http://prometheus:9090",
@@ -101,13 +100,14 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
-        assert "default_query_timeout_seconds -> query_timeout_seconds_default" in caplog.text
+        assert (
+            "default_query_timeout_seconds -> query_timeout_seconds_default"
+            in caplog.text
+        )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
 
     def test_new_prometheus_fields_no_warning(self, caplog):
         """Test that new Prometheus field names don't trigger warnings."""
-        from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
-
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
                 prometheus_url="http://prometheus:9090",
@@ -117,3 +117,54 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 30
         assert "deprecated" not in caplog.text.lower()
+
+
+class TestNewrelicConfigBackwardCompatibility:
+    """Test backward compatibility for NewrelicConfig deprecated fields."""
+
+    def test_deprecated_newrelic_fields(self, caplog):
+        """Test that deprecated New Relic config fields are migrated."""
+        with caplog.at_level(logging.WARNING):
+            config = NewrelicConfig(
+                nr_api_key="NRAK-TESTKEY123",
+                nr_account_id="1234567",
+            )
+
+        assert config.api_key == "NRAK-TESTKEY123"
+        assert config.account_id == "1234567"
+        assert "nr_api_key -> api_key" in caplog.text
+        assert "nr_account_id -> account_id" in caplog.text
+
+    def test_new_newrelic_fields_no_warning(self, caplog):
+        """Test that new New Relic field names don't trigger warnings."""
+        with caplog.at_level(logging.WARNING):
+            config = NewrelicConfig(
+                api_key="NRAK-TESTKEY123",
+                account_id="1234567",
+            )
+
+        assert config.api_key == "NRAK-TESTKEY123"
+        assert config.account_id == "1234567"
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_old_and_new_fields_mixed(self, caplog):
+        """Test that deprecated and new configs produce equivalent results."""
+        # Create config with old field names
+        with caplog.at_level(logging.WARNING):
+            old_config = NewrelicConfig(
+                nr_api_key="NRAK-TESTKEY123",
+                nr_account_id="1234567",
+                is_eu_datacenter=True,
+            )
+
+        # Create config with new field names
+        new_config = NewrelicConfig(
+            api_key="NRAK-TESTKEY123",
+            account_id="1234567",
+            is_eu_datacenter=True,
+        )
+
+        # Both should produce the same result
+        assert old_config.api_key == new_config.api_key
+        assert old_config.account_id == new_config.account_id
+        assert old_config.is_eu_datacenter == new_config.is_eu_datacenter
