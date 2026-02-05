@@ -74,7 +74,7 @@ You should receive a JSON response. If you get an authentication error, check yo
         enabled: true
         config:
           api_key: <your servicenow API key>  # e.g. now_1234567890abcdef
-          instance_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+          api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -94,7 +94,7 @@ You should receive a JSON response. If you get an authentication error, check yo
           enabled: true
           config:
             api_key: <your servicenow API key>  # e.g. now_1234567890abcdef
-            instance_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+            api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
     ```
 
 ## Capabilities
