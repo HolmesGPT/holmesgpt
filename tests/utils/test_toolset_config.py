@@ -1,7 +1,7 @@
 """Tests for ToolsetConfig base class and deprecated field mappings."""
 
 import logging
-from typing import ClassVar, Dict, Optional
+from typing import Any, ClassVar, Dict, Optional
 
 from pydantic import Field
 
@@ -126,7 +126,7 @@ class TestPrometheusConfigBackwardCompatibility:
 class TestDatadogConfigBackwardCompatibility:
     """Test backward compatibility for DatadogBaseConfig deprecated fields."""
 
-    def test_deprecated_datadog_fields(self, caplog):
+    def test_deprecated_datadog_fields(self, caplog: Any) -> None:
         """Test that deprecated Datadog config fields are migrated."""
         with caplog.at_level(logging.WARNING):
             config = DatadogBaseConfig(
@@ -145,7 +145,7 @@ class TestDatadogConfigBackwardCompatibility:
         assert "site_api_url -> api_url" in caplog.text
         assert "request_timeout -> timeout_seconds" in caplog.text
 
-    def test_new_datadog_fields_no_warning(self, caplog):
+    def test_new_datadog_fields_no_warning(self, caplog: Any) -> None:
         """Test that new Datadog field names don't trigger warnings."""
         with caplog.at_level(logging.WARNING):
             config = DatadogBaseConfig(
@@ -160,7 +160,7 @@ class TestDatadogConfigBackwardCompatibility:
         assert config.timeout_seconds == 60
         assert "deprecated" not in caplog.text.lower()
 
-    def test_old_and_new_datadog_fields_new_takes_precedence(self, caplog):
+    def test_old_and_new_datadog_fields_new_takes_precedence(self, caplog: Any) -> None:
         """Test that new Datadog field names take precedence over deprecated ones."""
         with caplog.at_level(logging.WARNING):
             config = DatadogBaseConfig(
@@ -180,7 +180,7 @@ class TestDatadogConfigBackwardCompatibility:
         assert str(config.api_url) == "https://new.api.datadoghq.com/"
         assert config.timeout_seconds == 90
 
-    def test_old_fields_produce_same_config_as_new_fields(self):
+    def test_old_fields_produce_same_config_as_new_fields(self) -> None:
         """Test that config created with old fields equals config created with new fields."""
         # Create config using old (deprecated) field names
         config_old = DatadogBaseConfig(
