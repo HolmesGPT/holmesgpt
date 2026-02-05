@@ -373,7 +373,7 @@ def _temporary_env_vars(env_vars: Dict[str, str]):
 def set_test_env_vars(test_case: HolmesTestCase):
     """Context manager to set test case environment variables during execution.
 
-    Also sets EVAL_RUN_ID from test_case.run_id if available, making the unique
+    Also sets EVAL_RUN_ID from module-level storage if available, making the unique
     run identifier available during test execution (for toolset configs, etc.).
     """
     # Build env vars to set, including EVAL_RUN_ID if available
@@ -381,9 +381,10 @@ def set_test_env_vars(test_case: HolmesTestCase):
     if test_case.test_env_vars:
         env_vars_to_set.update(test_case.test_env_vars)
 
-    # Always set EVAL_RUN_ID if run_id is available on the test case
-    if hasattr(test_case, "run_id") and test_case.run_id:
-        env_vars_to_set["EVAL_RUN_ID"] = test_case.run_id
+    # Set EVAL_RUN_ID from module-level storage (test_case.run_id is never populated)
+    run_id = get_test_run_id(test_case.id)
+    if run_id:
+        env_vars_to_set["EVAL_RUN_ID"] = run_id
 
     with _temporary_env_vars(env_vars_to_set):
         yield
