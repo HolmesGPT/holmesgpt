@@ -5,8 +5,12 @@ from typing import ClassVar, Dict, Optional
 
 from pydantic import Field
 
+from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+    ServiceNowTablesConfig,
+)
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -124,8 +128,6 @@ class TestDatadogConfigBackwardCompatibility:
 
     def test_deprecated_datadog_fields(self, caplog):
         """Test that deprecated Datadog config fields are migrated."""
-        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
-
         with caplog.at_level(logging.WARNING):
             config = DatadogBaseConfig(
                 dd_api_key="test-api-key",
@@ -145,8 +147,6 @@ class TestDatadogConfigBackwardCompatibility:
 
     def test_new_datadog_fields_no_warning(self, caplog):
         """Test that new Datadog field names don't trigger warnings."""
-        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
-
         with caplog.at_level(logging.WARNING):
             config = DatadogBaseConfig(
                 api_key="test-api-key",
@@ -162,8 +162,6 @@ class TestDatadogConfigBackwardCompatibility:
 
     def test_old_and_new_datadog_fields_new_takes_precedence(self, caplog):
         """Test that new Datadog field names take precedence over deprecated ones."""
-        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
-
         with caplog.at_level(logging.WARNING):
             config = DatadogBaseConfig(
                 dd_api_key="old-api-key",
@@ -184,8 +182,6 @@ class TestDatadogConfigBackwardCompatibility:
 
     def test_old_fields_produce_same_config_as_new_fields(self):
         """Test that config created with old fields equals config created with new fields."""
-        from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
-
         # Create config using old (deprecated) field names
         config_old = DatadogBaseConfig(
             dd_api_key="test-api-key",
@@ -214,10 +210,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_deprecated_servicenow_fields(self, caplog):
         """Test that deprecated ServiceNow config fields are migrated."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -230,10 +222,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_new_servicenow_fields_no_warning(self, caplog):
         """Test that new ServiceNow field names don't trigger warnings."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         with caplog.at_level(logging.WARNING):
             new_config = ServiceNowTablesConfig(
                 api_key="now_test123",
@@ -245,10 +233,6 @@ class TestServiceNowConfigBackwardCompatibility:
 
     def test_deprecated_and_new_servicenow_configs_equivalent(self, caplog):
         """Test that configs created with old and new fields are equivalent."""
-        from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
-            ServiceNowTablesConfig,
-        )
-
         # Create config using deprecated field name
         with caplog.at_level(logging.WARNING):
             old_config = ServiceNowTablesConfig(
