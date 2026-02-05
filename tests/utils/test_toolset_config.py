@@ -94,15 +94,19 @@ class TestPrometheusConfigBackwardCompatibility:
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
                 prometheus_url="http://prometheus:9090",
+                headers={"Authorization": "Bearer test"},
                 default_query_timeout_seconds=45,
                 prometheus_ssl_enabled=False,
             )
 
         # prometheus_url should be migrated to api_url
         assert config.api_url == "http://prometheus:9090/"
+        # headers should be migrated to additional_headers
+        assert config.additional_headers == {"Authorization": "Bearer test"}
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
         assert "prometheus_url -> api_url" in caplog.text
+        assert "headers -> additional_headers" in caplog.text
         assert (
             "default_query_timeout_seconds -> query_timeout_seconds_default"
             in caplog.text
@@ -129,6 +133,28 @@ class TestPrometheusConfigBackwardCompatibility:
         assert old_config.api_url == "http://prometheus:9090/"
         assert "prometheus_url -> api_url" in caplog.text
 
+    def test_headers_to_additional_headers_migration(self, caplog):
+        """Test that headers is properly migrated to additional_headers."""
+        from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+
+        with caplog.at_level(logging.WARNING):
+            # Create config using deprecated headers field
+            old_config = PrometheusConfig(
+                api_url="http://prometheus:9090",
+                headers={"Authorization": "Bearer token123"},
+            )
+
+        # Create config using new additional_headers field
+        new_config = PrometheusConfig(
+            api_url="http://prometheus:9090",
+            additional_headers={"Authorization": "Bearer token123"},
+        )
+
+        # Both should result in the same additional_headers value
+        assert old_config.additional_headers == new_config.additional_headers
+        assert old_config.additional_headers == {"Authorization": "Bearer token123"}
+        assert "headers -> additional_headers" in caplog.text
+
     def test_new_prometheus_fields_no_warning(self, caplog):
         """Test that new Prometheus field names don't trigger warnings."""
         from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
@@ -138,8 +164,10 @@ class TestPrometheusConfigBackwardCompatibility:
                 api_url="http://prometheus:9090",
                 query_timeout_seconds_default=30,
                 verify_ssl=True,
+                additional_headers={"Authorization": "Bearer test"},
             )
 
         assert config.api_url == "http://prometheus:9090/"
         assert config.query_timeout_seconds_default == 30
+        assert config.additional_headers == {"Authorization": "Bearer test"}
         assert "deprecated" not in caplog.text.lower()
