@@ -22,14 +22,27 @@ EVAL_SETUP_TIMEOUT = int(
 _TEST_RUN_IDS: Dict[str, str] = {}
 
 
-def get_test_run_id(test_case_id: str) -> str:
+def _get_storage_id(test_case: HolmesTestCase) -> str:
+    """Get the storage key for a test case's run_id.
+
+    Uses base_id if present (for variant tests), otherwise test_case.id.
+    This matches the deduplication logic in setup_cleanup.py.
+    """
+    return getattr(test_case, "base_id", None) or test_case.id
+
+
+def get_test_run_id(test_case: HolmesTestCase) -> str:
     """Get the run_id for a test case.
 
     This retrieves the run_id that was generated during setup for reliable
     use in render_user_prompt. Using module-level storage because
     object.__setattr__ on Pydantic models is unreliable.
+
+    For variant tests (tests with array user_prompt), all variants share
+    the same run_id since setup only runs once per base test.
     """
-    return _TEST_RUN_IDS.get(test_case_id, "")
+    storage_id = _get_storage_id(test_case)
+    return _TEST_RUN_IDS.get(storage_id, "")
 
 
 def _get_pod_diagnostics(test_case: Optional[HolmesTestCase], operation: str) -> str:
@@ -246,16 +259,17 @@ def run_commands(
 
     # For setup operations, generate a unique run_id to prevent cache hits
     extra_env: Dict[str, str] = {}
+    storage_id = _get_storage_id(test_case)
     if operation == "setup":
         run_id = generate_run_id()
         # Store in module-level dict for reliable retrieval in render_user_prompt
-        # object.__setattr__ on Pydantic models is unreliable
-        _TEST_RUN_IDS[test_case.id] = run_id
+        # Use storage_id (base_id or id) to match setup deduplication logic
+        _TEST_RUN_IDS[storage_id] = run_id
         extra_env["EVAL_RUN_ID"] = run_id
-        logging.debug(f"Generated EVAL_RUN_ID={run_id} for test {test_case.id}")
+        logging.debug(f"Generated EVAL_RUN_ID={run_id} for test {test_case.id} (storage_id={storage_id})")
     elif operation == "cleanup":
         # Reuse the same run_id for cleanup
-        run_id = _TEST_RUN_IDS.get(test_case.id, "")
+        run_id = _TEST_RUN_IDS.get(storage_id, "")
         if run_id:
             extra_env["EVAL_RUN_ID"] = run_id
 
@@ -382,7 +396,7 @@ def set_test_env_vars(test_case: HolmesTestCase):
         env_vars_to_set.update(test_case.test_env_vars)
 
     # Set EVAL_RUN_ID from module-level storage (test_case.run_id is never populated)
-    run_id = get_test_run_id(test_case.id)
+    run_id = get_test_run_id(test_case)
     if run_id:
         env_vars_to_set["EVAL_RUN_ID"] = run_id
 

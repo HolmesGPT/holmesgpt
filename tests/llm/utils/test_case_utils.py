@@ -552,10 +552,10 @@ def render_user_prompt(test_case: AskHolmesTestCase) -> str:
         raise ValueError(f"Expected string user_prompt, got {type(prompt)}")
 
     # Get run_id from module-level storage (more reliable than test_case.run_id)
-    # object.__setattr__ on Pydantic models is unreliable
+    # Uses base_id for variant tests to match setup deduplication logic
     from tests.llm.utils.commands import get_test_run_id
 
-    run_id = get_test_run_id(test_case.id)
+    run_id = get_test_run_id(test_case)
     if run_id and "EVAL_RUN_ID" not in os.environ:
         os.environ["EVAL_RUN_ID"] = run_id
 
