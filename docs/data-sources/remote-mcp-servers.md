@@ -291,13 +291,13 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     ```yaml
     holmes:
       mcp_servers:
-        my_mcp_server:
-          description: "My stdio MCP server via Supergateway"
+        ticket_db:
+          description: "Internal ticket database"
           config:
             url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
             mode: sse
           # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
+          llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
     ```
 
     ```bash
@@ -337,12 +337,12 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
     ```yaml
     holmes:
       mcp_servers:
-        legacy_server:
-          description: "Legacy MCP server using SSE"
+        legacy_analytics:
+          description: "Legacy analytics platform (SSE transport)"
           config:
-            url: "http://example.com:8000/sse"
+            url: "http://analytics-mcp:8000/sse"
             mode: sse
-          llm_instructions: "Legacy server."
+          llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
     ```
 
 The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically append it.
@@ -376,14 +376,14 @@ MCP servers can use dynamic headers populated from the incoming HTTP request. Th
     ```yaml
     holmes:
       mcp_servers:
-        my_server:
-          description: "MCP server with dynamic auth"
+        customer_data:
+          description: "Customer data API (requires per-request auth)"
           config:
-            url: "http://mcp-server:8000/mcp"
+            url: "http://customer-api:8000/mcp"
             mode: streamable-http
             extra_headers:
               X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-          llm_instructions: "Use this server with per-request authentication."
+          llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
     ```
 
 When making requests to HolmesGPT, include the required header:
