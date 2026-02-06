@@ -87,6 +87,11 @@ pytest-dotenv = "^0.5.2"
 pytest-sugar = "^1.1.1"
 pytest-shared-session-scope = "^0.4.0"
 mkdocs-awesome-nav = "^3.2.0"
+# OpenTelemetry packages for Coralogix eval tests (send traces/metrics)
+opentelemetry-api = "^1.20.0"
+opentelemetry-sdk = "^1.20.0"
+opentelemetry-exporter-otlp-proto-grpc = "^1.20.0"
+opentelemetry-exporter-otlp-proto-http = "^1.20.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -137,6 +142,7 @@ markers = [
     "one-test: Runs only one simple eval",
     "loki: Loki toolset",
     "coralogix: Runs coralogix evals",
+    "fast: Fast cloud-only tests that don't require Kubernetes infrastructure",
     "frontend: Run frontend tests",
     "grafana-dashboard: Tests involving Grafana dashboard interactions",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",

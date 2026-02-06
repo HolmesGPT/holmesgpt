@@ -4,8 +4,7 @@ toolsets:
     enabled: true
     config:
       api_key: "{{env.CORALOGIX_API_KEY}}"
-      domain: "{{env.CORALOGIX_DOMAIN}}"
-      team_hostname: "{{env.CORALOGIX_TEAM_HOSTNAME}}"
+      domain: "eu2.coralogix.com"
   kubernetes/logs:
     enabled: false
   kubernetes/core:

@@ -196,6 +196,9 @@ poetry run pytest tests/llm/ -n 6
 # Note: When using Anthropic models, set CLASSIFIER_MODEL to OpenAI (Anthropic not supported as classifier)
 MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
 
+# RECOMMENDED: Test with Opus 4.5 via OpenRouter (best model for eval testing)
+MODEL=openrouter/anthropic/claude-opus-4.5 CLASSIFIER_MODEL=openrouter/openai/gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
+
 # Setting environment variables - IMPORTANT:
 # Environment variables must be set BEFORE the poetry command, NOT as pytest arguments
 # CORRECT:
