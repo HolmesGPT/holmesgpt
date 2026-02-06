@@ -260,7 +260,10 @@ def responses():
         rsps.add_passthru("https://api.ap1.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.eu")
-        rsps.add_passthru("https://ng-api-http.eu2.coralogix.com")
+        # Allow all Coralogix API calls (query and ingestion endpoints, all regions)
+        rsps.add_passthru(re.compile(r"https://.*\.coralogix\.com"))
+        rsps.add_passthru(re.compile(r"https://.*\.coralogix\.us"))
+        rsps.add_passthru(re.compile(r"https://.*\.coralogix\.in"))
 
         # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
         rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
