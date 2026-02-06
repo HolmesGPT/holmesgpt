@@ -8,10 +8,8 @@ before_test: |
 
 user_prompt:
   - "Can you show me a cpu graph of the spaceship-launch-counter pod in namespace space-projects?"
-  - "Show me CPU metrics for spaceship-launch-counter in space-projects"
-  - "Display spaceship-launch-counter pod CPU usage graph from space-projects namespace"
   - "I need to see the memory usage for spaceship-launch-counter in space-projects"
-  - "What's the CPU utilization of the spaceship-launch-counter deployment in namespace space-projects?"
+  - "Can you visualize the resource usage for spaceship-launch-counter pod in the space-projects namespace?"
 
 expected_output: |
   Output must contain 1 or more embeds in the following format
@@ -24,6 +22,7 @@ expected_output: |
 tags:
   - datadog
   - embeds
+  - regression
 
 after_test: |
   # No cleanup needed - we only sent metrics to Datadog which don't need cleanup
