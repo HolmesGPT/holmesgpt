@@ -23,6 +23,7 @@ expected_output: |
 tags:
   - datadog
   - embeds
+  - regression
 
 after_test: |
   # No cleanup needed - we only sent metrics to Datadog which don't need cleanup

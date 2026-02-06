@@ -37,6 +37,7 @@ expected_output: |
 tags:
   - datadog
   - embeds
+  - regression
 
 after_test: |
   # Cleanup Kubernetes resources
