@@ -668,16 +668,16 @@ class TestNewRelicURLs:
     @pytest.fixture
     def toolset_us(self):
         toolset = NewRelicToolset()
-        toolset.nr_api_key = "test-key"
-        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.api_key = "test-key"
+        toolset.account_id = self.ACCOUNT_ID
         toolset.is_eu_datacenter = False
         return toolset
 
     @pytest.fixture
     def toolset_eu(self):
         toolset = NewRelicToolset()
-        toolset.nr_api_key = "test-key"
-        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.api_key = "test-key"
+        toolset.account_id = self.ACCOUNT_ID
         toolset.is_eu_datacenter = True
         return toolset
 
