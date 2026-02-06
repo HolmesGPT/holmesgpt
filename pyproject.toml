@@ -92,8 +92,6 @@ opentelemetry-api = "^1.20.0"
 opentelemetry-sdk = "^1.20.0"
 opentelemetry-exporter-otlp-proto-grpc = "^1.20.0"
 opentelemetry-exporter-otlp-proto-http = "^1.20.0"
-# Snappy compression for Prometheus RemoteWrite (Coralogix metrics eval)
-python-snappy = "^0.7.0"
 
 [build-system]
 requires = ["poetry-core"]
