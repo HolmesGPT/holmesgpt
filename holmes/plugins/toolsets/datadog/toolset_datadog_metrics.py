@@ -2,12 +2,12 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
-from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -15,6 +15,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import (
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
@@ -699,6 +700,8 @@ class ListMetricTags(BaseDatadogMetricsTool):
 
 
 class DatadogMetricsToolset(Toolset):
+    config_classes: ClassVar[list[Type[DatadogMetricsConfig]]] = [DatadogMetricsConfig]
+
     dd_config: Optional[DatadogMetricsConfig] = None
 
     def __init__(self):
@@ -762,14 +765,6 @@ class DatadogMetricsToolset(Toolset):
         except Exception as e:
             logging.exception("Failed to set up Datadog metrics toolset")
             return (False, f"Failed to parse Datadog configuration: {str(e)}")
-
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = DatadogMetricsConfig(
-            dd_api_key="<your_datadog_api_key>",
-            dd_app_key="<your_datadog_app_key>",
-            site_api_url=AnyUrl("https://api.datadoghq.com"),
-        )
-        return example_config.model_dump(mode="json")
 
     def _reload_instructions(self):
         """Load Datadog metrics specific troubleshooting instructions."""

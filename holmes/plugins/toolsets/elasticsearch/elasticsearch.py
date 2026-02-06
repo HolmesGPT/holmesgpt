@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -17,9 +17,10 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
-class ElasticsearchConfig(BaseModel):
+class ElasticsearchConfig(ToolsetConfig):
     """Configuration for Elasticsearch/OpenSearch API access.
 
     Example configuration:
@@ -36,19 +37,44 @@ class ElasticsearchConfig(BaseModel):
     ```
     """
 
-    url: str
-    api_key: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    verify_ssl: bool = True
-    timeout: int = 10  # Default timeout in seconds
+    url: str = Field(
+        title="URL",
+        description="Elasticsearch/OpenSearch base URL",
+        examples=["https://your-cluster.es.cloud.io"],
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        title="API Key",
+        description="API key for authentication (preferred over basic auth when available)",
+        examples=["{{ env.ELASTICSEARCH_API_KEY }}"],
+    )
+    username: Optional[str] = Field(
+        default=None,
+        title="Username",
+        description="Username for basic auth authentication (used if api_key is not provided)",
+    )
+    password: Optional[str] = Field(
+        default=None,
+        title="Password",
+        description="Password for basic auth authentication (used if api_key is not provided)",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        title="Verify SSL",
+        description="Whether to verify SSL certificates",
+    )
+    timeout: int = Field(
+        default=10,
+        title="Timeout",
+        description="Default request timeout in seconds",
+    )
 
 
 class ElasticsearchBaseToolset(Toolset):
     """Base class for Elasticsearch toolsets with shared configuration and HTTP logic."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    config_class: ClassVar[Type[ElasticsearchConfig]] = ElasticsearchConfig
+    config_classes: ClassVar[list[Type[ElasticsearchConfig]]] = [ElasticsearchConfig]
 
     def __init__(self, name: str, description: str, tools: list, **kwargs):
         super().__init__(
@@ -110,15 +136,6 @@ class ElasticsearchBaseToolset(Toolset):
     @property
     def elasticsearch_config(self) -> ElasticsearchConfig:
         return self.config  # type: ignore
-
-    def get_example_config(self) -> Dict[str, Any]:
-        """Return an example configuration for this toolset."""
-        return {
-            "url": "https://your-cluster.es.cloud.io",
-            "api_key": "{{ env.ELASTICSEARCH_API_KEY }}",
-            "verify_ssl": True,
-            "timeout": 10,
-        }
 
     def _get_headers(self) -> Dict[str, str]:
         """Build request headers with authentication."""
@@ -393,10 +410,18 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                 ),
                 "source": ToolParameter(
                     description=(
-                        "Fields to include in response. Can be boolean (true/false), "
-                        "string (single field), or array of field names"
+                        "Fields to include/exclude in response. Supported formats:\n"
+                        "• Array: ['field1', 'field2'] - Include only these fields\n"
+                        "• String: 'field1' - Include single field\n"
+                        "• Object: {\"includes\": [\"trace.*\", \"span.*\"], \"excludes\": [\"*.body\", \"*.stack_trace\"]}\n"
+                        "  - Use wildcards (*) for pattern matching\n"
+                        "  - Excludes are useful for filtering large fields (http.request.body, error.stack_trace, http.response.*)\n"
+                        "• Boolean: false - Exclude all source (metadata only)\n\n"
+                        "Examples:\n"
+                        "- Trace query: {\"includes\": [\"trace.*\", \"span.*\", \"service.*\"], \"excludes\": [\"*.request.*\", \"*.response.*\"]}\n"
+                        "- Logs: [\"@timestamp\", \"message\", \"level\", \"service.name\"]"
                     ),
-                    type="string",
+                    type="object",
                     required=False,
                 ),
                 "aggregations": ToolParameter(

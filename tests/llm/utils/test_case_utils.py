@@ -11,7 +11,7 @@ from typing_extensions import Dict
 
 from holmes.config import Config
 from holmes.core.llm import DefaultLLM
-from holmes.core.models import InvestigateRequest, WorkloadHealthRequest
+from holmes.core.models import InvestigateRequest
 from holmes.core.prompt import append_file_to_user_prompt
 from holmes.core.resource_instruction import ResourceInstructions
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
@@ -175,14 +175,6 @@ class InvestigateTestCase(HolmesTestCase, BaseModel):
     request: Any = None
 
 
-class HealthCheckTestCase(HolmesTestCase, BaseModel):
-    workload_health_request: WorkloadHealthRequest
-    issue_data: Optional[Dict]
-    resource_instructions: Optional[ResourceInstructions]
-    expected_sections: Optional[Dict[str, Union[List[str], bool]]] = None
-    request: Any = None
-
-
 def check_and_skip_test(
     test_case: HolmesTestCase, request=None, shared_test_infrastructure=None
 ) -> None:
@@ -247,9 +239,6 @@ class MockHelper:
     def __init__(self, test_cases_folder: Path) -> None:
         super().__init__()
         self._test_cases_folder = test_cases_folder
-
-    def load_workload_health_test_cases(self) -> List[HealthCheckTestCase]:
-        return cast(List[HealthCheckTestCase], self.load_test_cases())
 
     def load_investigate_test_cases(self) -> List[InvestigateTestCase]:
         return cast(List[InvestigateTestCase], self.load_test_cases())
@@ -333,18 +322,6 @@ class MockHelper:
                     )
                     config_dict["request"] = TypeAdapter(InvestigateRequest)
                     test_case = TypeAdapter(InvestigateTestCase).validate_python(
-                        config_dict
-                    )
-                elif self._test_cases_folder.name == "test_workload_health":
-                    config_dict["workload_health_request"] = (
-                        load_workload_health_request(test_case_folder)
-                    )
-                    config_dict["issue_data"] = load_issue_data(test_case_folder)
-                    config_dict["resource_instructions"] = load_resource_instructions(
-                        test_case_folder
-                    )
-                    config_dict["request"] = TypeAdapter(WorkloadHealthRequest)
-                    test_case = TypeAdapter(HealthCheckTestCase).validate_python(
                         config_dict
                     )
                 elif self._test_cases_folder.name == "compaction":
@@ -450,19 +427,6 @@ def load_investigate_request(test_case_folder: Path) -> InvestigateRequest:
         )
     raise Exception(
         f"Investigate test case declared in folder {str(test_case_folder)} should have an investigate_request.json file but none is present"
-    )
-
-
-def load_workload_health_request(test_case_folder: Path) -> WorkloadHealthRequest:
-    workload_health_request_path = test_case_folder.joinpath(
-        Path("workload_health_request.json")
-    )
-    if workload_health_request_path.exists():
-        return TypeAdapter(WorkloadHealthRequest).validate_json(
-            read_file(Path(workload_health_request_path))
-        )
-    raise Exception(
-        f"Workload health test case declared in folder {str(test_case_folder)} should have an workload_health_request.json file but none is present"
     )
 
 

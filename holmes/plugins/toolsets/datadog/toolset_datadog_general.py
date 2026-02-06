@@ -9,6 +9,7 @@ from urllib.parse import urlencode, urlparse
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -16,6 +17,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
@@ -28,7 +30,6 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     preprocess_time_fields,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import (
-    MAX_RESPONSE_SIZE,
     DatadogGeneralConfig,
 )
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
@@ -41,8 +42,8 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 WHITELISTED_ENDPOINTS = [
     # Monitors
     (r"^/api/v\d+/monitor(/search)?$", ""),
-    (r"^/api/v\d+/monitor/\d+(/downtimes)?$", ""),
-    (r"^/api/v\d+/monitor/groups/search$", ""),
+    (r"^/api/v\d+/monitor/\d+$", "Get a specific monitor by ID"),
+    (r"^/api/v1/monitor/groups/search$", "Search monitor groups (v1 only, no v2 equivalent)"),
     # Dashboards
     (r"^/api/v\d+/dashboard(/lists)?$", ""),
     (r"^/api/v\d+/dashboard/[^/]+$", ""),
@@ -56,7 +57,7 @@ WHITELISTED_ENDPOINTS = [
         r"^/api/v\d+/events$",
         "Use time range parameters 'start' and 'end' as Unix timestamps",
     ),
-    (r"^/api/v\d+/events/\d+$", ""),
+    (r"^/api/v\d+/events/[^/]+$", "Get specific event by ID"),
     # Incidents
     (r"^/api/v\d+/incidents(/search)?$", ""),
     (r"^/api/v\d+/incidents/[^/]+$", ""),
@@ -93,6 +94,13 @@ WHITELISTED_ENDPOINTS = [
     (r"^/api/v\d+/usage/estimated_cost$", ""),
     # Processes
     (r"^/api/v\d+/processes$", ""),
+    # Containers
+    (r"^/api/v2/containers$", "List running containers"),
+    (r"^/api/v2/container_images$", "List container images"),
+    # Downtimes
+    (r"^/api/v\d+/downtime$", "List scheduled downtimes"),
+    (r"^/api/v\d+/downtime/[^/]+$", "Get specific downtime by ID"),
+    (r"^/api/v2/monitor/\d+/downtime_matches$", "Get active downtimes for a specific monitor"),
     # Tags
     (r"^/api/v\d+/tags/hosts(/[^/]+)?$", ""),
     # Notebooks
@@ -179,7 +187,7 @@ WHITELISTED_POST_ENDPOINTS = [
     r"^/api/v\d+/monitor/search$",
     r"^/api/v\d+/dashboard/lists$",
     r"^/api/v\d+/slo/search$",
-    r"^/api/v\d+/events/search$",
+    r"^/api/v2/events/search$",  # v1 events/search does not exist, only v2
     r"^/api/v\d+/incidents/search$",
     r"^/api/v\d+/synthetics/tests/search$",
     r"^/api/v\d+/security_monitoring/rules/search$",
@@ -197,6 +205,8 @@ WHITELISTED_POST_ENDPOINTS = [
 
 class DatadogGeneralToolset(Toolset):
     """General-purpose Datadog API toolset for read-only operations not covered by specialized toolsets."""
+
+    config_classes: ClassVar[list[Type[DatadogGeneralConfig]]] = [DatadogGeneralConfig]
 
     dd_config: Optional[DatadogGeneralConfig] = None
     openapi_spec: Optional[Dict[str, Any]] = None
@@ -279,16 +289,6 @@ class DatadogGeneralToolset(Toolset):
         except Exception as e:
             logging.exception("Failed during Datadog general API healthcheck")
             return False, f"Healthcheck failed with exception: {str(e)}"
-
-    def get_example_config(self) -> Dict[str, Any]:
-        """Get example configuration for this toolset."""
-        return {
-            "dd_api_key": "your-datadog-api-key",
-            "dd_app_key": "your-datadog-application-key",
-            "site_api_url": "https://api.datadoghq.com",
-            "max_response_size": MAX_RESPONSE_SIZE,
-            "allow_custom_endpoints": False,
-        }
 
 
 def is_endpoint_allowed(
@@ -773,8 +773,14 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
             if search_pattern and not search_pattern.search(example_endpoint):
                 continue
 
-            # Determine HTTP methods
-            if "search" in pattern or "query" in pattern or "aggregate" in pattern:
+            # Determine HTTP methods for display purposes only (cosmetic, doesn't affect validation)
+            # Check for POST search endpoints (path ends with /search, /query, or /aggregate)
+            # Note: /monitor/groups/search is GET but displays as POST here - no functional impact
+            if (
+                "/search$" in pattern
+                or "/query$" in pattern
+                or "/aggregate$" in pattern
+            ):
                 methods = "POST"
             elif "/search)?$" in pattern:
                 methods = "GET/POST"

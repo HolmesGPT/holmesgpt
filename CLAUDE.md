@@ -563,6 +563,7 @@ When asked about content from the HolmesGPT documentation website (https://holme
 ## MkDocs Formatting Notes
 
 When writing documentation in the `docs/` directory:
+
 - **Lists after headers**: Always add a blank line between a header/bold text and a list, otherwise MkDocs won't render the list properly
   ```markdown
   **Good:**
@@ -574,3 +575,68 @@ When writing documentation in the `docs/` directory:
   - item 1
   - item 2
   ```
+
+- **Headers inside tabs**: Use **bold text** for section headings inside tabs, not markdown headers (`##`, `###`, etc.)
+
+  **Why:** MkDocs Material font sizes make H2 (~25px) and H3 (~20px) visually larger than tab titles (~14px). When a header inside a tab is bigger than the tab title itself, it looks like it belongs outside/above the tabs, breaking the visual hierarchy.
+
+  ```markdown
+  <!-- GOOD: Bold text for sections inside tabs -->
+  === "Tab Name"
+
+      **Create the policy:**
+
+      Instructions here...
+
+      **Create the role:**
+
+      More instructions...
+
+  <!-- BAD: Headers inside tabs look like they're outside -->
+  === "Tab Name"
+
+      ### Create the policy
+
+      Instructions here...
+  ```
+
+- **Avoid excessive headers**: Don't create a header for every small section. Headers should be used sparingly for major sections. For minor sections like test steps or examples, use bold text or combine content into a single code block with comments instead of separate headers.
+
+  ```markdown
+  <!-- BAD: Header for every test step -->
+  ## Testing
+  ### Test 1: Check Status
+  ### Test 2: Check Logs
+  ### Test 3: Health Check
+
+  <!-- GOOD: Single section with combined content -->
+  ## Testing the Connection
+
+  ```bash
+  # Check pod status
+  kubectl get pods -n YOUR_NAMESPACE
+
+  # Check logs
+  kubectl logs -n YOUR_NAMESPACE
+
+  # Health check
+  curl http://localhost:8000/health
+  ```
+  ```
+
+- **Don't describe Holmes's behavior**: In "Common Use Cases" sections, show only the example prompts. Don't explain what Holmes will do or list steps like "Holmes will: 1. Query X, 2. Analyze Y, 3. Return Z". Users will see this when they run it.
+
+- **Skip Capabilities sections**: Don't list what a toolset/integration can do. Users discover capabilities by using Holmes. Feature lists become stale quickly.
+
+- **Skip Security Best Practices sections**: Assume users understand basics like rotating credentials, using least privilege, and deleting local secrets. These sections add little value.
+
+- **Consolidate troubleshooting commands**: Instead of separate headers for each troubleshooting scenario, use a single code block with comments:
+  ```bash
+  # Authentication errors - check if secret is mounted
+  kubectl exec ...
+
+  # Permission denied - verify roles
+  gcloud projects get-iam-policy ...
+  ```
+
+- **Common Use Cases format**: Just example prompts, one per code block, no sub-headers, no explanations.

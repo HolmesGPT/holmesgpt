@@ -173,14 +173,3 @@ class TestDatadogGeneralToolset:
 
         assert result.status == StructuredToolResultStatus.ERROR
         assert "blacklisted operation" in result.error
-
-    def test_example_config(self):
-        """Test example configuration generation."""
-        toolset = DatadogGeneralToolset()
-        config = toolset.get_example_config()
-
-        assert "dd_api_key" in config
-        assert "dd_app_key" in config
-        assert "site_api_url" in config
-        assert "max_response_size" in config
-        assert "allow_custom_endpoints" in config

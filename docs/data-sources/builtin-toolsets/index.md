@@ -27,6 +27,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-web:{ .lg .middle } **Internet**](internet.md)
 -   [:simple-apachekafka:{ .lg .middle } **Kafka**](kafka.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
 -   [:simple-grafana:{ .lg .middle } **Loki**](grafanaloki.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
@@ -38,6 +39,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-robot:{ .lg .middle } **Robusta**](robusta.md)
 -   [:material-ticket:{ .lg .middle } **ServiceNow**](servicenow.md)
 -   [:material-forum:{ .lg .middle } **Slab**](slab.md)
+-   [:simple-splunk:{ .lg .middle } **Splunk (MCP)**](splunk-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 
 </div>

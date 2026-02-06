@@ -28,7 +28,7 @@ class ToolCallResult(BaseModel):
     result: StructuredToolResult
     size: Optional[int] = None
 
-    def as_tool_call_message(self):
+    def as_tool_call_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
@@ -37,6 +37,7 @@ class ToolCallResult(BaseModel):
                 tool_result=self.result,
                 tool_call_id=self.tool_call_id,
                 tool_name=self.tool_name,
+                extra_metadata=extra_metadata,
             ),
         }
 
@@ -66,9 +67,17 @@ class ToolCallResult(BaseModel):
 
 
 def format_tool_result_data(
-    tool_result: StructuredToolResult, tool_call_id: str, tool_name: str
+    tool_result: StructuredToolResult,
+    tool_call_id: str,
+    tool_name: str,
+    extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
-    tool_call_metadata = {"tool_name": tool_name, "tool_call_id": tool_call_id}
+    tool_call_metadata: Dict[str, Any] = {}
+    if extra_metadata:
+        tool_call_metadata.update(extra_metadata)
+    # Required fields always take precedence
+    tool_call_metadata["tool_name"] = tool_name
+    tool_call_metadata["tool_call_id"] = tool_call_id
     tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
 
     if tool_result.status == StructuredToolResultStatus.ERROR:
@@ -181,6 +190,7 @@ class ToolApprovalDecision(BaseModel):
 
     tool_call_id: str
     approved: bool
+    save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
 
 
 class ChatRequestBaseModel(BaseModel):
@@ -192,6 +202,9 @@ class ChatRequestBaseModel(BaseModel):
     )
     tool_decisions: Optional[List[ToolApprovalDecision]] = None
     additional_system_prompt: Optional[str] = None
+    trace_span: Optional[Any] = (
+        None  # Optional span for tracing and heartbeat callbacks
+    )
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],
@@ -216,20 +229,6 @@ class IssueChatRequest(ChatRequestBaseModel):
     ask: str
     investigation_result: IssueInvestigationResult
     issue_type: str
-
-
-class WorkloadHealthRequest(BaseModel):
-    ask: str
-    resource: dict
-    alert_history_since_hours: float = 24
-    alert_history: bool = True
-    stored_instrucitons: bool = True
-    instructions: Optional[List[str]] = []
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
-    prompt_template: str = "builtin://kubernetes_workload_ask.jinja2"
-    model: Optional[str] = None
-
 
 class ChatRequest(ChatRequestBaseModel):
     ask: str
@@ -264,45 +263,3 @@ class ChatResponse(BaseModel):
     follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None
-
-
-class WorkloadHealthInvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    tools: Optional[List[ToolCallConversationResult]] = []
-
-    @model_validator(mode="before")
-    def check_analysis_and_result(cls, values):
-        if "result" in values and "analysis" not in values:
-            values["analysis"] = values["result"]
-            del values["result"]
-        return values
-
-
-class WorkloadHealthChatRequest(ChatRequestBaseModel):
-    ask: str
-    workload_health_result: WorkloadHealthInvestigationResult
-    resource: dict
-
-
-workload_health_structured_output = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "WorkloadHealthResult",
-        "strict": False,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "workload_healthy": {
-                    "type": "boolean",
-                    "description": "is the workload in healthy state or in error state",
-                },
-                "root_cause_summary": {
-                    "type": "string",
-                    "description": "concise short explaination leading to the workload_healthy result, pinpoint reason and root cause for the workload issues if any.",
-                },
-            },
-            "required": ["root_cause_summary", "workload_healthy"],
-            "additionalProperties": False,
-        },
-    },
-}

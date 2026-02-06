@@ -47,7 +47,9 @@ runs:
       if: inputs.install-kubectl == 'true'
       shell: bash
       run: |
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        # Using hardcoded version to avoid failures when dl.k8s.io/release/stable.txt is unreachable
+        KUBECTL_VERSION="v1.35.0"
+        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
         kubectl version --client

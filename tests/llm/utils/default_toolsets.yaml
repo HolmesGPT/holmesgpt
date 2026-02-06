@@ -20,3 +20,10 @@ toolsets:
     enabled: true
   connectivity_check:
     enabled: true
+  bash:
+    enabled: true
+    config:
+      include_default_allow_deny_list: true # this is off by default for CLI but mimics the default in the UI
+      deny: # in the UI the kubectl does not have access to secrets and also it is problematic in some tests where we put hints and code in secrets
+        - "kubectl get secret"
+        - "kubectl describe secret"

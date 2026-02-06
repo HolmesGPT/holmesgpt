@@ -10,7 +10,7 @@ from holmes.utils.memory_limit import (
 class TestGetUlimitPrefix:
     """Tests for get_ulimit_prefix function."""
 
-    def test_returns_ulimit_command_with_default(self, monkeypatch):
+    def test_returns_ulimit_command_with_default(self):
         """Test ulimit prefix format with default value."""
         result = get_ulimit_prefix()
         expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB

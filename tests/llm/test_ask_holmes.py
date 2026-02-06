@@ -1,6 +1,7 @@
 # type: ignore
 import os
 import time
+from contextlib import ExitStack
 from datetime import datetime
 from os import path
 from pathlib import Path
@@ -8,8 +9,6 @@ from typing import Optional
 from unittest.mock import patch
 
 import pytest
-from rich.console import Console
-
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
@@ -19,7 +18,8 @@ from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.runbooks import RunbookCatalog, load_runbook_catalog
 from tests.llm.utils.braintrust import log_to_braintrust
-from tests.llm.utils.commands import set_test_env_vars
+from tests.llm.utils.commands import apply_env_config, set_test_env_vars
+from tests.llm.utils.env_config import EnvConfig, get_env_configs
 from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.mock_dal import load_mock_dal
 from tests.llm.utils.mock_toolset import (
@@ -50,10 +50,17 @@ def get_ask_holmes_test_cases():
     return get_test_cases(TEST_CASES_FOLDER)
 
 
+def _get_env_config_ids():
+    """Generate ids for env_config parameterization."""
+    return [ec.name for ec in get_env_configs()]
+
+
 @pytest.mark.llm
+@pytest.mark.parametrize("env_config", get_env_configs(), ids=_get_env_config_ids())
 @pytest.mark.parametrize("model", get_models())
 @pytest.mark.parametrize("test_case", get_ask_holmes_test_cases())
 def test_ask_holmes(
+    env_config: EnvConfig,
     model: str,
     test_case: AskHolmesTestCase,
     caplog,
@@ -63,26 +70,24 @@ def test_ask_holmes(
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
-    set_initial_properties(request, test_case, model)
+    set_initial_properties(request, test_case, model, env_config)
 
     tracer = TracingFactory.create_tracer("braintrust")
-    metadata = {"model": model}
+    metadata = {"model": model, "env_config": env_config.name}
     tracer.start_experiment(additional_metadata=metadata)
 
     result: Optional[LLMResult] = None
 
     try:
         with tracer.start_trace(
-            name=f"{test_case.id}[{model}]", span_type=SpanType.EVAL
+            name=f"{test_case.id}[{model}][{env_config.name}]", span_type=SpanType.EVAL
         ) as eval_span:
             set_trace_properties(request, eval_span)
             check_and_skip_test(test_case, request, shared_test_infrastructure)
 
-            # Use contextlib.ExitStack to handle conditional context managers
-            from contextlib import ExitStack
-
             with ExitStack() as stack:
-                # Mock datetime if mocked_date is provided
+                stack.enter_context(apply_env_config(env_config))
+
                 if test_case.mocked_date:
                     mocked_datetime = datetime.fromisoformat(
                         test_case.mocked_date.replace("Z", "+00:00")
@@ -96,10 +101,8 @@ def test_ask_holmes(
                         **{"now.return_value": mocked_datetime, "side_effect": None}
                     )
 
-                # Always apply test env vars
                 stack.enter_context(set_test_env_vars(test_case))
 
-                # Run the test with retry logic
                 retry_enabled = request.config.getoption(
                     "retry-on-throttle", default=True
                 )
@@ -177,7 +180,7 @@ def ask_holmes(
     with eval_span.start_span(
         "Initialize Toolsets",
         type=SpanType.TASK.value,
-    ):
+    ) as toolset_span:
         toolset_manager = MockToolsetManager(
             test_case_folder=test_case.folder,
             mock_generation_config=mock_generation_config,
@@ -187,11 +190,13 @@ def ask_holmes(
             allow_toolset_failures=getattr(test_case, "allow_toolset_failures", False),
         )
 
-    tool_executor = ToolExecutor(toolset_manager.toolsets)
-    enabled_toolsets = [t.name for t in tool_executor.enabled_toolsets]
-    print(
-        f"\n🛠️  ENABLED TOOLSETS ({len(enabled_toolsets)}):", ", ".join(enabled_toolsets)
-    )
+        tool_executor = ToolExecutor(toolset_manager.toolsets)
+        enabled_toolsets = [t.name for t in tool_executor.enabled_toolsets]
+        print(
+            f"\n🛠️  ENABLED TOOLSETS ({len(enabled_toolsets)}):",
+            ", ".join(enabled_toolsets),
+        )
+        toolset_span.log(metadata={"toolset_names": enabled_toolsets})
 
     ai = ToolCallingLLM(
         tool_executor=tool_executor,
@@ -206,7 +211,6 @@ def ask_holmes(
         if test_case.conversation_history:
             pytest.skip("CLI mode does not support conversation history tests")
         else:
-            console = Console()
             if test_case.runbooks is None:
                 runbooks = load_runbook_catalog()
             elif test_case.runbooks == {}:
@@ -220,11 +224,10 @@ def ask_holmes(
                         f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
                     ) from e
             messages = build_initial_ask_messages(
-                console,
-                test_case.user_prompt,
-                None,
-                ai.tool_executor,
-                runbooks,
+                initial_user_prompt=test_case.user_prompt,
+                file_paths=None,
+                tool_executor=ai.tool_executor,
+                runbooks=runbooks,
                 system_prompt_additions=additional_system_prompt,
             )
     else:

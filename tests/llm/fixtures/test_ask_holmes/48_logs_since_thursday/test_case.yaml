@@ -12,3 +12,6 @@ expected_output:
   - 2025-06-19 SSL certificate expired
 
 mock_policy: always_mock
+
+skip: true
+skip_reason: "This test is broken as it asks for specific dates but tell holmes to fetch logs since last Thursday"

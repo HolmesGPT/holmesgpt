@@ -10,58 +10,56 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import json
-from typing import List, Optional
-from holmes.utils.global_instructions import generate_runbooks_args
-from holmes.core.prompt import generate_user_prompt
-import litellm
-import sentry_sdk
-from holmes import get_version, is_official_release
-
-from holmes.core import investigation
-from holmes.utils.connection_utils import patch_socket_create_connection
-from holmes.utils.holmes_status import update_holmes_status_in_db
 import logging
-import uvicorn
-import colorlog
 import threading
 import time
+from pathlib import Path
+from typing import List, Optional
 
-from litellm.exceptions import AuthenticationError
+import colorlog
+import litellm
+import sentry_sdk
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
+from litellm.exceptions import AuthenticationError
+
+from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
+    DEVELOPMENT_MODE,
     ENABLE_CONNECTION_KEEPALIVE,
+    ENABLE_TELEMETRY,
+    ENABLED_SCHEDULED_PROMPTS,
     HOLMES_HOST,
     HOLMES_PORT,
     LOG_PERFORMANCE,
     SENTRY_DSN,
-    ENABLE_TELEMETRY,
-    DEVELOPMENT_MODE,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
 )
-from holmes.config import Config
+from holmes.config import DEFAULT_CONFIG_LOCATION, Config
+from holmes.core import investigation
 from holmes.core.conversations import (
     build_chat_messages,
     build_issue_chat_messages,
-    build_workload_health_chat_messages,
 )
 from holmes.core.models import (
-    FollowUpAction,
-    InvestigationResult,
-    InvestigateRequest,
-    WorkloadHealthRequest,
     ChatRequest,
     ChatResponse,
+    FollowUpAction,
+    InvestigateRequest,
+    InvestigationResult,
     IssueChatRequest,
-    WorkloadHealthChatRequest,
-    workload_health_structured_output,
 )
-from holmes.core.investigation_structured_output import clear_json_markdown
+from holmes.core.prompt import generate_user_prompt
+from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.utils.connection_utils import patch_socket_create_connection
+from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
+from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
+
 # removed: add_runbooks_to_user_prompt
 
 
@@ -92,8 +90,29 @@ init_logging()
 
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
-config = Config.load_from_env()
-dal = config.dal
+
+
+def init_config():
+    """
+    Initialize configuration from file if it exists at the default location,
+    otherwise load from environment variables.
+
+    Returns:
+        tuple: (config, dal) - The initialized Config object and its DAL instance
+    """
+    default_config_path = Path(DEFAULT_CONFIG_LOCATION)
+    if default_config_path.exists():
+        logging.info(f"Loading config from file: {default_config_path}")
+        config = Config.load_from_file(default_config_path)
+    else:
+        logging.info("No config file found, loading from environment variables")
+        config = Config.load_from_env()
+
+    dal = config.dal
+    return config, dal
+
+
+config, dal = init_config()
 
 
 def sync_before_server_start():
@@ -110,6 +129,13 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
+    if not ENABLED_SCHEDULED_PROMPTS:
+        return
+    # No need to check if dal is enabled again, done at the start of this function
+    try:
+        scheduled_prompts_executor.start()
+    except Exception:
+        logging.error("Failed to start scheduled prompts executor", exc_info=True)
 
 
 def _toolset_status_refresh_loop():
@@ -132,6 +158,7 @@ def _toolset_status_refresh_loop():
                         logging.info(
                             f"Toolset '{toolset_name}' status changed: {old_status} -> {new_status}"
                         )
+                    holmes_sync_toolsets_status(dal, config)
                 else:
                     logging.debug(
                         "Periodic toolset status refresh: no changes detected"
@@ -149,6 +176,8 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
     # Initialize Sentry for official releases or when development mode is enabled
     if is_official_release() or DEVELOPMENT_MODE:
         environment = "production" if is_official_release() else "development"
+        version = get_version()
+        release = None if version.startswith("dev-") else version
         logging.info(f"Initializing sentry for {environment} environment...")
 
         sentry_sdk.init(
@@ -157,6 +186,7 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
             profiles_sample_rate=0,
             environment=environment,
+            release=release,
         )
         sentry_sdk.set_tags(
             {
@@ -194,15 +224,17 @@ if LOG_PERFORMANCE:
 
 
 @app.post("/api/investigate")
-def investigate_issues(investigate_request: InvestigateRequest):
+def investigate_issues(investigate_request: InvestigateRequest, http_request: Request):
     try:
         runbooks = config.get_runbook_catalog()
+        request_context = extract_passthrough_headers(http_request)
         result = investigation.investigate_issues(
             investigate_request=investigate_request,
             dal=dal,
             config=config,
             model=investigate_request.model,
             runbooks=runbooks,
+            request_context=request_context,
         )
         return result
 
@@ -216,11 +248,12 @@ def investigate_issues(investigate_request: InvestigateRequest):
 
 
 @app.post("/api/stream/investigate")
-def stream_investigate_issues(req: InvestigateRequest):
+def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
     try:
-        ai, system_prompt, user_prompt, response_format, sections, runbooks = (
+        ai, system_prompt, user_prompt, response_format, sections = (
             investigation.get_investigation_context(req, dal, config)
         )
+        request_context = extract_passthrough_headers(http_request)
 
         return StreamingResponse(
             stream_investigate_formatter(
@@ -229,8 +262,8 @@ def stream_investigate_issues(req: InvestigateRequest):
                     user_prompt=user_prompt,
                     response_format=response_format,
                     sections=sections,
+                    request_context=request_context,
                 ),
-                runbooks,
             ),
             media_type="text/event-stream",
         )
@@ -242,106 +275,8 @@ def stream_investigate_issues(req: InvestigateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/workload_health_check")
-def workload_health_check(request: WorkloadHealthRequest):
-    try:
-        runbooks = config.get_runbook_catalog()
-        resource = request.resource
-        workload_alerts: list[str] = []
-        if request.alert_history:
-            workload_alerts = dal.get_workload_issues(
-                resource, request.alert_history_since_hours
-            )
-
-        issue_instructions = request.instructions or []
-        stored_instructions = None
-        if request.stored_instrucitons:
-            stored_instructions = dal.get_resource_instructions(
-                resource.get("kind", "").lower(), resource.get("name")
-            )
-
-        global_instructions = dal.get_global_instructions_for_account()
-
-        runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=runbooks,
-            global_instructions=global_instructions,
-            issue_instructions=issue_instructions,
-            resource_instructions=stored_instructions,
-        )
-        request.ask = generate_user_prompt(
-            request.ask,
-            runbooks_ctx,
-        )
-        ai = config.create_toolcalling_llm(dal=dal, model=request.model)
-
-        system_prompt = load_and_render_prompt(
-            request.prompt_template,
-            context={
-                "alerts": workload_alerts,
-                "toolsets": ai.tool_executor.toolsets,
-                "response_format": workload_health_structured_output,
-                "cluster_name": config.cluster_name,
-                "runbooks_enabled": True if runbooks else False,
-            },
-        )
-
-        ai_call = ai.prompt_call(
-            system_prompt,
-            request.ask,
-            workload_health_structured_output,
-        )
-
-        ai_call.result = clear_json_markdown(ai_call.result)
-
-        return InvestigationResult(
-            analysis=ai_call.result,
-            tool_calls=ai_call.tool_calls,
-            num_llm_calls=ai_call.num_llm_calls,
-            instructions=issue_instructions,
-            metadata=ai_call.metadata,
-        )
-    except AuthenticationError as e:
-        raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
-    except Exception as e:
-        logging.exception(f"Error in /api/workload_health_check: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/workload_health_chat")
-def workload_health_conversation(
-    request: WorkloadHealthChatRequest,
-):
-    try:
-        ai = config.create_toolcalling_llm(dal=dal, model=request.model)
-        global_instructions = dal.get_global_instructions_for_account()
-
-        messages = build_workload_health_chat_messages(
-            workload_health_chat_request=request,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-        )
-        llm_call = ai.messages_call(messages=messages)
-
-        return ChatResponse(
-            analysis=llm_call.result,
-            tool_calls=llm_call.tool_calls,
-            conversation_history=llm_call.messages,
-            metadata=llm_call.metadata,
-        )
-    except AuthenticationError as e:
-        raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
-    except Exception as e:
-        logging.error(f"Error in /api/workload_health_chat: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/api/issue_chat")
-def issue_conversation(issue_chat_request: IssueChatRequest):
+def issue_conversation(issue_chat_request: IssueChatRequest, http_request: Request):
     try:
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=issue_chat_request.model)
@@ -354,7 +289,8 @@ def issue_conversation(issue_chat_request: IssueChatRequest):
             global_instructions=global_instructions,
             runbooks=runbooks,
         )
-        llm_call = ai.messages_call(messages=messages)
+        request_context = extract_passthrough_headers(http_request)
+        llm_call = ai.messages_call(messages=messages, request_context=request_context)
 
         return ChatResponse(
             analysis=llm_call.result,
@@ -381,8 +317,36 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
     return False
 
 
+def extract_passthrough_headers(request: Request) -> dict:
+    """
+    Extract pass-through headers from the request, excluding sensitive auth headers.
+    These headers are forwarded to MCP servers for authentication and context.
+
+    The blocked headers can be configured via the HOLMES_PASSTHROUGH_BLOCKED_HEADERS
+    environment variable (comma-separated list). Defaults to "authorization,cookie,set-cookie".
+
+    Returns:
+        dict: {"headers": {"X-Foo-Bar": "...", "ABC": "...", ...}}
+    """
+    # Get blocked headers from environment variable or use defaults
+    blocked_headers_str = os.environ.get(
+        "HOLMES_PASSTHROUGH_BLOCKED_HEADERS", "authorization,cookie,set-cookie"
+    )
+    blocked_headers = {
+        h.strip().lower() for h in blocked_headers_str.split(",") if h.strip()
+    }
+
+    passthrough_headers = {}
+    for header_name, header_value in request.headers.items():
+        if header_name.lower() not in blocked_headers:
+            # Preserve original case from request (no normalization)
+            passthrough_headers[header_name] = header_value
+
+    return {"headers": passthrough_headers} if passthrough_headers else {}
+
+
 @app.post("/api/chat")
-def chat(chat_request: ChatRequest):
+def chat(chat_request: ChatRequest, http_request: Request):
     try:
         # Log incoming request details
         has_images = bool(chat_request.images)
@@ -406,6 +370,7 @@ def chat(chat_request: ChatRequest):
             runbooks=runbooks,
             images=chat_request.images,
         )
+        request_context = extract_passthrough_headers(http_request)
 
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):
@@ -438,6 +403,7 @@ def chat(chat_request: ChatRequest):
                         enable_tool_approval=chat_request.enable_tool_approval or False,
                         tool_decisions=chat_request.tool_decisions,
                         response_format=chat_request.response_format,
+                        request_context=request_context,
                     ),
                     [f.model_dump() for f in follow_up_actions],
                 ),
@@ -446,7 +412,9 @@ def chat(chat_request: ChatRequest):
         else:
             llm_call = ai.messages_call(
                 messages=messages,
+                trace_span=chat_request.trace_span,
                 response_format=chat_request.response_format,
+                request_context=request_context,
             )
 
             # For non-streaming, we need to handle approvals differently
@@ -466,6 +434,11 @@ def chat(chat_request: ChatRequest):
     except Exception as e:
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+scheduled_prompts_executor = ScheduledPromptsExecutor(
+    dal=dal, config=config, chat_function=chat
+)
 
 
 @app.get("/api/model")
@@ -488,7 +461,9 @@ def readiness_check():
         raise HTTPException(status_code=503, detail="Service not ready")
 
 
-if __name__ == "__main__":
+def main():
+    """Holmes AI Server entry point"""
+    # Configure uvicorn logging
     log_config = uvicorn.config.LOGGING_CONFIG
     log_config["formatters"]["access"]["fmt"] = (
         "%(asctime)s %(levelname)-8s %(message)s"
@@ -496,6 +471,14 @@ if __name__ == "__main__":
     log_config["formatters"]["default"]["fmt"] = (
         "%(asctime)s %(levelname)-8s %(message)s"
     )
+
+    # Sync before server start
     sync_before_server_start()
     _toolset_status_refresh_loop()
+
+    # Start server
     uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
+
+
+if __name__ == "__main__":
+    main()

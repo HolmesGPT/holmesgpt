@@ -1,9 +1,10 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 
-from server import app
+from server import app, extract_passthrough_headers
 
 
 @pytest.fixture
@@ -341,66 +342,154 @@ def test_api_issue_chat_all_fields(
         assert "result" in tool_call
 
 
-@patch("holmes.config.Config.create_toolcalling_llm")
-@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
-@patch("holmes.core.supabase_dal.SupabaseDal.get_workload_issues")
-@patch("holmes.core.supabase_dal.SupabaseDal.get_resource_instructions")
-@patch("holmes.plugins.prompts.load_and_render_prompt")
-def test_api_workload_health_check(
-    mock_load_and_render_prompt,
-    mock_get_resource_instructions,
-    mock_get_workload_issues,
-    mock_get_global_instructions,
-    mock_create_toolcalling_llm,
-    client,
-):
-    mock_ai = MagicMock()
-    mock_ai.prompt_call.return_value = MagicMock(
-        result="This is a mock analysis for workload health check.",
-        tool_calls=[
-            {
-                "tool_call_id": "1",
-                "tool_name": "health_checker",
-                "description": "Checks workload health",
-                "result": {"status": "success", "data": "Workload is healthy"},
+class TestExtractPassthroughHeaders:
+    def test_extract_normal_headers(self):
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"x-tenant-id", b"tenant-123"),
+                (b"x-custom-header", b"custom-value"),
+                (b"content-type", b"application/json"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
+
+        assert result == {
+            "headers": {
+                "x-tenant-id": "tenant-123",
+                "x-custom-header": "custom-value",
+                "content-type": "application/json",
             }
-        ],
-        metadata={},
-    )
-    mock_create_toolcalling_llm.return_value = mock_ai
+        }
 
-    mock_get_global_instructions.return_value = []
-    mock_get_workload_issues.return_value = ["Alert 1", "Alert 2"]
-    mock_get_resource_instructions.return_value = MagicMock(
-        instructions=["Instruction 1", "Instruction 2"]
-    )
+    def test_blocks_authorization_header(self):
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"authorization", b"Bearer secret-token"),
+                (b"x-tenant-id", b"tenant-123"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
 
-    mock_load_and_render_prompt.return_value = "Mocked system prompt"
+        assert result == {"headers": {"x-tenant-id": "tenant-123"}}
+        assert "authorization" not in result["headers"]
 
-    payload = {
-        "resource": {"name": "example-resource", "kind": "Deployment"},
-        "alert_history": True,
-        "alert_history_since_hours": 24,
-        "instructions": ["Check CPU usage", "Check memory usage"],
-        "stored_instructions": True,
-        "ask": "Check the workload health.",
-        "model": "gpt-4.1",
-    }
-    response = client.post("/api/workload_health_check", json=payload)
-    assert response.status_code == 200
-    data = response.json()
+    def test_blocks_cookie_headers(self):
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"cookie", b"session=abc123"),
+                (b"set-cookie", b"session=abc123; Path=/"),
+                (b"x-tenant-id", b"tenant-123"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
 
-    assert "analysis" in data
-    assert "tool_calls" in data
-    assert "instructions" in data
+        assert result == {"headers": {"x-tenant-id": "tenant-123"}}
+        assert "cookie" not in result["headers"]
+        assert "set-cookie" not in result["headers"]
 
-    assert isinstance(data["analysis"], str)
-    assert isinstance(data["tool_calls"], list)
-    assert isinstance(data["instructions"], list)
+    def test_case_insensitive_blocking(self):
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"Authorization", b"Bearer secret"),
+                (b"COOKIE", b"session=abc"),
+                (b"Set-Cookie", b"session=abc; Path=/"),
+                (b"x-tenant-id", b"tenant-123"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
 
-    if data["tool_calls"]:
-        tool_call = data["tool_calls"][0]
-        assert "tool_call_id" in tool_call
-        assert "tool_name" in tool_call
-        assert "description" in tool_call
-        assert "result" in tool_call
+        assert result == {"headers": {"x-tenant-id": "tenant-123"}}
+        assert "Authorization" not in result["headers"]
+        assert "COOKIE" not in result["headers"]
+        assert "Set-Cookie" not in result["headers"]
+
+    def test_empty_headers(self):
+        scope = {"type": "http", "headers": []}
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
+
+        assert result == {}
+
+    def test_all_blocked_headers(self):
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"authorization", b"Bearer secret"),
+                (b"cookie", b"session=abc"),
+                (b"set-cookie", b"session=abc; Path=/"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
+
+        assert result == {}
+
+    def test_preserves_header_case(self):
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"X-Tenant-ID", b"tenant-123"),
+                (b"X-Custom-Header", b"value"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
+
+        assert "X-Tenant-ID" in result["headers"]
+        assert "X-Custom-Header" in result["headers"]
+        assert result["headers"]["X-Tenant-ID"] == "tenant-123"
+        assert result["headers"]["X-Custom-Header"] == "value"
+
+    def test_custom_blocked_headers_via_env(self, monkeypatch):
+        """Test that HOLMES_PASSTHROUGH_BLOCKED_HEADERS env var works"""
+        # Set custom blocked headers via environment variable
+        monkeypatch.setenv("HOLMES_PASSTHROUGH_BLOCKED_HEADERS", "x-internal-token,x-secret")
+
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"x-internal-token", b"secret-value"),
+                (b"x-secret", b"another-secret"),
+                (b"authorization", b"Bearer token"),  # Not in custom list, should pass
+                (b"x-tenant-id", b"tenant-123"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
+
+        # Custom blocked headers should be filtered
+        assert "x-internal-token" not in result["headers"]
+        assert "x-secret" not in result["headers"]
+        # Authorization is not in custom list, so it should pass through
+        assert "authorization" in result["headers"]
+        assert result["headers"]["authorization"] == "Bearer token"
+        # Regular headers should pass
+        assert result["headers"]["x-tenant-id"] == "tenant-123"
+
+    def test_empty_blocked_headers_env(self, monkeypatch):
+        """Test that empty HOLMES_PASSTHROUGH_BLOCKED_HEADERS allows all headers"""
+        monkeypatch.setenv("HOLMES_PASSTHROUGH_BLOCKED_HEADERS", "")
+
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"authorization", b"Bearer token"),
+                (b"cookie", b"session=abc"),
+                (b"x-tenant-id", b"tenant-123"),
+            ],
+        }
+        request = Request(scope)
+        result = extract_passthrough_headers(request)
+
+        # With empty blocklist, all headers should pass through
+        assert "authorization" in result["headers"]
+        assert "cookie" in result["headers"]
+        assert "x-tenant-id" in result["headers"]
