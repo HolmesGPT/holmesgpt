@@ -25,7 +25,7 @@ if [ -z "$DATADOG_API_KEY" ]; then
 fi
 
 # Use DATADOG_SITE or default to EU
-DATADOG_SITE="${DATADOG_SITE:-https://api.datadoghq.eu}"
+DATADOG_SITE="${DATADOG_SITE:-https://api.us5.datadoghq.com}"
 
 # Get current timestamp in seconds
 CURRENT_TIME=$(date +%s)
