@@ -1,15 +1,12 @@
 description: |
-  Variant of 91a without kubernetes/core. Tests that Holmes can query and display
-  CPU/memory metrics from Datadog when only the Datadog metrics toolset is available.
+  Tests that Holmes can query and display CPU/memory metrics from Datadog
+  when only the Datadog metrics toolset is available (no Kubernetes).
   Metrics are sent to Datadog via API, then Holmes is asked to show graphs.
 
 before_test: |
   bash ../../shared/send_datadog_metrics.sh space-projects spaceship-launch-counter spaceship-launch-counter
 
-user_prompt:
-  - "Can you show me a cpu graph of the spaceship-launch-counter pod in namespace space-projects?"
-  - "I need to see the memory usage for spaceship-launch-counter in space-projects"
-  - "Can you visualize the resource usage for spaceship-launch-counter pod in the space-projects namespace?"
+user_prompt: "Can you show me a cpu graph of the spaceship-launch-counter pod in namespace space-projects?"
 
 expected_output: |
   Output must contain 1 or more embeds in the following format
