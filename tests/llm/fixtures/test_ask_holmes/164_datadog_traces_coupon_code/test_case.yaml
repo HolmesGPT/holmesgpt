@@ -13,7 +13,6 @@ tags:
   - hard
   - chain-of-causation
   - datadog
-  - regression
 
 before_test: |
   set -e  # Exit immediately if any command fails
