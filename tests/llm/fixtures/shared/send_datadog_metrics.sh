@@ -24,7 +24,7 @@ if [ -z "$DATADOG_API_KEY" ]; then
     exit 1
 fi
 
-# Use DATADOG_SITE or default to EU
+# Use DATADOG_SITE or default to US5
 DATADOG_SITE="${DATADOG_SITE:-https://api.us5.datadoghq.com}"
 
 # Get current timestamp in seconds

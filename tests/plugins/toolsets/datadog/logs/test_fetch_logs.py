@@ -3,7 +3,7 @@ Quick test to invoke GetLogs and measure token count.
 Useful for finding optimal limit values empirically.
 
 Run with:
-    DD_API_KEY=xxx DD_APP_KEY=xxx pytest tests/plugins/toolsets/datadog/logs/test_getlogs_token_count.py -v -s
+    DD_API_KEY=xxx DD_APP_KEY=xxx pytest tests/plugins/toolsets/datadog/logs/test_fetch_logs.py -v -s
 """
 
 import os
