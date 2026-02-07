@@ -267,7 +267,7 @@ modelList:
     aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
     aws_region_name: us-east-1
     aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-    model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+    model: bedrock/us.anthropic.claude-opus-4-6-v1
     temperature: 1
     thinking:
       type: adaptive

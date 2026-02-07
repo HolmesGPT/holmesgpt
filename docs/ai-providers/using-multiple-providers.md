@@ -103,7 +103,7 @@ modelList:
     aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
     aws_region_name: us-east-1
     aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-    model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+    model: bedrock/us.anthropic.claude-opus-4-6-v1
     temperature: 1
     thinking:
       type: adaptive
@@ -126,7 +126,7 @@ Each model in `modelList` can accept any parameter supported by LiteLLM for that
 You can pass any LiteLLM-supported parameter for your provider. Examples include:
 
 - **Azure**: `api_base`, `api_version`, `deployment_id`
-- **Anthropic**: `thinking` (with `budget_tokens` and `type`)
+- **Anthropic**: `thinking` (with `type`, e.g. `adaptive`)
 - **AWS Bedrock**: `aws_access_key_id`, `aws_secret_access_key`, `aws_region_name`, `aws_session_token`
 - **Google Vertex**: `vertex_project`, `vertex_location`
 

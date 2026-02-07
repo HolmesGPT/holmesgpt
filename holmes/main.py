@@ -57,6 +57,16 @@ def _warn_deprecated_custom_runbooks(custom_runbooks: Optional[List[Path]]) -> N
         )
 
 
+def _warn_deprecated_custom_toolsets(custom_toolsets: Optional[List[Path]]) -> None:
+    """Warn user about deprecated --custom-toolsets CLI flag."""
+    if custom_toolsets:
+        logging.warning(
+            "The --custom-toolsets (-t) flag is deprecated. "
+            "Please use the 'custom_toolsets' config field in ~/.holmes/config.yaml instead. "
+            "For example: custom_toolsets: [\"path/to/toolset.yaml\"]"
+        )
+
+
 investigate_app = typer.Typer(
     add_completion=False,
     name="investigate",
@@ -99,7 +109,7 @@ opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     [],
     "--custom-toolsets",
     "-t",
-    help="Path to a custom toolsets. The status of the custom toolsets specified here won't be cached (can specify -t multiple times to add multiple toolsets)",
+    help="[DEPRECATED] Use the 'custom_toolsets' config field in ~/.holmes/config.yaml instead.",
 )
 opt_custom_runbooks: Optional[List[Path]] = typer.Option(
     [],
@@ -263,6 +273,7 @@ def ask(
             )
             interactive = False
 
+    _warn_deprecated_custom_toolsets(custom_toolsets)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -424,6 +435,7 @@ def alertmanager(
     """
     console = init_logging(verbose)
     _warn_deprecated_custom_runbooks(custom_runbooks)
+    _warn_deprecated_custom_toolsets(custom_toolsets)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -555,6 +567,7 @@ def jira(
     """
     console = init_logging(verbose)
     _warn_deprecated_custom_runbooks(custom_runbooks)
+    _warn_deprecated_custom_toolsets(custom_toolsets)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -749,6 +762,7 @@ def github(
     """
     console = init_logging(verbose)  # type: ignore
     _warn_deprecated_custom_runbooks(custom_runbooks)
+    _warn_deprecated_custom_toolsets(custom_toolsets)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -832,6 +846,7 @@ def pagerduty(
     """
     console = init_logging(verbose)
     _warn_deprecated_custom_runbooks(custom_runbooks)
+    _warn_deprecated_custom_toolsets(custom_toolsets)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -915,6 +930,7 @@ def opsgenie(
     """
     console = init_logging(verbose)  # type: ignore
     _warn_deprecated_custom_runbooks(custom_runbooks)
+    _warn_deprecated_custom_toolsets(custom_toolsets)
     config = Config.load_from_file(
         config_file,
         api_key=api_key,

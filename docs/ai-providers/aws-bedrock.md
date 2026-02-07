@@ -36,7 +36,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
     export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
     export OVERRIDE_MAX_CONTENT_SIZE="1000000"
 
-    holmes ask "what pods are failing?" --model="bedrock/us.anthropic.claude-opus-4-6-v1:0"
+    holmes ask "what pods are failing?" --model="bedrock/us.anthropic.claude-opus-4-6-v1"
     ```
 
 === "Holmes Helm Chart"
@@ -70,7 +70,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
         aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
         aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
         aws_region_name: us-east-1
-        model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+        model: bedrock/us.anthropic.claude-opus-4-6-v1
         temperature: 1
         thinking:
           type: adaptive
@@ -79,7 +79,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
         aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
         aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
         aws_region_name: us-east-1
-        model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+        model: bedrock/us.anthropic.claude-opus-4-6-v1
         temperature: 1
         thinking:
           type: adaptive
@@ -125,21 +125,19 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
           aws_region_name: us-east-1
-          model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+          model: bedrock/us.anthropic.claude-opus-4-6-v1
           temperature: 1
           thinking:
-            budget_tokens: 10000
-            type: enabled
+            type: adaptive
 
         bedrock-claude-opus-46-1M-context:
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
           aws_region_name: us-east-1
-          model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+          model: bedrock/us.anthropic.claude-opus-4-6-v1
           temperature: 1
           thinking:
-            budget_tokens: 10000
-            type: enabled
+            type: adaptive
           extra_headers:
             anthropic-beta: context-1m-2025-08-07
           custom_args:
@@ -190,7 +188,7 @@ aws bedrock list-foundation-models --region=us-east-1 | grep modelId
 **Important**: Different models are available in different regions. For example, Claude Opus is only available in us-west-2.
 
 ### Model Name Examples
-Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `us.anthropic.claude-opus-4-6-v1:0` or `us.anthropic.claude-opus-4-6-v1:0`
+Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `us.anthropic.claude-opus-4-6-v1` or `us.anthropic.claude-opus-4-6-v1`
 
 ## Setting Extra Headers
 You can enable various beta features in AWS Bedrock by setting custom headers. 
@@ -215,11 +213,10 @@ Or, for Helm:
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
           aws_region_name: us-east-1
-          model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+          model: bedrock/us.anthropic.claude-opus-4-6-v1
           temperature: 1
           thinking:
-            budget_tokens: 10000
-            type: enabled
+            type: adaptive
           extra_headers:
             anthropic-beta: context-1m-2025-08-07
 

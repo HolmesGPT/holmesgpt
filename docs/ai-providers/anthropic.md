@@ -88,8 +88,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
           model: anthropic/claude-opus-4-6
           temperature: 1
           thinking:
-            budget_tokens: 10000
-            type: enabled
+            type: adaptive
 
         claude-opus-46-alt:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"

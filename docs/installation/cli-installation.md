@@ -173,7 +173,7 @@ We highly recommend using Claude Opus 4.6 as it gives the best results by far. I
     4. **Ask your first question**:
         ```bash
         # Recommended: Use Claude Opus 4.6 for best results
-        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/us.anthropic.claude-opus-4-6-v1:0"
+        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/us.anthropic.claude-opus-4-6-v1"
 
         # Or use another model
         holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/<your-model-name>"
@@ -258,7 +258,7 @@ opus:
     aws_access_key_id: "your-access-key"
     aws_region_name: us-east-1
     aws_secret_access_key: "your-secret-key"
-    model: bedrock/us.anthropic.claude-opus-4-6-v1:0
+    model: bedrock/us.anthropic.claude-opus-4-6-v1
     temperature: 1
     thinking:
         type: adaptive
