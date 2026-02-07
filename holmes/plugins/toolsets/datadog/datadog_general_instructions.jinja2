@@ -20,6 +20,23 @@ This toolset provides access to critical Datadog resources that can help identif
 - **Security**: Review security signals and alerts
 - **Hosts**: Get infrastructure-level information
 
+### Available API Endpoints
+
+**IMPORTANT: You can ONLY use the endpoints listed below. Do NOT attempt to use any other endpoints - they will be rejected.**
+
+#### GET Endpoints (use with `datadog_api_get`)
+
+{% for pattern, hint in whitelisted_endpoints %}
+- `{{ pattern | replace('^', '') | replace('$', '') | replace('\\d+', '{id}') | replace('[^/]+', '{id}') | replace('(/search)?', '[/search]') | replace('(/[^/]+)?', '[/{id}]') | replace('(/history)?', '[/history]') }}`{% if hint %} - {{ hint }}{% endif %}
+
+{% endfor %}
+
+#### POST Search Endpoints (use with `datadog_api_post_search`)
+
+{% for pattern in whitelisted_post_endpoints %}
+- `{{ pattern | replace('^', '') | replace('$', '') | replace('\\d+', '{id}') }}`
+{% endfor %}
+
 ### When Historical Data is Important
 
 **Kubernetes limitations that Datadog can address:**
@@ -181,13 +198,6 @@ Query params: {"from_ts": 1234567890, "to_ts": 1234567900}
    - Note correlations between events and issues
    - Identify patterns in monitor triggers
    - Track incident timelines for post-mortems
-
-### Resource Discovery
-
-Use `list_datadog_api_resources` to discover available endpoints:
-- Filter by category: monitors, dashboards, slos, incidents, etc.
-- This helps identify which resources are available for investigation
-- Example: `list_datadog_api_resources` with `{"category": "monitors"}`
 
 ### Integration with Other Toolsets
 

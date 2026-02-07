@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -43,7 +43,10 @@ WHITELISTED_ENDPOINTS = [
     # Monitors
     (r"^/api/v\d+/monitor(/search)?$", ""),
     (r"^/api/v\d+/monitor/\d+$", "Get a specific monitor by ID"),
-    (r"^/api/v1/monitor/groups/search$", "Search monitor groups (v1 only, no v2 equivalent)"),
+    (
+        r"^/api/v1/monitor/groups/search$",
+        "Search monitor groups (v1 only, no v2 equivalent)",
+    ),
     # Dashboards
     (r"^/api/v\d+/dashboard(/lists)?$", ""),
     (r"^/api/v\d+/dashboard/[^/]+$", ""),
@@ -100,7 +103,10 @@ WHITELISTED_ENDPOINTS = [
     # Downtimes
     (r"^/api/v\d+/downtime$", "List scheduled downtimes"),
     (r"^/api/v\d+/downtime/[^/]+$", "Get specific downtime by ID"),
-    (r"^/api/v2/monitor/\d+/downtime_matches$", "Get active downtimes for a specific monitor"),
+    (
+        r"^/api/v2/monitor/\d+/downtime_matches$",
+        "Get active downtimes for a specific monitor",
+    ),
     # Tags
     (r"^/api/v\d+/tags/hosts(/[^/]+)?$", ""),
     # Notebooks
@@ -221,7 +227,6 @@ class DatadogGeneralToolset(Toolset):
             tools=[
                 DatadogAPIGet(toolset=self),
                 DatadogAPIPostSearch(toolset=self),
-                ListDatadogAPIResources(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
         )
@@ -230,7 +235,13 @@ class DatadogGeneralToolset(Toolset):
                 os.path.dirname(__file__), "datadog_general_instructions.jinja2"
             )
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+        self._load_llm_instructions(
+            jinja_template=f"file://{template_file_path}",
+            extra_context={
+                "whitelisted_endpoints": WHITELISTED_ENDPOINTS,
+                "whitelisted_post_endpoints": WHITELISTED_POST_ENDPOINTS,
+            },
+        )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         """Check prerequisites with configuration."""
@@ -708,197 +719,3 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                 error=f"Unexpected error: {str(e)}",
                 params=params,
             )
-
-
-class ListDatadogAPIResources(BaseDatadogGeneralTool):
-    """Tool for listing available Datadog API resources and endpoints."""
-
-    def __init__(self, toolset: "DatadogGeneralToolset"):
-        super().__init__(
-            name="list_datadog_api_resources",
-            description="[datadog/general toolset] List available Datadog API resources and endpoints that can be accessed",
-            parameters={
-                "search_regex": ToolParameter(
-                    description="Optional regex pattern to filter endpoints (e.g., 'monitor', 'logs|metrics', 'security.*signals', 'v2/.*search$'). If not provided, shows all endpoints.",
-                    type="string",
-                    required=False,
-                ),
-            },
-            toolset=toolset,
-        )
-
-    def get_parameterized_one_liner(self, params: dict) -> str:
-        """Get a one-liner description of the tool invocation."""
-        search = params.get("search_regex", "all")
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: List API Resources (search: {search})"
-
-    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        """List available API resources."""
-        search_regex = params.get("search_regex", "")
-
-        logging.info("=" * 60)
-        logging.info("ListDatadogAPIResources Tool Invocation:")
-        logging.info(f"  Search regex: {search_regex or 'None (showing all)'}")
-        logging.info(f"  OpenAPI Spec Loaded: {self.toolset.openapi_spec is not None}")
-        logging.info("=" * 60)
-
-        # Filter endpoints based on regex search
-        matching_endpoints = []
-
-        if search_regex:
-            try:
-                search_pattern = re.compile(search_regex, re.IGNORECASE)
-            except re.error as e:
-                return StructuredToolResult(
-                    status=StructuredToolResultStatus.ERROR,
-                    error=f"Invalid regex pattern: {e}",
-                    params=params,
-                    url="",
-                )
-        else:
-            search_pattern = None
-
-        # Build list of matching endpoints
-        for pattern, hint in WHITELISTED_ENDPOINTS:
-            # Create a readable endpoint example from the pattern
-            example_endpoint = pattern.replace(r"^/api/v\d+", "/api/v1")
-            example_endpoint = example_endpoint.replace(r"(/search)?$", "")
-            example_endpoint = example_endpoint.replace(r"(/[^/]+)?$", "/{id}")
-            example_endpoint = example_endpoint.replace(r"/[^/]+$", "/{id}")
-            example_endpoint = example_endpoint.replace(r"/\d+$", "/{id}")
-            example_endpoint = example_endpoint.replace("$", "")
-            example_endpoint = example_endpoint.replace("^", "")
-
-            # Apply search filter if provided
-            if search_pattern and not search_pattern.search(example_endpoint):
-                continue
-
-            # Determine HTTP methods for display purposes only (cosmetic, doesn't affect validation)
-            # Check for POST search endpoints (path ends with /search, /query, or /aggregate)
-            # Note: /monitor/groups/search is GET but displays as POST here - no functional impact
-            if (
-                "/search$" in pattern
-                or "/query$" in pattern
-                or "/aggregate$" in pattern
-            ):
-                methods = "POST"
-            elif "/search)?$" in pattern:
-                methods = "GET/POST"
-            else:
-                methods = "GET"
-
-            endpoint_info = {
-                "endpoint": example_endpoint,
-                "methods": methods,
-                "hint": hint,
-                "pattern": pattern,
-            }
-            matching_endpoints.append(endpoint_info)
-
-        if not matching_endpoints:
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS,
-                data=f"No endpoints found matching regex: {search_regex}",
-                params=params,
-            )
-
-        # Format output
-        output = ["Available Datadog API Endpoints", "=" * 40]
-
-        if search_regex:
-            output.append(f"Filter: {search_regex}")
-        output.append(f"Found: {len(matching_endpoints)} endpoints")
-        output.append("")
-
-        # List endpoints with spec info if available
-        for info in matching_endpoints:
-            line = f"{info['methods']:8} {info['endpoint']}"
-            if info["hint"]:
-                line += f"\n         {info['hint']}"
-
-            # Add OpenAPI spec info for this specific endpoint if available
-            if self.toolset.openapi_spec and "paths" in self.toolset.openapi_spec:
-                # Try to find matching path in OpenAPI spec
-                spec_path = None
-                for path in self.toolset.openapi_spec["paths"].keys():
-                    if re.match(info["pattern"], path):
-                        spec_path = path
-                        break
-
-                if spec_path and spec_path in self.toolset.openapi_spec["paths"]:
-                    path_spec = self.toolset.openapi_spec["paths"][spec_path]
-                    # Add actual OpenAPI schema for the endpoint
-                    for method in ["get", "post", "put", "delete"]:
-                        if method in path_spec:
-                            method_spec = path_spec[method]
-                            line += f"\n\n         OpenAPI Schema ({method.upper()}):"
-
-                            # Add summary if available
-                            if "summary" in method_spec:
-                                line += f"\n         Summary: {method_spec['summary']}"
-
-                            # Add parameters if available
-                            if "parameters" in method_spec:
-                                line += "\n         Parameters:"
-                                for param in method_spec["parameters"]:
-                                    param_info = f"\n           - {param.get('name', 'unknown')} ({param.get('in', 'unknown')})"
-                                    if param.get("required", False):
-                                        param_info += " [required]"
-                                    if "description" in param:
-                                        param_info += f": {param['description'][:100]}"
-                                    line += param_info
-
-                            # Add request body schema if available
-                            if "requestBody" in method_spec:
-                                line += "\n         Request Body:"
-                                if "content" in method_spec["requestBody"]:
-                                    for content_type, content_spec in method_spec[
-                                        "requestBody"
-                                    ]["content"].items():
-                                        if "schema" in content_spec:
-                                            # Show a compact version of the schema
-                                            schema_str = json.dumps(
-                                                content_spec["schema"], indent=10
-                                            )[:500]
-                                            if (
-                                                len(json.dumps(content_spec["schema"]))
-                                                > 500
-                                            ):
-                                                schema_str += "..."
-                                            line += f"\n           Content-Type: {content_type}"
-                                            line += f"\n           Schema: {schema_str}"
-
-                            # Add response schema sample if available
-                            if "responses" in method_spec:
-                                if "200" in method_spec["responses"]:
-                                    line += "\n         Response (200):"
-                                    resp = method_spec["responses"]["200"]
-                                    if "description" in resp:
-                                        line += f"\n           {resp['description']}"
-                            break
-
-            output.append(line)
-
-        output.append("")
-        output.append(
-            "Note: All endpoints are read-only. Use the appropriate tool with the endpoint path."
-        )
-        output.append("Example: datadog_api_get with endpoint='/api/v1/monitors'")
-        output.append("")
-        output.append("Search examples:")
-        output.append("  • 'monitor' - find all monitor endpoints")
-        output.append("  • 'logs|metrics' - find logs OR metrics endpoints")
-        output.append("  • 'v2.*search$' - find all v2 search endpoints")
-        output.append("  • 'security.*signals' - find security signals endpoints")
-        doc_url = "https://docs.datadoghq.com/api/latest/"
-        if search_regex:
-            # URL encode the search parameter - spaces become + in query strings
-            search_params = urlencode({"s": search_regex})
-            doc_url = f"{doc_url}?{search_params}"
-
-        return StructuredToolResult(
-            status=StructuredToolResultStatus.SUCCESS,
-            data="\n".join(output),
-            params=params,
-            url=doc_url,
-        )

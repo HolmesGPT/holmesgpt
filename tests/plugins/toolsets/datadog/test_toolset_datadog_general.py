@@ -114,25 +114,12 @@ class TestDatadogGeneralToolset:
         toolset = DatadogGeneralToolset()
 
         assert toolset.name == "datadog/general"
-        assert len(toolset.tools) == 3
+        assert len(toolset.tools) == 2
         assert toolset.dd_config is None
 
         tool_names = [tool.name for tool in toolset.tools]
         assert "datadog_api_get" in tool_names
         assert "datadog_api_post_search" in tool_names
-        assert "list_datadog_api_resources" in tool_names
-
-    def test_list_api_resources_tool(self):
-        """Test the list API resources tool."""
-        toolset = DatadogGeneralToolset()
-        list_tool = toolset.tools[2]  # ListDatadogAPIResources
-
-        # Test listing all resources
-        result = list_tool._invoke({}, context=create_mock_tool_invoke_context())
-        assert result.status == StructuredToolResultStatus.SUCCESS
-        assert "monitor" in result.data.lower()
-        assert "dashboard" in result.data.lower()
-        assert "POST     /api/v1/monitor" in result.data
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_general.execute_datadog_http_request"

@@ -349,7 +349,6 @@ toolsets:
 |------|-------------|
 | `datadog_api_get` | Perform GET requests to whitelisted Datadog API endpoints |
 | `datadog_api_post_search` | Perform POST search operations on whitelisted endpoints |
-| `list_datadog_api_resources` | List available API resource categories and endpoints |
 
 **Supported API Endpoints**
 
