@@ -91,8 +91,7 @@ modelList:
     model: anthropic/claude-opus-4-6
     temperature: 1
     thinking:
-      budget_tokens: 10000
-      type: enabled
+      type: adaptive
 
   claude-opus-46-alt:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
@@ -107,8 +106,7 @@ modelList:
     model: bedrock/us.anthropic.claude-opus-4-6-v1:0
     temperature: 1
     thinking:
-      budget_tokens: 10000
-      type: enabled
+      type: adaptive
 ```
 
 

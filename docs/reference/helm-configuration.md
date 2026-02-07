@@ -262,8 +262,7 @@ modelList:
     model: anthropic/claude-opus-4-6
     temperature: 1
     thinking:
-      budget_tokens: 10000
-      type: enabled
+      type: adaptive
   bedrock-opus-46:
     aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
     aws_region_name: us-east-1
@@ -271,8 +270,7 @@ modelList:
     model: bedrock/us.anthropic.claude-opus-4-6-v1:0
     temperature: 1
     thinking:
-      budget_tokens: 10000
-      type: enabled
+      type: adaptive
 ```
 
 

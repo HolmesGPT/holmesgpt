@@ -261,8 +261,7 @@ opus:
     model: bedrock/us.anthropic.claude-opus-4-6-v1:0
     temperature: 1
     thinking:
-        budget_tokens: 10000
-        type: enabled
+        type: adaptive
 
 azure-5:
     api_base: https://your-resource.openai.azure.com

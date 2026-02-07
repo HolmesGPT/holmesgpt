@@ -28,7 +28,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
     holmes ask "what pods are failing?" --model="bedrock/<your-bedrock-model>"
     ```
 
-    **For Claude Sonnet with 1M context window:**
+    **For Claude Opus with 1M context window:**
     ```bash
     export AWS_REGION_NAME="us-east-1"
     export AWS_ACCESS_KEY_ID="your-access-key"
@@ -73,8 +73,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
         model: bedrock/us.anthropic.claude-opus-4-6-v1:0
         temperature: 1
         thinking:
-          budget_tokens: 10000
-          type: enabled
+          type: adaptive
 
       bedrock-claude-opus-46-1M-context:
         aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
@@ -83,8 +82,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
         model: bedrock/us.anthropic.claude-opus-4-6-v1:0
         temperature: 1
         thinking:
-          budget_tokens: 10000
-          type: enabled
+          type: adaptive
         extra_headers:
           anthropic-beta: context-1m-2025-08-07
         custom_args:
@@ -152,9 +150,9 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
         model: "bedrock-claude-opus-46"  # This refers to the key name in modelList above
     ```
 
-### Using Claude Sonnet with 1M Context Window
+### Using Claude Opus with 1M Context Window
 
-The `bedrock-claude-opus-46-1M-context` example above demonstrates how to enable the extended 1 million token context window for Claude Sonnet. This requires two configuration parameters:
+The `bedrock-claude-opus-46-1M-context` example above demonstrates how to enable the extended 1 million token context window for Claude Opus. This requires two configuration parameters:
 
 **1. Beta Feature Header:**
 ```yaml
