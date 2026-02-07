@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any, Optional, Tuple
 
@@ -76,7 +77,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                     required=False,
                 ),
                 "metric_name_filter": ToolParameter(
-                    description="Filter metrics by name prefix or substring. Example: 'kubernetes' matches 'kubernetes.cpu.usage', 'system.kubernetes.memory'. Use this to narrow down large metric lists.",
+                    description="Filter metrics by regex pattern (case-insensitive). Examples: 'kubernetes' matches any metric containing 'kubernetes', '^system\\.cpu' matches metrics starting with 'system.cpu', 'memory|cpu' matches metrics containing 'memory' or 'cpu'. Use this to narrow down large metric lists.",
                     type="string",
                     required=False,
                 ),
@@ -138,11 +139,18 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                     params=params,
                 )
 
-            # Apply client-side metric name filtering
+            # Apply client-side metric name filtering using regex
             metric_name_filter = params.get("metric_name_filter")
             if metric_name_filter:
-                filter_lower = metric_name_filter.lower()
-                metrics = [m for m in metrics if filter_lower in m.lower()]
+                try:
+                    pattern = re.compile(metric_name_filter, re.IGNORECASE)
+                    metrics = [m for m in metrics if pattern.search(m)]
+                except re.error as e:
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error=f"Invalid regex pattern '{metric_name_filter}': {e}",
+                        params=params,
+                    )
 
             total_matching = len(metrics)
 

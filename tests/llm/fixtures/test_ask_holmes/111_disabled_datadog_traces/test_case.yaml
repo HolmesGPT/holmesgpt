@@ -7,7 +7,6 @@ tags:
   - medium
   - transparency
   - datadog
-  - regression
 before_test: |
   echo "Setting up checkout service for eval 111..."
   kubectl apply -f helm/checkout-service.yaml

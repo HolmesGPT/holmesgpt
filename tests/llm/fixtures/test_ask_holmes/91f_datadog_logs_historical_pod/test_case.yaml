@@ -17,7 +17,6 @@ tags:
   - logs
   - datadog
   - hard
-  - regression
 #  - benchmark
 # we need the datadog api key for it to work as a benchmark
 

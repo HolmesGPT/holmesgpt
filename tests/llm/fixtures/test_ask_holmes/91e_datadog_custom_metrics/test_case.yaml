@@ -29,7 +29,6 @@ expected_output: |
 tags:
   - datadog
   - embeds
-  - regression
 
 test_type: server
 

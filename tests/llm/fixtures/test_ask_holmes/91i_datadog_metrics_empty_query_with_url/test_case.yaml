@@ -7,4 +7,3 @@ include_tool_calls: true
 tags:
   - datadog
   - transparency
-  - regression
