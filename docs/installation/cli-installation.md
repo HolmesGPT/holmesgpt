@@ -88,7 +88,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
 
 !!! tip "Which Model to Use"
-We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
+We highly recommend using Claude Sonnet 4.5 as it gives the best results by far. It is available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
 === "Anthropic Claude"
 
@@ -125,11 +125,7 @@ We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results 
 
     3. **Ask your first question**:
         ```bash
-        # Uses gpt-4.1 by default (fairly fast, decent results)
         holmes ask "what is wrong with the user-profile-import pod?"
-
-        # Or specify a different model
-        holmes ask "what is wrong with the user-profile-import pod?" --model="gpt-5"
         ```
 
     See [OpenAI Configuration](../ai-providers/openai.md) for more details.
@@ -176,8 +172,8 @@ We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results 
 
     4. **Ask your first question**:
         ```bash
-        # Recommended: Use Sonnet 4.0 or Sonnet 4.5 for best results
-        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
+        # Recommended: Use Claude Sonnet 4.5 for best results
+        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
         # Or use another model
         holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/<your-model-name>"

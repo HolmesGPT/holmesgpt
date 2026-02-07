@@ -86,17 +86,17 @@ modelList:
     temperature: 1 # only 1 is supported for gpt-5 models
 
   # Anthropic Models
-  claude-sonnet-4:
+  claude-sonnet-45:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
-    model: claude-sonnet-4-20250514
+    model: anthropic/claude-sonnet-4-5-20250929
     temperature: 1
     thinking:
       budget_tokens: 10000
       type: enabled
 
-  claude-opus-4-1:
+  claude-opus-45:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
-    model: claude-opus-4-1-20250805
+    model: anthropic/claude-opus-4-5-20251101
     temperature: 0
 
   # AWS Bedrock
@@ -104,7 +104,7 @@ modelList:
     aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
     aws_region_name: us-east-1
     aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-    model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
     temperature: 1
     thinking:
       budget_tokens: 10000

@@ -158,10 +158,10 @@ Stdio mode allows HolmesGPT to run MCP servers directly as subprocesses, communi
 
     **Note:** Ensure that the required Python packages (like `mcp` and `fastmcp`) are installed in your Python environment.
 
-    You can now use Holmes via the CLI with your configured stdio MCP server. For example:
+    Add the MCP server configuration to `~/.holmes/config.yaml`, then run:
 
     ```bash
-    holmes ask -t custom_toolset.yaml "Run my mcp-server tools"
+    holmes ask "Run my mcp-server tools"
     ```
 
 === "Holmes Helm Chart"
@@ -499,13 +499,7 @@ With the MCP server running, configure HolmesGPT to connect to it.
         llm_instructions: "Use Dynatrace to analyze application performance, infrastructure monitoring, and real-time observability data. Query metrics, traces, and logs to identify performance bottlenecks, errors, and system health issues in your applications and infrastructure."
     ```
 
-    You can now use Holmes via the CLI with your configured MCP server. For example:
-
-    ```bash
-    holmes ask -t custom_toolset.yaml  "Using dynatrace what issues do I have in my cluster?"
-    ```
-
-    Alternatively, you can add the `mcp_servers` configurations to ** ~/.holmes/config.yaml**, and run:
+    Add the MCP server configuration to `~/.holmes/config.yaml`, then run:
 
     ```bash
     holmes ask "Using dynatrace what issues do I have in my cluster?"

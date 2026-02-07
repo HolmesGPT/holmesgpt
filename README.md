@@ -152,31 +152,13 @@ For more details, run `holmes investigate <source> --help`
 
 HolmesGPT can investigate many issues out of the box, with no customization or training. Optionally, you can extend Holmes to improve results:
 
-**Custom Data Sources**: Add data sources (toolsets) to improve investigations
-   - If using Robusta SaaS: See [here](https://holmesgpt.dev/data-sources/custom-toolsets/)
-   - If using the CLI: Use `-t` flag with [custom toolset files](./examples/custom_toolset.yaml) or add to `~/.holmes/config.yaml`
+**Custom Data Sources**: Add [custom toolsets](https://holmesgpt.dev/data-sources/custom-toolsets/) to connect HolmesGPT with your own data sources. Configure them in `~/.holmes/config.yaml` or see [an example](./examples/custom_toolset.yaml).
 
-**Custom Runbooks**: Give HolmesGPT instructions for known alerts:
-   - If using Robusta SaaS: Use the Robusta UI to add runbooks
-   - If using the CLI: Use `-r` flag with [custom runbook files](./examples/custom_runbooks.yaml) or add to `~/.holmes/config.yaml`
+**Custom Runbooks**: Give HolmesGPT instructions for known alerts using runbook catalogs. Configure `custom_runbook_catalogs` in `~/.holmes/config.yaml`.
 
-You can save common settings and API Keys in a config file to avoid passing them from the CLI each time:
+**Configuration**: Save common settings and API keys in `~/.holmes/config.yaml` to avoid passing them from the CLI each time. See the [example config](config.example.yaml) for all available settings.
 
-<details>
-<summary>Reading settings from a config file</summary>
-
-You can save common settings and API keys in config file for re-use. Place the config file in <code>~/.holmes/config.yaml`</code> or pass it using the <code> --config</code>
-
-You can view an example config file with all available settings [here](config.example.yaml).
-
-### Tool Output Transformers
-
-HolmesGPT supports **transformers** to process large tool outputs before sending them to your primary LLM. This feature helps manage context window limits while preserving essential information.
-
-The most common transformer is `llm_summarize`, which uses a fast secondary model to summarize lengthy outputs from tools like `kubectl describe`, log queries, or metrics collection.
-
-📖 **Learn more**: [Tool Output Transformers Documentation](docs/transformers.md)
-</details>
+**Tool Output Transformers**: Use a fast secondary model to summarize large tool outputs before sending them to the primary LLM. Learn more in the [Tool Output Transformers Documentation](https://holmesgpt.dev/development/transformers/).
 
 ## 🔐 Data Privacy
 

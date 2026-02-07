@@ -1,4 +1,4 @@
-#model: "gpt-4.1"
+#model: "anthropic/claude-sonnet-4-5-20250929"
 #api_key: "..."
 
 #model: "azure/model-deployment-name"
@@ -7,7 +7,7 @@
 # Fast Model Summarization
 # Optional fast model for summarizing large tool outputs before sending to main LLM
 # Helps reduce context window usage, improve performance, and reduce costs
-#fast_model: "gpt-4o-mini"
+#fast_model: "anthropic/claude-haiku-4-5-20251001"
 
 # try adding your own tools here!
 # e.g. query company-specific data, fetch logs from your existing observability tools, etc
@@ -30,9 +30,6 @@
 #github_query: "is:issue is:open"
 
 # give the LLM explicit instructions how to investigate certain alerts
-# try adding runbooks to get better results on known alerts
-#custom_runbooks: ["examples/custom_runbooks.yaml"]
-
-# add custom runbook catalogs (catalog.json files with markdown runbook references)
+# use custom_runbook_catalogs (catalog.json files with markdown runbook references)
 # the directory containing each catalog.json will be used as a search path for the markdown files
 #custom_runbook_catalogs: ["/path/to/your/custom/runbooks/catalog.json"]
