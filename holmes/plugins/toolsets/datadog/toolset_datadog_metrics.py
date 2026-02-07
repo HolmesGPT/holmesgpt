@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any, Optional, Tuple
 
@@ -51,13 +52,14 @@ class BaseDatadogMetricsTool(Tool):
 
 ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS = 24
 ACTIVE_METRICS_DEFAULT_TIME_SPAN_SECONDS = 24 * 60 * 60
+ACTIVE_METRICS_DEFAULT_LIMIT = 500
 
 
 class ListActiveMetrics(BaseDatadogMetricsTool):
     def __init__(self, toolset: "DatadogMetricsToolset"):
         super().__init__(
             name="list_active_datadog_metrics",
-            description=f"[datadog/metrics toolset] List active metrics from Datadog for the last {ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS} hours. This includes metrics that have actively reported data points, including from pods no longer in the cluster.",
+            description=f"[datadog/metrics toolset] List active metrics from Datadog for the last {ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS} hours. This includes metrics that have actively reported data points, including from pods no longer in the cluster. Returns up to {ACTIVE_METRICS_DEFAULT_LIMIT} metrics by default. Use metric_name_filter to narrow results.",
             parameters={
                 "from_time": ToolParameter(
                     description=f"Start time for listing metrics. Can be an RFC3339 formatted datetime (e.g. '2023-03-01T10:30:00Z') or a negative integer for relative seconds from now (e.g. -86400 for 24 hours ago). Defaults to {ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS} hours ago",
@@ -72,6 +74,16 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                 "tag_filter": ToolParameter(
                     description="Filter metrics by tags in the format tag:value.",
                     type="string",
+                    required=False,
+                ),
+                "metric_name_filter": ToolParameter(
+                    description="Filter metrics by regex pattern (case-insensitive). Examples: 'kubernetes' matches any metric containing 'kubernetes', '^system\\.cpu' matches metrics starting with 'system.cpu', 'memory|cpu' matches metrics containing 'memory' or 'cpu'. Use this to narrow down large metric lists.",
+                    type="string",
+                    required=False,
+                ),
+                "limit": ToolParameter(
+                    description=f"Maximum number of metrics to return. Default: {ACTIVE_METRICS_DEFAULT_LIMIT}. Set higher if you need more results, but be aware this increases response size.",
+                    type="integer",
                     required=False,
                 ),
             },
@@ -127,11 +139,47 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                     params=params,
                 )
 
+            # Apply client-side metric name filtering using regex
+            metric_name_filter = params.get("metric_name_filter")
+            if metric_name_filter:
+                try:
+                    pattern = re.compile(metric_name_filter, re.IGNORECASE)
+                    metrics = [m for m in metrics if pattern.search(m)]
+                except re.error as e:
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error=f"Invalid regex pattern '{metric_name_filter}': {e}",
+                        params=params,
+                    )
+
+            total_matching = len(metrics)
+
+            if not metrics:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    data=f"No metrics matched the filter '{metric_name_filter}'. Try a different filter.",
+                    params=params,
+                )
+
+            # Apply limit (use default if not provided or invalid)
+            limit = params.get("limit")
+            if limit is None or limit <= 0:
+                limit = ACTIVE_METRICS_DEFAULT_LIMIT
+            metrics = sorted(metrics)[:limit]
+
             output = ["Metric Name"]
             output.append("-" * 50)
 
-            for metric in sorted(metrics):
+            for metric in metrics:
                 output.append(metric)
+
+            # Add truncation notice if results were limited
+            if total_matching > len(metrics):
+                output.append("-" * 50)
+                output.append(
+                    f"Showing {len(metrics)} of {total_matching} metrics. "
+                    f"Use 'limit' parameter to see more, or 'metric_name_filter' to narrow results."
+                )
 
             url = generate_datadog_metrics_list_url(
                 self.toolset.dd_config,
@@ -205,8 +253,11 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             filters.append(f"host={params['host']}")
         if params.get("tag_filter"):
             filters.append(f"tag_filter={params['tag_filter']}")
+        if params.get("metric_name_filter"):
+            filters.append(f"filter={params['metric_name_filter']}")
         filter_str = f"{', '.join(filters)}" if filters else "all"
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: List Active Metrics ({filter_str})"
+        limit = params.get("limit", ACTIVE_METRICS_DEFAULT_LIMIT)
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List Active Metrics ({filter_str}, limit={limit})"
 
 
 class QueryMetrics(BaseDatadogMetricsTool):
