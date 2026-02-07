@@ -88,7 +88,7 @@ Compare different LLMs to find the best for your use case:
 
 ```bash
 # Test multiple models in one run
-RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-sonnet-4-5-20250929 \
+RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-opus-4-6 \
   CLASSIFIER_MODEL=gpt-4o \
   poetry run pytest -m 'llm and easy'
 ```

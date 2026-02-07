@@ -27,7 +27,7 @@ print("🚀 Initializing HolmesGPT...")
 print("Creating configuration...")
 config = Config(
     api_key=os.getenv("ANTHROPIC_API_KEY"),
-    model="anthropic/claude-sonnet-4-5-20250929",
+    model="anthropic/claude-opus-4-6",
     max_steps=10
 )
 print(f"✅ Configuration created with model: {config.model}")
@@ -83,7 +83,7 @@ def main():
     # Create configuration
     config = Config(
         api_key=api_key,
-        model="anthropic/claude-sonnet-4-5-20250929",
+        model="anthropic/claude-opus-4-6",
         max_steps=10
     )
     print(f"✅ Configuration created with model: {config.model}")
@@ -203,7 +203,7 @@ def main():
     # Create configuration
     config = Config(
         api_key=os.getenv("ANTHROPIC_API_KEY"),
-        model="anthropic/claude-sonnet-4-5-20250929",
+        model="anthropic/claude-opus-4-6",
         max_steps=10
     )
 
@@ -279,7 +279,7 @@ from holmes.config import Config
 # Basic configuration example
 config = Config(
     api_key="your-api-key",
-    model="anthropic/claude-sonnet-4-5-20250929",
+    model="anthropic/claude-opus-4-6",
     max_steps=10
 )
 
@@ -299,7 +299,7 @@ from holmes.config import Config
 config = Config(
     # LLM settings
     api_key="your-api-key",
-    model="anthropic/claude-sonnet-4-5-20250929",
+    model="anthropic/claude-opus-4-6",
     max_steps=10,
 
     # Custom toolsets

@@ -1,4 +1,4 @@
-#model: "anthropic/claude-sonnet-4-5-20250929"
+#model: "anthropic/claude-opus-4-6"
 #api_key: "..."
 
 #model: "azure/model-deployment-name"
