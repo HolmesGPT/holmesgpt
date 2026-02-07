@@ -33,6 +33,7 @@ expected_output: |
 tags:
   - datadog
   - embeds
+  - regression
 
 after_test: |
   # Cleanup the deployed resources
