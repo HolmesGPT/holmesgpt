@@ -14,9 +14,7 @@ HolmesGPT supports three MCP transport modes:
 
 === "Holmes CLI"
 
-    Create a config file and pass it when running CLI commands.
-
-    **custom_toolset.yaml:**
+    Add to `~/.holmes/config.yaml`:
 
     ```yaml
     mcp_servers:
@@ -32,10 +30,8 @@ HolmesGPT supports three MCP transport modes:
     ```
 
     ```bash
-    holmes ask -t custom_toolset.yaml "What services have high error rates in Dynatrace?"
+    holmes ask "What services have high error rates in Dynatrace?"
     ```
-
-    Alternatively, add the config to `~/.holmes/config.yaml` and run without `-t`.
 
 === "Holmes Helm Chart"
 
@@ -102,9 +98,7 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
 
 === "Holmes CLI"
 
-    Create a config file and pass it when running CLI commands.
-
-    **custom_toolset.yaml:**
+    Add to `~/.holmes/config.yaml`:
 
     ```yaml
     mcp_servers:
@@ -114,7 +108,7 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
           mode: stdio
           command: "python3"
           args:
-            - "./my_mcp_server.py"
+            - "/path/to/my_mcp_server.py"
           env:
             CUSTOM_VAR: "value"
         # llm_instructions tells Holmes WHEN and HOW to use this server
@@ -122,7 +116,7 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     ```
 
     ```bash
-    holmes ask -t custom_toolset.yaml "Find tickets related to payment service errors"
+    holmes ask "Find tickets related to payment service errors"
     ```
 
     Ensure required dependencies (e.g., `mcp`, `fastmcp` packages) are installed in your environment.
@@ -309,6 +303,8 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
 SSE transport is deprecated. Use `streamable-http` for new integrations.
 
 === "Holmes CLI"
+
+    Add to `~/.holmes/config.yaml`:
 
     ```yaml
     mcp_servers:
