@@ -161,12 +161,11 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                     params=params,
                 )
 
-            # Apply limit
-            limit = params.get("limit", ACTIVE_METRICS_DEFAULT_LIMIT)
-            if limit and limit > 0:
-                metrics = sorted(metrics)[:limit]
-            else:
-                metrics = sorted(metrics)
+            # Apply limit (use default if not provided or invalid)
+            limit = params.get("limit")
+            if limit is None or limit <= 0:
+                limit = ACTIVE_METRICS_DEFAULT_LIMIT
+            metrics = sorted(metrics)[:limit]
 
             output = ["Metric Name"]
             output.append("-" * 50)
