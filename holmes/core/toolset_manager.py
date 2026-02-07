@@ -1,4 +1,5 @@
 import concurrent.futures
+import hashlib
 import json
 import logging
 import os
@@ -77,6 +78,57 @@ class ToolsetManager:
 
         self.custom_toolsets_from_cli = custom_toolsets_from_cli
         self.toolset_status_location = toolset_status_location
+        self._config_fingerprint = self._compute_config_fingerprint()
+
+    def _compute_config_fingerprint(self) -> str:
+        """Compute a fingerprint of config values that affect toolset loading.
+
+        Used to detect when config changes should invalidate the cached toolset status.
+        """
+        fingerprint_data: dict[str, Any] = {
+            "toolsets": self.toolsets,
+            "custom_toolsets": sorted(str(p) for p in (self.custom_toolsets or [])),
+            "global_fast_model": self.global_fast_model,
+        }
+
+        # Include mtime of custom toolset files to detect content changes
+        custom_toolset_mtimes: dict[str, float] = {}
+        for p in self.custom_toolsets or []:
+            try:
+                custom_toolset_mtimes[str(p)] = os.path.getmtime(p)
+            except OSError:
+                pass
+        if custom_toolset_mtimes:
+            fingerprint_data["custom_toolset_mtimes"] = custom_toolset_mtimes
+
+        config_str = json.dumps(fingerprint_data, sort_keys=True, default=str)
+        return hashlib.md5(config_str.encode()).hexdigest()
+
+    def _is_cache_stale(self) -> bool:
+        """Check if the cached toolset status is stale due to config changes."""
+        try:
+            with open(self.toolset_status_location, "r") as f:
+                raw_data = json.load(f)
+            if isinstance(raw_data, list):
+                # Legacy format without fingerprint
+                return True
+            cached_fingerprint = raw_data.get("config_fingerprint")
+            if cached_fingerprint != self._config_fingerprint:
+                logging.info(
+                    "Config has changed since last toolset cache, invalidating"
+                )
+                return True
+            return False
+        except (json.JSONDecodeError, OSError):
+            return True
+
+    def _read_cached_toolsets(self) -> List[dict[str, Any]]:
+        """Read cached toolset status, handling both legacy and new formats."""
+        with open(self.toolset_status_location, "r") as f:
+            raw_data = json.load(f)
+        if isinstance(raw_data, list):
+            return raw_data
+        return raw_data.get("toolsets", [])
 
     @property
     def cli_tool_tags(self) -> List[ToolsetTag]:
@@ -258,7 +310,11 @@ class ToolsetManager:
                 )
                 for toolset in all_toolsets
             ]
-            json.dump(toolset_status, f, indent=2)
+            cache_data = {
+                "config_fingerprint": self._config_fingerprint,
+                "toolsets": toolset_status,
+            }
+            json.dump(cache_data, f, indent=2)
         logging.info(f"Toolset statuses are cached to {self.toolset_status_location}")
 
     def load_toolset_with_status(
@@ -275,7 +331,14 @@ class ToolsetManager:
         3. load the custom toolsets from CLI, and raise error if the custom toolset from CLI conflicts with existing toolsets
         """
 
-        if not os.path.exists(self.toolset_status_location) or refresh_status:
+        needs_refresh = refresh_status or not os.path.exists(
+            self.toolset_status_location
+        )
+
+        if not needs_refresh:
+            needs_refresh = self._is_cache_stale()
+
+        if needs_refresh:
             logging.info("Refreshing available datasources (toolsets)")
             self.refresh_toolset_status(
                 dal, enable_all_toolsets=enable_all_toolsets, toolset_tags=toolset_tags
@@ -284,9 +347,7 @@ class ToolsetManager:
         else:
             using_cached = True
 
-        cached_toolsets: List[dict[str, Any]] = []
-        with open(self.toolset_status_location, "r") as f:
-            cached_toolsets = json.load(f)
+        cached_toolsets = self._read_cached_toolsets()
 
         # load status from cached file and update the toolset details
         toolsets_status_by_name: dict[str, dict[str, Any]] = {

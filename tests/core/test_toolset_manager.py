@@ -120,7 +120,8 @@ def test_refresh_toolset_status_creates_file(mock_list_all_toolsets, toolset_man
         assert os.path.exists(cache_path)
         with open(cache_path) as f:
             data = json.load(f)
-            assert data[0]["name"] == "test"
+            assert "config_fingerprint" in data
+            assert data["toolsets"][0]["name"] == "test"
 
 
 @patch("holmes.core.toolset_manager.ToolsetManager._list_all_toolsets")
@@ -136,19 +137,22 @@ def test_load_toolset_with_status_reads_cache(mock_list_all_toolsets, toolset_ma
     mock_list_all_toolsets.return_value = [toolset]
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = os.path.join(tmpdir, "toolsets_status.json")
-        cache_data = [
-            {
-                "name": "test",
-                "status": "enabled",
-                "enabled": True,
-                "type": "built-in",
-                "path": None,
-                "error": None,
-            }
-        ]
+        toolset_manager.toolset_status_location = cache_path
+        cache_data = {
+            "config_fingerprint": toolset_manager._config_fingerprint,
+            "toolsets": [
+                {
+                    "name": "test",
+                    "status": "enabled",
+                    "enabled": True,
+                    "type": "built-in",
+                    "path": None,
+                    "error": None,
+                }
+            ],
+        }
         with open(cache_path, "w") as f:
             json.dump(cache_data, f)
-        toolset_manager.toolset_status_location = cache_path
         result = toolset_manager.load_toolset_with_status()
         assert result[0].name == "test"
         assert result[0].enabled is True
