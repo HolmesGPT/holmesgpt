@@ -26,7 +26,7 @@ class TestDatadogMetricsLiveIntegration:
         self.config = {
             "api_key": os.getenv("DD_API_KEY"),
             "app_key": os.getenv("DD_APP_KEY"),
-            "api_url": os.getenv("DD_SITE_URL", "https://api.datadoghq.eu"),
+            "api_url": os.getenv("DD_SITE_URL", "https://api.us5.datadoghq.com"),
             "default_limit": 1000,
             "timeout_seconds": 60,
         }

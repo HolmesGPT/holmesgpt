@@ -507,9 +507,9 @@ class TestDashboardURLs:
 
 
 class TestCoralogixURLs:
-    TEAM_HOSTNAME = "my-team"
+    TEAM_SLUG = "my-team"
     DOMAIN = "eu2.coralogix.com"
-    BASE_URL = f"https://{TEAM_HOSTNAME}.{DOMAIN}"
+    BASE_URL = f"https://{TEAM_SLUG}.{DOMAIN}"
 
     @staticmethod
     def extract_query_from_url(url: str) -> str:
@@ -534,7 +534,7 @@ class TestCoralogixURLs:
     def config(self):
         return CoralogixConfig(
             api_key="test-key",
-            team_hostname=self.TEAM_HOSTNAME,
+            team_slug=self.TEAM_SLUG,
             domain=self.DOMAIN,
         )
 

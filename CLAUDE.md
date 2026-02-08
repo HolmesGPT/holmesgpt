@@ -196,6 +196,9 @@ poetry run pytest tests/llm/ -n 6
 # Note: When using Anthropic models, set CLASSIFIER_MODEL to OpenAI (Anthropic not supported as classifier)
 MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
 
+# RECOMMENDED: Test with Opus 4.5 via OpenRouter (best model for eval testing)
+MODEL=openrouter/anthropic/claude-opus-4.5 CLASSIFIER_MODEL=openrouter/openai/gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
+
 # Setting environment variables - IMPORTANT:
 # Environment variables must be set BEFORE the poetry command, NOT as pytest arguments
 # CORRECT:
@@ -338,6 +341,13 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - LLM evaluation tests run automatically in CI
 - Keep PRs focused and include tests
 - **ALWAYS use `git commit -s`** to sign off commits (required for DCO)
+
+**Git Workflow Guidelines**:
+- ALWAYS create commits, NEVER amend
+- ALWAYS merge, NEVER rebase
+- ALWAYS push, NEVER force push
+- Maintain a history of your work to allow the user to revert back to a previous iteration
+
 
 **File Structure Conventions**:
 - Toolsets: `holmes/plugins/toolsets/{name}.yaml` or `{name}/`
