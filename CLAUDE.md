@@ -451,7 +451,7 @@ toolsets:
   grafana/dashboards:
     enabled: true
     config:  # All toolset-specific config under 'config'
-      url: http://localhost:10177
+      api_url: http://localhost:10177
 ```
 
 **Always run evals before submitting when possible:**
