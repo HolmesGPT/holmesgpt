@@ -103,39 +103,18 @@ class TestPrometheusConfigBackwardCompatibility:
                 prometheus_ssl_enabled=False,
             )
 
-        # prometheus_url should be migrated to api_url
-        assert config.api_url == "http://prometheus:9090/"
+        # prometheus_url is the current field name (not deprecated)
+        assert config.prometheus_url == "http://prometheus:9090/"
         # headers should be migrated to additional_headers
         assert config.additional_headers == {"Authorization": "Bearer test"}
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
-        assert "prometheus_url -> api_url" in caplog.text
         assert "headers -> additional_headers" in caplog.text
         assert (
             "default_query_timeout_seconds -> query_timeout_seconds_default"
             in caplog.text
         )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
-
-    def test_prometheus_url_to_api_url_migration(
-        self, caplog: LogCaptureFixture
-    ) -> None:
-        """Test that prometheus_url is properly migrated to api_url."""
-        with caplog.at_level(logging.WARNING):
-            # Create config using deprecated prometheus_url field
-            old_config = PrometheusConfig(
-                prometheus_url="http://prometheus:9090",
-            )
-
-        # Create config using new api_url field
-        new_config = PrometheusConfig(
-            api_url="http://prometheus:9090",
-        )
-
-        # Both should result in the same api_url value
-        assert old_config.api_url == new_config.api_url
-        assert old_config.api_url == "http://prometheus:9090/"
-        assert "prometheus_url -> api_url" in caplog.text
 
     def test_headers_to_additional_headers_migration(
         self, caplog: LogCaptureFixture
@@ -144,13 +123,13 @@ class TestPrometheusConfigBackwardCompatibility:
         with caplog.at_level(logging.WARNING):
             # Create config using deprecated headers field
             old_config = PrometheusConfig(
-                api_url="http://prometheus:9090",
+                prometheus_url="http://prometheus:9090",
                 headers={"Authorization": "Bearer token123"},
             )
 
         # Create config using new additional_headers field
         new_config = PrometheusConfig(
-            api_url="http://prometheus:9090",
+            prometheus_url="http://prometheus:9090",
             additional_headers={"Authorization": "Bearer token123"},
         )
 
@@ -163,13 +142,13 @@ class TestPrometheusConfigBackwardCompatibility:
         """Test that new Prometheus field names don't trigger warnings."""
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
-                api_url="http://prometheus:9090",
+                prometheus_url="http://prometheus:9090",
                 query_timeout_seconds_default=30,
                 verify_ssl=True,
                 additional_headers={"Authorization": "Bearer test"},
             )
 
-        assert config.api_url == "http://prometheus:9090/"
+        assert config.prometheus_url == "http://prometheus:9090/"
         assert config.query_timeout_seconds_default == 30
         assert config.additional_headers == {"Authorization": "Bearer test"}
         assert "deprecated" not in caplog.text.lower()
