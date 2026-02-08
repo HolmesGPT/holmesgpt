@@ -1,0 +1,32 @@
+You have access to a generic HTTP tool for making requests to whitelisted API endpoints.
+
+IMPORTANT: Always prefer dedicated toolsets when available:
+- For Grafana: use grafana/* tools
+- For Prometheus: use prometheus/* tools
+- For Kubernetes: use kubernetes/* tools
+- For Elasticsearch: use elasticsearch/* tools
+- For other services with dedicated toolsets: use those first
+
+Only use the {{ tool_names[0] if tool_names else "http" }} tool when:
+1. No dedicated toolset exists for the API you need to access
+2. The endpoint is configured in the HTTP toolset whitelist
+
+The tool supports:
+- HTTP methods as configured per endpoint (default: GET only)
+- JSON response filtering with `jq` expressions and `max_depth`
+- Requests are restricted to whitelisted hosts and paths only
+
+{% if config and config.endpoints is defined %}
+Configured endpoints:
+{% for endpoint in config.endpoints %}
+- Hosts: {{ endpoint.hosts | join(', ') }}
+  {%- if endpoint.paths != ['*'] %}
+  Paths: {{ endpoint.paths | join(', ') }}
+  {%- endif %}
+  Methods: {{ endpoint.get_methods() | join(', ') }}
+{% endfor %}
+{% endif %}
+
+{% if tool_names | list | length > 0 %}
+Available HTTP tools: {{ ", ".join(tool_names) }}
+{% endif %}
