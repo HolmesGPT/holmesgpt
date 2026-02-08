@@ -342,6 +342,13 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Keep PRs focused and include tests
 - **ALWAYS use `git commit -s`** to sign off commits (required for DCO)
 
+**Git Workflow Guidelines**:
+- ALWAYS create commits, NEVER amend
+- ALWAYS merge, NEVER rebase
+- ALWAYS push, NEVER force push
+- Maintain a history of your work to allow the user to revert back to a previous iteration
+
+
 **File Structure Conventions**:
 - Toolsets: `holmes/plugins/toolsets/{name}.yaml` or `{name}/`
 - Prompts: `holmes/plugins/prompts/{name}.jinja2`
