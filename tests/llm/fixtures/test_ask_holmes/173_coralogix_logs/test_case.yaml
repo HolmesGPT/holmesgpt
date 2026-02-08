@@ -11,13 +11,14 @@ tags:
   - logs
   - coralogix
 
-setup_timeout: 900  # 15 minutes to handle pod scheduling delays
+setup_timeout: 600  # 10 minutes
 
 before_test: |
   # Validate required Coralogix environment variables
-  [ -n "${CORALOGIX_API_KEY:-}" ] && [ -n "${CORALOGIX_DOMAIN:-}" ] && [ -n "${CORALOGIX_TEAM_HOSTNAME:-}" ] || { for v in CORALOGIX_API_KEY CORALOGIX_DOMAIN CORALOGIX_TEAM_HOSTNAME; do [ -n "${!v:-}" ] || echo "Missing env var: $v"; done; exit 1; }
+  [ -n "${CORALOGIX_API_KEY:-}" ] || { echo "Missing env var: CORALOGIX_API_KEY"; exit 1; }
+  [ -n "${CORALOGIX_SEND_API_KEY:-}" ] || { echo "Missing env var: CORALOGIX_SEND_API_KEY"; exit 1; }
 
-  echo "🚀 Setting up test 163 - Creating namespace app-173"
+  echo "🚀 Setting up test 173 - Creating namespace app-173"
   kubectl create namespace app-173 || true
   echo "✅ Namespace app-173 created successfully!"
 
@@ -32,7 +33,7 @@ before_test: |
     -n app-173 --dry-run=client -o yaml | kubectl apply -f -
 
   echo "💳 Deploying payment service"
-  kubectl apply -f payment-service.yaml -n app-173
+  envsubst < payment-service.yaml | kubectl apply -f - -n app-173
 
   echo "⏳ Waiting for payment pod to exist"
   for i in {1..60}; do
@@ -46,13 +47,13 @@ before_test: |
 
   echo "⏳ Waiting for payment pod to be ready (timeout 780s)"
   PAYMENT_POD_READY=false
-  for i in {1..156}; do
+  for i in {1..120}; do
     if kubectl wait --for=condition=ready pod -l app=payment -n app-173 --timeout=5s 2>/dev/null; then
       echo "✅ Payment pod is ready!"
       PAYMENT_POD_READY=true
       break
     else
-      echo "⏳ Attempt $i/156: Payment pod not ready yet, waiting 5s..."
+      echo "⏳ Attempt $i/120: Payment pod not ready yet, waiting 5s..."
       sleep 5
     fi
   done
@@ -81,13 +82,13 @@ before_test: |
 
   echo "⏳ Waiting for traffic-generator pod to be ready (timeout 780s)"
   TRAFFIC_POD_READY=false
-  for i in {1..156}; do
+  for i in {1..120}; do
     if kubectl wait --for=condition=ready pod -l app=traffic-generator -n app-173 --timeout=5s 2>/dev/null; then
       echo "✅ Traffic-generator pod is ready!"
       TRAFFIC_POD_READY=true
       break
     else
-      echo "⏳ Attempt $i/156: Traffic-generator pod not ready yet, waiting 5s..."
+      echo "⏳ Attempt $i/120: Traffic-generator pod not ready yet, waiting 5s..."
       sleep 5
     fi
   done

@@ -32,6 +32,7 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.core.tools_utils.tool_context_window_limiter import get_pct_token_count
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
@@ -645,15 +646,46 @@ def create_structured_tool_result(
     )
 
 
-class ListPrometheusRules(BasePrometheusTool):
+class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
     def __init__(self, toolset: "PrometheusToolset"):
         super().__init__(
             name="list_prometheus_rules",
-            description="List all defined Prometheus rules (api/v1/rules). Will show the Prometheus rules description, expression and annotations",
-            parameters={},
+            description=(
+                "List Prometheus rules (api/v1/rules). Returns rule names, expressions, and annotations. "
+                "Use filtering parameters to reduce response size. "
+                "Without filters, returns ALL rules which may be very large."
+            ),
+            parameters=self.extend_parameters(
+                {
+                    "type": ToolParameter(
+                        description="Filter by rule type: 'alert' for alerting rules, 'record' for recording rules",
+                        type="string",
+                        required=False,
+                    ),
+                    "rule_name": ToolParameter(
+                        description="Filter by rule name(s). Can be specified multiple times for OR matching. Supports exact match only.",
+                        type="string",
+                        required=False,
+                    ),
+                    "rule_group": ToolParameter(
+                        description="Filter by rule group name(s). Can be specified multiple times for OR matching.",
+                        type="string",
+                        required=False,
+                    ),
+                    "file": ToolParameter(
+                        description="Filter by rule file path(s). Can be specified multiple times for OR matching.",
+                        type="string",
+                        required=False,
+                    ),
+                    "match": ToolParameter(
+                        description="Filter rules by label selector (e.g., '{severity=\"critical\"}', '{team=~\"platform.*\"}')",
+                        type="string",
+                        required=False,
+                    ),
+                }
+            ),
             toolset=toolset,
         )
-        self._cache = None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.config or not self.toolset.config.prometheus_url:
@@ -668,19 +700,19 @@ class ListPrometheusRules(BasePrometheusTool):
                 error="Tool not supported in AMP",
                 params=params,
             )
-        if not self._cache and self.toolset.config.rules_cache_duration_seconds:
-            self._cache = TTLCache(self.toolset.config.rules_cache_duration_seconds)  # type: ignore
         try:
-            if self._cache:
-                cached_rules = self._cache.get(PROMETHEUS_RULES_CACHE_KEY)
-                if cached_rules:
-                    logging.debug("rules returned from cache")
-
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.SUCCESS,
-                        data=cached_rules,
-                        params=params,
-                    )
+            # Build query parameters for server-side filtering
+            query_params: dict = {}
+            if params.get("type"):
+                query_params["type"] = params["type"]
+            if params.get("rule_name"):
+                query_params["rule_name[]"] = params["rule_name"]
+            if params.get("rule_group"):
+                query_params["rule_group[]"] = params["rule_group"]
+            if params.get("file"):
+                query_params["file[]"] = params["file"]
+            if params.get("match"):
+                query_params["match[]"] = params["match"]
 
             prometheus_url = self.toolset.config.prometheus_url
 
@@ -689,7 +721,7 @@ class ListPrometheusRules(BasePrometheusTool):
             rules_response = do_request(
                 config=self.toolset.config,
                 url=rules_url,
-                params=params,
+                params=query_params,
                 timeout=40,
                 verify=self.toolset.config.verify_ssl,
                 headers=self.toolset.config.headers,
@@ -698,13 +730,12 @@ class ListPrometheusRules(BasePrometheusTool):
             rules_response.raise_for_status()
             data = rules_response.json()["data"]
 
-            if self._cache:
-                self._cache.set(PROMETHEUS_RULES_CACHE_KEY, data)
-            return StructuredToolResult(
+            result = StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=data,
                 params=params,
             )
+            return self.filter_result(result, params)
         except requests.Timeout:
             logging.warning("Timeout while fetching prometheus rules", exc_info=True)
             return StructuredToolResult(
@@ -735,7 +766,17 @@ class ListPrometheusRules(BasePrometheusTool):
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Rules"
+        filters = []
+        if params.get("type"):
+            filters.append(f"type={params['type']}")
+        if params.get("rule_name"):
+            filters.append(f"name={params['rule_name']}")
+        if params.get("rule_group"):
+            filters.append(f"group={params['rule_group']}")
+        filter_str = f" ({', '.join(filters)})" if filters else ""
+        return (
+            f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Rules{filter_str}"
+        )
 
 
 class GetMetricNames(BasePrometheusTool):
