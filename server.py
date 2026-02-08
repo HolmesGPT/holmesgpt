@@ -176,6 +176,8 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
     # Initialize Sentry for official releases or when development mode is enabled
     if is_official_release() or DEVELOPMENT_MODE:
         environment = "production" if is_official_release() else "development"
+        version = get_version()
+        release = None if version.startswith("dev-") else version
         logging.info(f"Initializing sentry for {environment} environment...")
 
         sentry_sdk.init(
@@ -184,6 +186,7 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
             profiles_sample_rate=0,
             environment=environment,
+            release=release,
         )
         sentry_sdk.set_tags(
             {
@@ -247,7 +250,7 @@ def investigate_issues(investigate_request: InvestigateRequest, http_request: Re
 @app.post("/api/stream/investigate")
 def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
     try:
-        ai, system_prompt, user_prompt, response_format, sections, runbooks = (
+        ai, system_prompt, user_prompt, response_format, sections = (
             investigation.get_investigation_context(req, dal, config)
         )
         request_context = extract_passthrough_headers(http_request)
@@ -261,7 +264,6 @@ def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
                     sections=sections,
                     request_context=request_context,
                 ),
-                runbooks,
             ),
             media_type="text/event-stream",
         )

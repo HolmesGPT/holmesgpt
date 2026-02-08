@@ -2,7 +2,7 @@ import logging
 import os
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import List, Optional, Union, cast
 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (

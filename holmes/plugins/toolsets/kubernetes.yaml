@@ -231,13 +231,12 @@ toolsets:
           Examples:
           - Basic fields: NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName
           - Filter by status: filter_pattern="Running"
-          - Filter out lines with <none>: filter_pattern="-v '<none>'"
           - Nested fields: CREATED:.metadata.creationTimestamp,IMAGE:.spec.containers[0].image
           - Array fields: LABELS:.metadata.labels,PORTS:.spec.ports[*].port
 
           Note: Output is tabular text with column headers. Filtering works on the entire line.
           Note: not allowed characters are: ' / ; and newline
-        command: kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}'{% if filter_pattern %} | (head -n 1; tail -n +2 | grep {{ filter_pattern }}){% endif %}
+        command:  kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}'{% if filter_pattern %} | (read -r header; echo "$header"; grep -E '{{ filter_pattern }}'){% endif %}
         transformers:
           - name: llm_summarize
             config:
