@@ -33,8 +33,8 @@ async def on_healthcheck_create(
     namespace: str,
     uid: str,
     logger: kopf.Logger,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> None:
     """
     Handle HealthCheck creation.
 
@@ -240,7 +240,11 @@ async def on_healthcheck_update(
     """
     # Check for rerun annotation
     annotations = new.get("metadata", {}).get("annotations", {})
-    if annotations.get("holmesgpt.dev/rerun") == "true":
+    old_annotations = old.get("metadata", {}).get("annotations", {})
+    if (
+        annotations.get("holmesgpt.dev/rerun") == "true"
+        and old_annotations.get("holmesgpt.dev/rerun") != "true"
+    ):
         logger.info(f"Re-running HealthCheck: {namespace}/{name}")
 
         # Trigger re-execution by calling create handler

@@ -14,7 +14,7 @@ from holmes_operator import context
 from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
 from holmes_operator.handlers.healthcheck import on_healthcheck_create
-from holmes_operator.models import CheckPhase, CheckResult
+from holmes_operator.models import CheckPhase, CheckResult, ConditionStatus
 
 
 @pytest.fixture
@@ -22,6 +22,14 @@ def mock_k8s_api():
     """Create a mocked Kubernetes CustomObjectsApi."""
     api = MagicMock()
     api.patch_namespaced_custom_object_status = MagicMock()
+
+    # Mock get_namespaced_custom_object to return a resource with empty status
+    api.get_namespaced_custom_object = MagicMock(
+        return_value={
+            "metadata": {"name": "test-check", "namespace": "default"},
+            "status": {"conditions": []},
+        }
+    )
     return api
 
 
@@ -119,19 +127,19 @@ class TestHealthCheckCreate:
         # Verify status updates were called in correct order
         assert mock_k8s_api.patch_namespaced_custom_object_status.call_count == 4
 
-        # Call 1: Set Pending
-        call_1 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[0]
-        assert call_1[1]["name"] == name
-        assert call_1[1]["namespace"] == namespace
-        assert call_1[1]["body"]["status"]["phase"] == CheckPhase.PENDING.value
+        # Call 0: Set Pending
+        call_0 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[0]
+        assert call_0[1]["name"] == name
+        assert call_0[1]["namespace"] == namespace
+        assert call_0[1]["body"]["status"]["phase"] == CheckPhase.PENDING.value
 
-        # Call 2: Set Running
-        call_2 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[1]
-        assert call_2[1]["body"]["status"]["phase"] == CheckPhase.RUNNING.value
+        # Call 1: Set Running
+        call_1 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[1]
+        assert call_1[1]["body"]["status"]["phase"] == CheckPhase.RUNNING.value
 
-        # Call 3: Set Completed
-        call_3 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[3]
-        status = call_3[1]["body"]["status"]
+        # Call 2: Set Completed
+        call_2 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[2]
+        status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.COMPLETED.value
         assert status["result"] == CheckResult.PASS.value
         assert status["message"] == "All systems operational"
@@ -143,9 +151,12 @@ class TestHealthCheckCreate:
         assert len(status["notifications"]) == 1
         assert status["notifications"][0]["type"] == "slack"
 
-        # Verify conditions were added
-        assert "conditions" in status
-        assert len(status["conditions"]) > 0
+        # Call 3: Add Condition
+        call_3 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[3]
+        conditions = call_3[1]["body"]["status"]["conditions"]
+        assert len(conditions) > 0
+        assert conditions[0]["type"] == "Complete"
+        assert conditions[0]["status"] == ConditionStatus.TRUE.value
 
     @patch("holmes_operator.handlers.healthcheck.kopf.event")
     async def test_failed_check_execution(
@@ -186,8 +197,10 @@ class TestHealthCheckCreate:
 
         # Verify final status is Completed with fail result
         assert mock_k8s_api.patch_namespaced_custom_object_status.call_count == 4
-        call_3 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[3]
-        status = call_3[1]["body"]["status"]
+
+        # Call 2: Set Completed with fail result
+        call_2 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[2]
+        status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.COMPLETED.value
         assert status["result"] == CheckResult.FAIL.value
         assert "CrashLoopBackOff" in status["message"]
@@ -214,18 +227,22 @@ class TestHealthCheckCreate:
         namespace = "default"
         uid = "test-uid-789"
 
-        await on_healthcheck_create(
-            spec=spec,
-            name=name,
-            namespace=namespace,
-            uid=uid,
-            logger=mock_logger,
-        )
+        # The handler re-raises exceptions for kopf to handle
+        with pytest.raises(Exception):
+            await on_healthcheck_create(
+                spec=spec,
+                name=name,
+                namespace=namespace,
+                uid=uid,
+                logger=mock_logger,
+            )
 
         # Verify status was set to Failed (after retries)
-        # Should have: Pending -> Running -> Failed
+        # Should have: Pending -> Running -> Failed -> Add Condition
         assert mock_k8s_api.patch_namespaced_custom_object_status.call_count == 4
-        call_3 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[3]
-        status = call_3[1]["body"]["status"]
+
+        # Call 2: Set Failed
+        call_2 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[2]
+        status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.FAILED.value
         assert status["result"] == CheckResult.ERROR.value

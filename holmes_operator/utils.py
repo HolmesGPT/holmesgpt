@@ -30,7 +30,7 @@ async def update_healthcheck_status(
     notifications: Optional[List[NotificationStatus]] = None,
     start_time: Optional[str] = None,
     completion_time: Optional[str] = None,
-):
+) -> None:
     """
     Update HealthCheck status fields.
 
@@ -108,7 +108,7 @@ async def add_healthcheck_condition(
     name: str,
     namespace: str,
     condition: HealthCheckCondition,
-):
+) -> None:
     """
     Add or update a condition in HealthCheck status.
 
@@ -187,7 +187,7 @@ async def set_healthcheck_pending(
     api: client.CustomObjectsApi,
     name: str,
     namespace: str,
-):
+) -> None:
     """Set HealthCheck status to Pending."""
     await update_healthcheck_status(
         api=api,
@@ -202,7 +202,7 @@ async def set_healthcheck_running(
     api: client.CustomObjectsApi,
     name: str,
     namespace: str,
-):
+) -> None:
     """Set HealthCheck status to Running."""
     await update_healthcheck_status(
         api=api,
@@ -223,7 +223,7 @@ async def set_healthcheck_completed(
     error: Optional[str] = None,
     model_used: Optional[str] = None,
     notifications: Optional[List[NotificationStatus]] = None,
-):
+) -> None:
     """Set HealthCheck status to Completed with result details."""
     await update_healthcheck_status(
         api=api,
@@ -247,7 +247,7 @@ async def set_healthcheck_failed(
     namespace: str,
     message: str,
     error: str,
-):
+) -> None:
     """Set HealthCheck status to Failed due to operator error."""
     await update_healthcheck_status(
         api=api,

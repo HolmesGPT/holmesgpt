@@ -17,7 +17,7 @@ def initialize(
     cfg: OperatorConfig,
     api: HolmesAPIClient,
     k8s: client.CustomObjectsApi,
-):
+) -> None:
     """
     Initialize global operator context.
 
