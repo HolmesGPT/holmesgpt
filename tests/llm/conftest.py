@@ -858,6 +858,7 @@ def _collect_test_results_from_stats(terminalreporter):
                     "braintrust_span_id": None,
                     "braintrust_root_span_id": None,
                     "clean_test_case_id": None,  # Not available for skipped tests
+                    "env_config": "default",  # Not available for skipped tests
                 }
                 continue
             elif when != "call":
@@ -961,6 +962,7 @@ def _collect_test_results_from_stats(terminalreporter):
                     "encountered_throttling", False
                 ),  # Any throttling during execution
                 "model": user_props.get("model", "Unknown"),
+                "env_config": user_props.get("env_config", "default"),
                 "clean_test_case_id": user_props.get("clean_test_case_id"),
                 "braintrust_span_id": user_props.get("braintrust_span_id"),
                 "braintrust_root_span_id": user_props.get("braintrust_root_span_id"),

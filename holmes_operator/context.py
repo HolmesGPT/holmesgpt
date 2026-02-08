@@ -22,7 +22,7 @@ def initialize(
     api: HolmesAPIClient,
     k8s: client.CustomObjectsApi,
     scheduler: "SchedulerManager",
-):
+) -> None:
     """
     Initialize global operator context.
 

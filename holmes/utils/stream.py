@@ -56,7 +56,7 @@ create_rate_limit_error_message = partial(
 
 
 def stream_investigate_formatter(
-    call_stream: Generator[StreamMessage, None, None], runbooks
+    call_stream: Generator[StreamMessage, None, None],
 ):
     try:
         for message in call_stream:
@@ -75,7 +75,6 @@ def stream_investigate_formatter(
                     {
                         "sections": sections or {},
                         "analysis": text_response,
-                        "instructions": runbooks or [],
                         "metadata": message.data.get("metadata") or {},
                     },
                 )

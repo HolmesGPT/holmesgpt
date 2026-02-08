@@ -3,6 +3,7 @@
 
 import logging
 import sys
+from typing import Any
 
 import kopf
 from kubernetes import client
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 @kopf.on.startup()
-async def startup_handler(settings: kopf.OperatorSettings, **kwargs):
+async def startup_handler(settings: kopf.OperatorSettings, **kwargs: Any) -> None:
     """
     Initialize operator on startup.
 
@@ -87,7 +88,7 @@ async def startup_handler(settings: kopf.OperatorSettings, **kwargs):
 
 
 @kopf.on.cleanup()
-async def cleanup_handler(**kwargs):
+async def cleanup_handler(**kwargs) -> None:
     """
     Cleanup resources on operator shutdown.
     """
@@ -104,7 +105,7 @@ async def cleanup_handler(**kwargs):
     logger.info("Holmes Operator shut down successfully")
 
 
-def main():
+def main() -> None:
     """Main entry point for the operator."""
     try:
         # Run the operator

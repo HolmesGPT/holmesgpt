@@ -77,9 +77,9 @@ class HealthCheckCondition(BaseModel):
 
     type: str
     status: ConditionStatus
-    lastTransitionTime: str
-    reason: str
-    message: str
+    lastTransitionTime: Optional[str] = None
+    reason: Optional[str] = None
+    message: Optional[str] = None
 
 
 class HealthCheckStatus(BaseModel):

@@ -507,9 +507,9 @@ class TestDashboardURLs:
 
 
 class TestCoralogixURLs:
-    TEAM_HOSTNAME = "my-team"
+    TEAM_SLUG = "my-team"
     DOMAIN = "eu2.coralogix.com"
-    BASE_URL = f"https://{TEAM_HOSTNAME}.{DOMAIN}"
+    BASE_URL = f"https://{TEAM_SLUG}.{DOMAIN}"
 
     @staticmethod
     def extract_query_from_url(url: str) -> str:
@@ -534,7 +534,7 @@ class TestCoralogixURLs:
     def config(self):
         return CoralogixConfig(
             api_key="test-key",
-            team_hostname=self.TEAM_HOSTNAME,
+            team_slug=self.TEAM_SLUG,
             domain=self.DOMAIN,
         )
 
@@ -668,16 +668,16 @@ class TestNewRelicURLs:
     @pytest.fixture
     def toolset_us(self):
         toolset = NewRelicToolset()
-        toolset.nr_api_key = "test-key"
-        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.api_key = "test-key"
+        toolset.account_id = self.ACCOUNT_ID
         toolset.is_eu_datacenter = False
         return toolset
 
     @pytest.fixture
     def toolset_eu(self):
         toolset = NewRelicToolset()
-        toolset.nr_api_key = "test-key"
-        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.api_key = "test-key"
+        toolset.account_id = self.ACCOUNT_ID
         toolset.is_eu_datacenter = True
         return toolset
 

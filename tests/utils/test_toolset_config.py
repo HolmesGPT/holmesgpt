@@ -3,9 +3,14 @@
 import logging
 from typing import ClassVar, Dict, Optional
 
-import pytest
 from pydantic import Field
 
+from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
+from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
+from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
+    ServiceNowTablesConfig,
+)
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -70,7 +75,7 @@ class TestToolsetConfig:
     def test_no_warning_for_new_fields(self, caplog):
         """Test that using new field names doesn't trigger warnings."""
         with caplog.at_level(logging.WARNING):
-            config = SampleConfig(new_field="test", another_new=5)
+            _ = SampleConfig(new_field="test", another_new=5)
 
         assert "deprecated" not in caplog.text.lower()
 
@@ -90,8 +95,6 @@ class TestPrometheusConfigBackwardCompatibility:
 
     def test_deprecated_prometheus_fields(self, caplog):
         """Test that deprecated Prometheus config fields are migrated."""
-        from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
-
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
                 prometheus_url="http://prometheus:9090",
@@ -101,13 +104,14 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
-        assert "default_query_timeout_seconds -> query_timeout_seconds_default" in caplog.text
+        assert (
+            "default_query_timeout_seconds -> query_timeout_seconds_default"
+            in caplog.text
+        )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
 
     def test_new_prometheus_fields_no_warning(self, caplog):
         """Test that new Prometheus field names don't trigger warnings."""
-        from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
-
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
                 prometheus_url="http://prometheus:9090",
@@ -117,3 +121,192 @@ class TestPrometheusConfigBackwardCompatibility:
 
         assert config.query_timeout_seconds_default == 30
         assert "deprecated" not in caplog.text.lower()
+
+
+class TestRabbitMQConfigBackwardCompatibility:
+    """Test backward compatibility for RabbitMQClusterConfig deprecated fields."""
+
+    def test_deprecated_rabbitmq_fields(self, caplog):
+        """Test that deprecated RabbitMQ config fields are migrated."""
+        with caplog.at_level(logging.WARNING):
+            # Use old field names (deprecated)
+            old_config = RabbitMQClusterConfig(
+                management_url="http://rabbitmq:15672",
+                request_timeout_seconds=45,
+            )
+
+        # Verify migration to new field names
+        assert old_config.api_url == "http://rabbitmq:15672"
+        assert old_config.timeout_seconds == 45
+        assert "management_url -> api_url" in caplog.text
+        assert "request_timeout_seconds -> timeout_seconds" in caplog.text
+
+    def test_new_rabbitmq_fields_no_warning(self, caplog):
+        """Test that new RabbitMQ field names don't trigger warnings."""
+        with caplog.at_level(logging.WARNING):
+            # Use new field names (current)
+            new_config = RabbitMQClusterConfig(
+                api_url="http://rabbitmq:15672",
+                timeout_seconds=30,
+            )
+
+        assert new_config.api_url == "http://rabbitmq:15672"
+        assert new_config.timeout_seconds == 30
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_old_and_new_configs_produce_same_result(self, caplog):
+        """Test that configs created with old and new field names produce identical results."""
+        with caplog.at_level(logging.WARNING):
+            # Create config using old field names
+            old_config = RabbitMQClusterConfig(
+                id="test-cluster",
+                management_url="http://rabbitmq:15672",
+                username="user",
+                password="pass",
+                request_timeout_seconds=60,
+                verify_ssl=False,
+            )
+
+        # Create config using new field names
+        new_config = RabbitMQClusterConfig(
+            id="test-cluster",
+            api_url="http://rabbitmq:15672",
+            username="user",
+            password="pass",
+            timeout_seconds=60,
+            verify_ssl=False,
+        )
+
+        # Both configs should have identical values
+        assert old_config.id == new_config.id
+        assert old_config.api_url == new_config.api_url
+        assert old_config.username == new_config.username
+        assert old_config.password == new_config.password
+        assert old_config.timeout_seconds == new_config.timeout_seconds
+        assert old_config.verify_ssl == new_config.verify_ssl
+
+    def test_new_field_takes_precedence_over_deprecated(self, caplog):
+        """Test that new field takes precedence if both old and new are provided."""
+        with caplog.at_level(logging.WARNING):
+            config = RabbitMQClusterConfig(
+                management_url="http://old-url:15672",
+                api_url="http://new-url:15672",
+                request_timeout_seconds=30,
+                timeout_seconds=60,
+            )
+
+        # New fields should take precedence
+        assert config.api_url == "http://new-url:15672"
+        assert config.timeout_seconds == 60
+
+
+class TestServiceNowConfigBackwardCompatibility:
+    """Test backward compatibility for ServiceNowTablesConfig deprecated fields."""
+
+    def test_deprecated_servicenow_fields(self, caplog):
+        """Test that deprecated ServiceNow config fields are migrated."""
+        with caplog.at_level(logging.WARNING):
+            old_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                instance_url="https://test.service-now.com",
+            )
+
+        # Verify field was migrated
+        assert old_config.api_url == "https://test.service-now.com"
+        assert "instance_url -> api_url" in caplog.text
+
+    def test_new_servicenow_fields_no_warning(self, caplog):
+        """Test that new ServiceNow field names don't trigger warnings."""
+        with caplog.at_level(logging.WARNING):
+            new_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                api_url="https://test.service-now.com",
+            )
+
+        assert new_config.api_url == "https://test.service-now.com"
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_deprecated_and_new_servicenow_configs_equivalent(self, caplog):
+        """Test that configs created with old and new fields are equivalent."""
+        # Create config using deprecated field name
+        with caplog.at_level(logging.WARNING):
+            old_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                instance_url="https://test.service-now.com",
+                api_key_header="custom-header",
+            )
+
+        caplog.clear()
+
+        # Create config using new field name
+        with caplog.at_level(logging.WARNING):
+            new_config = ServiceNowTablesConfig(
+                api_key="now_test123",
+                api_url="https://test.service-now.com",
+                api_key_header="custom-header",
+            )
+
+        # Verify both configs have the same values
+        assert old_config.api_key == new_config.api_key
+        assert old_config.api_url == new_config.api_url
+        assert old_config.api_key_header == new_config.api_key_header
+
+        # Verify model_dump() produces equivalent output (excluding model_extra)
+        old_dump = {
+            k: v for k, v in old_config.model_dump().items() if k != "model_extra"
+        }
+        new_dump = {
+            k: v for k, v in new_config.model_dump().items() if k != "model_extra"
+        }
+        assert old_dump == new_dump
+
+
+class TestNewrelicConfigBackwardCompatibility:
+    """Test backward compatibility for NewrelicConfig deprecated fields."""
+
+    def test_deprecated_newrelic_fields(self, caplog):
+        """Test that deprecated New Relic config fields are migrated."""
+        with caplog.at_level(logging.WARNING):
+            config = NewrelicConfig(
+                nr_api_key="NRAK-TESTKEY123",
+                nr_account_id="1234567",
+            )
+
+        assert config.api_key == "NRAK-TESTKEY123"
+        assert config.account_id == "1234567"
+        assert "nr_api_key -> api_key" in caplog.text
+        assert "nr_account_id -> account_id" in caplog.text
+
+    def test_new_newrelic_fields_no_warning(self, caplog):
+        """Test that new New Relic field names don't trigger warnings."""
+        with caplog.at_level(logging.WARNING):
+            config = NewrelicConfig(
+                api_key="NRAK-TESTKEY123",
+                account_id="1234567",
+            )
+
+        assert config.api_key == "NRAK-TESTKEY123"
+        assert config.account_id == "1234567"
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_old_and_new_fields_mixed(self, caplog):
+        """Test that deprecated and new configs produce equivalent results."""
+        # Create config with old field names
+        with caplog.at_level(logging.WARNING):
+            old_config = NewrelicConfig(
+                nr_api_key="NRAK-TESTKEY123",
+                nr_account_id="1234567",
+                is_eu_datacenter=True,
+            )
+
+        # Create config with new field names
+        new_config = NewrelicConfig(
+            api_key="NRAK-TESTKEY123",
+            account_id="1234567",
+            is_eu_datacenter=True,
+        )
+
+        # Both should produce the same result
+        assert old_config.api_key == new_config.api_key
+        assert old_config.account_id == new_config.account_id
+        assert old_config.is_eu_datacenter == new_config.is_eu_datacenter
