@@ -5,7 +5,7 @@ toolsets:
     enabled: True
     config:
       api_key: "{{env.GRAFANA_API_KEY}}"
-      url: "{{env.GRAFANA_URL}}"
+      api_url: "{{env.GRAFANA_URL}}"
       grafana_datasource_uid: "{{env.GRAFANA_TEMPO_DATASOURCE_UID}}"
   robusta:
     enabled: true
