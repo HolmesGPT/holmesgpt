@@ -1,8 +1,11 @@
 apiVersion: holmesgpt.dev/v1alpha1
-kind: HealthCheck
+kind: ScheduledHealthCheck
 metadata:
-  name: test-healthcheck
+  name: test-every-minute
+  namespace: default
 spec:
-  query: "Check if all pods in the default namespace are running healthy"
+  schedule: "* * * * *"  # Every minute
+  enabled: true
+  query: "Are all pods in default namespace healthy?"
   timeout: 60
   mode: monitor

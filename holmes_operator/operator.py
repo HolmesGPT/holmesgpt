@@ -14,6 +14,8 @@ from holmes_operator.config import OperatorConfig
 
 # Import handlers to register them with kopf
 from holmes_operator.handlers import healthcheck  # noqa: F401
+from holmes_operator.handlers import scheduledhealthcheck  # noqa: F401
+from holmes_operator.scheduler.manager import SchedulerManager
 
 # Configure logging
 logging.basicConfig(
@@ -61,11 +63,18 @@ async def startup_handler(settings: kopf.OperatorSettings, **kwargs):
         timeout=operator_config.holmes_api_timeout,
     )
 
+    # Initialize scheduler manager
+    scheduler_manager = SchedulerManager(
+        timezone_str=operator_config.scheduler_timezone, k8s_api=k8s_api
+    )
+    await scheduler_manager.start()
+
     # Initialize global context
     context.initialize(
         cfg=operator_config,
         api=api_client,
         k8s=k8s_api,
+        scheduler=scheduler_manager,
     )
 
     logger.info("Holmes Operator started successfully")
@@ -83,6 +92,10 @@ async def cleanup_handler(**kwargs):
     Cleanup resources on operator shutdown.
     """
     logger.info("Shutting down Holmes Operator...")
+
+    # Shutdown scheduler gracefully
+    if context.scheduler_manager:
+        await context.scheduler_manager.stop()
 
     # Close API client
     if context.api_client:
