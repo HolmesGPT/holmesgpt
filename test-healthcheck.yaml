@@ -1,0 +1,8 @@
+apiVersion: holmesgpt.dev/v1alpha1
+kind: HealthCheck
+metadata:
+  name: test-healthcheck
+spec:
+  query: "Check if all pods in the default namespace are running healthy"
+  timeout: 60
+  mode: monitor

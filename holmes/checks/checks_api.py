@@ -1,17 +1,17 @@
-import time
-from typing import Optional
-from litellm.exceptions import AuthenticationError
-from pydantic import BaseModel, Field
-from fastapi import FastAPI, Header, HTTPException
 import logging
 import os
+import time
+from typing import Optional
 
-from holmes.config import Config
-from holmes.checks.models import Check, CheckMode
+from fastapi import FastAPI, HTTPException
+from litellm.exceptions import AuthenticationError
+from pydantic import BaseModel, Field
+
 from holmes.checks.checks import execute_check
-from holmes.core.tool_calling_llm import ToolCallingLLM
+from holmes.checks.models import Check, CheckMode
+from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
-from holmes.core.tool_calling_llm import LLMResult
+from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.plugins.destinations.slack.plugin import SlackDestination
 
 checks_app = FastAPI()
@@ -30,6 +30,9 @@ class CheckExecutionRequest(BaseModel):
     """Request model for check execution."""
 
     query: str
+    name: Optional[str] = Field(
+        None, description="Name of the check for tracking purposes"
+    )
     timeout: int = 30
     mode: str = CheckMode.MONITOR.value
     destinations: list[dict] = []  # TODO: change to DestinationConfig?
@@ -66,9 +69,6 @@ def _get_ai(model: Optional[str]) -> ToolCallingLLM:
 @checks_app.post("/execute")
 def execute_health_check(
     request: CheckExecutionRequest,
-    x_check_name: Optional[str] = Header(
-        None, alias="X-Check-Name"
-    ),  # TODO: what we need this for?
 ) -> CheckExecutionResponse:
     """
     Execute a single health check.
@@ -93,7 +93,7 @@ def execute_health_check(
                 destination_names = request.destinations
 
         check = Check(
-            name=x_check_name or "api-check",
+            name=request.name or "api-check",
             query=request.query,
             timeout=request.timeout,
             mode=CheckMode[request.mode.upper()],
@@ -115,13 +115,14 @@ def execute_health_check(
         if result.status.value == "fail" and request.destinations:
             try:
                 # Create an Issue object for the failed check
+                check_name = request.name or "api-check"
                 issue = Issue(
-                    id=f"healthcheck-{x_check_name or 'api-check'}-{int(time.time())}",
-                    name=f"Health Check Failed: {x_check_name or 'api-check'}",
+                    id=f"healthcheck-{check_name}-{int(time.time())}",
+                    name=f"Health Check Failed: {check_name}",
                     source_instance_id=_CONFIG.cluster_name or "unknown",
                     source_type="HealthCheck",
                     presentation_status=IssueStatus.OPEN,
-                    presentation_key_metadata=f"*Check:* `{x_check_name}`\n*Query:* {request.query}",
+                    presentation_key_metadata=f"*Check:* `{check_name}`\n*Query:* {request.query}",
                     show_status_in_title=False,  # Don't append " - open" to the title
                 )
 
@@ -162,7 +163,7 @@ def execute_health_check(
 
                                 notification.status = "sent"
                                 logging.info(
-                                    f"Sent Slack notification to {slack_channel} for check {x_check_name}"
+                                    f"Sent Slack notification to {slack_channel} for check {check_name}"
                                 )
                             else:
                                 notification.status = "skipped"
