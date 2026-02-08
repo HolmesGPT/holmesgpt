@@ -273,7 +273,7 @@ For creating, running, and debugging LLM eval tests, use the `/create-eval` skil
 - Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
 - `before_test` creates test data in the cloud service, `after_test` cleans up
-- Use `toolsets.yaml` to configure the toolset with env var references: `url: "{{ env.ELASTICSEARCH_URL }}"`
+- Use `toolsets.yaml` to configure the toolset with env var references: `api_url: "{{ env.ELASTICSEARCH_URL }}"`
 - **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 - **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
 
