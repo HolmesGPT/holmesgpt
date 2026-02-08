@@ -8,6 +8,7 @@ from pydantic import Field
 from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
+from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesConfig,
 )
@@ -203,6 +204,83 @@ class TestDatadogConfigBackwardCompatibility:
         assert config_old.app_key == config_new.app_key
         assert str(config_old.api_url) == str(config_new.api_url)
         assert config_old.timeout_seconds == config_new.timeout_seconds
+
+
+class TestRabbitMQConfigBackwardCompatibility:
+    """Test backward compatibility for RabbitMQClusterConfig deprecated fields."""
+
+    def test_deprecated_rabbitmq_fields(self, caplog):
+        """Test that deprecated RabbitMQ config fields are migrated."""
+        with caplog.at_level(logging.WARNING):
+            # Use old field names (deprecated)
+            old_config = RabbitMQClusterConfig(
+                management_url="http://rabbitmq:15672",
+                request_timeout_seconds=45,
+            )
+
+        # Verify migration to new field names
+        assert old_config.api_url == "http://rabbitmq:15672"
+        assert old_config.timeout_seconds == 45
+        assert "management_url -> api_url" in caplog.text
+        assert "request_timeout_seconds -> timeout_seconds" in caplog.text
+
+    def test_new_rabbitmq_fields_no_warning(self, caplog):
+        """Test that new RabbitMQ field names don't trigger warnings."""
+        with caplog.at_level(logging.WARNING):
+            # Use new field names (current)
+            new_config = RabbitMQClusterConfig(
+                api_url="http://rabbitmq:15672",
+                timeout_seconds=30,
+            )
+
+        assert new_config.api_url == "http://rabbitmq:15672"
+        assert new_config.timeout_seconds == 30
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_old_and_new_configs_produce_same_result(self, caplog):
+        """Test that configs created with old and new field names produce identical results."""
+        with caplog.at_level(logging.WARNING):
+            # Create config using old field names
+            old_config = RabbitMQClusterConfig(
+                id="test-cluster",
+                management_url="http://rabbitmq:15672",
+                username="user",
+                password="pass",
+                request_timeout_seconds=60,
+                verify_ssl=False,
+            )
+
+        # Create config using new field names
+        new_config = RabbitMQClusterConfig(
+            id="test-cluster",
+            api_url="http://rabbitmq:15672",
+            username="user",
+            password="pass",
+            timeout_seconds=60,
+            verify_ssl=False,
+        )
+
+        # Both configs should have identical values
+        assert old_config.id == new_config.id
+        assert old_config.api_url == new_config.api_url
+        assert old_config.username == new_config.username
+        assert old_config.password == new_config.password
+        assert old_config.timeout_seconds == new_config.timeout_seconds
+        assert old_config.verify_ssl == new_config.verify_ssl
+
+    def test_new_field_takes_precedence_over_deprecated(self, caplog):
+        """Test that new field takes precedence if both old and new are provided."""
+        with caplog.at_level(logging.WARNING):
+            config = RabbitMQClusterConfig(
+                management_url="http://old-url:15672",
+                api_url="http://new-url:15672",
+                request_timeout_seconds=30,
+                timeout_seconds=60,
+            )
+
+        # New fields should take precedence
+        assert config.api_url == "http://new-url:15672"
+        assert config.timeout_seconds == 60
 
 
 class TestServiceNowConfigBackwardCompatibility:
