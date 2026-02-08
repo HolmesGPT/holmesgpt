@@ -11,7 +11,6 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.azure_sql.apis.azure_sql_api import AzureSQLAPIClient
 from holmes.plugins.toolsets.azure_sql.azure_base_toolset import (
     AzureSQLConfig,
-    AzureSQLDatabaseConfig,
     BaseAzureSQLToolset,
 )
 from holmes.plugins.toolsets.azure_sql.tools.analyze_connection_failures import (

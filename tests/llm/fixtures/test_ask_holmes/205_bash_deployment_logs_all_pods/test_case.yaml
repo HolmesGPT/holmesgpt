@@ -13,7 +13,8 @@ tags:
   - kubernetes
   - logs
   - question-answer
-  - benchmark
+  - hard
+#  - benchmark - this test's setup is problematic in the KIND cluster used in benchmark due to the number of pods
 
 before_test: |
   kubectl create namespace app-205 --dry-run=client -o yaml | kubectl apply -f -

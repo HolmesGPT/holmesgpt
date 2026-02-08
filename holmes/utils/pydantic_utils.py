@@ -1,14 +1,84 @@
+import logging
 import sys
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
 import typer
 from benedict import benedict  # type: ignore
-from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError, model_validator
 
 from holmes.plugins.prompts import load_prompt
 
 PromptField = Annotated[str, BeforeValidator(lambda v: load_prompt(v))]
+
+
+class ToolsetConfig(BaseModel):
+    """
+    Base class for toolset configuration models with backward compatibility support.
+
+    Subclasses can define a `_deprecated_mappings` class variable to map old field names
+    to new field names. When old field names are used in configuration, they will be
+    automatically transformed to the new names and a deprecation warning will be logged.
+
+    Example:
+        class MyToolsetConfig(ToolsetConfig):
+            _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+                "old_field_name": "new_field_name",  # Rename old_field_name to new_field_name
+                "removed_field": None,  # Field was removed, accept but ignore
+            }
+            new_field_name: str = Field(...)
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_deprecated_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        mappings = cls._deprecated_mappings
+        if not mappings:
+            return data
+
+        deprecated_used = []
+        for old_name, new_name in mappings.items():
+            if old_name in data:
+                if new_name is not None:
+                    # Only migrate if the new field is not already set
+                    if new_name not in data:
+                        data[new_name] = data.pop(old_name)
+                        deprecated_used.append(f"{old_name} -> {new_name}")
+                    else:
+                        # New field takes precedence, just remove old field
+                        data.pop(old_name)
+                        deprecated_used.append(f"{old_name} -> {new_name}")
+                else:
+                    # Field was removed, just log and remove
+                    data.pop(old_name)
+                    deprecated_used.append(f"{old_name} (removed)")
+
+        if deprecated_used:
+            logging.warning(
+                f"{cls.__name__} uses deprecated field names. "
+                f"Please update: {', '.join(deprecated_used)}"
+            )
+
+        return data
 
 try:
     # pydantic v2

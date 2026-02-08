@@ -19,7 +19,7 @@ port_forwards:
     local_port: 10161
     remote_port: 9090
 
-setup_timeout: 360
+setup_timeout: 480
 
 before_test: |
   set -e

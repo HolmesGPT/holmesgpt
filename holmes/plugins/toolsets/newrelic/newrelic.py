@@ -2,9 +2,9 @@ import base64
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -20,6 +20,7 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
 def _build_newrelic_query_url(
@@ -118,9 +119,9 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
         # Add account_id parameter only in multi-account mode
         if toolset.enable_multi_account:
-            parameters["account_id"] = ToolParameter(
+            parameters["override_account_id"] = ToolParameter(
                 description=(
-                    f"A New Relic account ID is a numeric identifier, typically a 6-8 digit integer (e.g., 1234567). It contains only digits, has no prefixes or separators, and uniquely identifies a New Relic account. default: {toolset.nr_account_id}"
+                    f"A New Relic account ID is a numeric identifier, typically a 6-8 digit integer (e.g., 1234567). It contains only digits, has no prefixes or separators, and uniquely identifies a New Relic account. default: {toolset.account_id}"
                 ),
                 type="integer",
                 required=True,
@@ -142,15 +143,17 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if self._toolset.enable_multi_account:
-            account_id = params.get("account_id") or self._toolset.nr_account_id
-            account_id = str(account_id)
+            effective_account_id = (
+                params.get("override_account_id") or self._toolset.account_id
+            )
+            effective_account_id = str(effective_account_id)
         else:
-            account_id = self._toolset.nr_account_id
+            effective_account_id = self._toolset.account_id
 
-        if not account_id:
+        if not effective_account_id:
             raise ValueError("NewRelic account ID is not configured")
 
-        api = self._toolset.create_api_client(account_id)
+        api = self._toolset.create_api_client(effective_account_id)
 
         query = params["query"]
         result = api.execute_nrql_query(query)
@@ -164,7 +167,7 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
         # Build New Relic query URL
         explore_url = _build_newrelic_query_url(
             base_url=self._toolset.base_url,
-            account_id=account_id,
+            account_id=effective_account_id,
             nrql_query=query,
         )
 
@@ -197,7 +200,7 @@ class ListOrganizationAccounts(Tool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         api = self._toolset.create_api_client(
-            account_id="0"
+            override_account_id="0"
         )  # organization query does not need account_id
 
         accounts = api.get_organization_accounts()
@@ -224,21 +227,30 @@ class ListOrganizationAccounts(Tool):
         return f"{toolset_name_for_one_liner(self._toolset.name)}: List organization accounts"
 
 
-class NewrelicConfig(BaseModel):
-    nr_api_key: str = Field(
+class NewrelicConfig(ToolsetConfig):
+    _deprecated_mappings: ClassVar[dict[str, Optional[str]]] = {
+        "nr_api_key": "api_key",
+        "nr_account_id": "account_id",
+    }
+
+    api_key: str = Field(
+        title="API Key",
         description="New Relic API key for authentication",
         examples=["NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX"],
     )
-    nr_account_id: str = Field(
+    account_id: str = Field(
+        title="Account ID",
         description="New Relic account ID",
         examples=["1234567"],
     )
     is_eu_datacenter: Optional[bool] = Field(
         default=False,
+        title="EU Datacenter",
         description="Whether to use EU datacenter (api.eu.newrelic.com) instead of US",
     )
     enable_multi_account: Optional[bool] = Field(
         default=False,
+        title="Multi-Account Mode",
         description="Enable multi-account support for querying across accounts",
     )
 
@@ -246,8 +258,8 @@ class NewrelicConfig(BaseModel):
 class NewRelicToolset(Toolset):
     config_classes: ClassVar[list[Type[NewrelicConfig]]] = [NewrelicConfig]
 
-    nr_api_key: Optional[str] = None
-    nr_account_id: Optional[str] = None
+    api_key: Optional[str] = None
+    account_id: Optional[str] = None
     is_eu_datacenter: bool = False
     enable_multi_account: bool = False
 
@@ -260,11 +272,13 @@ class NewRelicToolset(Toolset):
             else "https://one.newrelic.com"
         )
 
-    def create_api_client(self, account_id: Optional[str] = None) -> NewRelicAPI:
+    def create_api_client(
+        self, override_account_id: Optional[str] = None
+    ) -> NewRelicAPI:
         """Create a NewRelicAPI client instance.
 
         Args:
-            account_id: Account ID to use. If None, uses the default from config.
+            override_account_id: Account ID to use. If None, uses the default from config.
                        Set to "0" for organization-level queries.
 
         Returns:
@@ -273,18 +287,18 @@ class NewRelicToolset(Toolset):
         Raises:
             ValueError: If API key is not configured
         """
-        if not self.nr_api_key:
+        if not self.api_key:
             raise ValueError("NewRelic API key is not configured")
 
         effective_account_id = (
-            account_id if account_id is not None else self.nr_account_id
+            override_account_id if override_account_id is not None else self.account_id
         )
 
         if not effective_account_id:
             raise ValueError("NewRelic Account id is not configured")
 
         return NewRelicAPI(
-            api_key=self.nr_api_key,
+            api_key=self.api_key,
             account_id=effective_account_id,
             is_eu_datacenter=self.is_eu_datacenter,
         )
@@ -308,8 +322,8 @@ class NewRelicToolset(Toolset):
 
         try:
             nr_config = NewrelicConfig(**config)
-            self.nr_account_id = nr_config.nr_account_id
-            self.nr_api_key = nr_config.nr_api_key
+            self.account_id = nr_config.account_id
+            self.api_key = nr_config.api_key
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
             self.enable_multi_account = nr_config.enable_multi_account or False
 

@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict
+from typing import Dict
 
 from holmes.core.tools import (
     StructuredToolResult,

@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from holmes.config import Config
 from holmes.core.investigation_structured_output import (
@@ -26,6 +26,7 @@ def investigate_issues(
     model: Optional[str] = None,
     trace_span=DummySpan(),
     runbooks: Optional[RunbookCatalog] = None,
+    request_context: Optional[Dict[str, Any]] = None,
 ) -> InvestigationResult:
     context = dal.get_issue_data(investigate_request.context.get("robusta_issue_id"))
 
@@ -57,6 +58,7 @@ def investigate_issues(
         sections=investigate_request.sections,
         trace_span=trace_span,
         runbooks=runbooks,
+        request_context=request_context,
     )
 
     (text_response, sections) = process_response_into_sections(investigation.result)
@@ -95,8 +97,6 @@ def get_investigation_context(
         source_instance_id=investigate_request.source_instance_id,
         raw=raw_data,
     )
-
-    issue_instructions = ai.runbook_manager.get_instructions_for_issue(issue)
 
     # This section is about setting vars to request the LLM to return structured output.
     # It does not mean that Holmes will not return structured sections for investigation as it is
@@ -139,7 +139,6 @@ def get_investigation_context(
     runbooks_ctx = generate_runbooks_args(
         runbook_catalog=runbook_catalog,
         global_instructions=global_instructions,
-        issue_instructions=issue_instructions,
     )
 
     base_user = f"{base_user}\n #This is context from the issue:\n{issue.raw}"
@@ -149,4 +148,4 @@ def get_investigation_context(
         runbooks_ctx,
     )
 
-    return ai, system_prompt, user_prompt, response_format, sections, issue_instructions
+    return ai, system_prompt, user_prompt, response_format, sections

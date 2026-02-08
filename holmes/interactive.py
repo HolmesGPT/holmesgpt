@@ -1355,8 +1355,10 @@ def run_interactive_loop(
             ai.reset_interaction_state()
 
             if messages is None:
+                if include_files:
+                    for file_path in include_files:
+                        console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
                 messages = build_initial_ask_messages(
-                    console,
                     user_input,
                     include_files,
                     ai.tool_executor,

@@ -405,8 +405,6 @@ class DefaultLLM(LLM):
 
         self.args.setdefault("temperature", temperature)
 
-        self._add_cache_control_to_last_message(messages)
-
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
@@ -424,6 +422,12 @@ class DefaultLLM(LLM):
             timeout=LLM_REQUEST_TIMEOUT,
             **tools_args,
             **self.args,
+            cache_control_injection_points=[
+                {
+                    "location": "message",
+                    "index": -1,  # -1 targets the last message.
+                }
+            ],
         )
 
         if isinstance(result, ModelResponse):
@@ -461,69 +465,6 @@ class DefaultLLM(LLM):
             f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
         )
         return max_output_tokens
-
-    def _add_cache_control_to_last_message(
-        self, messages: List[Dict[str, Any]]
-    ) -> None:
-        """
-        Add cache_control to the last non-user message for Anthropic prompt caching.
-        Removes any existing cache_control from previous messages to avoid accumulation.
-        """
-        # Skip cache_control for VertexAI/Gemini models as they don't support it with tools
-        if self.model and (
-            "vertex" in self.model.lower() or "gemini" in self.model.lower()
-        ):
-            return
-
-        # First, remove any existing cache_control from all messages
-        for msg in messages:
-            content = msg.get("content")
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and "cache_control" in block:
-                        del block["cache_control"]
-                        logging.debug(
-                            f"Removed existing cache_control from {msg.get('role')} message"
-                        )
-
-        # Find the last non-user message to add cache_control to.
-        # Adding cache_control to user message requires changing its structure, so we avoid it
-        # This avoids breaking parse_messages_tags which only processes user messages
-        target_msg = None
-        for msg in reversed(messages):
-            if msg.get("role") != "user":
-                target_msg = msg
-                break
-
-        if not target_msg:
-            logging.debug("No non-user message found for cache_control")
-            return
-
-        content = target_msg.get("content")
-
-        if content is None:
-            return
-
-        if isinstance(content, str) and content:
-            # Convert string to structured format with cache_control
-            target_msg["content"] = [
-                {
-                    "type": "text",
-                    "text": content,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-            logging.debug(
-                f"Added cache_control to {target_msg.get('role')} message (converted from string)"
-            )
-        elif isinstance(content, list) and content:
-            # Add cache_control to the last content block
-            last_block = content[-1]
-            if isinstance(last_block, dict) and "type" in last_block:
-                last_block["cache_control"] = {"type": "ephemeral"}
-                logging.debug(
-                    f"Added cache_control to {target_msg.get('role')} message (structured content)"
-                )
 
 
 class LLMModelRegistry:
