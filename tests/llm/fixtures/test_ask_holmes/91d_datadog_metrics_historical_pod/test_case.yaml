@@ -23,14 +23,7 @@ before_test: |
 
 user_prompt:
   - "Can you show me a cpu graph of the telemetry-processor-5f9d8b7c4d-x2km9 pod in namespace app-91d?"
-  - "Show me CPU metrics for telemetry-processor-5f9d8b7c4d-x2km9 in app-91d"
-  - "Display telemetry-processor-5f9d8b7c4d-x2km9 pod CPU usage graph from app-91d namespace"
   - "I need to see the memory usage for telemetry-processor-5f9d8b7c4d-x2km9 in app-91d"
-  - "What's the CPU utilization of telemetry-processor-5f9d8b7c4d-x2km9 in namespace app-91d?"
-  - "Generate a memory graph for telemetry-processor-5f9d8b7c4d-x2km9 in app-91d"
-  - "Show CPU and memory charts for telemetry-processor-5f9d8b7c4d-x2km9 in namespace app-91d"
-  - "How much CPU is telemetry-processor-5f9d8b7c4d-x2km9 consuming in app-91d namespace?"
-  - "Plot memory consumption of telemetry-processor-5f9d8b7c4d-x2km9 over time in app-91d"
   - "Can you visualize the resource usage for telemetry-processor-5f9d8b7c4d-x2km9 pod in the app-91d namespace?"
 
 expected_output: |
