@@ -13,9 +13,6 @@ from holmes.plugins.toolsets.http.http_toolset import (
 )
 
 
-# --- AuthConfig tests ---
-
-
 class TestAuthConfig:
     def test_basic_auth_valid(self):
         auth = AuthConfig(type="basic", username="user", password="pass")
@@ -59,9 +56,6 @@ class TestAuthConfig:
         assert auth.type == "none"
 
 
-# --- EndpointConfig tests ---
-
-
 class TestEndpointConfig:
     def test_default_values(self):
         endpoint = EndpointConfig(hosts=["example.com"])
@@ -80,9 +74,6 @@ class TestEndpointConfig:
     def test_methods_normalized_to_uppercase(self):
         endpoint = EndpointConfig(hosts=["example.com"], methods=["get", "post", "put"])
         assert endpoint.get_methods() == ["GET", "POST", "PUT"]
-
-
-# --- Host matching tests ---
 
 
 class TestHttpToolsetHostMatching:
@@ -117,13 +108,13 @@ class TestHttpToolsetHostMatching:
         assert endpoint is not None
         assert "*.atlassian.net" in endpoint.hosts
 
-    def test_wildcard_no_match_multiple_subdomains(self, toolset):
-        # *.atlassian.net should NOT match foo.bar.atlassian.net
+    def test_wildcard_match_multiple_subdomains(self, toolset):
         endpoint, error = toolset.match_endpoint(
             "https://foo.bar.atlassian.net/wiki/rest/api/content"
         )
-        assert error is not None
-        assert endpoint is None
+        assert error is None
+        assert endpoint is not None
+        assert "*.atlassian.net" in endpoint.hosts
 
     def test_path_match(self, toolset):
         endpoint, error = toolset.match_endpoint("https://example.com/api/users")
@@ -144,9 +135,6 @@ class TestHttpToolsetHostMatching:
         endpoint, error = toolset.match_endpoint("not-a-url")
         assert error is not None
         assert endpoint is None
-
-
-# --- Method checking tests ---
 
 
 class TestHttpToolsetMethodCheck:
@@ -188,9 +176,6 @@ class TestHttpToolsetMethodCheck:
         endpoint, _ = toolset.match_endpoint("https://readwrite.example.com/api")
         assert toolset.is_method_allowed("post", endpoint)
         assert toolset.is_method_allowed("Post", endpoint)
-
-
-# --- Header building tests ---
 
 
 class TestHttpToolsetHeaders:
@@ -261,9 +246,6 @@ class TestHttpToolsetHeaders:
             endpoint, {"X-Custom-Header": "overridden-value"}
         )
         assert headers["X-Custom-Header"] == "overridden-value"
-
-
-# --- Prerequisites tests ---
 
 
 class TestHttpToolsetPrerequisites:
@@ -356,9 +338,6 @@ class TestHttpToolsetPrerequisites:
         assert "2 host pattern" in message
 
 
-# --- Tool naming tests ---
-
-
 class TestHttpToolsetNaming:
     def test_default_tool_name(self):
         toolset = HttpToolset()
@@ -387,9 +366,6 @@ class TestHttpToolsetNaming:
         )
         assert len(toolset.tools) == 1
         assert toolset.tools[0].name == "dagster_request"
-
-
-# --- Multi-instance tests ---
 
 
 class TestHttpToolsetMultiInstance:
@@ -428,9 +404,6 @@ class TestHttpToolsetMultiInstance:
             }
         )
         assert "Use Confluence REST API v2." in toolset.llm_instructions
-
-
-# --- HttpRequest tool tests ---
 
 
 class TestHttpRequest:
@@ -523,7 +496,6 @@ class TestHttpRequest:
 
     def test_method_not_allowed_for_endpoint(self, toolset, mock_context):
         tool = HttpRequest(toolset)
-        # The fixture endpoint only allows GET by default
         result = tool._invoke(
             {"url": "https://api.example.com/test", "method": "POST"},
             mock_context,
@@ -647,9 +619,6 @@ class TestHttpRequest:
         assert "Connection error" in result.error
 
 
-# --- Health check tests ---
-
-
 class TestHttpToolsetHealthCheck:
     @patch("holmes.plugins.toolsets.http.http_toolset.requests.get")
     def test_health_check_success(self, mock_get):
@@ -757,9 +726,6 @@ class TestHttpToolsetHealthCheck:
             )
             assert success is True
             mock_get.assert_not_called()
-
-
-# --- One-liner tests ---
 
 
 class TestHttpRequestOneLiner:

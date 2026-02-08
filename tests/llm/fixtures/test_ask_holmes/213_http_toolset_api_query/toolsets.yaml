@@ -1,8 +1,5 @@
-# Toolset configuration for HTTP toolset eval test
-# Uses type: http to create a named instance "inventory_service"
-# that generates tool "inventory_service_request"
 toolsets:
-  inventory_service:
+  confluence:
     type: http
     enabled: true
     config:
@@ -10,24 +7,22 @@ toolsets:
         - hosts:
             - "localhost"
             - "127.0.0.1"
-          paths: ["/api/*"]
+          paths: ["/wiki/rest/api/*"]
           methods: ["GET"]
           auth:
             type: none
       verify_ssl: false
       timeout_seconds: 10
     llm_instructions: |
-      ### Inventory Service API
+      ### Confluence REST API
 
-      This is an internal inventory tracking service.
       Available endpoints:
-      - GET /api/v1/summary - Returns a JSON summary of the warehouse inventory
+      - GET /wiki/rest/api/space/{spaceKey} - Returns space information
 
       The base URL uses localhost with a port forward. Example:
       ```
-      GET http://localhost:{port}/api/v1/summary
+      GET http://localhost:{port}/wiki/rest/api/space/HOLMES
       ```
-  # Disable K8s-dependent toolsets that are not needed
   kubernetes/core:
     enabled: false
   kubernetes/logs:

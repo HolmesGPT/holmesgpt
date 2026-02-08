@@ -26,8 +26,6 @@ ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 
 class AuthConfig(BaseModel):
-    """Authentication configuration for an endpoint."""
-
     type: Literal["none", "basic", "bearer", "header"] = "none"
     # For basic auth
     username: Optional[str] = None
@@ -53,8 +51,6 @@ class AuthConfig(BaseModel):
 
 
 class EndpointConfig(BaseModel):
-    """Configuration for a single endpoint (hosts + optional path/method restrictions)."""
-
     hosts: List[str] = Field(
         description="List of allowed host patterns (e.g., ['*.atlassian.net', 'confluence.mycompany.com'])",
         examples=[["api.example.com"]],
@@ -80,13 +76,10 @@ class EndpointConfig(BaseModel):
     )
 
     def get_methods(self) -> List[str]:
-        """Return allowed methods as uppercase list."""
         return [m.upper() for m in self.methods]
 
 
 class HttpToolsetConfig(BaseModel):
-    """Configuration for the HTTP toolset."""
-
     endpoints: List[EndpointConfig] = Field(default_factory=list)
     verify_ssl: bool = True
     timeout_seconds: int = 30
@@ -103,12 +96,9 @@ class HttpToolset(Toolset):
     config_classes: ClassVar[List[Type[HttpToolsetConfig]]] = [HttpToolsetConfig]
 
     def __init__(self, name: str = "http", **kwargs: Any):
-        # Extract fields that Toolset doesn't accept before calling super()
         llm_instructions = kwargs.pop("llm_instructions", None)
         config = kwargs.pop("config", None)
         enabled = kwargs.pop("enabled", False)
-
-        # Discard fields that are passed from config loading but not needed
         kwargs.pop("type", None)
 
         super().__init__(
@@ -123,24 +113,19 @@ class HttpToolset(Toolset):
         )
         self._http_config: Optional[HttpToolsetConfig] = None
 
-        # Store the raw config for prerequisites_callable
         if config:
             self.config = config
 
-        # Load base instructions from template
         self._load_llm_instructions_from_file(
             os.path.dirname(__file__), "instructions.jinja2"
         )
 
-        # Store user-provided instructions to append after prerequisites
         self._user_llm_instructions = llm_instructions
 
     def _derive_tool_name(self) -> str:
-        """Derive a unique tool name from the toolset instance name."""
         return self.name.replace("/", "_").replace("-", "_") + "_request"
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
-        """Validate the HTTP toolset configuration."""
         try:
             self._http_config = HttpToolsetConfig(**config)
 
@@ -154,7 +139,6 @@ class HttpToolset(Toolset):
                 if not endpoint.hosts:
                     return False, f"Endpoint {i} has no hosts configured."
 
-                # Validate methods
                 for method in endpoint.get_methods():
                     if method not in ALL_METHODS:
                         return False, f"Endpoint {i} has invalid method: {method}. Allowed: {ALL_METHODS}"
@@ -166,11 +150,9 @@ class HttpToolset(Toolset):
                     if not success:
                         return False, error_msg
 
-            # Create the tool now that config is validated
             tool_name = self._derive_tool_name()
             self.tools = [HttpRequest(self, tool_name=tool_name)]
 
-            # Append user-provided LLM instructions
             if self._user_llm_instructions:
                 self.llm_instructions = (
                     (self.llm_instructions or "")
@@ -189,7 +171,6 @@ class HttpToolset(Toolset):
             return False, f"Failed to validate HTTP configuration: {str(e)}"
 
     def _build_curl_command(self, endpoint: EndpointConfig, url: str) -> str:
-        """Build a curl command for troubleshooting (secrets redacted)."""
         parts = ["curl", "-v"]
 
         auth = endpoint.auth
@@ -206,7 +187,6 @@ class HttpToolset(Toolset):
     def _check_endpoint_health(
         self, endpoint: EndpointConfig, endpoint_index: int
     ) -> Tuple[bool, str]:
-        """Perform a health check request to validate authentication."""
         url = endpoint.health_check_url
         if not url:
             return True, ""
@@ -268,7 +248,6 @@ class HttpToolset(Toolset):
     def match_endpoint(
         self, url: str
     ) -> Tuple[Optional[EndpointConfig], Optional[str]]:
-        """Find the endpoint config that matches the given URL."""
         try:
             parsed = urlparse(url)
         except Exception as e:
@@ -292,16 +271,12 @@ class HttpToolset(Toolset):
         )
 
     def _match_host(self, host: str, pattern: str) -> bool:
-        """Match a host against a pattern (supports wildcards like *.example.com)."""
         if pattern.startswith("*."):
-            # Match single subdomain level: *.example.com matches foo.example.com but not foo.bar.example.com
-            regex_pattern = r"^[^.]+\." + re.escape(pattern[2:]) + "$"
-            return bool(re.match(regex_pattern, host, re.IGNORECASE))
+            return host.lower().endswith(pattern[1:].lower())
         else:
             return host.lower() == pattern.lower()
 
     def _match_path(self, path: str, patterns: List[str]) -> bool:
-        """Match a path against a list of glob patterns."""
         for pattern in patterns:
             if pattern == "*":
                 return True
@@ -310,23 +285,19 @@ class HttpToolset(Toolset):
         return False
 
     def is_method_allowed(self, method: str, endpoint: EndpointConfig) -> bool:
-        """Check if the HTTP method is allowed for this endpoint."""
         return method.upper() in endpoint.get_methods()
 
     def build_headers(
         self, endpoint: EndpointConfig, extra_headers: Optional[Dict[str, str]] = None
     ) -> Dict[str, str]:
-        """Build request headers including auth."""
         headers: Dict[str, str] = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
 
-        # Add default headers from config
         if self._http_config:
             headers.update(self._http_config.default_headers)
 
-        # Add auth headers
         auth = endpoint.auth
         if auth.type == "bearer":
             headers["Authorization"] = f"Bearer {auth.token}"
@@ -340,7 +311,6 @@ class HttpToolset(Toolset):
         return headers
 
     def get_basic_auth(self, endpoint: EndpointConfig) -> Optional[Tuple[str, str]]:
-        """Get basic auth tuple if configured."""
         if (
             endpoint.auth.type == "basic"
             and endpoint.auth.username
@@ -351,8 +321,6 @@ class HttpToolset(Toolset):
 
 
 class HttpRequest(Tool, JsonFilterMixin):
-    """Tool for making HTTP requests to whitelisted endpoints."""
-
     def __init__(self, toolset: HttpToolset, tool_name: str = "http_request"):
         base_params = {
             "url": ToolParameter(
@@ -397,7 +365,6 @@ class HttpRequest(Tool, JsonFilterMixin):
         body = params.get("body")
         extra_headers_str = params.get("headers")
 
-        # Validate URL against whitelist
         endpoint, error = self._toolset.match_endpoint(url)
         if error or endpoint is None:
             return StructuredToolResult(
@@ -407,7 +374,6 @@ class HttpRequest(Tool, JsonFilterMixin):
                 url=url,
             )
 
-        # Validate method is supported
         if method not in ALL_METHODS:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -416,7 +382,6 @@ class HttpRequest(Tool, JsonFilterMixin):
                 url=url,
             )
 
-        # Check if method is allowed for this endpoint
         if not self._toolset.is_method_allowed(method, endpoint):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -425,7 +390,6 @@ class HttpRequest(Tool, JsonFilterMixin):
                 url=url,
             )
 
-        # Parse extra headers
         extra_headers = None
         if extra_headers_str:
             try:
