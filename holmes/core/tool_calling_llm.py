@@ -39,6 +39,10 @@ from holmes.core.tools import (
     StructuredToolResultStatus,
     ToolInvokeContext,
 )
+from holmes.core.tools_utils.filesystem_result_storage import (
+    cleanup_session,
+    generate_session_id,
+)
 from holmes.core.tools_utils.tool_context_window_limiter import (
     prevent_overly_big_tool_response,
 )
@@ -104,6 +108,9 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
     tool_call_metadata. These prefixes were approved by the user via the
     "Yes, and don't ask again" option.
 
+    The metadata line only appears when there's session data to persist.
+    Format: tool_call_metadata={"bash_session_approved_prefixes": [...]}
+
     Args:
         messages: Conversation history messages
 
@@ -121,8 +128,8 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
             continue
 
         # Extract tool_call_metadata from the content string
-        # Format: tool_call_metadata={"tool_name": "...", ...}
-        match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
+        # Only present when extra session metadata exists
+        match = re.search(r"tool_call_metadata=(\{.*?\})", content)
         if not match:
             continue
 
@@ -238,7 +245,12 @@ class ToolCallingLLM:
     llm: LLM
 
     def __init__(
-        self, tool_executor: ToolExecutor, max_steps: int, llm: LLM, tracer=None
+        self,
+        tool_executor: ToolExecutor,
+        max_steps: int,
+        llm: LLM,
+        tracer=None,
+        session_id: Optional[str] = None,
     ):
         self.tool_executor = tool_executor
         self.max_steps = max_steps
@@ -250,11 +262,23 @@ class ToolCallingLLM:
 
         self._runbook_in_use: bool = False
 
+        # Session ID for filesystem storage of large tool results
+        self.session_id = session_id or generate_session_id()
+
     def reset_interaction_state(self) -> None:
         """
         For interactive loop, reset runbooks in use
         """
         self._runbook_in_use = False
+
+    def cleanup(self) -> None:
+        """
+        Clean up resources associated with this LLM instance.
+
+        This includes removing any tool results saved to the filesystem
+        during this session.
+        """
+        cleanup_session(self.session_id)
 
     def process_tool_decisions(
         self,
@@ -805,7 +829,9 @@ class ToolCallingLLM:
                 )
 
             original_token_count = prevent_overly_big_tool_response(
-                tool_call_result=tool_call_result, llm=self.llm
+                tool_call_result=tool_call_result,
+                llm=self.llm,
+                session_id=self.session_id,
             )
 
             ToolCallingLLM._log_tool_call_result(
@@ -826,9 +852,7 @@ class ToolCallingLLM:
             tool_name=tool_call_result.tool_name,
             tool_call_id=tool_call_result.tool_call_id,
         )
-        approval = tool.requires_approval(
-            tool_call_result.result.params or {}, context
-        )
+        approval = tool.requires_approval(tool_call_result.result.params or {}, context)
         return not approval or not approval.needs_approval
 
     def _handle_tool_call_approval(
@@ -856,9 +880,7 @@ class ToolCallingLLM:
 
         # Re-check if approval is still needed (prefix may have been approved by another tool call)
         if self._is_tool_call_already_approved(tool_call_result):
-            logging.info(
-                f"Approval no longer needed for {tool_call_result.tool_name}"
-            )
+            logging.info(f"Approval no longer needed for {tool_call_result.tool_name}")
             with trace_span.start_span(type="tool") as tool_span:
                 tool_call_result.result = self._directly_invoke_tool_call(
                     tool_name=tool_call_result.tool_name,

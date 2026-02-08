@@ -48,17 +48,18 @@ from holmes.core.models import (
     ChatResponse,
     FollowUpAction,
     InvestigateRequest,
-    InvestigationResult,
     IssueChatRequest,
 )
-from holmes.core.prompt import generate_user_prompt
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
-from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
 from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
+from holmes.core.tools_utils.filesystem_result_storage import (
+    cleanup_all_sessions,
+    get_session_cleanup_notice,
+)
 
 # removed: add_runbooks_to_user_prompt
 
@@ -176,8 +177,6 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
     # Initialize Sentry for official releases or when development mode is enabled
     if is_official_release() or DEVELOPMENT_MODE:
         environment = "production" if is_official_release() else "development"
-        version = get_version()
-        release = None if version.startswith("dev-") else version
         logging.info(f"Initializing sentry for {environment} environment...")
 
         sentry_sdk.init(
@@ -186,7 +185,6 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
             profiles_sample_rate=0,
             environment=environment,
-            release=release,
         )
         sentry_sdk.set_tags(
             {
@@ -357,6 +355,19 @@ def chat(chat_request: ChatRequest, http_request: Request):
             f"streaming={chat_request.stream}"
         )
 
+        # Clean up any previous tool result sessions from prior requests
+        # This prevents disk from filling up with old results
+        sessions_cleaned = cleanup_all_sessions()
+
+        # Build additional system prompt, including cleanup notice if relevant
+        additional_prompt = chat_request.additional_system_prompt
+        if sessions_cleaned > 0:
+            cleanup_notice = get_session_cleanup_notice()
+            if additional_prompt:
+                additional_prompt = f"{additional_prompt}\n\n{cleanup_notice}"
+            else:
+                additional_prompt = cleanup_notice
+
         runbooks = config.get_runbook_catalog()
         ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
@@ -366,7 +377,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             ai=ai,
             config=config,
             global_instructions=global_instructions,
-            additional_system_prompt=chat_request.additional_system_prompt,
+            additional_system_prompt=additional_prompt,
             runbooks=runbooks,
             images=chat_request.images,
         )
