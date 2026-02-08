@@ -13,7 +13,7 @@ if skip_reason:
 def test_mimir_datasource_toolset_health_check():
     toolset = PrometheusToolset()
     toolset.config = {
-        "api_url": "http://localhost:9000/api/datasources/proxy/uid/PAE45454D0EDB9216",
+        "prometheus_url": "http://localhost:9000/api/datasources/proxy/uid/PAE45454D0EDB9216",
     }
     toolset.check_prerequisites()
 
@@ -24,7 +24,7 @@ def test_mimir_datasource_toolset_health_check():
 def test_mimir_datasource_toolset_bad_uid_health_check():
     toolset = PrometheusToolset()
     toolset.config = {
-        "api_url": "http://localhost:9000/api/datasources/proxy/uid/PAE45454D0EDB9216111",
+        "prometheus_url": "http://localhost:9000/api/datasources/proxy/uid/PAE45454D0EDB9216111",
     }
     toolset.check_prerequisites()
 
@@ -38,7 +38,7 @@ def test_mimir_datasource_toolset_bad_uid_health_check():
 def test_mimir_direct_toolset_health_check():
     toolset = PrometheusToolset()
     toolset.config = {
-        "api_url": "http://localhost:9009/prometheus",
+        "prometheus_url": "http://localhost:9009/prometheus",
         "additional_headers": {"X-Scope-OrgID": "DEMO"},
     }
     toolset.check_prerequisites()

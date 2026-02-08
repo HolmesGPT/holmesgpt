@@ -76,7 +76,7 @@ class PrometheusDiscovery(ServiceDiscovery):
                 "app=thanos-query",
                 "app=thanos-querier",
             ],
-            error_msg="Prometheus url could not be found. Add 'api_url' under your prometheus tools config",
+            error_msg="Prometheus url could not be found. Add 'prometheus_url' under your prometheus tools config",
         )
 
     @classmethod
@@ -88,5 +88,5 @@ class PrometheusDiscovery(ServiceDiscovery):
                 "app.kubernetes.io/name=vmselect",
                 "app=vmselect",
             ],
-            error_msg="Victoria Metrics url could not be found. Add 'api_url' under your prometheus tools config",
+            error_msg="Victoria Metrics url could not be found. Add 'prometheus_url' under your prometheus tools config",
         )

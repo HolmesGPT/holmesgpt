@@ -103,7 +103,6 @@ class TestPrometheusConfigBackwardCompatibility:
                 prometheus_ssl_enabled=False,
             )
 
-        # prometheus_url is the current field name (not deprecated)
         assert config.prometheus_url == "http://prometheus:9090/"
         # headers should be migrated to additional_headers
         assert config.additional_headers == {"Authorization": "Bearer test"}
