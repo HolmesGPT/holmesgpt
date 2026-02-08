@@ -171,7 +171,7 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: http://loki.app-143.svc.cluster.local:3100
+      api_url: http://loki.app-143.svc.cluster.local:3100
       api_key: ""
   kafka/admin:
     enabled: true

@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import ClassVar, Dict, Optional
 
 from pydantic import Field
 
@@ -8,12 +8,17 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 class GrafanaConfig(ToolsetConfig):
     """A config that represents one of the Grafana related tools like Loki or Tempo
     If `grafana_datasource_uid` is set, then it is assumed that Holmes will proxy all
-    requests through grafana. In this case `url` should be the grafana URL.
-    If `grafana_datasource_uid` is not set, it is assumed that the `url` is the
+    requests through grafana. In this case `api_url` should be the grafana URL.
+    If `grafana_datasource_uid` is not set, it is assumed that the `api_url` is the
     systems' URL
     """
 
-    url: str = Field(
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "url": "api_url",
+        "headers": "additional_headers",
+    }
+
+    api_url: str = Field(
         title="URL",
         description="Grafana URL or direct datasource URL",
         examples=["YOUR GRAFANA URL", "http://grafana.monitoring.svc:3000"],
@@ -24,9 +29,9 @@ class GrafanaConfig(ToolsetConfig):
         description="Grafana API key for authentication",
         examples=["YOUR API KEY"],
     )
-    headers: Optional[Dict[str, str]] = Field(
+    additional_headers: Optional[Dict[str, str]] = Field(
         default=None,
-        title="Headers",
+        title="Additional Headers",
         description="Additional HTTP headers to include in requests",
         examples=[{"Authorization": "Bearer YOUR_API_KEY"}],
     )
@@ -64,9 +69,9 @@ def build_headers(api_key: Optional[str], additional_headers: Optional[Dict[str,
 
 def get_base_url(config: GrafanaConfig) -> str:
     if config.grafana_datasource_uid:
-        return f"{config.url}/api/datasources/proxy/uid/{config.grafana_datasource_uid}"
+        return f"{config.api_url}/api/datasources/proxy/uid/{config.grafana_datasource_uid}"
     else:
-        return config.url
+        return config.api_url
 
 
 class GrafanaTempoLabelsConfig(ToolsetConfig):
