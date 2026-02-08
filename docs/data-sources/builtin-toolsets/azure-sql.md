@@ -15,7 +15,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
 === "Holmes CLI"
 
-    ### Azure AD Workload Identity
+    **Azure AD Workload Identity**
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
@@ -33,7 +33,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-    ### Service Principal
+    **Service Principal**
 
     ```yaml
     toolsets:
@@ -54,7 +54,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
 === "Robusta Helm Chart"
 
-    ### Azure AD Workload Identity
+    **Azure AD Workload Identity**
 
     ```yaml
     holmes:
@@ -69,7 +69,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
               database_name: "your-azure-sql-database-name"
     ```
 
-    ### Service Principal
+    **Service Principal**
 
     ```yaml
     holmes:

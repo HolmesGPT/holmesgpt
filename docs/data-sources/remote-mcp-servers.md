@@ -43,6 +43,7 @@ mcp_servers:
       mode: streamable-http  # Explicitly set the mode
       headers:
         Authorization: "Bearer token123"
+      icon_url: "https://example.com/my-icon.png"  # Optional: Custom icon for UI display
     llm_instructions: "This server provides general data access capabilities. Use it when you need to retrieve external information or perform remote operations that aren't covered by other toolsets."
 ```
 

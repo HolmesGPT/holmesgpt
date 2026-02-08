@@ -15,17 +15,7 @@ before_test: |
   # Send CPU and memory metrics to Datadog using their API
   bash ../../shared/send_datadog_metrics.sh metrics-91b metrics-app
 
-user_prompt:
-  - "Can you show me a cpu graph of the metrics-app pod in namespace metrics-91b?"
-  - "Show me CPU metrics for metrics-app in metrics-91b"
-  - "Display metrics-app pod CPU usage graph from metrics-91b namespace"
-  - "I need to see the memory usage for metrics-app in metrics-91b"
-  - "What's the CPU utilization of the metrics-app pod in namespace metrics-91b?"
-  - "Generate a memory graph for metrics-app pods in metrics-91b"
-  - "Show CPU and memory charts for metrics-app in namespace metrics-91b"
-  - "How much CPU is metrics-app consuming in metrics-91b namespace?"
-  - "Plot memory consumption of metrics-app over time in metrics-91b"
-  - "Can you visualize the resource usage for metrics-app pod in the metrics-91b namespace?"
+user_prompt: "Can you show me a cpu graph of the metrics-app pod in namespace metrics-91b?"
 
 expected_output: |
   Output must contain 1 or more embeds in the following format

@@ -6,4 +6,4 @@ toolsets:
       # These will be populated from environment variables
       dd_api_key: "{{env.DATADOG_API_KEY}}"
       dd_app_key: "{{env.DATADOG_APP_KEY}}"
-      site_api_url: "https://api.datadoghq.eu"  # EU endpoint to match our API keys
+      site_api_url: "https://api.us5.datadoghq.com"

@@ -12,8 +12,8 @@ from tests.conftest import create_mock_tool_invoke_context
 
 
 @pytest.mark.skipif(
-    not all([os.getenv("DD_API_KEY"), os.getenv("DD_APP_KEY")]),
-    reason="Datadog API credentials not available",
+    not os.getenv("RUN_SLOW_TESTS") or not all([os.getenv("DD_API_KEY"), os.getenv("DD_APP_KEY")]),
+    reason="Slow test - set RUN_SLOW_TESTS=1 and Datadog credentials to run",
 )
 class TestDatadogMetricsLiveIntegration:
     """
@@ -26,7 +26,7 @@ class TestDatadogMetricsLiveIntegration:
         self.config = {
             "dd_api_key": os.getenv("DD_API_KEY"),
             "dd_app_key": os.getenv("DD_APP_KEY"),
-            "site_api_url": os.getenv("DD_SITE_URL", "https://api.datadoghq.eu"),
+            "site_api_url": os.getenv("DD_SITE_URL", "https://api.us5.datadoghq.com"),
             "default_limit": 1000,
             "request_timeout": 60,
         }
