@@ -30,6 +30,14 @@ def _build_coralogix_query_url(
     end_date: str,
     tier: Optional[CoralogixTier] = None,
 ) -> Optional[str]:
+    """Build a clickable Coralogix UI permalink URL.
+
+    Returns None if team_slug is not configured (it's optional).
+    """
+    # team_slug is optional - without it we can't build UI URLs
+    if not config.team_slug:
+        return None
+
     try:
         if tier == CoralogixTier.ARCHIVE:
             data_pipeline = "archive-logs"
@@ -43,7 +51,7 @@ def _build_coralogix_query_url(
 
         encoded_query = quote(query)
         encoded_time = quote(time_range)
-        base_url = f"https://{config.team_hostname}.{config.domain}"
+        base_url = f"https://{config.team_slug}.{config.domain}"
 
         url = (
             f"{base_url}/#/query-new/{data_pipeline}"

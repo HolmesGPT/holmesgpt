@@ -14,26 +14,16 @@ from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
 )
 from holmes.plugins.toolsets.coralogix.utils import (
     CoralogixConfig,
-    extract_field,
     normalize_datetime,
 )
 
 
 @pytest.fixture
 def coralogix_config():
-    from holmes.plugins.toolsets.coralogix.utils import CoralogixLabelsConfig
-
-    labels_config = CoralogixLabelsConfig(
-        pod="kubernetes.pod_name",
-        namespace="kubernetes.namespace_name",
-        log_message="log",
-        timestamp="time",
-    )
     return CoralogixConfig(
         api_key="dummy_api_key",
-        team_hostname="my-team",
+        team_slug="my-team",
         domain="eu2.coralogix.com",
-        labels=labels_config,
     )
 
 
@@ -56,18 +46,6 @@ def coralogix_toolset(coralogix_config):
 )
 def test_normalize_datetime(input_date, expected_output):
     assert normalize_datetime(input_date) == expected_output
-
-
-@pytest.mark.parametrize(
-    "data_obj, field, expected",
-    [
-        ({"key": "value"}, "key", "value"),
-        ({"parent": {"child": "deep_value"}}, "parent.child", "deep_value"),
-        ({}, "key", None),
-    ],
-)
-def test_extract_field(data_obj, field, expected):
-    assert extract_field(data_obj, field) == expected
 
 
 class TestExecuteDataPrimeQuery:
