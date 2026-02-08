@@ -24,3 +24,4 @@ expected_output: |
   Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
 tags:
   - embeds
+  - datadog
