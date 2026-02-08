@@ -113,7 +113,7 @@ class TestSSLErrorHandling:
         """Test that SSL errors produce clear error messages with remediation steps."""
         toolset = PrometheusToolset()
         toolset.config = PrometheusConfig(
-            api_url=https_server,
+            prometheus_url=https_server,
             verify_ssl=True,
         )
 
@@ -133,7 +133,7 @@ class TestSSLErrorHandling:
         """Test that SSL verification can be disabled and we get past SSL errors."""
         toolset = PrometheusToolset()
         toolset.config = PrometheusConfig(
-            api_url=https_server,
+            prometheus_url=https_server,
             verify_ssl=False,
         )
 
