@@ -275,6 +275,8 @@ class TestKafkaConfigBackwardCompatibility:
         assert len(old_config.clusters) == len(new_config.clusters)
         assert old_config.clusters[0].name == new_config.clusters[0].name
         assert old_config.clusters[0].broker == new_config.clusters[0].broker
+
+
 class TestRabbitMQConfigBackwardCompatibility:
     """Test backward compatibility for RabbitMQClusterConfig deprecated fields."""
 
