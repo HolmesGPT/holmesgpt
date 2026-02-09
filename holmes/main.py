@@ -28,7 +28,12 @@ from holmes.config import (
     SourceFactory,
     SupportedTicketSources,
 )
-from holmes.core.prompt import build_initial_ask_messages, build_system_prompt, generate_user_prompt
+from holmes.core.prompt import (
+    PromptComponent,
+    build_initial_ask_messages,
+    build_system_prompt,
+    generate_user_prompt,
+)
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import SpanType, TracingFactory
@@ -231,6 +236,11 @@ def ask(
         "--bash-always-allow",
         help="Bypass bash command approval checks. Recommended only for sandboxed environments",
     ),
+    fast_mode: bool = typer.Option(
+        False,
+        "--fast-mode",
+        help="Skip TodoWrite planning phase for faster responses",
+    ),
 ):
     """
     Ask any question and answer using available tools
@@ -307,6 +317,14 @@ def ask(
     if echo_request and not interactive and prompt:
         console.print(f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {prompt}")
 
+    # Build prompt component overrides for fast mode
+    prompt_component_overrides = None
+    if fast_mode:
+        prompt_component_overrides = {
+            PromptComponent.TODOWRITE_INSTRUCTIONS: False,
+            PromptComponent.TODOWRITE_REMINDER: False,
+        }
+
     if interactive:
         run_interactive_loop(
             ai,
@@ -320,12 +338,15 @@ def ask(
             json_output_file=json_output_file,
             bash_always_deny=bash_always_deny,
             bash_always_allow=bash_always_allow,
+            prompt_component_overrides=prompt_component_overrides,
         )
         return
 
     if include_file:
         for file_path in include_file:
-            console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+            console.print(
+                f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+            )
 
     messages = build_initial_ask_messages(
         prompt,  # type: ignore
@@ -333,6 +354,7 @@ def ask(
         ai.tool_executor,
         config.get_runbook_catalog(),
         system_prompt_additions,
+        prompt_component_overrides=prompt_component_overrides,
     )
 
     with tracer.start_trace(
@@ -679,6 +701,7 @@ def ticket(
         system_prompt_additions=ticket_additions,
         cluster_name=ticket_source.config.cluster_name,
         ask_user_enabled=False,
+        prompt_component_overrides={},
     )
     console.print(
         f"[bold yellow]Analyzing ticket: {issue_to_investigate.name}...[/bold yellow]"
