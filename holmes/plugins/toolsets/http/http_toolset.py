@@ -101,9 +101,16 @@ class HttpToolset(Toolset):
         enabled = kwargs.pop("enabled", False)
         kwargs.pop("type", None)
 
+        description = kwargs.pop("description", None)
+        if not description:
+            if name == "http":
+                description = "Generic HTTP client for making requests to whitelisted API endpoints"
+            else:
+                description = f"HTTP client for {name} API"
+
         super().__init__(
             name=name,
-            description="Generic HTTP client for making requests to whitelisted API endpoints",
+            description=description,
             icon_url="https://cdn-icons-png.flaticon.com/512/2165/2165004.png",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/http/",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
@@ -151,7 +158,24 @@ class HttpToolset(Toolset):
                         return False, error_msg
 
             tool_name = self._derive_tool_name()
-            self.tools = [HttpRequest(self, tool_name=tool_name)]
+
+            endpoints_summary = ", ".join(
+                f"{ep.hosts[0] if len(ep.hosts) == 1 else f'{len(ep.hosts)} hosts'}"
+                for ep in self._http_config.endpoints[:2]
+            )
+            if len(self._http_config.endpoints) > 2:
+                endpoints_summary += f", +{len(self._http_config.endpoints) - 2} more"
+
+            if self.name == "http":
+                tool_description = f"Make HTTP requests to whitelisted API endpoints ({endpoints_summary})"
+            else:
+                tool_description = f"Make HTTP requests to {self.name} API ({endpoints_summary})"
+
+            self.tools = [HttpRequest(self, tool_name=tool_name, tool_description=tool_description)]
+
+            self._load_llm_instructions_from_file(
+                os.path.dirname(__file__), "instructions.jinja2"
+            )
 
             if self._user_llm_instructions:
                 self.llm_instructions = (
@@ -321,7 +345,13 @@ class HttpToolset(Toolset):
 
 
 class HttpRequest(Tool, JsonFilterMixin):
-    def __init__(self, toolset: HttpToolset, tool_name: str = "http_request"):
+    def __init__(self, toolset: HttpToolset, tool_name: str = "http_request", tool_description: Optional[str] = None):
+        if not tool_description:
+            if toolset.name == "http":
+                tool_description = "Make HTTP requests to whitelisted API endpoints"
+            else:
+                tool_description = f"Make HTTP requests to {toolset.name} API endpoints"
+
         base_params = {
             "url": ToolParameter(
                 description="The full URL to request (must match a whitelisted endpoint)",
@@ -349,12 +379,7 @@ class HttpRequest(Tool, JsonFilterMixin):
 
         super().__init__(
             name=tool_name,
-            description=(
-                "Make HTTP requests to whitelisted API endpoints. "
-                "Use this tool for APIs that don't have a dedicated toolset. "
-                "IMPORTANT: Always prefer more specific toolsets when available "
-                "(e.g., use grafana tools for Grafana, prometheus tools for Prometheus)."
-            ),
+            description=tool_description,
             parameters=parameters,
         )
         self._toolset = toolset
