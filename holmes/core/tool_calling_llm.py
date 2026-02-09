@@ -280,6 +280,21 @@ class ToolCallingLLM:
         """
         cleanup_session(self.session_id)
 
+    def _can_use_filesystem_storage(self) -> bool:
+        """Check if filesystem storage for large tool results is available.
+
+        Filesystem storage requires bash toolset to be enabled with
+        include_default_allow_deny_list=True, so the LLM can use bash
+        commands to read the saved files.
+        """
+        for toolset in self.tool_executor.enabled_toolsets:
+            if toolset.name == "bash":
+                config = getattr(toolset, "config", None)
+                if config and getattr(config, "include_default_allow_deny_list", False):
+                    return True
+                return False
+        return False
+
     def process_tool_decisions(
         self,
         messages: List[Dict[str, Any]],
@@ -831,7 +846,7 @@ class ToolCallingLLM:
             original_token_count = prevent_overly_big_tool_response(
                 tool_call_result=tool_call_result,
                 llm=self.llm,
-                session_id=self.session_id,
+                session_id=self.session_id if self._can_use_filesystem_storage() else None,
             )
 
             ToolCallingLLM._log_tool_call_result(

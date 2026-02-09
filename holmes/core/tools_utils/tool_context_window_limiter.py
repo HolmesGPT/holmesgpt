@@ -6,10 +6,7 @@ from pydantic import BaseModel
 from holmes.core.llm import LLM
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.core.tools_utils.filesystem_result_storage import (
-    format_filesystem_pointer_message,
-    save_large_result,
-)
+from holmes.core.tools_utils.filesystem_result_storage import save_large_result
 from holmes.utils import sentry_helper
 
 
@@ -51,54 +48,48 @@ def prevent_overly_big_tool_response(
     messages_token = llm.count_tokens(messages=[message]).total_tokens
     max_tokens_allowed = llm.get_max_token_count_for_single_tool()
 
-    if (
-        tool_call_result.result.status == StructuredToolResultStatus.SUCCESS
-        and messages_token > max_tokens_allowed
-    ):
-        original_data = tool_call_result.result.data
+    if tool_call_result.result.status != StructuredToolResultStatus.SUCCESS:
+        return messages_token
+    if messages_token <= max_tokens_allowed:
+        return messages_token
 
-        # Try filesystem storage if session_id is provided
-        file_path = None
-        if session_id:
-            file_path = save_large_result(
-                session_id=session_id,
-                tool_call_id=tool_call_result.tool_call_id,
-                tool_name=tool_call_result.tool_name,
-                data=original_data,
-                params=tool_call_result.result.params,
-                token_count=messages_token,
-            )
+    size_info = (
+        f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
+    )
 
-        if file_path:
-            # Filesystem storage succeeded - return pointer message
-            pointer_message = format_filesystem_pointer_message(
-                file_path=file_path,
-                token_count=messages_token,
-                data=original_data,
-            )
-            tool_call_result.result.status = StructuredToolResultStatus.SUCCESS
-            tool_call_result.result.data = pointer_message
-            tool_call_result.result.error = None
-            logging.info(
-                f"Large tool result ({messages_token} tokens) saved to {file_path}"
-            )
-        else:
-            # Filesystem storage disabled or failed - fall back to error message
-            relative_pct = (
-                (messages_token - max_tokens_allowed) / messages_token
-            ) * 100
-            error_message = (
-                f"The tool call result is too large to return: {messages_token} tokens.\n"
-                f"The maximum allowed tokens is {max_tokens_allowed} which is {format(relative_pct, '.1f')}% smaller.\n"
-                f"Instructions for the LLM: try to repeat the query but proactively narrow down the result "
-                f"so that the tool answer fits within the allowed number of tokens."
-            )
-            tool_call_result.result.status = StructuredToolResultStatus.ERROR
-            tool_call_result.result.data = None
-            tool_call_result.result.error = error_message
-
-        sentry_helper.capture_toolcall_contains_too_many_tokens(
-            tool_call_result, messages_token, max_tokens_allowed
+    # Try filesystem storage if session_id is provided
+    file_path = None
+    if session_id:
+        stringified_data = tool_call_result.result.get_stringified_data()
+        file_path = save_large_result(
+            session_id=session_id,
+            tool_call_id=tool_call_result.tool_call_id,
+            content=stringified_data,
         )
 
+    if file_path:
+        # Include a preview (~10% of max tool size) so the LLM has some content to work with
+        preview_chars = max_tokens_allowed * 4 // 10  # ~4 chars per token, 10% of max
+        preview = stringified_data[:preview_chars]
+        tool_call_result.result.data = (
+            f"{size_info}\n"
+            f"Saved to: {file_path}\n"
+            f"Use the bash commands to access the data that won't require prompting the user for approval (e.g. cat, grep, head, tail).\n"
+            f"\nPreview:\n{preview}"
+        )
+        logging.info(
+            f"Large tool result ({messages_token} tokens) saved to {file_path}"
+        )
+    else:
+        tool_call_result.result.status = StructuredToolResultStatus.ERROR
+        tool_call_result.result.data = None
+        tool_call_result.result.error = (
+            f"{size_info}\n"
+            f"Try to repeat the query but proactively narrow down the result "
+            f"so that the tool answer fits within the allowed number of tokens."
+        )
+
+    sentry_helper.capture_toolcall_contains_too_many_tokens(
+        tool_call_result, messages_token, max_tokens_allowed
+    )
     return messages_token
