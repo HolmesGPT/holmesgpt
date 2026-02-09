@@ -70,9 +70,9 @@ def build_vision_content(
     return content
 
 
-def is_prompt_enabled(component: PromptComponent) -> bool:
+def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     """
-    Check if a specific prompt component is enabled.
+    Check if a prompt component is allowed by the ENABLED_PROMPTS environment variable.
 
     Environment variable: ENABLED_PROMPTS
     - If not set: all prompts are ENABLED (production default)
@@ -88,6 +88,25 @@ def is_prompt_enabled(component: PromptComponent) -> bool:
 
     enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
     return component.value in enabled_names
+
+
+def is_component_enabled(
+    component: PromptComponent,
+    overrides: Optional[Dict[PromptComponent, bool]] = None,
+) -> bool:
+    """
+    Check if a prompt component is enabled, considering both env var and API overrides.
+
+    Precedence: env var > API override > default (enabled)
+    - If env var disables component: always disabled (API can't override)
+    - If env var allows component: API override decides, or default enabled
+    """
+    env_allowed = is_prompt_allowed_by_env(component)
+    if not env_allowed:
+        return False  # env var wins, can't override to enabled
+    if overrides and component in overrides:
+        return overrides[component]  # env allows, API decides
+    return True  # env allows, no override, default enabled
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
@@ -156,26 +175,38 @@ def build_system_prompt(
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
     ask_user_enabled: bool,
+    prompt_component_overrides: Dict[PromptComponent, bool],
 ) -> Optional[str]:
     """
     Build the system prompt for both CLI and server modes.
     Returns None if the rendered prompt is empty.
     """
-    toolset_instructions_enabled = is_prompt_enabled(PromptComponent.TOOLSET_INSTRUCTIONS)
+
+    def is_enabled(component: PromptComponent) -> bool:
+        return is_component_enabled(component, prompt_component_overrides)
+
+    toolset_instructions_enabled = is_enabled(PromptComponent.TOOLSET_INSTRUCTIONS)
 
     template_context = {
-        "intro_enabled": is_prompt_enabled(PromptComponent.INTRO),
-        "ask_user_enabled": ask_user_enabled and is_prompt_enabled(PromptComponent.ASK_USER),
-        "todowrite_enabled": is_prompt_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
-        "ai_safety_enabled": is_prompt_enabled(PromptComponent.AI_SAFETY),
+        "intro_enabled": is_enabled(PromptComponent.INTRO),
+        "ask_user_enabled": ask_user_enabled and is_enabled(PromptComponent.ASK_USER),
+        "todowrite_enabled": is_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
+        "ai_safety_enabled": is_enabled(PromptComponent.AI_SAFETY),
         "toolset_instructions_enabled": toolset_instructions_enabled,
-        "permission_errors_enabled": is_prompt_enabled(PromptComponent.PERMISSION_ERRORS),
-        "general_instructions_enabled": is_prompt_enabled(PromptComponent.GENERAL_INSTRUCTIONS),
-        "style_guide_enabled": is_prompt_enabled(PromptComponent.STYLE_GUIDE),
-        "runbooks_enabled": bool(runbooks) and is_prompt_enabled(PromptComponent.TIME_RUNBOOKS),
-        "cluster_name": cluster_name if is_prompt_enabled(PromptComponent.CLUSTER_NAME) else None,
+        "permission_errors_enabled": is_enabled(PromptComponent.PERMISSION_ERRORS),
+        "general_instructions_enabled": is_enabled(
+            PromptComponent.GENERAL_INSTRUCTIONS
+        ),
+        "style_guide_enabled": is_enabled(PromptComponent.STYLE_GUIDE),
+        "runbooks_enabled": bool(runbooks)
+        and is_enabled(PromptComponent.TIME_RUNBOOKS),
+        "cluster_name": cluster_name
+        if is_enabled(PromptComponent.CLUSTER_NAME)
+        else None,
         "toolsets": toolsets if toolset_instructions_enabled else [],
-        "system_prompt_additions": system_prompt_additions if is_prompt_enabled(PromptComponent.SYSTEM_PROMPT_ADDITIONS) else "",
+        "system_prompt_additions": system_prompt_additions
+        if is_enabled(PromptComponent.SYSTEM_PROMPT_ADDITIONS)
+        else "",
     }
 
     result = load_and_render_prompt("builtin://generic_ask.jinja2", template_context)
@@ -192,29 +223,30 @@ def build_user_prompt(
     file_paths: Optional[List[Path]],
     include_todowrite_reminder: bool,
     images: Optional[List[Union[str, Dict[str, Any]]]],
+    prompt_component_overrides: Dict[PromptComponent, bool],
 ) -> UserPromptContent:
     """Build the user prompt with all enrichments.
 
     Returns:
         Either a string or a list of content dicts (for vision models with images).
     """
-    # Handle file attachments (CLI mode passes files, server mode passes None)
-    if file_paths and is_prompt_enabled(PromptComponent.FILES):
+
+    def is_enabled(component: PromptComponent) -> bool:
+        return is_component_enabled(component, prompt_component_overrides)
+
+    if file_paths and is_enabled(PromptComponent.FILES):
         user_prompt = append_all_files_to_user_prompt(user_prompt, file_paths)
 
-    # Handle todowrite reminder (CLI mode passes True, server mode passes False)
-    if include_todowrite_reminder and is_prompt_enabled(PromptComponent.TODOWRITE_REMINDER):
+    if include_todowrite_reminder and is_enabled(PromptComponent.TODOWRITE_REMINDER):
         user_prompt += get_tasks_management_system_reminder()
 
-    # Enrich with runbooks (if TIME_RUNBOOKS component is enabled)
-    if is_prompt_enabled(PromptComponent.TIME_RUNBOOKS):
+    if is_enabled(PromptComponent.TIME_RUNBOOKS):
         runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
         )
         user_prompt = generate_user_prompt(user_prompt, runbooks_ctx)
 
-    # Handle images (server mode may pass images, CLI mode passes None)
     if images:
         return build_vision_content(user_prompt, images)
     return user_prompt
@@ -231,14 +263,19 @@ def build_prompts(
     file_paths: Optional[List[Path]],
     include_todowrite_reminder: bool,
     images: Optional[List[Union[str, Dict[str, Any]]]],
+    prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
 ) -> Tuple[Optional[str], UserPromptContent]:
     """Build both system and user prompts."""
+    if prompt_component_overrides is None:
+        prompt_component_overrides = {}
+
     system_prompt = build_system_prompt(
         toolsets=toolsets,
         runbooks=runbooks,
         system_prompt_additions=system_prompt_additions,
         cluster_name=cluster_name,
         ask_user_enabled=ask_user_enabled,
+        prompt_component_overrides=prompt_component_overrides,
     )
     user_content = build_user_prompt(
         user_prompt=user_prompt,
@@ -247,6 +284,7 @@ def build_prompts(
         file_paths=file_paths,
         include_todowrite_reminder=include_todowrite_reminder,
         images=images,
+        prompt_component_overrides=prompt_component_overrides,
     )
     return system_prompt, user_content
 
@@ -259,6 +297,7 @@ def build_initial_ask_messages(
     system_prompt_additions: Optional[str] = None,
     global_instructions: Optional[Instructions] = None,
     cluster_name: Optional[str] = None,
+    prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
 ) -> List[Dict]:
     """Build the initial messages for the CLI ask command."""
     system_prompt, user_prompt = build_prompts(
@@ -272,6 +311,7 @@ def build_initial_ask_messages(
         file_paths=file_paths,
         include_todowrite_reminder=True,
         images=None,
+        prompt_component_overrides=prompt_component_overrides,
     )
 
     messages = []
