@@ -136,6 +136,12 @@ class TestHttpToolsetHostMatching:
         assert error is not None
         assert endpoint is None
 
+    def test_host_match_with_port(self, toolset):
+        endpoint, error = toolset.match_endpoint("https://api.github.com:8443/repos/foo/bar")
+        assert error is None
+        assert endpoint is not None
+        assert "api.github.com" in endpoint.hosts
+
 
 class TestHttpToolsetMethodCheck:
     @pytest.fixture
