@@ -106,13 +106,13 @@ class DatadogTracesToolset(Toolset):
             }
 
             # Use search endpoint instead
-            search_url = f"{dd_config.site_api_url}/api/v2/spans/events/search"
+            search_url = f"{dd_config.api_url}/api/v2/spans/events/search"
 
             execute_datadog_http_request(
                 url=search_url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=dd_config.request_timeout,
+                timeout=dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -252,7 +252,7 @@ class GetSpans(BaseDatadogTracesTool):
                 sort = "-timestamp"
 
             # Use POST endpoint for more complex searches
-            url = f"{self.toolset.dd_config.site_api_url}/api/v2/spans/events/search"
+            url = f"{self.toolset.dd_config.api_url}/api/v2/spans/events/search"
             headers = get_headers(self.toolset.dd_config)
 
             payload = {
@@ -280,7 +280,7 @@ class GetSpans(BaseDatadogTracesTool):
                 url=url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -613,7 +613,7 @@ class AggregateSpans(BaseDatadogTracesTool):
             query = params.get("query", "*")
 
             # Build the request payload
-            url = f"{self.toolset.dd_config.site_api_url}/api/v2/spans/analytics/aggregate"
+            url = f"{self.toolset.dd_config.api_url}/api/v2/spans/analytics/aggregate"
             headers = get_headers(self.toolset.dd_config)
 
             # Build payload attributes first
@@ -653,7 +653,7 @@ class AggregateSpans(BaseDatadogTracesTool):
                 url=url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="POST",
             )
 

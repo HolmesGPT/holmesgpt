@@ -43,7 +43,7 @@ toolsets:
     enabled: true
     config:
       api_key: <your grafana API key>
-      url: https://xxxxxxx.grafana.net # Your Grafana cloud account URL
+      api_url: https://xxxxxxx.grafana.net # Your Grafana cloud account URL
       grafana_datasource_uid: <the UID of the loki data source in Grafana>
 
   kubernetes/logs:
@@ -61,8 +61,8 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: http://loki.logging
-      headers:
+      api_url: http://loki.logging
+      additional_headers:
         X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if loki multitenancy is enabled
 
   kubernetes/logs:
@@ -80,7 +80,7 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: https://loki.internal
+      api_url: https://loki.internal
       verify_ssl: false  # Disable SSL verification (default: true)
 ```
 
@@ -93,7 +93,7 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: http://loki.internal:3100  # Internal URL for API calls
+      api_url: http://loki.internal:3100  # Internal URL for API calls
       external_url: https://loki.example.com  # URL for links in results
 ```
 
