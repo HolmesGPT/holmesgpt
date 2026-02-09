@@ -54,10 +54,8 @@ async def setup_context(mock_k8s_api, mock_config):
         timeout=mock_config.holmes_api_timeout,
     )
 
-    # Initialize context (creates k8s_api and api_client internally)
-    context.initialize(cfg=mock_config)
-
-    # Override with mocked instances for testing
+    # Set context globals directly (avoid loading real k8s config in tests)
+    context.config = mock_config
     context.api_client = api_client
     context.k8s_api = mock_k8s_api
 
