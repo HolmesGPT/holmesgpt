@@ -14,7 +14,7 @@ from holmes_operator import context
 from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
 from holmes_operator.handlers.healthcheck import on_healthcheck_create
-from holmes_operator.models import CheckPhase, CheckResult, ConditionStatus
+from holmes_operator.models import CheckPhase, CheckStatus, ConditionStatus
 
 
 @pytest.fixture
@@ -41,11 +41,8 @@ def mock_config():
         holmes_api_timeout=300,
         log_level="INFO",
         max_history_items=10,
-        enable_metrics=False,
-        metrics_port=8080,
         cleanup_completed_checks=False,
         completed_check_ttl_hours=24,
-        scheduler_timezone="UTC",
     )
 
 
@@ -57,11 +54,12 @@ async def setup_context(mock_k8s_api, mock_config):
         timeout=mock_config.holmes_api_timeout,
     )
 
-    context.initialize(
-        cfg=mock_config,
-        api=api_client,
-        k8s=mock_k8s_api,
-    )
+    # Initialize context (creates k8s_api and api_client internally)
+    context.initialize(cfg=mock_config)
+
+    # Override with mocked instances for testing
+    context.api_client = api_client
+    context.k8s_api = mock_k8s_api
 
     yield
 
@@ -98,7 +96,12 @@ class TestHealthCheckCreate:
                     "duration": 5.2,
                     "model_used": "gpt-4.1",
                     "notifications": [
-                        {"type": "slack", "status": "sent", "channel": "#alerts"}
+                        {
+                            "type": "slack",
+                            "status": "sent",
+                            "channel": "#alerts",
+                            "error": None,
+                        }
                     ],
                 },
             )
@@ -141,7 +144,7 @@ class TestHealthCheckCreate:
         call_2 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[2]
         status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.COMPLETED.value
-        assert status["result"] == CheckResult.PASS.value
+        assert status["result"] == CheckStatus.PASS.value
         assert status["message"] == "All systems operational"
         assert (
             status["rationale"] == "Checked pod status and logs, everything looks good"
@@ -173,7 +176,14 @@ class TestHealthCheckCreate:
                     "rationale": "Container exits with error code 1. Logs show OOMKilled.",
                     "duration": 3.8,
                     "model_used": "gpt-4.1",
-                    "notifications": [],
+                    "notifications": [
+                        {
+                            "type": "slack",
+                            "status": "skipped",
+                            "channel": None,
+                            "error": "SLACK_TOKEN not configured",
+                        }
+                    ],
                 },
             )
         )
@@ -202,8 +212,12 @@ class TestHealthCheckCreate:
         call_2 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[2]
         status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.COMPLETED.value
-        assert status["result"] == CheckResult.FAIL.value
+        assert status["result"] == CheckStatus.FAIL.value
         assert "CrashLoopBackOff" in status["message"]
+        assert status["modelUsed"] == "gpt-4.1"
+        assert len(status["notifications"]) == 1
+        assert status["notifications"][0]["type"] == "slack"
+        assert status["notifications"][0]["status"] == "skipped"
 
     @patch("holmes_operator.handlers.healthcheck.kopf.event")
     async def test_api_error_handling(
@@ -245,4 +259,4 @@ class TestHealthCheckCreate:
         call_2 = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list[2]
         status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.FAILED.value
-        assert status["result"] == CheckResult.ERROR.value
+        assert status["result"] == CheckStatus.ERROR.value

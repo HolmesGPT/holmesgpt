@@ -8,7 +8,7 @@ from litellm.exceptions import AuthenticationError
 from pydantic import BaseModel, Field
 
 from holmes.checks.checks import execute_check
-from holmes.checks.models import Check, CheckMode
+from holmes.checks.models import Check, CheckMode, CheckResult, CheckStatus
 from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
@@ -34,7 +34,7 @@ class CheckExecutionRequest(BaseModel):
         None, description="Name of the check for tracking purposes"
     )
     timeout: int = 30
-    mode: str = CheckMode.MONITOR.value
+    mode: CheckMode = CheckMode.MONITOR
     destinations: list[dict] = []  # TODO: change to DestinationConfig?
     model: Optional[str] = Field(None, description="The model to use for the check.")
 
@@ -51,7 +51,7 @@ class NotificationStatus(BaseModel):
 class CheckExecutionResponse(BaseModel):
     """Response model for check execution."""
 
-    status: str  # "pass", "fail", "error"
+    status: CheckStatus
     message: str
     duration: float
     rationale: Optional[str] = None
@@ -96,12 +96,12 @@ def execute_health_check(
             name=request.name or "api-check",
             query=request.query,
             timeout=request.timeout,
-            mode=CheckMode[request.mode.upper()],
+            mode=request.mode,
             destinations=destination_names,
         )
 
         # Execute the check using the shared function
-        result = execute_check(
+        result: CheckResult = execute_check(
             check=check,
             ai=ai,
             verbose=False,
@@ -112,10 +112,10 @@ def execute_health_check(
         notifications = []
 
         # Send alerts if check failed and has destinations configured
-        if result.status.value == "fail" and request.destinations:
+        if result.status == CheckStatus.FAIL and request.destinations:
             try:
                 # Create an Issue object for the failed check
-                check_name = request.name or "api-check"
+                check_name = result.check_name
                 issue = Issue(
                     id=f"healthcheck-{check_name}-{int(time.time())}",
                     name=f"Health Check Failed: {check_name}",
@@ -191,7 +191,7 @@ def execute_health_check(
 
         # Return the result with the actual model used
         return CheckExecutionResponse(
-            status=result.status.value,
+            status=result.status,
             message=result.message,
             duration=result.duration,
             rationale=result.rationale,

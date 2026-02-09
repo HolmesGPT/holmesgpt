@@ -15,7 +15,7 @@ class CheckPhase(str, Enum):
     FAILED = "Failed"
 
 
-class CheckResult(str, Enum):
+class CheckStatus(str, Enum):
     """Health check result."""
 
     PASS = "pass"
@@ -88,7 +88,7 @@ class HealthCheckStatus(BaseModel):
     phase: Optional[CheckPhase] = None
     startTime: Optional[str] = None
     completionTime: Optional[str] = None
-    result: Optional[CheckResult] = None
+    result: Optional[CheckStatus] = None
     message: Optional[str] = None
     rationale: Optional[str] = None
     duration: Optional[float] = None
@@ -133,7 +133,7 @@ class ScheduledCheckHistoryEntry(BaseModel):
     """History entry for a scheduled check execution."""
 
     executionTime: str
-    result: CheckResult
+    result: CheckStatus
     duration: float
     checkName: str
     message: str
@@ -144,8 +144,20 @@ class ScheduledHealthCheckStatus(BaseModel):
 
     lastScheduleTime: Optional[str] = None
     lastSuccessfulTime: Optional[str] = None
-    lastResult: Optional[CheckResult] = None
+    lastResult: Optional[CheckStatus] = None
     message: Optional[str] = None
     active: List[ScheduledCheckActiveRef] = Field(default_factory=list)
     history: List[ScheduledCheckHistoryEntry] = Field(default_factory=list)
     conditions: List[HealthCheckCondition] = Field(default_factory=list)
+
+
+class CheckResponse(BaseModel):
+    status: CheckStatus
+    message: str
+    duration: float
+    rationale: Optional[str] = None
+    error: Optional[str] = None
+    model_used: Optional[str] = None  # The actual model that was used
+    notifications: Optional[list[NotificationStatus]] = (
+        None  # Notification delivery status
+    )

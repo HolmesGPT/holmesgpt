@@ -49,8 +49,6 @@ spec:
           value: {{ .Values.operator.cleanupCompletedChecks | default false | quote }}
         - name: COMPLETED_CHECK_TTL_HOURS
           value: {{ .Values.operator.completedCheckTTLHours | default 24 | quote }}
-        - name: SCHEDULER_TIMEZONE
-          value: {{ .Values.operator.schedulerTimezone | default "UTC" }}
         {{- if .Values.operator.additionalEnvVars }}
         {{- toYaml .Values.operator.additionalEnvVars | nindent 8 }}
         {{- end }}
@@ -60,7 +58,6 @@ spec:
             cpu: {{ .Values.operator.resources.requests.cpu | default "100m" }}
           limits:
             memory: {{ .Values.operator.resources.limits.memory | default "512Mi" }}
-            cpu: {{ .Values.operator.resources.limits.cpu | default "500m" }}
         securityContext:
           runAsNonRoot: true
           readOnlyRootFilesystem: true

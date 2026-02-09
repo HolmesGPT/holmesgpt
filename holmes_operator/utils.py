@@ -8,7 +8,7 @@ from kubernetes import client
 
 from holmes_operator.models import (
     CheckPhase,
-    CheckResult,
+    CheckStatus,
     HealthCheckCondition,
     NotificationStatus,
 )
@@ -21,7 +21,7 @@ async def update_healthcheck_status(
     name: str,
     namespace: str,
     phase: Optional[CheckPhase] = None,
-    result: Optional[CheckResult] = None,
+    result: Optional[CheckStatus] = None,
     message: Optional[str] = None,
     rationale: Optional[str] = None,
     duration: Optional[float] = None,
@@ -216,7 +216,7 @@ async def set_healthcheck_completed(
     api: client.CustomObjectsApi,
     name: str,
     namespace: str,
-    result: CheckResult,
+    result: CheckStatus,
     message: str,
     rationale: Optional[str] = None,
     duration: Optional[float] = None,
@@ -254,7 +254,7 @@ async def set_healthcheck_failed(
         name=name,
         namespace=namespace,
         phase=CheckPhase.FAILED,
-        result=CheckResult.ERROR,
+        result=CheckStatus.ERROR,
         message=message,
         error=error,
         completion_time=get_current_time_iso(),
