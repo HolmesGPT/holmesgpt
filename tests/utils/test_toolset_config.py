@@ -7,6 +7,7 @@ from _pytest.logging import LogCaptureFixture
 from pydantic import Field
 
 from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
+from holmes.plugins.toolsets.elasticsearch.elasticsearch import ElasticsearchConfig
 from holmes.plugins.toolsets.kafka import KafkaClusterConfig, KafkaConfig
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
@@ -236,6 +237,59 @@ class TestDatadogConfigBackwardCompatibility:
         assert config_old.app_key == config_new.app_key
         assert str(config_old.api_url) == str(config_new.api_url)
         assert config_old.timeout_seconds == config_new.timeout_seconds
+
+
+class TestElasticsearchConfigBackwardCompatibility:
+    """Test backward compatibility for ElasticsearchConfig deprecated fields."""
+
+    def test_deprecated_elasticsearch_fields(self, caplog):
+        """Test that deprecated Elasticsearch config fields are migrated."""
+        with caplog.at_level(logging.WARNING):
+            config = ElasticsearchConfig(
+                url="https://elasticsearch:9200",
+                timeout=30,
+            )
+
+        assert config.api_url == "https://elasticsearch:9200"
+        assert config.timeout_seconds == 30
+        assert "url -> api_url" in caplog.text
+        assert "timeout -> timeout_seconds" in caplog.text
+
+    def test_new_elasticsearch_fields_no_warning(self, caplog):
+        """Test that new Elasticsearch field names don't trigger warnings."""
+        with caplog.at_level(logging.WARNING):
+            config = ElasticsearchConfig(
+                api_url="https://elasticsearch:9200",
+                timeout_seconds=15,
+            )
+
+        assert config.api_url == "https://elasticsearch:9200"
+        assert config.timeout_seconds == 15
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_old_and_new_elasticsearch_config_equal(self):
+        """Test that config created with old fields equals config with new fields."""
+        # Config using old field names
+        old_config = ElasticsearchConfig(
+            url="https://elasticsearch:9200",
+            api_key="test-api-key",
+            timeout=20,
+            verify_ssl=False,
+        )
+
+        # Config using new field names
+        new_config = ElasticsearchConfig(
+            api_url="https://elasticsearch:9200",
+            api_key="test-api-key",
+            timeout_seconds=20,
+            verify_ssl=False,
+        )
+
+        # Both configs should have the same values
+        assert old_config.api_url == new_config.api_url
+        assert old_config.timeout_seconds == new_config.timeout_seconds
+        assert old_config.api_key == new_config.api_key
+        assert old_config.verify_ssl == new_config.verify_ssl
 
 
 class TestKafkaConfigBackwardCompatibility:
