@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import sentry_sdk
 import yaml  # type: ignore
-from pydantic import BaseModel, ConfigDict, FilePath, PrivateAttr, SecretStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    FilePath,
+    PrivateAttr,
+    SecretStr,
+    model_validator,
+)
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
@@ -103,6 +110,7 @@ class Config(RobustaBaseConfig):
     _toolset_manager: Optional[ToolsetManager] = PrivateAttr(None)
     _llm_model_registry: Optional[LLMModelRegistry] = PrivateAttr(None)
     _dal: Optional[SupabaseDal] = PrivateAttr(None)
+    _config_file_path: Optional[Path] = PrivateAttr(None)
 
     @property
     def toolset_manager(self) -> ToolsetManager:
@@ -114,6 +122,7 @@ class Config(RobustaBaseConfig):
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
                 global_fast_model=self.fast_model,
                 custom_runbook_catalogs=self.custom_runbook_catalogs,
+                config_file_path=self._config_file_path,
             )
         return self._toolset_manager
 
@@ -175,6 +184,9 @@ class Config(RobustaBaseConfig):
             merged_config = config_from_file.dict()
             merged_config.update(cli_options)
             result = cls(**merged_config)
+
+        if config_file is not None and config_file.exists():
+            result._config_file_path = config_file
 
         result.log_useful_info()
         return result
