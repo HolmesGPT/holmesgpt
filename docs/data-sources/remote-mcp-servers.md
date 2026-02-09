@@ -25,6 +25,7 @@ HolmesGPT supports three MCP transport modes:
           mode: streamable-http
           headers:
             Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+          icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
         # llm_instructions tells Holmes WHEN and HOW to use this server
         llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
@@ -53,6 +54,7 @@ HolmesGPT supports three MCP transport modes:
           mode: streamable-http
           headers:
             Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+          icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
         # llm_instructions tells Holmes WHEN and HOW to use this server
         llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
@@ -82,6 +84,7 @@ HolmesGPT supports three MCP transport modes:
             mode: streamable-http
             headers:
               Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+            icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
           # llm_instructions tells Holmes WHEN and HOW to use this server
           llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```

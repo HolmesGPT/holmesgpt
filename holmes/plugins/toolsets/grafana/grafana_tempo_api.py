@@ -56,7 +56,7 @@ class GrafanaTempoAPI:
         """
         self.config = config
         self.base_url = get_base_url(config)
-        self.headers = build_headers(config.api_key, config.headers)
+        self.headers = build_headers(config.api_key, config.additional_headers)
 
     def _make_request(
         self,
