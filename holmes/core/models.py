@@ -198,6 +198,10 @@ class ToolApprovalDecision(BaseModel):
 
 
 class ChatRequestBaseModel(BaseModel):
+    chat_id: Optional[str] = Field(
+        default=None,
+        description="Optional chat identifier for session continuity. When provided, tool results saved to filesystem are scoped to this chat and persist across requests.",
+    )
     conversation_history: Optional[list[dict]] = None
     model: Optional[str] = None
     stream: bool = Field(default=False)

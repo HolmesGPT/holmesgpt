@@ -38,6 +38,7 @@ from holmes.core.feedback import (
 )
 from holmes.core.prompt import PromptComponent, build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
+from holmes.core.tools_utils.filesystem_result_storage import generate_chat_id
 from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
@@ -1279,7 +1280,7 @@ def run_interactive_loop(
                     console.print(
                         f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
                     )
-                    return
+                    break
                 elif command == SlashCommands.HELP.command:
                     console.print(
                         f"[bold {HELP_COLOR}]Available commands:[/bold {HELP_COLOR}]"
@@ -1304,6 +1305,9 @@ def run_interactive_loop(
                     all_tool_calls_history.clear()
                     # Reset the show completer history
                     show_completer.update_history([])
+                    # Clean up old session's tool result files and start fresh
+                    ai.cleanup()
+                    ai.chat_id = generate_chat_id()
                     continue
                 elif command == SlashCommands.TOOLS_CONFIG.command:
                     pretty_print_toolset_status(ai.tool_executor.toolsets, console)
@@ -1436,3 +1440,6 @@ def run_interactive_loop(
             trace_url = tracer.get_trace_url()
             if trace_url:
                 console.print(f"🔍 View trace: {trace_url}")
+
+    # Clean up tool result files when the interactive session ends
+    ai.cleanup()

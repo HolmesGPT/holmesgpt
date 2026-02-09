@@ -40,8 +40,8 @@ from holmes.core.tools import (
     ToolInvokeContext,
 )
 from holmes.core.tools_utils.filesystem_result_storage import (
-    cleanup_session,
-    generate_session_id,
+    cleanup_chat,
+    generate_chat_id,
 )
 from holmes.core.tools_utils.tool_context_window_limiter import (
     prevent_overly_big_tool_response,
@@ -250,7 +250,7 @@ class ToolCallingLLM:
         max_steps: int,
         llm: LLM,
         tracer=None,
-        session_id: Optional[str] = None,
+        chat_id: Optional[str] = None,
     ):
         self.tool_executor = tool_executor
         self.max_steps = max_steps
@@ -262,8 +262,8 @@ class ToolCallingLLM:
 
         self._runbook_in_use: bool = False
 
-        # Session ID for filesystem storage of large tool results
-        self.session_id = session_id or generate_session_id()
+        # Chat ID for filesystem storage of large tool results
+        self.chat_id = chat_id or generate_chat_id()
 
     def reset_interaction_state(self) -> None:
         """
@@ -276,9 +276,9 @@ class ToolCallingLLM:
         Clean up resources associated with this LLM instance.
 
         This includes removing any tool results saved to the filesystem
-        during this session.
+        during this chat.
         """
-        cleanup_session(self.session_id)
+        cleanup_chat(self.chat_id)
 
     def _can_use_filesystem_storage(self) -> bool:
         """Check if filesystem storage for large tool results is available.
@@ -287,7 +287,8 @@ class ToolCallingLLM:
         include_default_allow_deny_list=True, so the LLM can use bash
         commands to read the saved files.
         """
-        for toolset in self.tool_executor.enabled_toolsets:
+        enabled_toolsets = getattr(self.tool_executor, "enabled_toolsets", [])
+        for toolset in enabled_toolsets:
             if toolset.name == "bash":
                 config = getattr(toolset, "config", None)
                 if config and getattr(config, "include_default_allow_deny_list", False):
@@ -846,7 +847,7 @@ class ToolCallingLLM:
             original_token_count = prevent_overly_big_tool_response(
                 tool_call_result=tool_call_result,
                 llm=self.llm,
-                session_id=self.session_id if self._can_use_filesystem_storage() else None,
+                chat_id=self.chat_id if self._can_use_filesystem_storage() else None,
             )
 
             ToolCallingLLM._log_tool_call_result(

@@ -345,12 +345,13 @@ class Config(RobustaBaseConfig):
         dal: Optional["SupabaseDal"] = None,
         model: Optional[str] = None,
         tracer=None,
+        chat_id: Optional[str] = None,
     ) -> "ToolCallingLLM":
         tool_executor = self.create_tool_executor(dal)
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         return ToolCallingLLM(
-            tool_executor, self.max_steps, self._get_llm(model, tracer)
+            tool_executor, self.max_steps, self._get_llm(model, tracer), chat_id=chat_id
         )
 
     def create_issue_investigator(

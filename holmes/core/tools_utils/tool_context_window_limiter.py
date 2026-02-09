@@ -27,19 +27,19 @@ def get_pct_token_count(percent_of_total_context_window: float, llm: LLM) -> int
 def prevent_overly_big_tool_response(
     tool_call_result: ToolCallResult,
     llm: LLM,
-    session_id: Optional[str] = None,
+    chat_id: Optional[str] = None,
 ) -> int:
     """
     Handle tool results that exceed the context window limit.
 
-    If session_id is provided and filesystem storage is enabled, saves large
+    If chat_id is provided and filesystem storage is enabled, saves large
     results to filesystem and returns a pointer message to the LLM. Otherwise,
     falls back to dropping the data with an error message.
 
     Args:
         tool_call_result: The tool call result to check/process
         llm: The LLM instance for token counting
-        session_id: Optional session ID for filesystem storage
+        chat_id: Optional chat ID for filesystem storage
 
     Returns:
         The token count of the original message
@@ -57,12 +57,12 @@ def prevent_overly_big_tool_response(
         f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
     )
 
-    # Try filesystem storage if session_id is provided
+    # Try filesystem storage if chat_id is provided
     file_path = None
-    if session_id:
+    if chat_id:
         stringified_data = tool_call_result.result.get_stringified_data()
         file_path = save_large_result(
-            session_id=session_id,
+            chat_id=chat_id,
             tool_call_id=tool_call_result.tool_call_id,
             content=stringified_data,
         )
