@@ -8,6 +8,7 @@ and watching for their completion.
 import asyncio
 import logging
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from kubernetes import client
 
@@ -15,6 +16,24 @@ from holmes_operator.models import CheckResult, ScheduledHealthCheckSpec
 from holmes_operator.utils import get_current_time_iso
 
 logger = logging.getLogger(__name__)
+
+
+def _log_task_exception(task: asyncio.Task):
+    """
+    Log any exception that occurred in a background task.
+
+    Args:
+        task: The completed asyncio Task to check for exceptions
+    """
+    if task.cancelled():
+        return
+
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            f"Background task raised an exception: {exc}",
+            exc_info=exc,
+        )
 
 
 async def execute_scheduled_check(
@@ -41,9 +60,10 @@ async def execute_scheduled_check(
     4. Starts an async watcher for completion
     """
     try:
-        # 1. Generate unique name with timestamp
+        # 1. Generate unique name with timestamp and random suffix to avoid collisions
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        check_name = f"{name}-{timestamp}"
+        random_suffix = uuid4().hex[:6]
+        check_name = f"{name}-{timestamp}-{random_suffix}"
 
         logger.info(
             f"Executing scheduled check {namespace}/{name}, creating HealthCheck: {check_name}",
@@ -113,7 +133,7 @@ async def execute_scheduled_check(
         )
 
         # 5. Start async watcher for completion
-        asyncio.create_task(
+        task = asyncio.create_task(
             watch_healthcheck_completion(
                 scheduled_name=name,
                 scheduled_namespace=namespace,
@@ -122,6 +142,7 @@ async def execute_scheduled_check(
                 k8s_api=k8s_api,
             )
         )
+        task.add_done_callback(_log_task_exception)
 
         logger.info(f"Successfully created HealthCheck {namespace}/{check_name}")
 
@@ -183,7 +204,17 @@ async def watch_healthcheck_completion(
                     "check_name": check_name,
                 },
             )
-            # TODO: Update condition with timeout error
+            # Remove from active[] and record timeout in history[]
+            await _move_to_history(
+                api=k8s_api,
+                scheduled_name=scheduled_name,
+                scheduled_namespace=scheduled_namespace,
+                check_name=check_name,
+                result=CheckResult.ERROR,
+                message=f"Watcher timeout after {elapsed:.1f} seconds",
+                duration=elapsed,
+                execution_time=start_time.isoformat(),
+            )
             break
 
         try:
@@ -284,6 +315,79 @@ async def watch_healthcheck_completion(
 # Internal helper functions (will be moved to utils.py in Step 5)
 
 
+async def _patch_status_with_retry(
+    api: client.CustomObjectsApi,
+    scheduled_name: str,
+    scheduled_namespace: str,
+    modify_fn,
+    max_retries: int = 5,
+):
+    """
+    Safely patch ScheduledHealthCheck status with conflict retry.
+
+    Args:
+        api: Kubernetes API client
+        scheduled_name: ScheduledHealthCheck name
+        scheduled_namespace: ScheduledHealthCheck namespace
+        modify_fn: Callable that takes the resource dict and returns status_updates dict
+        max_retries: Maximum number of retry attempts on conflict
+
+    Raises:
+        Exception: If max retries exceeded or other error occurs
+    """
+    for attempt in range(max_retries):
+        try:
+            # Get current resource with resourceVersion
+            resource = await asyncio.to_thread(
+                api.get_namespaced_custom_object,
+                group="holmesgpt.dev",
+                version="v1alpha1",
+                namespace=scheduled_namespace,
+                plural="scheduledhealthchecks",
+                name=scheduled_name,
+            )
+
+            # Let caller compute status updates
+            status_updates = modify_fn(resource)
+
+            # Include resourceVersion for conflict detection
+            resource_version = resource.get("metadata", {}).get("resourceVersion")
+            body = {
+                "metadata": {"resourceVersion": resource_version},
+                "status": status_updates,
+            }
+
+            # Patch status
+            await asyncio.to_thread(
+                api.patch_namespaced_custom_object_status,
+                group="holmesgpt.dev",
+                version="v1alpha1",
+                namespace=scheduled_namespace,
+                plural="scheduledhealthchecks",
+                name=scheduled_name,
+                body=body,
+            )
+
+            # Success
+            return
+
+        except client.exceptions.ApiException as e:
+            if e.status == 409:
+                # Conflict - retry
+                logger.debug(
+                    f"Conflict updating {scheduled_namespace}/{scheduled_name} "
+                    f"status (attempt {attempt + 1}/{max_retries}), retrying..."
+                )
+                if attempt == max_retries - 1:
+                    raise Exception(
+                        f"Max retries ({max_retries}) exceeded for status update"
+                    ) from e
+                # Small delay before retry
+                await asyncio.sleep(0.1 * (attempt + 1))
+            else:
+                raise
+
+
 async def _add_active_check(
     api: client.CustomObjectsApi,
     scheduled_name: str,
@@ -294,21 +398,7 @@ async def _add_active_check(
 ):
     """Add HealthCheck to active[] list in ScheduledHealthCheck status."""
     try:
-        # Get current resource
-        resource = await asyncio.to_thread(
-            api.get_namespaced_custom_object,
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=scheduled_namespace,
-            plural="scheduledhealthchecks",
-            name=scheduled_name,
-        )
-
-        # Get current status
-        status = resource.get("status", {})
-        active = status.get("active", [])
-
-        # Get HealthCheck UID
+        # Get HealthCheck UID (outside retry loop)
         hc = await asyncio.to_thread(
             api.get_namespaced_custom_object,
             group="holmesgpt.dev",
@@ -319,25 +409,29 @@ async def _add_active_check(
         )
         check_uid = hc.get("metadata", {}).get("uid", "")
 
-        # Append to active list
-        active.append(
-            {
-                "name": check_name,
-                "namespace": check_namespace,
-                "uid": check_uid,
-                "startTime": start_time,
-            }
-        )
+        # Define status modification function
+        def modify_status(resource):
+            status = resource.get("status", {})
+            active = status.get("active", [])
 
-        # Update status
-        await asyncio.to_thread(
-            api.patch_namespaced_custom_object_status,
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=scheduled_namespace,
-            plural="scheduledhealthchecks",
-            name=scheduled_name,
-            body={"status": {"active": active, "lastScheduleTime": start_time}},
+            # Append to active list
+            active.append(
+                {
+                    "name": check_name,
+                    "namespace": check_namespace,
+                    "uid": check_uid,
+                    "startTime": start_time,
+                }
+            )
+
+            return {"active": active, "lastScheduleTime": start_time}
+
+        # Update status with retry on conflict
+        await _patch_status_with_retry(
+            api=api,
+            scheduled_name=scheduled_name,
+            scheduled_namespace=scheduled_namespace,
+            modify_fn=modify_status,
         )
 
     except Exception as e:
@@ -356,61 +450,52 @@ async def _move_to_history(
 ):
     """Move HealthCheck from active[] to history[] in ScheduledHealthCheck status."""
     try:
-        # Get current resource
-        resource = await asyncio.to_thread(
-            api.get_namespaced_custom_object,
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=scheduled_namespace,
-            plural="scheduledhealthchecks",
-            name=scheduled_name,
-        )
+        # Define status modification function
+        def modify_status(resource):
+            status = resource.get("status", {})
+            active = status.get("active", [])
+            history = status.get("history", [])
 
-        status = resource.get("status", {})
-        active = status.get("active", [])
-        history = status.get("history", [])
+            # Remove from active
+            active = [ref for ref in active if ref.get("name") != check_name]
 
-        # Remove from active
-        active = [ref for ref in active if ref.get("name") != check_name]
+            # Prepend to history (newest first)
+            history.insert(
+                0,
+                {
+                    "executionTime": execution_time,
+                    "result": result.value,
+                    "duration": duration,
+                    "checkName": check_name,
+                    "message": message,
+                },
+            )
 
-        # Prepend to history (newest first)
-        history.insert(
-            0,
-            {
-                "executionTime": execution_time,
-                "result": result.value,
-                "duration": duration,
-                "checkName": check_name,
+            # Trim history to MAX_HISTORY_ITEMS (default 10)
+            # TODO: Get from context.config.max_history_items
+            max_history = 10
+            history = history[:max_history]
+
+            # Build status updates
+            status_updates = {
+                "active": active,
+                "history": history,
+                "lastResult": result.value,
                 "message": message,
-            },
-        )
+            }
 
-        # Trim history to MAX_HISTORY_ITEMS (default 10)
-        # TODO: Get from context.config.max_history_items
-        max_history = 10
-        history = history[:max_history]
+            # Update lastSuccessfulTime if passed
+            if result == CheckResult.PASS:
+                status_updates["lastSuccessfulTime"] = get_current_time_iso()
 
-        # Build status updates
-        status_updates = {
-            "active": active,
-            "history": history,
-            "lastResult": result.value,
-            "message": message,
-        }
+            return status_updates
 
-        # Update lastSuccessfulTime if passed
-        if result == CheckResult.PASS:
-            status_updates["lastSuccessfulTime"] = get_current_time_iso()
-
-        # Patch status
-        await asyncio.to_thread(
-            api.patch_namespaced_custom_object_status,
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=scheduled_namespace,
-            plural="scheduledhealthchecks",
-            name=scheduled_name,
-            body={"status": status_updates},
+        # Update status with retry on conflict
+        await _patch_status_with_retry(
+            api=api,
+            scheduled_name=scheduled_name,
+            scheduled_namespace=scheduled_namespace,
+            modify_fn=modify_status,
         )
 
     except Exception as e:
@@ -425,29 +510,22 @@ async def _remove_from_active(
 ):
     """Remove HealthCheck from active[] list without adding to history."""
     try:
-        resource = await asyncio.to_thread(
-            api.get_namespaced_custom_object,
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=scheduled_namespace,
-            plural="scheduledhealthchecks",
-            name=scheduled_name,
-        )
+        # Define status modification function
+        def modify_status(resource):
+            status = resource.get("status", {})
+            active = status.get("active", [])
 
-        status = resource.get("status", {})
-        active = status.get("active", [])
+            # Remove from active
+            active = [ref for ref in active if ref.get("name") != check_name]
 
-        # Remove from active
-        active = [ref for ref in active if ref.get("name") != check_name]
+            return {"active": active}
 
-        await asyncio.to_thread(
-            api.patch_namespaced_custom_object_status,
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=scheduled_namespace,
-            plural="scheduledhealthchecks",
-            name=scheduled_name,
-            body={"status": {"active": active}},
+        # Update status with retry on conflict
+        await _patch_status_with_retry(
+            api=api,
+            scheduled_name=scheduled_name,
+            scheduled_namespace=scheduled_namespace,
+            modify_fn=modify_status,
         )
 
     except Exception as e:

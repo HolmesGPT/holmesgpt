@@ -149,8 +149,10 @@ def execute_health_check(
                         )
 
                         try:
-                            # Check if SLACK_TOKEN is configured
-                            slack_token = os.environ.get("SLACK_TOKEN")
+                            # Check if SLACK_TOKEN is configured (from destination config or env var)
+                            slack_token = dest_config.get("token") or os.environ.get(
+                                "SLACK_TOKEN"
+                            )
                             slack_channel = dest_config.get(
                                 "channel"
                             ) or os.environ.get("SLACK_CHANNEL")

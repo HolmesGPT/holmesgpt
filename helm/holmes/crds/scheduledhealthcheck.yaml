@@ -31,7 +31,8 @@ spec:
                 schedule:
                   type: string
                   description: "Cron expression for recurring execution (e.g., '*/5 * * * *')"
-                  pattern: '^(\*|([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])|\*\/([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])) (\*|([0-9]|1[0-9]|2[0-3])|\*\/([0-9]|1[0-9]|2[0-3])) (\*|([1-9]|1[0-9]|2[0-9]|3[0-1])|\*\/([1-9]|1[0-9]|2[0-9]|3[0-1])) (\*|([1-9]|1[0-2])|\*\/([1-9]|1[0-2])) (\*|([0-6])|\*\/([0-6]))$'
+                  pattern: '^.+$'
+                  minLength: 1
                 enabled:
                   type: boolean
                   description: "Whether the schedule is enabled"
@@ -193,11 +194,6 @@ spec:
           type: string
           description: Result of last execution
           jsonPath: .status.lastResult
-        - name: Active
-          type: integer
-          description: Number of currently running checks
-          jsonPath: .status.active[*]
-          priority: 1
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp

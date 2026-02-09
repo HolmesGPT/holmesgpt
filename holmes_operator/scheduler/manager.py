@@ -94,10 +94,15 @@ class SchedulerManager:
         """
         key = f"{namespace}/{name}"
 
+        # Validate cron expression
         try:
-            # Validate cron expression
             trigger = CronTrigger.from_crontab(cron_expr)
+        except Exception as e:
+            logger.error(f"Invalid cron expression for {key}: {e}")
+            raise ValueError(f"Invalid cron expression '{cron_expr}': {e}") from e
 
+        # Perform scheduling operations
+        try:
             # Check for catchup if requested
             if check_catchup:
                 await self._check_and_catchup(
@@ -119,8 +124,8 @@ class SchedulerManager:
             return job.id
 
         except Exception as e:
-            logger.error(f"Failed to register schedule for {key}: {e}")
-            raise ValueError(f"Invalid cron expression '{cron_expr}': {e}") from e
+            logger.error(f"Failed to register schedule for {key}: {e}", exc_info=True)
+            raise
 
     async def update_schedule(
         self,
@@ -166,10 +171,12 @@ class SchedulerManager:
             job_id = self.job_registry[key]
             try:
                 self.scheduler.remove_job(job_id)
-                del self.job_registry[key]
                 logger.info(f"Removed schedule for {key}")
             except Exception as e:
-                logger.error(f"Failed to remove job {job_id}: {e}")
+                logger.error(f"Failed to remove job {job_id}: {e}", exc_info=True)
+            finally:
+                # Always clean up registry entry to avoid stale entries
+                self.job_registry.pop(key, None)
         else:
             logger.debug(f"No schedule found for {key} to remove")
 

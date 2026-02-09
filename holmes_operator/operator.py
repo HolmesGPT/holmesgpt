@@ -68,15 +68,18 @@ async def startup_handler(settings: kopf.OperatorSettings, **kwargs: Any) -> Non
     scheduler_manager = SchedulerManager(
         timezone_str=operator_config.scheduler_timezone, k8s_api=k8s_api
     )
-    await scheduler_manager.start()
 
-    # Initialize global context
+    # Initialize global context before starting scheduler
+    # This ensures cleanup handler can access scheduler_manager even if start() fails
     context.initialize(
         cfg=operator_config,
         api=api_client,
         k8s=k8s_api,
         scheduler=scheduler_manager,
     )
+
+    # Start the scheduler (may load existing schedules and raise)
+    await scheduler_manager.start()
 
     logger.info("Holmes Operator started successfully")
 

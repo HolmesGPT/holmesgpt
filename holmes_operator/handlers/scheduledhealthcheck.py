@@ -152,6 +152,8 @@ async def on_scheduledhealthcheck_update(
             or old_spec.query != new_spec.query
             or old_spec.timeout != new_spec.timeout
             or old_spec.mode != new_spec.mode
+            or old_spec.model != new_spec.model
+            or old_spec.destinations != new_spec.destinations
         )
 
         logger.info(
@@ -267,69 +269,6 @@ async def on_scheduledhealthcheck_delete(
             exc_info=True,
         )
         raise
-
-
-@kopf.on.field(
-    "holmesgpt.dev", "v1alpha1", "scheduledhealthchecks", field="spec.enabled"
-)
-async def on_enabled_change(
-    *,
-    old: bool,
-    new: bool,
-    name: str,
-    namespace: str,
-    spec: Dict[str, Any],
-    uid: str,
-    logger: kopf.Logger,
-    **kwargs,
-):
-    """
-    Handle enabled field changes.
-
-    Provides fast response when users toggle enabled on/off.
-
-    Args:
-        old: Previous enabled value
-        new: New enabled value
-        name: Resource name
-        namespace: Resource namespace
-        spec: Current spec
-        uid: Resource UID
-        logger: Kopf logger
-    """
-    # Skip if no actual change
-    if old == new:
-        return
-
-    logger.info(f"Enabled changed for {namespace}/{name}: {old} -> {new}")
-
-    try:
-        scheduled_spec = ScheduledHealthCheckSpec(**spec)
-
-        if new and not old:
-            # Enabled
-            await context.scheduler_manager.add_schedule(
-                name=name,
-                namespace=namespace,
-                cron_expr=scheduled_spec.schedule,
-                spec=scheduled_spec,
-                scheduled_uid=uid,
-            )
-            logger.info(f"Enabled schedule: {namespace}/{name}")
-
-        elif old and not new:
-            # Disabled
-            await context.scheduler_manager.remove_schedule(
-                name=name, namespace=namespace
-            )
-            logger.info(f"Disabled schedule: {namespace}/{name}")
-
-    except Exception as e:
-        logger.error(
-            f"Failed to handle enabled change for {namespace}/{name}: {e}",
-            exc_info=True,
-        )
-        # Don't raise - let the update handler handle it
 
 
 # Helper function (will be moved to utils.py in Step 5)
