@@ -256,7 +256,7 @@ class HttpToolset(Toolset):
         if not parsed.scheme or not parsed.netloc:
             return None, f"Invalid URL format: {url}"
 
-        host = parsed.netloc
+        host = parsed.hostname or parsed.netloc
         path = parsed.path or "/"
 
         for endpoint in self.http_config.endpoints:

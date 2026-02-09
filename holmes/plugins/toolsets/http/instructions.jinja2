@@ -23,7 +23,7 @@ Configured endpoints:
   {%- if endpoint.paths != ['*'] %}
   Paths: {{ endpoint.paths | join(', ') }}
   {%- endif %}
-  Methods: {{ endpoint.get_methods() | join(', ') }}
+  Methods: {{ (endpoint.methods if endpoint.methods else ['GET']) | map('upper') | join(', ') }}
 {% endfor %}
 {% endif %}
 
