@@ -44,7 +44,6 @@ from holmes.plugins.toolsets.utils import (
     standard_start_datetime_tool_param_description,
     toolset_name_for_one_liner,
 )
-from holmes.utils.cache import TTLCache
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
@@ -77,6 +76,7 @@ class PrometheusConfig(ToolsetConfig):
     """Prometheus toolset configuration."""
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "headers": "additional_headers",
         "default_metadata_time_window_hrs": "discover_metrics_from_last_hours",
         "default_query_timeout_seconds": "query_timeout_seconds_default",
         "max_query_timeout_seconds": "query_timeout_seconds_hard_max",
@@ -133,7 +133,7 @@ class PrometheusConfig(ToolsetConfig):
         title="Return Data",
         description="Set to false to return only summaries without raw Prometheus data",
     )
-    headers: Dict[str, str] = Field(
+    additional_headers: Dict[str, str] = Field(
         default_factory=dict,
         title="Headers",
         description="HTTP headers for authentication (e.g., Authorization: Bearer token)",
@@ -174,16 +174,15 @@ class PrometheusConfig(ToolsetConfig):
 
     @model_validator(mode="after")
     def validate_prom_config(self):
-
         # If openshift is enabled, and the user didn't configure auth headers, we will try to load the token from the service account.
         if IS_OPENSHIFT:
-            if self.headers.get("Authorization"):
+            if self.additional_headers.get("Authorization"):
                 return self
 
             openshift_token = load_openshift_token()
             if openshift_token:
                 logging.info("Using openshift token for prometheus toolset auth")
-                self.headers["Authorization"] = f"Bearer {openshift_token}"
+                self.additional_headers["Authorization"] = f"Bearer {openshift_token}"
 
         return self
 
@@ -407,7 +406,7 @@ def do_request(
     if verify is None:
         verify = config.verify_ssl
     if headers is None:
-        headers = config.headers or {}
+        headers = config.additional_headers or {}
 
     if isinstance(config, AMPConfig):
         client = config.get_aws_client()  # cached AWSPrometheusConnect
@@ -724,7 +723,7 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
                 params=query_params,
                 timeout=40,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             rules_response.raise_for_status()
@@ -866,7 +865,7 @@ class GetMetricNames(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -984,7 +983,7 @@ class GetLabelValues(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1088,7 +1087,7 @@ class GetAllLabels(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1202,7 +1201,7 @@ class GetSeries(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1281,7 +1280,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1380,7 +1379,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1629,7 +1628,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1846,7 +1845,9 @@ class PrometheusToolset(Toolset):
 
             self.config = PrometheusConfig(
                 prometheus_url=prometheus_url,
-                headers=add_prometheus_auth(os.environ.get("PROMETHEUS_AUTH_HEADER")),
+                additional_headers=add_prometheus_auth(
+                    os.environ.get("PROMETHEUS_AUTH_HEADER")
+                ),
             )
             logging.info(f"Prometheus auto discovered at url {prometheus_url}")
             self._reload_llm_instructions()
@@ -1878,7 +1879,7 @@ class PrometheusToolset(Toolset):
             response = do_request(
                 config=self.config,
                 url=url,
-                headers=self.config.headers,
+                headers=self.config.additional_headers,
                 timeout=10,
                 verify=self.config.verify_ssl,
                 method="GET",
