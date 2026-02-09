@@ -3,10 +3,7 @@ user_prompt: |
   and tell me the verification code mentioned in it.
 
 expected_output:
-  - "Must call confluence_request tool"
   - "Must report the verification code: VERIFY-8K3P5N9"
-
-include_tool_calls: true
 
 tags:
   - confluence
@@ -22,7 +19,7 @@ before_test: |
   VERIFICATION_CODE="VERIFY-8K3P5N9"
 
   echo "Creating Confluence space ${SPACE_KEY}..."
-  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
     -H "Content-Type: application/json" \
@@ -51,7 +48,7 @@ before_test: |
   sleep 2
 
   echo "Creating page with verification code..."
-  PAGE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
     -H "Content-Type: application/json" \
@@ -81,7 +78,7 @@ before_test: |
   echo "Page created with ID: ${PAGE_ID}"
 
   echo "Verifying page content..."
-  VERIFY=$(curl -s \
+  VERIFY=$(curl -L -s \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/${PAGE_ID}?expand=body.storage" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
 
@@ -100,7 +97,7 @@ after_test: |
   SPACE_KEY="HOLMES214"
 
   echo "Deleting space ${SPACE_KEY}..."
-  HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
 

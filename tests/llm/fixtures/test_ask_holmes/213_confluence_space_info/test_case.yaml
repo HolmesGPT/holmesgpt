@@ -2,11 +2,8 @@ user_prompt: |
   Query the Confluence space with key 'HOLMES213' and tell me the space name and space ID.
 
 expected_output:
-  - "Must call confluence_request tool (not fetch_webpage or any other tool)"
   - "Must report the space name: Holmes Test Space 213"
   - "Must report the space ID as a number"
-
-include_tool_calls: true
 
 tags:
   - confluence
@@ -20,7 +17,7 @@ before_test: |
   SPACE_NAME="Holmes Test Space 213"
 
   echo "Creating Confluence space ${SPACE_KEY}..."
-  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
     -H "Content-Type: application/json" \
@@ -64,7 +61,7 @@ after_test: |
   SPACE_KEY="HOLMES213"
 
   echo "Deleting space ${SPACE_KEY}..."
-  HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
 

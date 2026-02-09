@@ -712,16 +712,27 @@ class MockToolsetManager:
         self, builtin_toolsets: List[Toolset], custom_definitions: List[Toolset]
     ) -> List[Toolset]:
         """Configure builtin toolsets with custom definitions."""
+        from holmes.plugins.toolsets.http.http_toolset import HttpToolset
+
         configured = []
 
         # First, validate that all custom definitions reference existing toolsets
+        # (except for HTTP toolsets which are dynamically created)
         builtin_names = {ts.name for ts in builtin_toolsets}
         for definition in custom_definitions:
+            # Skip validation for HTTP toolsets - they override/replace built-in toolsets
+            if isinstance(definition, HttpToolset):
+                continue
             if definition.name not in builtin_names:
                 raise RuntimeError(
                     f"Toolset '{definition.name}' referenced in toolsets.yaml does not exist. "
                     f"Available toolsets: {', '.join(sorted(builtin_names))}"
                 )
+
+        # Collect HTTP toolsets from custom definitions - these override/replace built-ins
+        http_toolsets = {
+            d.name: d for d in custom_definitions if isinstance(d, HttpToolset)
+        }
 
         mock_dal = load_mock_dal(
             test_case_folder=Path(self.test_case_folder),
@@ -729,6 +740,9 @@ class MockToolsetManager:
             initialize_base=False,
         )
         for toolset in builtin_toolsets:
+            # Skip built-in toolsets that are replaced by HTTP toolsets
+            if toolset.name in http_toolsets:
+                continue
             # Replace RunbookToolset with one that has test folder search path
             if toolset.name == "runbook":
                 from holmes.plugins.toolsets.runbook.runbook_fetcher import (
@@ -830,6 +844,36 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                 else:
                     # In MOCK mode, just set status to ENABLED for enabled toolsets
                     toolset.status = ToolsetStatusEnum.ENABLED
+
+        # Add HTTP toolsets from custom definitions (they override/replace built-ins)
+        for http_toolset in http_toolsets.values():
+            configured.append(http_toolset)
+
+            # Check prerequisites for enabled HTTP toolsets
+            if http_toolset.enabled:
+                toolset_mode = self._get_toolset_mode(http_toolset.name)
+                if toolset_mode == MockMode.LIVE or toolset_mode == MockMode.GENERATE:
+                    try:
+                        http_toolset.check_prerequisites()
+
+                        if (
+                            http_toolset.status != ToolsetStatusEnum.ENABLED
+                            and not self.allow_toolset_failures
+                        ):
+                            raise ToolsetPrerequisiteError(
+                                toolset_name=http_toolset.name,
+                                error_detail=http_toolset.error or "Unknown error",
+                            )
+                    except ToolsetPrerequisiteError:
+                        raise
+                    except Exception as e:
+                        raise ToolsetPrerequisiteError(
+                            toolset_name=http_toolset.name,
+                            error_detail=str(e),
+                        ) from e
+                else:
+                    # In MOCK mode, just set status to ENABLED for enabled toolsets
+                    http_toolset.status = ToolsetStatusEnum.ENABLED
 
         return configured
 

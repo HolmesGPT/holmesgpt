@@ -1,5 +1,5 @@
 toolsets:
-  confluence:
+  confluence-api:
     type: http
     enabled: true
     config:
@@ -19,12 +19,12 @@ toolsets:
 
       You can query Confluence using the REST API.
 
+      The base URL is: {{ env.CONFLUENCE_BASE_URL }}
+
       Common endpoints:
       - GET /wiki/rest/api/space/{spaceKey} - Get space information
       - GET /wiki/rest/api/content/{contentId} - Get page content
       - GET /wiki/rest/api/content/search?cql={query} - Search using CQL
-
-      The base URL is in the format: https://{instance}.atlassian.net
 
   kubernetes/core:
     enabled: false

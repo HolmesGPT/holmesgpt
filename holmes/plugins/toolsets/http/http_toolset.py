@@ -123,10 +123,6 @@ class HttpToolset(Toolset):
         if config:
             self.config = config
 
-        self._load_llm_instructions_from_file(
-            os.path.dirname(__file__), "instructions.jinja2"
-        )
-
         self._user_llm_instructions = llm_instructions
 
     def _derive_tool_name(self) -> str:
@@ -135,6 +131,7 @@ class HttpToolset(Toolset):
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
             self._http_config = HttpToolsetConfig(**config)
+            self.config = self._http_config
 
             if not self._http_config.endpoints:
                 return (

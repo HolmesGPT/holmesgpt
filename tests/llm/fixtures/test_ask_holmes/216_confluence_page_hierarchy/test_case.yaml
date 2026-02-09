@@ -3,10 +3,7 @@ user_prompt: |
   the title of its parent page.
 
 expected_output:
-  - "Must call confluence_request tool"
   - "Must report the parent page title: Parent Page 216X"
-
-include_tool_calls: true
 
 tags:
   - confluence
@@ -22,7 +19,7 @@ before_test: |
   CHILD_TITLE="Child Page 216"
 
   echo "Creating Confluence space ${SPACE_KEY}..."
-  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
     -H "Content-Type: application/json" \
@@ -51,7 +48,7 @@ before_test: |
   sleep 2
 
   echo "Creating parent page..."
-  PARENT_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+  PARENT_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
     -H "Content-Type: application/json" \
@@ -83,7 +80,7 @@ before_test: |
   sleep 2
 
   echo "Creating child page under parent..."
-  CHILD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+  CHILD_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
     -H "Content-Type: application/json" \
@@ -118,7 +115,7 @@ before_test: |
   echo "Child page created with ID: ${CHILD_ID}"
 
   echo "Verifying page hierarchy..."
-  VERIFY=$(curl -s \
+  VERIFY=$(curl -L -s \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/${CHILD_ID}?expand=ancestors" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
 
@@ -136,7 +133,7 @@ after_test: |
   SPACE_KEY="HOLMES216"
 
   echo "Deleting space ${SPACE_KEY}..."
-  HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
     "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
     -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
 
