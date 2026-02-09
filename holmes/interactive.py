@@ -7,7 +7,7 @@ import threading
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
-from typing import DefaultDict, List, Optional
+from typing import DefaultDict, Dict, List, Optional
 
 import typer
 from prompt_toolkit import PromptSession
@@ -36,7 +36,7 @@ from holmes.core.feedback import (
     FeedbackCallback,
     UserFeedback,
 )
-from holmes.core.prompt import build_initial_ask_messages
+from holmes.core.prompt import PromptComponent, build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
 from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
@@ -1097,6 +1097,7 @@ def run_interactive_loop(
     json_output_file: Optional[str] = None,
     bash_always_deny: bool = False,
     bash_always_allow: bool = False,
+    prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
 ) -> None:
     # Enable CLI mode for bash prefix loading (server mode doesn't call this)
     enable_cli_mode()
@@ -1364,6 +1365,7 @@ def run_interactive_loop(
                     ai.tool_executor,
                     runbooks,
                     system_prompt_additions,
+                    prompt_component_overrides=prompt_component_overrides,
                 )
             else:
                 messages.append({"role": "user", "content": user_input})
