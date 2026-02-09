@@ -4,6 +4,6 @@ toolsets:
   datadog/metrics:
     enabled: true
     config:
-      dd_api_key: "{{env.DATADOG_API_KEY}}"
-      dd_app_key: "{{env.DATADOG_APP_KEY}}"
-      site_api_url: "https://api.us5.datadoghq.com"
+      api_key: "{{env.DATADOG_API_KEY}}"
+      app_key: "{{env.DATADOG_APP_KEY}}"
+      api_url: "https://api.us5.datadoghq.com"
