@@ -3,6 +3,7 @@
 import logging
 from typing import Any, ClassVar, Dict, Optional
 
+from _pytest.logging import LogCaptureFixture
 from pydantic import Field
 
 from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
@@ -100,17 +101,44 @@ class TestPrometheusConfigBackwardCompatibility:
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
                 prometheus_url="http://prometheus:9090",
+                headers={"Authorization": "Bearer test"},
                 default_query_timeout_seconds=45,
                 prometheus_ssl_enabled=False,
             )
 
+        assert config.prometheus_url == "http://prometheus:9090/"
+        # headers should be migrated to additional_headers
+        assert config.additional_headers == {"Authorization": "Bearer test"}
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
+        assert "headers -> additional_headers" in caplog.text
         assert (
             "default_query_timeout_seconds -> query_timeout_seconds_default"
             in caplog.text
         )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
+
+    def test_headers_to_additional_headers_migration(
+        self, caplog: LogCaptureFixture
+    ) -> None:
+        """Test that headers is properly migrated to additional_headers."""
+        with caplog.at_level(logging.WARNING):
+            # Create config using deprecated headers field
+            old_config = PrometheusConfig(
+                prometheus_url="http://prometheus:9090",
+                headers={"Authorization": "Bearer token123"},
+            )
+
+        # Create config using new additional_headers field
+        new_config = PrometheusConfig(
+            prometheus_url="http://prometheus:9090",
+            additional_headers={"Authorization": "Bearer token123"},
+        )
+
+        # Both should result in the same additional_headers value
+        assert old_config.additional_headers == new_config.additional_headers
+        assert old_config.additional_headers == {"Authorization": "Bearer token123"}
+        assert "headers -> additional_headers" in caplog.text
 
     def test_new_prometheus_fields_no_warning(self, caplog):
         """Test that new Prometheus field names don't trigger warnings."""
@@ -119,9 +147,12 @@ class TestPrometheusConfigBackwardCompatibility:
                 prometheus_url="http://prometheus:9090",
                 query_timeout_seconds_default=30,
                 verify_ssl=True,
+                additional_headers={"Authorization": "Bearer test"},
             )
 
+        assert config.prometheus_url == "http://prometheus:9090/"
         assert config.query_timeout_seconds_default == 30
+        assert config.additional_headers == {"Authorization": "Bearer test"}
         assert "deprecated" not in caplog.text.lower()
 
 
