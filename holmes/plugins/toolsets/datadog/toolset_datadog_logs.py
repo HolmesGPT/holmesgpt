@@ -96,12 +96,12 @@ class DatadogLogsToolset(Toolset):
                 "page": {"limit": 1},
             }
 
-            search_url = f"{self.dd_config.site_api_url}/api/v2/logs/events/search"
+            search_url = f"{self.dd_config.api_url}/api/v2/logs/events/search"
             execute_datadog_http_request(
                 url=search_url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.dd_config.request_timeout,
+                timeout=self.dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -126,7 +126,7 @@ class DatadogLogsToolset(Toolset):
         if not config:
             return (
                 False,
-                "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
+                "Missing config for api_key, app_key, or api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             )
 
         try:
@@ -221,7 +221,7 @@ class GetLogs(Tool):
             params["limit"] = limit
             sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 
-            url = f"{self.toolset.dd_config.site_api_url}/api/v2/logs/events/search"
+            url = f"{self.toolset.dd_config.api_url}/api/v2/logs/events/search"
             headers = get_headers(self.toolset.dd_config)
 
             storage = self.toolset.dd_config.storage_tiers[-1]
@@ -246,7 +246,7 @@ class GetLogs(Tool):
                 url=url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="POST",
             )
 

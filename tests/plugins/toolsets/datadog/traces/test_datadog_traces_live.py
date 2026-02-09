@@ -21,10 +21,10 @@ class TestDatadogTracesLiveIntegration:
     def setup_method(self):
         """Setup the toolset with real Datadog credentials."""
         self.config = {
-            "dd_api_key": os.getenv("DD_API_KEY"),
-            "dd_app_key": os.getenv("DD_APP_KEY"),
-            "site_api_url": os.getenv("DD_SITE_URL", "https://api.us5.datadoghq.com"),
-            "request_timeout": 60,
+            "api_key": os.getenv("DD_API_KEY"),
+            "app_key": os.getenv("DD_APP_KEY"),
+            "api_url": os.getenv("DD_SITE_URL", "https://api.us5.datadoghq.com"),
+            "timeout_seconds": 60,
         }
 
         self.toolset = DatadogTracesToolset()
