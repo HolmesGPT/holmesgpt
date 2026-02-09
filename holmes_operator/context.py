@@ -21,12 +21,16 @@ def initialize(cfg: OperatorConfig) -> None:
     """
     Initialize global operator context.
 
-    This should be called once during operator startup.
+    This should be called once during operator startup. Loads Kubernetes
+    configuration (in-cluster or kubeconfig), creates the Kubernetes API
+    client, and initializes the Holmes API client.
 
     Args:
-        cfg: Operator configuration
-        api: Holmes API HTTP client
-        k8s: Kubernetes CustomObjectsApi client
+        cfg: Operator configuration containing Holmes API URL, timeout, and
+            other operator settings.
+
+    Side Effects:
+        Sets global variables: config, api_client, and k8s_api
     """
     global config, api_client, k8s_api
     config = cfg

@@ -15,10 +15,6 @@ RUN pip install --no-cache-dir poetry && \
 
 # Copy operator code and Holmes dependencies
 COPY holmes_operator/ ./holmes_operator/
-# COPY holmes/checks/ ./holmes/checks/
-# COPY holmes/config.py ./holmes/config.py
-# COPY holmes/core/ ./holmes/core/
-# COPY holmes/plugins/ ./holmes/plugins/
 
 # Create non-root user (use holmesop to avoid conflicts)
 RUN useradd -m -u 10001 holmesop && \

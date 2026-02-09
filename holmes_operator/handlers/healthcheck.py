@@ -12,8 +12,6 @@ from holmes_operator.models import (
     ConditionStatus,
     HealthCheckCondition,
     HealthCheckSpec,
-    NotificationStatus,
-    NotificationStatusType,
 )
 from holmes_operator.utils import (
     add_healthcheck_condition,
@@ -87,18 +85,8 @@ async def on_healthcheck_create(
             model=check_spec.model,
         )
 
-        # Parse notifications
-        notifications = []
-        if result.notifications:
-            for notif in result.notifications:
-                notifications.append(
-                    NotificationStatus(
-                        type=notif.type,
-                        channel=notif.channel,
-                        status=NotificationStatusType(notif.status),
-                        error=notif.error,
-                    )
-                )
+        # Use notifications directly from result (already NotificationStatus instances)
+        notifications = result.notifications or []
 
         # Update status to Completed
         await set_healthcheck_completed(
