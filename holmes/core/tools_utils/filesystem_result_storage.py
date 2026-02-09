@@ -53,9 +53,12 @@ def save_large_result(
     chat_id: str,
     tool_call_id: str,
     content: str,
+    is_json: bool = False,
 ) -> Optional[str]:
     """
-    Save a large tool result to the filesystem as a plain .txt file.
+    Save a large tool result to the filesystem.
+
+    Uses .json extension when the content is JSON, .txt otherwise.
 
     Returns the file path, or None if storage is disabled/failed.
     """
@@ -65,7 +68,8 @@ def save_large_result(
     try:
         chat_path = ensure_chat_directory(chat_id)
         safe_id = tool_call_id.replace("/", "_").replace("\\", "_")
-        file_path = chat_path / f"{safe_id}.txt"
+        extension = ".json" if is_json else ".txt"
+        file_path = chat_path / f"{safe_id}{extension}"
         file_path.write_text(content, encoding="utf-8")
         logging.info(f"Saved large tool result to filesystem: {file_path}")
         return str(file_path)

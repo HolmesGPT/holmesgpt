@@ -60,21 +60,22 @@ def prevent_overly_big_tool_response(
     # Try filesystem storage if chat_id is provided
     file_path = None
     if chat_id:
-        stringified_data = tool_call_result.result.get_stringified_data()
+        filesystem_data, is_json = tool_call_result.result.stringify_data(compact=False)
         file_path = save_large_result(
             chat_id=chat_id,
             tool_call_id=tool_call_result.tool_call_id,
-            content=stringified_data,
+            content=filesystem_data,
+            is_json=is_json,
         )
 
     if file_path:
-        # Include a preview (~10% of max tool size) so the LLM has some content to work with
+        # Include a preview (~10% of max tool size) so the LLM sees the same format as the file
         preview_chars = max_tokens_allowed * 4 // 10  # ~4 chars per token, 10% of max
-        preview = stringified_data[:preview_chars]
+        preview = filesystem_data[:preview_chars]
         tool_call_result.result.data = (
             f"{size_info}\n"
             f"Saved to: {file_path}\n"
-            f"Use the bash commands to access the data that won't require prompting the user for approval (e.g. cat, grep, head, tail).\n"
+            f"Use the bash commands to access the data that won't require prompting the user for approval (e.g. cat, grep, head, tail, jq).\n"
             f"\nPreview:\n{preview}"
         )
         logging.info(
