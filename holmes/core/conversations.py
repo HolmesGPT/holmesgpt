@@ -8,6 +8,7 @@ from holmes.core.models import (
     ToolCallConversationResult,
 )
 from holmes.core.prompt import (
+    PromptComponent,
     build_prompts,
     generate_user_prompt,
 )
@@ -145,7 +146,9 @@ def build_issue_chat_messages(
 
         truncated_template_context = {
             "investigation": investigation_analysis,
-            "tools_called_for_investigation": truncate_tool_outputs(tools_for_investigation, tool_size),  # type: ignore
+            "tools_called_for_investigation": truncate_tool_outputs(
+                tools_for_investigation, tool_size
+            ),  # type: ignore
             "issue": issue_chat_request.issue_type,
             "toolsets": ai.tool_executor.toolsets,
             "cluster_name": config.cluster_name,
@@ -209,7 +212,9 @@ def build_issue_chat_messages(
 
     template_context = {
         "investigation": investigation_analysis,
-        "tools_called_for_investigation": truncate_tool_outputs(tools_for_investigation, tool_size),  # type: ignore
+        "tools_called_for_investigation": truncate_tool_outputs(
+            tools_for_investigation, tool_size
+        ),  # type: ignore
         "issue": issue_chat_request.issue_type,
         "toolsets": ai.tool_executor.toolsets,
         "cluster_name": config.cluster_name,
@@ -265,6 +270,7 @@ def build_chat_messages(
     additional_system_prompt: Optional[str] = None,
     runbooks: Optional[RunbookCatalog] = None,
     images: Optional[List[Union[str, Dict[str, Any]]]] = None,
+    prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
 ) -> List[dict]:
     """Build messages for general chat conversation, truncating tool outputs to fit context window.
 
@@ -284,13 +290,16 @@ def build_chat_messages(
         file_paths=None,
         include_todowrite_reminder=False,
         images=images,
+        prompt_component_overrides=prompt_component_overrides,
     )
 
     if not conversation_history:
         conversation_history = []
     else:
         conversation_history = conversation_history.copy()
-    conversation_history = add_or_update_system_prompt(conversation_history, system_prompt)
+    conversation_history = add_or_update_system_prompt(
+        conversation_history, system_prompt
+    )
 
     conversation_history.append({"role": "user", "content": user_content})  # type: ignore
 
