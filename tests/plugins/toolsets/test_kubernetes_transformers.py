@@ -145,9 +145,6 @@ class TestKubernetesYAMLTransformers:
 
     def test_yaml_transformer_parsing(self):
         """Test YAML parsing of transformer configurations with various options."""
-        # Ensure transformer registry is properly initialized
-        ensure_transformers_registered()
-
         yaml_content = """
 toolsets:
   test/kubernetes:
@@ -379,9 +376,6 @@ toolsets:
 
     def test_multiple_transformers_in_yaml(self):
         """Test YAML parsing with multiple transformers per tool."""
-        # Ensure transformer registry is properly initialized
-        ensure_transformers_registered()
-
         yaml_content = """
 toolsets:
   test/multi:
@@ -440,8 +434,6 @@ class TestKubernetesTransformerPrompts:
 
     def test_kubectl_describe_prompt_content(self):
         """Test that kubectl_describe has appropriate summarization prompt."""
-        ensure_transformers_registered()
-
         current_dir = os.path.dirname(os.path.abspath(__file__))
         kubernetes_yaml_path = os.path.join(
             current_dir,
@@ -476,8 +468,6 @@ class TestKubernetesTransformerPrompts:
 
     def test_kubectl_logs_prompt_content(self):
         """Test that kubectl_logs has appropriate summarization prompt."""
-        ensure_transformers_registered()
-
         current_dir = os.path.dirname(os.path.abspath(__file__))
         kubernetes_logs_yaml_path = os.path.join(
             current_dir,
@@ -513,8 +503,6 @@ class TestKubernetesTransformerPrompts:
 
     def test_threshold_values_are_appropriate(self):
         """Test that threshold values are set appropriately for different tool types."""
-        ensure_transformers_registered()
-
         # Load both YAML files
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
