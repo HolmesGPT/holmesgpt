@@ -39,10 +39,13 @@ def save_config_hashes(
 ) -> None:
     """Save config hashes to disk."""
     dir_path = os.path.dirname(hash_file_path)
-    if dir_path and not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-    with open(hash_file_path, "w") as f:
-        json.dump(hashes, f, indent=2)
+    try:
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        with open(hash_file_path, "w") as f:
+            json.dump(hashes, f, indent=2)
+    except Exception as e:
+        logging.warning(f"Could not save config hashes to {hash_file_path}: {e}")
 
 
 def check_and_update_config_hashes(
