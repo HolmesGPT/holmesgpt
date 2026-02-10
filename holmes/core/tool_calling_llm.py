@@ -108,9 +108,6 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
     tool_call_metadata. These prefixes were approved by the user via the
     "Yes, and don't ask again" option.
 
-    The metadata line only appears when there's session data to persist.
-    Format: tool_call_metadata={"bash_session_approved_prefixes": [...]}
-
     Args:
         messages: Conversation history messages
 
@@ -128,8 +125,8 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
             continue
 
         # Extract tool_call_metadata from the content string
-        # Only present when extra session metadata exists
-        match = re.search(r"tool_call_metadata=(\{.*?\})", content)
+        # Format: tool_call_metadata={"tool_name": "...", ...}
+        match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
         if not match:
             continue
 
