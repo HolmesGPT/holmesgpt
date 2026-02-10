@@ -230,6 +230,9 @@ extra_css:
     - stylesheets/extra.css
 
 extra:
+    version:
+        provider: mike
+        default: latest
     social:
         - icon: fontawesome/brands/github
           link: https://github.com/HolmesGPT/holmesgpt
