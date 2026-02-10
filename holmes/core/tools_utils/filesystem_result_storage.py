@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 
 from holmes.common.env_vars import (
-    HOLMES_TOOL_RESULT_STORAGE_ENABLED,
     HOLMES_TOOL_RESULT_STORAGE_PATH,
 )
 
@@ -62,9 +61,6 @@ def save_large_result(
 
     Returns the file path, or None if storage is disabled/failed.
     """
-    if not HOLMES_TOOL_RESULT_STORAGE_ENABLED:
-        return None
-
     try:
         chat_path = ensure_chat_directory(chat_id)
         safe_id = tool_call_id.replace("/", "_").replace("\\", "_")

@@ -3,6 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from holmes.common.env_vars import load_bool
 from holmes.core.llm import LLM
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResultStatus
@@ -57,9 +58,9 @@ def prevent_overly_big_tool_response(
         f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
     )
 
-    # Try filesystem storage if chat_id is provided
+    # Try filesystem storage if chat_id is provided and storage is enabled
     file_path = None
-    if chat_id:
+    if chat_id and load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
         filesystem_data, is_json = tool_call_result.result.stringify_data(compact=False)
         file_path = save_large_result(
             chat_id=chat_id,
