@@ -19,11 +19,13 @@ from holmes.core.models import (
     IssueInvestigationResult,
 )
 from holmes.core.prompt import (
+    PromptComponent,
     append_all_files_to_user_prompt,
     append_file_to_user_prompt,
     build_initial_ask_messages,
     generate_user_prompt,
     get_tasks_management_system_reminder,
+    is_component_enabled,
 )
 from holmes.utils.global_instructions import generate_runbooks_args
 
@@ -513,3 +515,53 @@ def test_append_all_files_to_user_prompt_no_files():
     # Also test with empty list
     result = append_all_files_to_user_prompt(prompt, [])
     assert result == "Original prompt"
+
+
+class TestIsComponentEnabled:
+    """Test is_component_enabled function with overrides."""
+
+    def test_no_overrides_returns_env_var_result(self, monkeypatch):
+        """Without overrides, should return is_prompt_allowed_by_env result."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+
+    def test_override_can_disable_component(self, monkeypatch):
+        """API override can disable a component that env var allows."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+    def test_override_cannot_enable_env_disabled_component(self, monkeypatch):
+        """API override cannot enable a component that env var disabled."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "none")
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+    def test_override_true_keeps_enabled(self, monkeypatch):
+        """API override with True keeps component enabled."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is True
+        )
+
+    def test_env_var_selective_enable_with_override(self, monkeypatch):
+        """When env var selectively enables, override can still disable."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions,intro")
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+        overrides = {PromptComponent.AI_SAFETY: True}
+        assert is_component_enabled(PromptComponent.AI_SAFETY, overrides) is False
