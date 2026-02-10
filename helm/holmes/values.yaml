@@ -408,10 +408,6 @@ operator:
   cleanupCompletedChecks: false
   completedCheckTTLHours: 24
 
-  # Scheduler
-  schedulerTimezone: UTC
-
-
   # Resources
   resources:
     requests:
@@ -419,7 +415,6 @@ operator:
       cpu: 100m
     limits:
       memory: 512Mi
-      cpu: 500m
 
   # Additional configuration
   additionalEnvVars: []

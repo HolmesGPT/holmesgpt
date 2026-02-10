@@ -6,17 +6,13 @@ import sys
 from typing import Any
 
 import kopf
-from kubernetes import client
-from kubernetes import config as k8s_config
 
 from holmes_operator import context
-from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
 
 # Import handlers to register them with kopf
 from holmes_operator.handlers import healthcheck  # noqa: F401
 from holmes_operator.handlers import scheduledhealthcheck  # noqa: F401
-from holmes_operator.scheduler.manager import SchedulerManager
 
 # Configure logging
 logging.basicConfig(
@@ -46,40 +42,9 @@ async def startup_handler(settings: kopf.OperatorSettings, **kwargs: Any) -> Non
     # Update log level from config
     logging.getLogger().setLevel(operator_config.log_level)
 
-    # Initialize Kubernetes client
-    try:
-        # Try to load in-cluster config first (when running as pod)
-        k8s_config.load_incluster_config()
-        logger.info("Loaded in-cluster Kubernetes configuration")
-    except k8s_config.ConfigException:
-        # Fall back to kubeconfig (for local development)
-        k8s_config.load_kube_config()
-        logger.info("Loaded kubeconfig Kubernetes configuration")
-
-    k8s_api = client.CustomObjectsApi()
-
-    # Initialize Holmes API client
-    api_client = HolmesAPIClient(
-        base_url=operator_config.holmes_api_url,
-        timeout=operator_config.holmes_api_timeout,
-    )
-
-    # Initialize scheduler manager
-    scheduler_manager = SchedulerManager(
-        timezone_str=operator_config.scheduler_timezone, k8s_api=k8s_api
-    )
-
-    # Initialize global context before starting scheduler
-    # This ensures cleanup handler can access scheduler_manager even if start() fails
     context.initialize(
         cfg=operator_config,
-        api=api_client,
-        k8s=k8s_api,
-        scheduler=scheduler_manager,
     )
-
-    # Start the scheduler (may load existing schedules and raise)
-    await scheduler_manager.start()
 
     logger.info("Holmes Operator started successfully")
 
@@ -89,34 +54,19 @@ async def startup_handler(settings: kopf.OperatorSettings, **kwargs: Any) -> Non
     settings.watching.connect_timeout = 1 * 60  # 1 minute
     settings.watching.server_timeout = 10 * 60  # 10 minutes
 
+    logger.info("Holmes Operator started successfully")
+
 
 @kopf.on.cleanup()
 async def cleanup_handler(**kwargs) -> None:
-    """
-    Cleanup resources on operator shutdown.
-    """
     logger.info("Shutting down Holmes Operator...")
-
-    # Shutdown scheduler gracefully
-    if context.scheduler_manager:
-        await context.scheduler_manager.stop()
-
-    # Close API client
-    if context.api_client:
-        await context.api_client.close()
-
+    await context.cleanup()
     logger.info("Holmes Operator shut down successfully")
 
 
 def main() -> None:
-    """Main entry point for the operator."""
     try:
-        # Run the operator
-        # kopf.run is blocking and handles the event loop
-        kopf.run(
-            clusterwide=True,  # Watch all namespaces
-            liveness_endpoint="http://0.0.0.0:8080/healthz",  # Health check endpoint
-        )
+        kopf.run(clusterwide=True)
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")
         sys.exit(0)

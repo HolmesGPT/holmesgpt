@@ -1,11 +1,17 @@
 """Global operator context for sharing state across handlers."""
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from kubernetes import client
+from kubernetes import config as k8s_config
 
 from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
+
+logger = logging.getLogger(__name__)
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from holmes_operator.scheduler.manager import SchedulerManager
@@ -17,25 +23,53 @@ k8s_api: Optional[client.CustomObjectsApi] = None
 scheduler_manager: Optional["SchedulerManager"] = None
 
 
-def initialize(
-    cfg: OperatorConfig,
-    api: HolmesAPIClient,
-    k8s: client.CustomObjectsApi,
-    scheduler: "SchedulerManager",
-) -> None:
+def initialize(cfg: OperatorConfig) -> None:
     """
     Initialize global operator context.
 
-    This should be called once during operator startup.
+    This should be called once during operator startup. Loads Kubernetes
+    configuration (in-cluster or kubeconfig), creates the Kubernetes API
+    client, and initializes the Holmes API client.
 
     Args:
-        cfg: Operator configuration
-        api: Holmes API HTTP client
-        k8s: Kubernetes CustomObjectsApi client
-        scheduler: Scheduler manager for recurring checks
+        cfg: Operator configuration containing Holmes API URL, timeout, and
+            other operator settings.
+
+    Side Effects:
+        Sets global variables: config, api_client, and k8s_api
     """
     global config, api_client, k8s_api, scheduler_manager
     config = cfg
-    api_client = api
-    k8s_api = k8s
-    scheduler_manager = scheduler
+
+    # Initialize Kubernetes client
+    try:
+        # Try to load in-cluster config first (when running as pod)
+        k8s_config.load_incluster_config()
+        logger.info("Loaded in-cluster Kubernetes configuration")
+    except k8s_config.ConfigException:
+        # Fall back to kubeconfig (for local development)
+        k8s_config.load_kube_config()
+        logger.info("Loaded kubeconfig Kubernetes configuration")
+
+    k8s_api = client.CustomObjectsApi()
+
+    # Initialize Holmes API client
+    api_client = HolmesAPIClient(
+        base_url=cfg.holmes_api_url,
+        timeout=cfg.holmes_api_timeout,
+    )
+
+    scheduler_manager = SchedulerManager("UTC", k8s_api=k8s_api)
+
+
+async def cleanup() -> None:
+    """
+    Cleanup global operator context.
+    """
+    global api_client, k8s_api, scheduler_manager
+    if api_client is not None:
+        await api_client.close()
+    if k8s_api is not None:
+        k8s_api.api_client.close()
+    if scheduler_manager is not None:
+        await scheduler_manager.stop()

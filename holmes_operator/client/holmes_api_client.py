@@ -1,10 +1,12 @@
 """HTTP client for calling Holmes API servers."""
 
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from holmes_operator.models import CheckResponse
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class HolmesAPIClient:
         mode: str,
         destinations: list,
         model: Optional[str] = None,
-    ) -> Dict:
+    ) -> CheckResponse:
         """
         Execute a health check via Holmes API.
 
@@ -64,7 +66,7 @@ class HolmesAPIClient:
             model: Optional model override
 
         Returns:
-            Dict with keys: status, message, duration, rationale, error, model_used, notifications
+            CheckResponse
 
         Raises:
             httpx.HTTPError: If the API request fails after retries
@@ -104,7 +106,7 @@ class HolmesAPIClient:
                 },
             )
 
-            return result
+            return CheckResponse(**result)
 
         except httpx.HTTPStatusError as e:
             logger.error(

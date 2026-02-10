@@ -7,12 +7,11 @@ import kopf
 
 from holmes_operator import context
 from holmes_operator.models import (
-    CheckResult,
+    CheckResponse,
+    CheckStatus,
     ConditionStatus,
     HealthCheckCondition,
     HealthCheckSpec,
-    NotificationStatus,
-    NotificationStatusType,
 )
 from holmes_operator.utils import (
     add_healthcheck_condition,
@@ -77,7 +76,7 @@ async def on_healthcheck_create(
         )
 
         # Call Holmes API
-        result = await context.api_client.execute_check(
+        result: CheckResponse = await context.api_client.execute_check(
             check_name=f"{namespace}/{name}",
             query=check_spec.query,
             timeout=check_spec.timeout,
@@ -86,43 +85,25 @@ async def on_healthcheck_create(
             model=check_spec.model,
         )
 
-        # Extract and map result fields
-        check_result = CheckResult(result.get("status", "error"))
-        message = result.get("message", "")
-        rationale = result.get("rationale")
-        duration = result.get("duration", 0.0)
-        error = result.get("error")
-        model_used = result.get("model_used")
-
-        # Parse notifications
-        notifications = []
-        if result.get("notifications"):
-            for notif in result["notifications"]:
-                notifications.append(
-                    NotificationStatus(
-                        type=notif.get("type", ""),
-                        channel=notif.get("channel"),
-                        status=NotificationStatusType(notif.get("status", "failed")),
-                        error=notif.get("error"),
-                    )
-                )
+        # Use notifications directly from result (already NotificationStatus instances)
+        notifications = result.notifications or []
 
         # Update status to Completed
         await set_healthcheck_completed(
             api=context.k8s_api,
             name=name,
             namespace=namespace,
-            result=check_result,
-            message=message,
-            rationale=rationale,
-            duration=duration,
-            error=error,
-            model_used=model_used,
+            result=result.status,
+            message=result.message,
+            rationale=result.rationale,
+            duration=result.duration,
+            error=result.error,
+            model_used=result.model_used,
             notifications=notifications if notifications else None,
         )
 
         # Add condition based on result
-        if check_result == CheckResult.PASS:
+        if result.status == CheckStatus.PASS:
             await add_healthcheck_condition(
                 api=context.k8s_api,
                 name=name,
@@ -135,7 +116,7 @@ async def on_healthcheck_create(
                     message="Health check passed successfully",
                 ),
             )
-        elif check_result == CheckResult.FAIL:
+        elif result.status == CheckStatus.FAIL:
             await add_healthcheck_condition(
                 api=context.k8s_api,
                 name=name,
@@ -145,7 +126,7 @@ async def on_healthcheck_create(
                     status=ConditionStatus.TRUE,
                     lastTransitionTime=get_current_time_iso(),
                     reason="CheckFailed",
-                    message=f"Health check failed: {message}",
+                    message=f"Health check failed: {result.message}",
                 ),
             )
         else:  # error
@@ -158,26 +139,26 @@ async def on_healthcheck_create(
                     status=ConditionStatus.TRUE,
                     lastTransitionTime=get_current_time_iso(),
                     reason="ExecutionError",
-                    message=f"Check execution error: {error or message}",
+                    message=f"Check execution error: {result.error or result.message}",
                 ),
             )
 
         logger.info(
-            f"HealthCheck {namespace}/{name} completed with status: {check_result.value}",
+            f"HealthCheck {namespace}/{name} completed with status: {result.status}",
             extra={
                 "check_name": name,
                 "namespace": namespace,
-                "status": check_result.value,
-                "duration": duration,
+                "status": result.status,
+                "duration": result.duration,
             },
         )
 
         # Create Kubernetes event
         kopf.event(
             objs=kwargs.get("body"),
-            type="Normal" if check_result == CheckResult.PASS else "Warning",
-            reason=f"Check{check_result.value.capitalize()}",
-            message=f"Health check {check_result.value}: {message}",
+            type="Normal" if result.status == CheckStatus.PASS else "Warning",
+            reason=f"Check{result.status.capitalize()}",
+            message=f"Health check {result.status}: {result.message}",
         )
 
     except Exception as e:
