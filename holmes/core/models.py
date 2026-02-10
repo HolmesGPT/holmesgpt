@@ -72,29 +72,25 @@ def format_tool_result_data(
     tool_name: str,
     extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """
-    Format tool result data for inclusion in LLM context.
-
-    Returns clean, grepable output. Metadata (tool_name, tool_call_id) is already
-    available in the message structure itself. Only includes extra_metadata prefix
-    if there's session-specific data to persist (e.g., bash_session_approved_prefixes).
-    """
-    parts = []
-
-    # Only include metadata prefix if there's extra session data to persist
-    # (e.g., bash_session_approved_prefixes for bash tool approval tracking)
+    tool_call_metadata: Dict[str, Any] = {}
     if extra_metadata:
-        parts.append(f"tool_call_metadata={json.dumps(extra_metadata)}")
+        tool_call_metadata.update(extra_metadata)
+    # Required fields always take precedence
+    tool_call_metadata["tool_name"] = tool_name
+    tool_call_metadata["tool_call_id"] = tool_call_id
+    tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
 
     if tool_result.status == StructuredToolResultStatus.ERROR:
-        error_msg = tool_result.error or "Tool execution failed"
-        parts.append(f"Error: {error_msg}")
+        tool_response += f"{tool_result.error or 'Tool execution failed'}:\n\n"
 
-    data = tool_result.get_stringified_data()
-    if data:
-        parts.append(data)
+    tool_response += tool_result.get_stringified_data()
 
-    return "\n".join(parts) if parts else ""
+    if tool_result.params:
+        tool_response = (
+            f"Params used for the tool call: {json.dumps(tool_result.params)}. The tool call output follows on the next line.\n"
+            + tool_response
+        )
+    return tool_response
 
 
 class InvestigationResult(BaseModel):

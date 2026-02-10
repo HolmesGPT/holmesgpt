@@ -92,7 +92,6 @@ def test_default_and_custom_fields(status, error, return_code, url, invocation, 
 @pytest.mark.parametrize(
     "status,error,data,expected",
     [
-        # Non-error statuses return just the data (no metadata prefix)
         (StructuredToolResultStatus.SUCCESS, None, "test", "test"),
         (
             StructuredToolResultStatus.NO_DATA,
@@ -115,114 +114,95 @@ def test_default_and_custom_fields(status, error, return_code, url, invocation, 
     ],
 )
 def test_format_tool_result_data_non_error(status, error, data, expected):
-    """Test that non-error results return clean data without metadata prefix."""
     tool_result = StructuredToolResult(status=status, error=error, data=data)
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: no metadata prefix, just clean data
-    assert format_tool_result_data(tool_result, tool_call_id, tool_name) == expected
+    metadata_prefix = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+    assert (
+        format_tool_result_data(tool_result, tool_call_id, tool_name)
+        == metadata_prefix + expected
+    )
 
 
 def test_format_tool_result_data_str_non_error():
-    """Test string data returns clean output without metadata."""
     result = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS, data="hello"
     )
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: just the data, no metadata prefix
-    expected = "hello"
+    expected = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}hello'
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
 def test_format_tool_result_data_base_model_non_error():
-    """Test BaseModel data returns clean JSON output."""
     dummy = DummyResult(x=2, y="b")
     result = StructuredToolResult(status=StructuredToolResultStatus.NO_DATA, data=dummy)
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: just the JSON data
-    expected = dummy.model_dump_json()
+    expected = (
+        f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+        + dummy.model_dump_json()
+    )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
 def test_format_tool_result_data_json_serializable_non_error():
-    """Test dict data returns clean JSON output."""
     data = {"k": 3}
     result = StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data=data)
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: just the JSON data
-    expected = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+    expected = (
+        f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+        + json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+    )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
 def test_format_tool_result_data_unserializable_non_error():
-    """Test unserializable object returns str() output."""
     obj = Unserializable()
     result = StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data=obj)
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: just str(obj)
-    expected = str(obj)
+    expected = (
+        f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+        + str(obj)
+    )
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
 def test_format_tool_result_data_error_with_message_and_data():
-    """Test error with message and data returns formatted error."""
     result = StructuredToolResult(
         status=StructuredToolResultStatus.ERROR, error="fail", data="oops"
     )
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: Error: {message}\n{data}
-    expected = "Error: fail\noops"
+    expected = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}fail:\n\noops'
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
 def test_format_tool_result_data_error_without_message_or_data():
-    """Test error without message or data returns default error."""
     result = StructuredToolResult(
         status=StructuredToolResultStatus.ERROR, error=None, data=None
     )
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: just the error message
-    expected = "Error: Tool execution failed"
+    expected = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}Tool execution failed:\n\n'
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
 def test_format_tool_result_data_error_without_message_with_unserializable():
-    """Test error without message but with data returns error + data."""
     obj = Unserializable()
     result = StructuredToolResult(
         status=StructuredToolResultStatus.ERROR, error=None, data=obj
     )
     tool_call_id = "test_call_123"
     tool_name = "test_tool"
-    # New behavior: Error: default message\ndata
-    expected = f"Error: Tool execution failed\n{str(obj)}"
+    metadata_prefix = f'tool_call_metadata={{"tool_name": "{tool_name}", "tool_call_id": "{tool_call_id}"}}'
+    expected = f"{metadata_prefix}Tool execution failed:\n\n{str(obj)}"
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
-def test_format_tool_result_data_with_extra_metadata():
-    """Test that extra_metadata is included when provided."""
-    result = StructuredToolResult(
-        status=StructuredToolResultStatus.SUCCESS, data="hello"
-    )
-    tool_call_id = "test_call_123"
-    tool_name = "test_tool"
-    extra_metadata = {"bash_session_approved_prefixes": ["kubectl get"]}
-    # With extra_metadata, the metadata prefix is included
-    expected = f"tool_call_metadata={json.dumps(extra_metadata)}\nhello"
-    assert (
-        format_tool_result_data(result, tool_call_id, tool_name, extra_metadata)
-        == expected
-    )
-
-
 def test_as_tool_call_message_without_params():
-    """Test tool call message without params returns clean content."""
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS, data="hello"
     )
@@ -233,8 +213,9 @@ def test_as_tool_call_message_without_params():
         result=structured,
     )
     message = tcr.as_tool_call_message()
-    # New behavior: just the data, no metadata prefix
-    expected_content = "hello"
+    expected_content = (
+        'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
+    )
     assert message == {
         "tool_call_id": "call1",
         "role": "tool",
@@ -244,7 +225,6 @@ def test_as_tool_call_message_without_params():
 
 
 def test_as_tool_call_message_with_params():
-    """Test tool call message with params - params are NOT included in content anymore."""
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS,
         data="hello",
@@ -257,32 +237,10 @@ def test_as_tool_call_message_with_params():
         result=structured,
     )
     message = tcr.as_tool_call_message()
-    # New behavior: params are NOT included in content (they're in the StructuredToolResult)
-    # This makes the content clean and grepable
-    expected_content = "hello"
-    assert message == {
-        "tool_call_id": "call1",
-        "role": "tool",
-        "name": "toolX",
-        "content": expected_content,
-    }
-
-
-def test_as_tool_call_message_with_extra_metadata():
-    """Test tool call message with extra_metadata includes metadata prefix."""
-    structured = StructuredToolResult(
-        status=StructuredToolResultStatus.SUCCESS, data="hello"
+    expected_content = (
+        'Params used for the tool call: {"pod_name": "my-pod", "namespace": "my-namespace"}. The tool call output follows on the next line.\n'
+        'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
     )
-    tcr = ToolCallResult(
-        tool_call_id="call1",
-        tool_name="toolX",
-        description="desc",
-        result=structured,
-    )
-    extra_metadata = {"bash_session_approved_prefixes": ["kubectl get"]}
-    message = tcr.as_tool_call_message(extra_metadata=extra_metadata)
-    # With extra_metadata, the metadata prefix IS included
-    expected_content = f"tool_call_metadata={json.dumps(extra_metadata)}\nhello"
     assert message == {
         "tool_call_id": "call1",
         "role": "tool",
