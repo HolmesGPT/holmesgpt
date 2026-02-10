@@ -17,12 +17,12 @@ LLMS_WITH_STRICT_TOOL_CALLS_LIST = [
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
-    # Handle both string types ("string") and list types (["string", "null"])
+    # Normalize schema types: MCP servers may emit nullable lists (e.g., ["string", "null"])
+    # per JSON Schema spec, while OpenAI expects a primary type with explicit nullability via anyOf.
     raw_type = param_attributes.type
     is_nullable_from_schema = False
 
     if isinstance(raw_type, list):
-        # JSON Schema union type like ["string", "null"] - extract primary type
         non_null_types = [t.strip() if isinstance(t, str) else t for t in raw_type if t != "null"]
         is_nullable_from_schema = "null" in raw_type
         param_type = non_null_types[0] if non_null_types else "string"
@@ -72,14 +72,11 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
         else:
             type_obj = {"type": match.group("simple_type")}
 
-    # Make type nullable if: strict_mode + not required, OR if schema already defined it as nullable
+    # Add nullability using anyOf per the OpenAI Structured Outputs spec when strict mode
+    # requires optional params to accept null, or when the source schema explicitly marks
+    # the field as nullable (e.g., MCP ["string", "null"]).
     if type_obj and (is_nullable_from_schema or (strict_mode and not param_attributes.required)):
-        current_type = type_obj.get("type")
-        # Only convert to list if not already a list containing null
-        if isinstance(current_type, str):
-            type_obj["type"] = [current_type, "null"]
-        elif isinstance(current_type, list) and "null" not in current_type:
-            type_obj["type"] = current_type + ["null"]
+        type_obj = {"anyOf": [type_obj, {"type": "null"}]}
 
     return type_obj
 
