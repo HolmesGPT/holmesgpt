@@ -165,13 +165,6 @@ class SchedulerManager:
             logger.debug(f"No schedule found for {key} to remove")
 
     async def _load_existing_schedules(self):
-        """
-        Load all enabled ScheduledHealthCheck resources on startup.
-
-        For each enabled schedule:
-        - Check if execution was missed (catchup)
-        - Register schedule for future executions
-        """
         logger.info("Loading existing ScheduledHealthCheck resources...")
 
         try:
@@ -210,7 +203,6 @@ class SchedulerManager:
                         cron_expr=scheduled_spec.schedule,
                         spec=scheduled_spec,
                         scheduled_uid=uid,
-                        check_catchup=True,  # Check for missed executions
                     )
 
                 except Exception as e:
