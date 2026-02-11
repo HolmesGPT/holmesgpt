@@ -46,9 +46,9 @@ async def on_scheduledhealthcheck_create(
         scheduled_spec = ScheduledHealthCheckSpec(**spec)
 
         if scheduled_spec.enabled:
-            _register_scheduled_healthcheck(name, namespace, uid, scheduled_spec)
+            await _register_scheduled_healthcheck(name, namespace, uid, scheduled_spec)
         else:
-            _unregister_scheduled_healthcheck(name, namespace, unschedule=False)
+            await _unregister_scheduled_healthcheck(name, namespace, unschedule=False)
     except Exception as e:
         logger.error(
             f"Failed to create ScheduledHealthCheck {namespace}/{name}: {e}",
@@ -111,13 +111,13 @@ async def on_scheduledhealthcheck_update(
         # Handle enable/disable toggle
         if enabled_changed:
             if new_spec.enabled:
-                _register_scheduled_healthcheck(name, namespace, uid, new_spec)
+                await _register_scheduled_healthcheck(name, namespace, uid, new_spec)
             else:
-                _unregister_scheduled_healthcheck(name, namespace)
+                await _unregister_scheduled_healthcheck(name, namespace)
 
         # Handle schedule or spec changes (when still enabled)
         elif new_spec.enabled and spec_changed:
-            _update_scheduled_healthcheck(name, namespace, uid, new_spec)
+            await _update_scheduled_healthcheck(name, namespace, uid, new_spec)
 
     except Exception as e:
         logger.error(
@@ -136,7 +136,7 @@ async def on_scheduledhealthcheck_delete(
     **kwargs,
 ):
     logger.info(f"Deleting ScheduledHealthCheck: {namespace}/{name}")
-    _unregister_scheduled_healthcheck(name, namespace)
+    await _unregister_scheduled_healthcheck(name, namespace)
 
 
 async def _update_scheduled_healthcheck(
@@ -224,7 +224,7 @@ async def _register_scheduled_healthcheck(
             condition_type=ScheduledHealthCheckConditionType.SCHEDULE_REGISTERED,
             status=ConditionStatus.FALSE,
             reason="InternalError",
-            message={str(e)},
+            message=str(e),
         )
 
 
