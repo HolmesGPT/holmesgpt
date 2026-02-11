@@ -2,30 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy pyproject.toml and install dependencies
 COPY pyproject.toml poetry.lock* ./
 RUN pip install --no-cache-dir poetry && \
     poetry config virtualenvs.create false && \
     poetry install --no-interaction --no-ansi --no-root
 
-# Copy operator code and Holmes dependencies
 COPY holmes_operator/ ./holmes_operator/
 
-# Create non-root user (use holmesop to avoid conflicts)
 RUN useradd -m -u 10001 holmesop && \
     chown -R holmesop:holmesop /app
-
-# Use numeric UID for Kubernetes runAsNonRoot compatibility
 USER 10001
 
-# Health check
-# HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    # CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"
-
-# Run operator
 ENTRYPOINT ["python", "-m", "holmes_operator.operator"]
