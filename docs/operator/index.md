@@ -7,7 +7,7 @@ Holmes Operator extends HolmesGPT with Kubernetes-native health check capabiliti
     **Important Considerations:**
 
     - **Status**: Holmes Operator is in **alpha** and subject to breaking changes
-    - **AI Usage Costs**: Each health check triggers an LLM call. Schedule checks cautiously to manage costs
+    - **AI Usage Costs**: Each health check triggers an LLM call (atleast 1). Schedule checks cautiously to manage costs
     - **Recommendation**: Begin with infrequent schedules (e.g., hourly or daily) and monitor usage before scaling up
 
 ## Features
@@ -57,29 +57,6 @@ operator:
     limits:
       memory: 512Mi
 ```
-
-**Optional: Configure Global Slack Token**
-
-If you plan to use Slack notifications with health checks, you can configure a global Slack token for the Holmes API. This allows you to omit the token in individual health check destinations:
-
-```yaml
-# values.yaml
-additionalEnvVars:
-  - name: SLACK_TOKEN
-    value: "xoxb-your-slack-bot-token"
-  # Or load from a secret (recommended):
-  # - name: SLACK_TOKEN
-  #   valueFrom:
-  #     secretKeyRef:
-  #       name: holmes-secrets
-  #       key: slack-token
-
-operator:
-  enabled: true
-  # ... other operator settings
-```
-
-With this configuration, health checks can use Slack destinations without specifying credentials each time. See the [Slack installation guide](../installation/slack-installation.md) for details on obtaining a Slack token.
 
 For a complete list of configuration options, see the [Configuration](configuration.md) page.
 
@@ -168,8 +145,8 @@ kubectl describe hc example-check
 
 - **[Health Checks](health-checks.md)** - Learn how to create and manage one-time HealthCheck resources
 - **[Scheduled Health Checks](scheduled-health-checks.md)** - Set up recurring health checks with cron schedules
+- **[Alert Destinations](destinations.md)** - Configure Slack and PagerDuty notifications
 - **[Configuration](configuration.md)** - Explore advanced configuration options
-- **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
 - **[Development Guide](development.md)** - Build and test operator changes locally
 
 ## Architecture
@@ -187,4 +164,3 @@ For detailed architecture information, see the [architecture documentation](../a
 
 - **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ)** - Get help from the community
 - **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues)** - Suggest improvements or report bugs
-- **[Troubleshooting guide](troubleshooting.md)** - Common issues and solutions

@@ -315,31 +315,6 @@ spec:
   timeout: 30
 ```
 
-## Integration with Other Tools
-
-### Create Check from Alert
-
-You can create HealthCheck resources automatically from alerting systems:
-
-```bash
-# Example: Create check from AlertManager webhook
-curl -X POST https://your-api/create-check \
-  -d '{"query": "Why is pod api-xyz failing?", "namespace": "production"}'
-```
-
-### CI/CD Integration
-
-Use HealthChecks in CI/CD pipelines to verify deployments:
-
-```yaml
-# GitLab CI example
-verify-deployment:
-  script:
-    - kubectl apply -f healthcheck-deployment.yaml
-    - kubectl wait --for=condition=Complete hc/deployment-check --timeout=5m
-    - kubectl get hc deployment-check -o jsonpath='{.status.result}' | grep pass
-```
-
 ## Labels and Selectors
 
 Use labels to organize and query HealthChecks:
@@ -373,5 +348,5 @@ kubectl get hc -l team=platform
 ## Next Steps
 
 - **[Scheduled Health Checks](scheduled-health-checks.md)** - Set up recurring checks with cron schedules
+- **[Alert Destinations](destinations.md)** - Configure Slack and PagerDuty notifications
 - **[Configuration](configuration.md)** - Advanced configuration options
-- **[Troubleshooting](troubleshooting.md)** - Debug common issues

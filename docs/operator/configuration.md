@@ -183,16 +183,6 @@ resources:
     memory: 512Mi
 ```
 
-**When to increase:**
-
-- Many ScheduledHealthCheck resources (>50): Increase memory to 512Mi-1Gi
-- High check frequency: Increase CPU to 200m-500m
-- Large history settings: Increase memory
-
-**When to decrease:**
-
-- Few schedules (<10): Can reduce to 128Mi memory
-- Low frequency checks: Can reduce CPU to 50m
 
 ### Pod Scheduling
 
@@ -246,72 +236,6 @@ additionalEnvVars:
     value: "value"
 ```
 
-## Per-Check Configuration
-
-Individual HealthCheck and ScheduledHealthCheck resources can override certain settings.
-
-### Model Override
-
-Specify a different LLM model for specific checks:
-
-```yaml
-apiVersion: holmesgpt.dev/v1alpha1
-kind: HealthCheck
-metadata:
-  name: expensive-check
-spec:
-  query: "Complex analysis requiring reasoning..."
-  model: "anthropic/claude-sonnet-4-5-20250929"  # Override default
-```
-
-Benefits:
-
-- Use faster/cheaper models for simple checks
-- Use more capable models for complex analysis
-- Test different models without changing global config
-
-See [AI Providers](../ai-providers/index.md) for supported models.
-
-### Timeout Override
-
-Adjust timeout for checks that need more time:
-
-```yaml
-apiVersion: holmesgpt.dev/v1alpha1
-kind: HealthCheck
-metadata:
-  name: long-running-check
-spec:
-  query: "Analyze all pod logs for error patterns..."
-  timeout: 180  # 3 minutes (default is 30 seconds)
-```
-
-Maximum timeout: 300 seconds (5 minutes)
-
-### Destinations Configuration
-
-Configure alert destinations per check:
-
-```yaml
-apiVersion: holmesgpt.dev/v1alpha1
-kind: HealthCheck
-metadata:
-  name: critical-check
-spec:
-  query: "Are critical services healthy?"
-  mode: alert
-  destinations:
-    - type: slack
-      config:
-        channel: "#critical-alerts"
-        mention_users: ["@oncall"]
-    - type: pagerduty
-      config:
-        service_key: "YOUR_SERVICE_KEY"
-```
-
-Destination types depend on integrations configured in your Holmes deployment. See [Slack installation](../installation/slack-installation.md) for setup.
-
 ## RBAC and Permissions
 
 The operator requires specific Kubernetes permissions to function.
@@ -352,87 +276,7 @@ rules:
 
 These permissions are automatically created by the Helm chart.
 
-## Advanced Topics
-
-### Custom API Endpoint
-
-If Holmes API is deployed outside the cluster:
-
-```yaml
-operator:
-  enabled: true
-  holmesApiUrl: "https://holmes-api.example.com"
-  holmesApiTimeout: 300
-```
-
-Ensure the operator pod can reach the external endpoint.
-
-### Multiple Operator Instances
-
-For high availability, deploy multiple operator replicas:
-
-```yaml
-operator:
-  enabled: true
-  replicas: 2  # Not directly supported - use manual deployment
-```
-
-!!! warning
-
-    The current operator version uses APScheduler with memory-based job storage and does not support multiple replicas. Deploying multiple instances will cause duplicate check executions.
-
-### Storage Considerations
-
-**etcd storage usage:**
-
-- Each HealthCheck: ~2-5 KB (varies by result size)
-- Each ScheduledHealthCheck: ~1-2 KB + (maxHistoryItems * 500 bytes)
-- Total for 100 schedules with history=10: ~150 KB
-
-**Cleanup recommendations:**
-
-For clusters with many schedules (>100), enable cleanup:
-
-```yaml
-operator:
-  cleanupCompletedChecks: true
-  completedCheckTTLHours: 24
-  maxHistoryItems: 5  # Reduce history retention
-```
-
-### Monitoring Operator Health
-
-Check operator metrics and health:
-
-```bash
-# View operator logs
-kubectl logs -l app.kubernetes.io/name=holmes-operator --tail=100
-
-# Check operator resource usage
-kubectl top pod -l app.kubernetes.io/name=holmes-operator
-
-# View operator events
-kubectl get events --field-selector involvedObject.kind=Pod -l app.kubernetes.io/name=holmes-operator
-```
-
-## Configuration Best Practices
-
-1. **Start Conservative**: Begin with default settings and adjust based on actual usage
-
-2. **Enable Cleanup for Scale**: If running >50 schedules, enable cleanup to manage resources
-
-3. **Right-Size Resources**: Monitor operator memory usage and adjust requests/limits
-
-4. **Use DEBUG Logging Temporarily**: Enable DEBUG only when troubleshooting, then return to INFO
-
-5. **Increase Timeout for Complex Checks**: If checks frequently timeout, increase `holmesApiTimeout`
-
-6. **Reduce History for Many Schedules**: Lower `maxHistoryItems` if you have >100 schedules
-
-7. **Use Node Selectors**: Place operator on stable system nodes, not spot/preemptible instances
-
 ## Next Steps
 
-- **[Troubleshooting](troubleshooting.md)** - Debug configuration issues
 - **[Development Guide](development.md)** - Build operator with custom configuration
 - **[Helm Configuration Reference](../reference/helm-configuration.md)** - Complete Helm values documentation

@@ -41,11 +41,6 @@ poetry run pre-commit install
 # Run operator tests
 poetry run pytest tests/holmes_operator/ -v
 
-# Check code style
-poetry run ruff check holmes_operator/
-
-# Type checking
-poetry run mypy holmes_operator/
 ```
 
 ## Building Operator Images
@@ -65,43 +60,6 @@ docker build -f Dockerfile.operator -t holmes-operator:1.0.0-dev .
 docker history holmes-operator:dev
 ```
 
-### Push to Container Registry
-
-**For Docker Hub:**
-
-```bash
-# Tag for your Docker Hub account
-docker tag holmes-operator:dev yourusername/holmes-operator:dev
-
-# Login to Docker Hub
-docker login
-
-# Push image
-docker push yourusername/holmes-operator:dev
-```
-
-**For Local Registry (kind):**
-
-```bash
-# Load image directly into kind cluster
-kind load docker-image holmes-operator:dev --name your-cluster-name
-
-# Verify image is loaded
-docker exec -it your-cluster-name-control-plane crictl images | grep holmes-operator
-```
-
-**For Local Registry (minikube):**
-
-```bash
-# Point Docker to minikube's Docker daemon
-eval $(minikube docker-env)
-
-# Build image (automatically available in minikube)
-docker build -f Dockerfile.operator -t holmes-operator:dev .
-
-# Verify
-minikube ssh docker images | grep holmes-operator
-```
 
 ### Multi-Architecture Builds
 
@@ -171,14 +129,6 @@ CRDs are in `helm/holmes/crds/`:
 
 **Editing CRDs:**
 
-```bash
-# Edit HealthCheck CRD
-vim helm/holmes/crds/healthcheck.yaml
-
-# Edit ScheduledHealthCheck CRD
-vim helm/holmes/crds/scheduledhealthcheck.yaml
-```
-
 !!! warning "CRD Updates"
 
     Kubernetes does not automatically update CRDs via Helm upgrade. After modifying CRDs, you must manually apply them:
@@ -206,17 +156,6 @@ helm template holmesgpt helm/holmes \
 
 # Render and pipe to kubectl diff
 helm template holmesgpt helm/holmes -f your-values.yaml | kubectl diff -f -
-```
-
-### Validating YAML Syntax
-
-```bash
-# Validate YAML syntax
-yamllint helm/holmes/crds/*.yaml
-yamllint helm/holmes/templates/operator-*.yaml
-
-# Validate Kubernetes resources
-kubectl apply --dry-run=client -f helm/holmes/crds/healthcheck.yaml
 ```
 
 ## Installing Local Changes
@@ -316,75 +255,7 @@ python -m holmes_operator.operator
 HOLMES_API_URL=http://localhost:8080 \
 LOG_LEVEL=DEBUG \
 python -m holmes_operator.operator
-```
 
-### Testing with Local CRs
-
-Create test HealthCheck resources:
-
-```bash
-# Apply test health check
-kubectl apply -f - <<EOF
-apiVersion: holmesgpt.dev/v1alpha1
-kind: HealthCheck
-metadata:
-  name: test-local-check
-spec:
-  query: "Are all pods in default namespace running?"
-  timeout: 30
-EOF
-
-# Watch operator logs for processing
-# Check should be picked up and executed
-
-# View results
-kubectl describe hc test-local-check
-```
-
-## Code Structure Overview
-
-Understanding the operator codebase:
-
-```
-holmes_operator/
-├── operator.py           # Main entry point, kopf handlers
-├── handlers/
-│   ├── healthcheck.py   # HealthCheck CRD handlers
-│   └── scheduledhealthcheck.py  # ScheduledHealthCheck handlers
-├── scheduler/
-│   ├── manager.py       # APScheduler management
-│   └── job_executor.py  # Job execution logic
-├── models.py            # Pydantic data models
-├── config.py            # Configuration loading
-└── utils.py             # Status update utilities
-```
-
-### Key Files
-
-**operator.py**
-
-Main kopf operator setup and global handlers.
-
-**handlers/healthcheck.py**
-
-- `on_healthcheck_create()` - Executes check when HealthCheck is created
-- `on_healthcheck_update()` - Handles rerun annotation
-
-**handlers/scheduledhealthcheck.py**
-
-- `on_scheduledhealthcheck_create()` - Registers schedule with APScheduler
-- `on_scheduledhealthcheck_update()` - Updates or disables schedule
-- `on_scheduledhealthcheck_delete()` - Unregisters schedule
-
-**scheduler/manager.py**
-
-- `SchedulerManager` - Manages APScheduler for cron jobs
-- `add_schedule()`, `update_schedule()`, `remove_schedule()` - Schedule CRUD
-
-**scheduler/job_executor.py**
-
-- `execute_scheduled_check()` - Creates HealthCheck from schedule
-- `watch_healthcheck_completion()` - Monitors execution and updates history
 
 ## Testing Changes
 
@@ -467,43 +338,7 @@ operator:
   logLevel: DEBUG
 ```
 
-### Interactive Debugging
-
-Add breakpoints in code:
-
-```python
-# In any operator file
-import pdb; pdb.set_trace()
-```
-
-Run operator locally to hit breakpoints:
-
-```bash
-python -m holmes_operator.operator
-```
-
 ### Common Development Issues
-
-**Issue: "No module named holmes_operator"**
-
-Solution:
-
-```bash
-# Install in editable mode
-poetry install
-
-# Or set PYTHONPATH
-export PYTHONPATH=$PWD:$PYTHONPATH
-```
-
-**Issue: CRD changes not taking effect**
-
-Solution:
-
-```bash
-# CRDs must be manually applied
-kubectl apply -f helm/holmes/crds/
-```
 
 **Issue: Operator can't reach Holmes API**
 
@@ -520,57 +355,6 @@ kubectl get svc holmes-api
 kubectl exec -it deployment/holmes-operator -- curl http://holmes-api:80/health
 ```
 
-## Iterating on Changes
-
-Typical development workflow:
-
-```bash
-# 1. Make code changes
-vim holmes_operator/handlers/healthcheck.py
-
-# 2. Run tests
-poetry run pytest tests/holmes_operator/ -v
-
-# 3. Build new image
-docker build -f Dockerfile.operator -t holmes-operator:dev .
-
-# 4. Load into cluster (kind)
-kind load docker-image holmes-operator:dev
-
-# 5. Restart operator deployment
-kubectl rollout restart deployment/holmes-operator
-
-# 6. Watch logs
-kubectl logs -l app.kubernetes.io/name=holmes-operator --follow
-
-# 7. Test with sample CRs
-kubectl apply -f test-healthcheck.yaml
-
-# 8. Verify results
-kubectl describe hc test-check
-```
-
-## Contributing Changes
-
-Before submitting changes:
-
-```bash
-# Run pre-commit checks
-poetry run pre-commit run --all-files
-
-# Run tests
-poetry run pytest tests/holmes_operator/ -v
-
-# Type checking
-poetry run mypy holmes_operator/
-
-# Lint code
-poetry run ruff check holmes_operator/
-
-# Format code
-poetry run ruff format holmes_operator/
-```
-
 See the main [CLAUDE.md](../../CLAUDE.md) for full contribution guidelines.
 
 ## Additional Resources
@@ -583,5 +367,4 @@ See the main [CLAUDE.md](../../CLAUDE.md) for full contribution guidelines.
 ## Next Steps
 
 - [Configuration](configuration.md) - Understand operator configuration options
-- [Troubleshooting](troubleshooting.md) - Debug common issues
 - [Architecture Documentation](../adr/operator-initial-architecture.md) - Detailed design decisions
