@@ -76,7 +76,6 @@ class SchedulerManager:
             cron_expr: Cron expression (e.g., "*/5 * * * *")
             spec: ScheduledHealthCheck spec
             scheduled_uid: UID of the ScheduledHealthCheck resource (for ownerReferences)
-            check_catchup: Whether to check for and execute missed runs
 
         Returns:
             Job ID
@@ -165,51 +164,56 @@ class SchedulerManager:
             logger.debug(f"No schedule found for {key} to remove")
 
     async def _load_existing_schedules(self):
+        """
+        Load existing ScheduledHealthCheck resources from Kubernetes.
+
+        Raises:
+            Exception: If unable to list ScheduledHealthCheck resources (critical failure).
+                      Individual schedule loading errors are logged but don't fail startup.
+        """
         logger.info("Loading existing ScheduledHealthCheck resources...")
 
-        try:
-            # List all ScheduledHealthCheck resources across all namespaces
-            resources = await asyncio.to_thread(
-                self.k8s_api.list_cluster_custom_object,
-                group="holmesgpt.dev",
-                version="v1alpha1",
-                plural="scheduledhealthchecks",
-            )
+        # List all ScheduledHealthCheck resources across all namespaces
+        # Let exceptions propagate - inability to access Kubernetes API is a critical failure
+        resources = await asyncio.to_thread(
+            self.k8s_api.list_cluster_custom_object,
+            group="holmesgpt.dev",
+            version="v1alpha1",
+            plural="scheduledhealthchecks",
+        )
 
-            items = resources.get("items", [])
-            logger.info(f"Found {len(items)} ScheduledHealthCheck resources")
+        items = resources.get("items", [])
+        logger.info(f"Found {len(items)} ScheduledHealthCheck resources")
 
-            for resource in items:
-                metadata = resource.get("metadata", {})
-                spec = resource.get("spec", {})
+        for resource in items:
+            metadata = resource.get("metadata", {})
+            spec = resource.get("spec", {})
 
-                name = metadata.get("name")
-                namespace = metadata.get("namespace")
-                uid = metadata.get("uid")
-                enabled = spec.get("enabled", True)
+            name = metadata.get("name")
+            namespace = metadata.get("namespace")
+            uid = metadata.get("uid")
+            enabled = spec.get("enabled", True)
 
-                if not enabled:
-                    logger.debug(f"Skipping disabled schedule: {namespace}/{name}")
-                    continue
+            if not enabled:
+                logger.debug(f"Skipping disabled schedule: {namespace}/{name}")
+                continue
 
-                try:
-                    # Parse spec
-                    scheduled_spec = ScheduledHealthCheckSpec(**spec)
+            try:
+                # Parse spec
+                scheduled_spec = ScheduledHealthCheckSpec(**spec)
 
-                    # Register schedule with catchup check
-                    await self.add_schedule(
-                        name=name,
-                        namespace=namespace,
-                        cron_expr=scheduled_spec.schedule,
-                        spec=scheduled_spec,
-                        scheduled_uid=uid,
-                    )
+                # Register schedule with catchup check
+                await self.add_schedule(
+                    name=name,
+                    namespace=namespace,
+                    cron_expr=scheduled_spec.schedule,
+                    spec=scheduled_spec,
+                    scheduled_uid=uid,
+                )
 
-                except Exception as e:
-                    logger.error(f"Failed to load schedule {namespace}/{name}: {e}")
-
-        except Exception as e:
-            logger.error(f"Failed to load existing schedules: {e}")
+            except Exception as e:
+                # Individual schedule failures are logged but don't fail startup
+                logger.error(f"Failed to load schedule {namespace}/{name}: {e}")
 
     async def _check_and_catchup(
         self,

@@ -363,7 +363,12 @@ async def _move_to_history(
     duration: float,
     execution_time: str,
 ):
-    """Move HealthCheck from active[] to history[] in ScheduledHealthCheck status."""
+    """
+    Move HealthCheck from active[] to history[] in ScheduledHealthCheck status.
+
+    Raises:
+        Exception: Re-raises any exception after attempting best-effort cleanup.
+    """
     try:
 
         def modify_status(resource):
@@ -413,6 +418,29 @@ async def _move_to_history(
 
     except Exception as e:
         logger.error(f"Failed to move to history: {e}", exc_info=True)
+
+        # Attempt best-effort cleanup: remove check from active[] to prevent stale entries
+        try:
+            logger.warning(
+                f"Attempting cleanup: removing {check_name} from active list "
+                f"for {scheduled_namespace}/{scheduled_name}"
+            )
+            await _remove_from_active(
+                api=api,
+                scheduled_name=scheduled_name,
+                scheduled_namespace=scheduled_namespace,
+                check_name=check_name,
+            )
+            logger.info(f"Successfully removed {check_name} from active list during cleanup")
+        except Exception as cleanup_error:
+            # Log cleanup failure but don't let it suppress the original exception
+            logger.error(
+                f"Cleanup failed while removing {check_name} from active: {cleanup_error}",
+                exc_info=True,
+            )
+
+        # Re-raise original exception so watcher can retry
+        raise
 
 
 async def _remove_from_active(
