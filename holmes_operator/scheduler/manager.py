@@ -1,9 +1,3 @@
-"""
-Scheduler manager for recurring health checks.
-
-Manages APScheduler lifecycle and job registry for ScheduledHealthCheck resources.
-"""
-
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -25,7 +19,6 @@ class SchedulerManager:
     Manages APScheduler lifecycle and job registry.
 
     Responsibilities:
-    - Initialize and manage APScheduler
     - Register/update/remove scheduled jobs
     - Load existing schedules on startup
     - Handle catchup for missed executions
@@ -73,7 +66,6 @@ class SchedulerManager:
         cron_expr: str,
         spec: ScheduledHealthCheckSpec,
         scheduled_uid: str,
-        check_catchup: bool = False,
     ) -> str:
         """
         Register a cron job with APScheduler.
@@ -94,21 +86,13 @@ class SchedulerManager:
         """
         key = f"{namespace}/{name}"
 
-        # Validate cron expression
         try:
             trigger = CronTrigger.from_crontab(cron_expr)
         except Exception as e:
             logger.error(f"Invalid cron expression for {key}: {e}")
             raise ValueError(f"Invalid cron expression '{cron_expr}': {e}") from e
 
-        # Perform scheduling operations
         try:
-            # Check for catchup if requested
-            if check_catchup:
-                await self._check_and_catchup(
-                    name, namespace, cron_expr, spec, scheduled_uid
-                )
-
             # Add job to scheduler
             job = self.scheduler.add_job(
                 func=execute_scheduled_check,

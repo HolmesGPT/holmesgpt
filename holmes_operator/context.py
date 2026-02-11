@@ -1,45 +1,49 @@
 """Global operator context for sharing state across handlers."""
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from kubernetes import client
 from kubernetes import config as k8s_config
 
 from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
+from holmes_operator.scheduler.manager import SchedulerManager
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from holmes_operator.scheduler.manager import SchedulerManager
-
-# Global operator state (initialized in operator.py)
+# Global operator state (initialized during startup)
 config: Optional[OperatorConfig] = None
 api_client: Optional[HolmesAPIClient] = None
 k8s_api: Optional[client.CustomObjectsApi] = None
-scheduler_manager: Optional["SchedulerManager"] = None
+scheduler_manager: Optional[SchedulerManager] = None
 
 
-def initialize(cfg: OperatorConfig) -> None:
+async def initialize() -> OperatorConfig:
     """
     Initialize global operator context.
 
-    This should be called once during operator startup. Loads Kubernetes
-    configuration (in-cluster or kubeconfig), creates the Kubernetes API
-    client, and initializes the Holmes API client.
+    This should be called once during operator startup. Loads operator
+    configuration, Kubernetes configuration (in-cluster or kubeconfig),
+    creates the Kubernetes API client, and initializes the Holmes API client.
 
-    Args:
-        cfg: Operator configuration containing Holmes API URL, timeout, and
-            other operator settings.
+    Returns:
+        OperatorConfig: The loaded operator configuration
 
     Side Effects:
-        Sets global variables: config, api_client, and k8s_api
+        Sets global variables: config, api_client, k8s_api, and scheduler_manager
     """
     global config, api_client, k8s_api, scheduler_manager
-    config = cfg
+
+    # Load operator configuration
+    config = OperatorConfig.load()
+    logger.info(
+        f"Loaded configuration: Holmes API URL={config.holmes_api_url}, "
+        f"Log Level={config.log_level}"
+    )
+
+    # Update log level from config
+    logging.getLogger().setLevel(config.log_level)
 
     # Initialize Kubernetes client
     try:
@@ -55,11 +59,18 @@ def initialize(cfg: OperatorConfig) -> None:
 
     # Initialize Holmes API client
     api_client = HolmesAPIClient(
-        base_url=cfg.holmes_api_url,
-        timeout=cfg.holmes_api_timeout,
+        base_url=config.holmes_api_url,
+        timeout=config.holmes_api_timeout,
     )
 
-    scheduler_manager = SchedulerManager("UTC", k8s_api=k8s_api)
+    # Initialize and start scheduler manager
+    scheduler_manager = SchedulerManager(
+        timezone_str="UTC",
+        k8s_api=k8s_api,
+    )
+    await scheduler_manager.start()
+
+    return config
 
 
 async def cleanup() -> None:

@@ -17,6 +17,7 @@ from holmes_operator import context
 from holmes_operator.models import (
     ConditionStatus,
     HealthCheckCondition,
+    ScheduledHealthCheckConditionType,
     ScheduledHealthCheckSpec,
 )
 from holmes_operator.utils import get_current_time_iso
@@ -39,69 +40,15 @@ async def on_scheduledhealthcheck_create(
 
     Validates the spec, registers the schedule with SchedulerManager if enabled,
     and sets initial status condition.
-
-    Args:
-        spec: ScheduledHealthCheck spec
-        name: Resource name
-        namespace: Resource namespace
-        uid: Resource UID
-        logger: Kopf logger
     """
     logger.info(f"Creating ScheduledHealthCheck: {namespace}/{name}")
-
     try:
-        # Parse and validate spec
         scheduled_spec = ScheduledHealthCheckSpec(**spec)
 
-        # Set initial condition
-        condition = HealthCheckCondition(
-            type="ScheduleRegistered",
-            status=ConditionStatus.TRUE
-            if scheduled_spec.enabled
-            else ConditionStatus.FALSE,
-            lastTransitionTime=get_current_time_iso(),
-            reason="Created" if scheduled_spec.enabled else "Disabled",
-            message=f"Schedule '{scheduled_spec.schedule}' "
-            + ("registered" if scheduled_spec.enabled else "not registered (disabled)"),
-        )
-
-        await _add_scheduledhealthcheck_condition(
-            api=context.k8s_api, name=name, namespace=namespace, condition=condition
-        )
-
-        # Register with scheduler if enabled
         if scheduled_spec.enabled:
-            try:
-                await context.scheduler_manager.add_schedule(
-                    name=name,
-                    namespace=namespace,
-                    cron_expr=scheduled_spec.schedule,
-                    spec=scheduled_spec,
-                    scheduled_uid=uid,
-                )
-                logger.info(
-                    f"Registered schedule for {namespace}/{name}: {scheduled_spec.schedule}"
-                )
-            except ValueError as e:
-                # Invalid cron expression
-                logger.error(f"Invalid cron expression for {namespace}/{name}: {e}")
-                error_condition = HealthCheckCondition(
-                    type="ScheduleRegistered",
-                    status=ConditionStatus.FALSE,
-                    lastTransitionTime=get_current_time_iso(),
-                    reason="InvalidCron",
-                    message=f"Invalid cron expression: {str(e)}",
-                )
-                await _add_scheduledhealthcheck_condition(
-                    api=context.k8s_api,
-                    name=name,
-                    namespace=namespace,
-                    condition=error_condition,
-                )
-                raise
+            _register_scheduled_healthcheck(name, namespace, uid, scheduled_spec)
         else:
-            logger.info(f"Schedule {namespace}/{name} created but disabled")
-
+            _unregister_scheduled_healthcheck(name, namespace, unschedule=False)
     except Exception as e:
         logger.error(
             f"Failed to create ScheduledHealthCheck {namespace}/{name}: {e}",
@@ -164,71 +111,13 @@ async def on_scheduledhealthcheck_update(
         # Handle enable/disable toggle
         if enabled_changed:
             if new_spec.enabled:
-                # Enabled
-                await context.scheduler_manager.add_schedule(
-                    name=name,
-                    namespace=namespace,
-                    cron_expr=new_spec.schedule,
-                    spec=new_spec,
-                    scheduled_uid=uid,
-                )
-                logger.info(f"Enabled schedule for {namespace}/{name}")
-
-                condition = HealthCheckCondition(
-                    type="ScheduleRegistered",
-                    status=ConditionStatus.TRUE,
-                    lastTransitionTime=get_current_time_iso(),
-                    reason="Enabled",
-                    message=f"Schedule '{new_spec.schedule}' registered",
-                )
-                await _add_scheduledhealthcheck_condition(
-                    api=context.k8s_api,
-                    name=name,
-                    namespace=namespace,
-                    condition=condition,
-                )
+                _register_scheduled_healthcheck(name, namespace, uid, new_spec)
             else:
-                # Disabled
-                await context.scheduler_manager.remove_schedule(
-                    name=name, namespace=namespace
-                )
-                logger.info(f"Disabled schedule for {namespace}/{name}")
-
-                condition = HealthCheckCondition(
-                    type="ScheduleRegistered",
-                    status=ConditionStatus.FALSE,
-                    lastTransitionTime=get_current_time_iso(),
-                    reason="Disabled",
-                    message="Schedule disabled",
-                )
-                await _add_scheduledhealthcheck_condition(
-                    api=context.k8s_api,
-                    name=name,
-                    namespace=namespace,
-                    condition=condition,
-                )
+                _unregister_scheduled_healthcheck(name, namespace)
 
         # Handle schedule or spec changes (when still enabled)
         elif new_spec.enabled and spec_changed:
-            await context.scheduler_manager.update_schedule(
-                name=name,
-                namespace=namespace,
-                cron_expr=new_spec.schedule,
-                spec=new_spec,
-                scheduled_uid=uid,
-            )
-            logger.info(f"Updated schedule for {namespace}/{name}")
-
-            condition = HealthCheckCondition(
-                type="ScheduleRegistered",
-                status=ConditionStatus.TRUE,
-                lastTransitionTime=get_current_time_iso(),
-                reason="Updated",
-                message=f"Schedule updated to '{new_spec.schedule}'",
-            )
-            await _add_scheduledhealthcheck_condition(
-                api=context.k8s_api, name=name, namespace=namespace, condition=condition
-            )
+            _update_scheduled_healthcheck(name, namespace, uid, new_spec)
 
     except Exception as e:
         logger.error(
@@ -246,32 +135,132 @@ async def on_scheduledhealthcheck_delete(
     logger: kopf.Logger,
     **kwargs,
 ):
-    """
-    Handle ScheduledHealthCheck deletion.
-
-    Removes the schedule from SchedulerManager. Active HealthChecks will be
-    cleaned up automatically via ownerReferences.
-
-    Args:
-        name: Resource name
-        namespace: Resource namespace
-        logger: Kopf logger
-    """
     logger.info(f"Deleting ScheduledHealthCheck: {namespace}/{name}")
+    _unregister_scheduled_healthcheck(name, namespace)
 
-    try:
+
+async def _update_scheduled_healthcheck(
+    name: str, namespace: str, uid: str, spec: ScheduledHealthCheckSpec
+):
+    logger.info(f"Updating schedule for {namespace}/{name}")
+    await context.scheduler_manager.update_schedule(
+        name=name,
+        namespace=namespace,
+        cron_expr=spec.schedule,
+        spec=spec,
+        scheduled_uid=uid,
+    )
+
+    await set_scheduledhealthcheck_condition(
+        api=context.k8s_api,
+        name=name,
+        namespace=namespace,
+        condition_type=ScheduledHealthCheckConditionType.SCHEDULE_REGISTERED,
+        status=ConditionStatus.TRUE,
+        reason="Updated",
+        message=f"Schedule updated to '{spec.schedule}'",
+    )
+
+
+async def _unregister_scheduled_healthcheck(
+    name: str, namespace: str, unschedule: bool = True
+):
+    logger.info(
+        f"Unregistering schedule for {namespace}/{name}, unscheduling={unschedule}"
+    )
+    if unschedule:
         await context.scheduler_manager.remove_schedule(name=name, namespace=namespace)
-        logger.info(f"Removed schedule for {namespace}/{name}")
+    await set_scheduledhealthcheck_condition(
+        api=context.k8s_api,
+        name=name,
+        namespace=namespace,
+        condition_type=ScheduledHealthCheckConditionType.SCHEDULE_REGISTERED,
+        status=ConditionStatus.FALSE,
+        reason="Disabled",
+        message="Schedule unregistered successfully",
+    )
 
+
+async def _register_scheduled_healthcheck(
+    name: str, namespace: str, uid: str, spec: ScheduledHealthCheckSpec
+):
+    logger.info(f"Registering schedule for {namespace}/{name}")
+    try:
+        await context.scheduler_manager.add_schedule(
+            name=name,
+            namespace=namespace,
+            cron_expr=spec.schedule,
+            spec=spec,
+            scheduled_uid=uid,
+        )
+        await set_scheduledhealthcheck_condition(
+            api=context.k8s_api,
+            name=name,
+            namespace=namespace,
+            condition_type=ScheduledHealthCheckConditionType.SCHEDULE_REGISTERED,
+            status=ConditionStatus.TRUE,
+            reason="Registered",
+            message=f"Schedule '{spec.schedule}' registered successfully",
+        )
+    except ValueError as e:
+        logger.error(f"Invalid cron expression for {namespace}/{name}: {e}")
+        await set_scheduledhealthcheck_condition(
+            api=context.k8s_api,
+            name=name,
+            namespace=namespace,
+            condition_type=ScheduledHealthCheckConditionType.SCHEDULE_REGISTERED,
+            status=ConditionStatus.FALSE,
+            reason="InvalidCron",
+            message=f"Invalid cron expression: {str(e)}",
+        )
     except Exception as e:
         logger.error(
-            f"Failed to delete ScheduledHealthCheck {namespace}/{name}: {e}",
-            exc_info=True,
+            f"Failed to register schedule for {namespace}/{name}: {e}", exc_info=True
         )
-        raise
+        await set_scheduledhealthcheck_condition(
+            api=context.k8s_api,
+            name=name,
+            namespace=namespace,
+            condition_type=ScheduledHealthCheckConditionType.SCHEDULE_REGISTERED,
+            status=ConditionStatus.FALSE,
+            reason="InternalError",
+            message={str(e)},
+        )
 
 
-# Helper function (will be moved to utils.py in Step 5)
+async def set_scheduledhealthcheck_condition(
+    api,
+    name: str,
+    namespace: str,
+    condition_type: ScheduledHealthCheckConditionType,
+    status: ConditionStatus,
+    reason: str,
+    message: str,
+) -> None:
+    """
+    Set a condition on a ScheduledHealthCheck resource.
+
+    Creates a HealthCheckCondition and updates the resource status.
+
+    Args:
+        api: Kubernetes CustomObjectsApi
+        name: ScheduledHealthCheck name
+        namespace: ScheduledHealthCheck namespace
+        condition_type: Type of condition (from ScheduledHealthCheckConditionType enum)
+        status: Condition status (True/False/Unknown)
+        reason: Short machine-readable reason
+        message: Human-readable message
+    """
+    condition = HealthCheckCondition(
+        type=condition_type,
+        status=status,
+        lastTransitionTime=get_current_time_iso(),
+        reason=reason,
+        message=message,
+    )
+    await _add_scheduledhealthcheck_condition(
+        api=api, name=name, namespace=namespace, condition=condition
+    )
 
 
 async def _add_scheduledhealthcheck_condition(
