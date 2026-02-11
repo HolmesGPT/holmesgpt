@@ -12,9 +12,6 @@ HolmesGPT is an AI-powered troubleshooting agent that connects to observability 
 ```bash
 # Install dependencies with Poetry
 poetry install
-
-# Install pre-commit hooks
-poetry run pre-commit install
 ```
 
 ### Testing
@@ -35,11 +32,12 @@ make test-llm-investigate         # Test AlertManager investigations
 poetry run pytest tests/llm/ -n 6 -vv  # Run all LLM tests in parallel
 
 # Run pre-commit checks (includes ruff, mypy, poetry validation)
+# NOTE: Only run these when the user explicitly asks. They run in CI automatically.
 make check
 poetry run pre-commit run -a
 ```
 
-### Code Quality
+### Code Quality (only run when explicitly asked)
 ```bash
 # Format code with ruff
 poetry run ruff format
@@ -211,8 +209,9 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 **Code Quality**:
 - Use Ruff for formatting and linting (configured in pyproject.toml)
 - Type hints required (mypy configuration in pyproject.toml)
-- Pre-commit hooks enforce quality checks
+- Pre-commit hooks enforce quality checks in CI
 - **ALWAYS place Python imports at the top of the file**, not inside functions or methods
+- **NEVER run `pre-commit`, `ruff`, or `mypy` unless the user explicitly asks you to**. These tools are triggered by commit hooks which are not installed on all machines, and running them causes widespread formatting/type changes to files unrelated to your task. Only lint/format files you are actively editing, and only if asked.
 
 **Documentation Examples**:
 - **ALWAYS use Anthropic Claude models** in code examples and documentation:
@@ -230,10 +229,11 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 
 **Pull Request Process**:
 - PRs require maintainer approval
-- Pre-commit hooks must pass
+- Pre-commit hooks are checked in CI (do NOT run them locally unless asked)
 - LLM evaluation tests run automatically in CI
 - Keep PRs focused and include tests
 - **ALWAYS use `git commit -s`** to sign off commits (required for DCO)
+- **When committing, use `git commit -s --no-verify`** to skip local pre-commit hooks (they are not installed consistently and will cause unrelated changes)
 
 **Git Workflow Guidelines**:
 - ALWAYS create commits, NEVER amend
