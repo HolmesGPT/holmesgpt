@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Any, Dict, Optional, Tuple
 
 import jq
@@ -11,6 +12,10 @@ from holmes.core.tools import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _enable_json_filter_params() -> bool:
+    return os.environ.get("HOLMES_ENABLE_JSON_FILTER_PARAMS", "true").lower() == "true"
 
 
 def _truncate_to_depth(value: Any, max_depth: Optional[int], current_depth: int = 0):
@@ -68,7 +73,7 @@ class JsonFilterMixin:
     def extend_parameters(
         cls, existing: Dict[str, ToolParameter]
     ) -> Dict[str, ToolParameter]:
-        merged = dict(cls.filter_parameters)
+        merged = dict(cls.filter_parameters) if _enable_json_filter_params() else {}
         merged.update(existing)
         return merged
 
