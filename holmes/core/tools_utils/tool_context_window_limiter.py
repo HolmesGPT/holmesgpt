@@ -64,6 +64,7 @@ def prevent_overly_big_tool_response(
         filesystem_data, is_json = tool_call_result.result.stringify_data(compact=False)
         file_path = save_large_result(
             chat_id=chat_id,
+            tool_name=tool_call_result.tool_name,
             tool_call_id=tool_call_result.tool_call_id,
             content=filesystem_data,
             is_json=is_json,

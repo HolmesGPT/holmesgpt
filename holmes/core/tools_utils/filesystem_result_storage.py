@@ -22,11 +22,11 @@ def get_storage_base_path() -> Path:
 
 
 def generate_chat_id() -> str:
-    return f"sess_{uuid.uuid4().hex[:12]}"
+    return str(uuid.uuid4())
 
 
 def get_chat_path(chat_id: str) -> Path:
-    return get_storage_base_path() / chat_id
+    return get_storage_base_path() / chat_id / "tool_results"
 
 
 def ensure_chat_directory(chat_id: str) -> Path:
@@ -50,6 +50,7 @@ def cleanup_chat(chat_id: str) -> bool:
 
 def save_large_result(
     chat_id: str,
+    tool_name: str,
     tool_call_id: str,
     content: str,
     is_json: bool = False,
@@ -59,13 +60,14 @@ def save_large_result(
 
     Uses .json extension when the content is JSON, .txt otherwise.
 
-    Returns the file path, or None if storage is disabled/failed.
+    Returns the file path, or None if storage failed.
     """
     try:
         chat_path = ensure_chat_directory(chat_id)
+        safe_name = tool_name.replace("/", "_").replace("\\", "_")
         safe_id = tool_call_id.replace("/", "_").replace("\\", "_")
         extension = ".json" if is_json else ".txt"
-        file_path = chat_path / f"{safe_id}{extension}"
+        file_path = chat_path / f"{safe_name}_{safe_id}{extension}"
         file_path.write_text(content, encoding="utf-8")
         logging.info(f"Saved large tool result to filesystem: {file_path}")
         return str(file_path)
@@ -104,7 +106,7 @@ def cleanup_old_chats(max_chats: int = 3) -> int:
     chats = []
     try:
         for item in storage_path.iterdir():
-            if item.is_dir() and item.name.startswith("sess_"):
+            if item.is_dir():
                 try:
                     chats.append((item, item.stat().st_mtime))
                 except OSError:

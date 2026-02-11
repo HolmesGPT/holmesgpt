@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import tempfile
 from typing import Optional
 
 # Recommended models for different providers
@@ -159,5 +160,5 @@ HOLMES_TOOL_RESULT_STORAGE_ENABLED = load_bool(
     "HOLMES_TOOL_RESULT_STORAGE_ENABLED", True
 )
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
-    "HOLMES_TOOL_RESULT_STORAGE_PATH", "/tmp/holmes/tool_results"
+    "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
 )
