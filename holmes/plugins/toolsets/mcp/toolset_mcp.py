@@ -16,7 +16,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCP_Tool
 from pydantic import AnyUrl, Field, model_validator
 
-from holmes.common.env_vars import SSE_READ_TIMEOUT
+from holmes.common.env_vars import SSE_READ_TIMEOUT, TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
@@ -511,9 +511,15 @@ class RemoteMCPToolset(Toolset):
             return (True, "")
         except Exception as e:
             error_detail = _extract_root_error_message(e)
+            retry_msg = ""
+            if TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS > 0:
+                retry_msg = (
+                    f". If the server is still starting up, Holmes will retry "
+                    f"in {TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS} seconds"
+                )
             return (
                 False,
-                f"Failed to load mcp server {self.name}: {error_detail}",
+                f"Failed to load mcp server {self.name}: {error_detail}{retry_msg}",
             )
 
     async def _get_server_tools(self):

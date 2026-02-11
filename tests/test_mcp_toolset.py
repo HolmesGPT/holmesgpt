@@ -308,6 +308,7 @@ class TestExceptionGroupUnwrapping:
         assert result[0] is False
         assert "403 Forbidden: Invalid API token" in result[1]
         assert "TaskGroup" not in result[1]
+        assert "will retry" in result[1]
 
     def test_invoke_surfaces_auth_error(self, monkeypatch, suppress_migration_warnings):
         tool_def = Tool(
