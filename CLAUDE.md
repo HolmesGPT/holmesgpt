@@ -12,9 +12,6 @@ HolmesGPT is an AI-powered troubleshooting agent that connects to observability 
 ```bash
 # Install dependencies with Poetry
 poetry install
-
-# Install pre-commit hooks
-poetry run pre-commit install
 ```
 
 ### Testing
@@ -35,11 +32,12 @@ make test-llm-investigate         # Test AlertManager investigations
 poetry run pytest tests/llm/ -n 6 -vv  # Run all LLM tests in parallel
 
 # Run pre-commit checks (includes ruff, mypy, poetry validation)
+# NOTE: Only run these when the user explicitly asks. They run in CI automatically.
 make check
 poetry run pre-commit run -a
 ```
 
-### Code Quality
+### Code Quality (only run when explicitly asked)
 ```bash
 # Format code with ruff
 poetry run ruff format
