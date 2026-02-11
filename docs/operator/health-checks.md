@@ -115,7 +115,7 @@ destinations:
       channel: "#alerts"
   - type: pagerduty
     config:
-      service_key: "your-service-key"
+      integration_key: "your-integration-key"
 ```
 
 ## Status Fields

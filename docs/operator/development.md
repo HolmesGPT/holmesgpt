@@ -255,7 +255,7 @@ python -m holmes_operator.operator
 HOLMES_API_URL=http://localhost:8080 \
 LOG_LEVEL=DEBUG \
 python -m holmes_operator.operator
-
+```
 
 ## Testing Changes
 

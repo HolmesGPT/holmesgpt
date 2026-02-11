@@ -79,19 +79,17 @@ jobs:
     - name: Tag and push Docker images as latest if applicable
       if: ${{ github.event.release.prerelease == false && github.event.release.draft == false }}
       run: |
-        # Tag Holmes as latest
-        docker pull us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }}
-        docker tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }} us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest
-        docker push us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest
-        docker tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }} robustadev/holmes:latest
-        docker push robustadev/holmes:latest
+        # Tag Holmes as latest (preserves multi-arch manifest)
+        docker buildx imagetools create \
+          --tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest \
+          --tag robustadev/holmes:latest \
+          us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }}
 
-        # Tag Holmes Operator as latest
-        docker pull us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:${{ github.ref_name }}
-        docker tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:${{ github.ref_name }} us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:latest
-        docker push us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:latest
-        docker tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:${{ github.ref_name }} robustadev/holmes-operator:latest
-        docker push robustadev/holmes-operator:latest
+        # Tag Holmes Operator as latest (preserves multi-arch manifest)
+        docker buildx imagetools create \
+          --tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:latest \
+          --tag robustadev/holmes-operator:latest \
+          us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:${{ github.ref_name }}
 
     - name: Save artifact with helm chart
       uses: actions/upload-artifact@v4

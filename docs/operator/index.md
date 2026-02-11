@@ -7,7 +7,7 @@ Holmes Operator extends HolmesGPT with Kubernetes-native health check capabiliti
     **Important Considerations:**
 
     - **Status**: Holmes Operator is in **alpha** and subject to breaking changes
-    - **AI Usage Costs**: Each health check triggers an LLM call (atleast 1). Schedule checks cautiously to manage costs
+    - **AI Usage Costs**: Each health check triggers an LLM call (at least 1). Schedule checks cautiously to manage costs
     - **Recommendation**: Begin with infrequent schedules (e.g., hourly or daily) and monitor usage before scaling up
 
 ## Features
