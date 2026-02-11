@@ -1,0 +1,108 @@
+user_prompt: |
+  In the Confluence space 'HOLMES214', find the page titled 'Verification Page'
+  and tell me the verification code mentioned in it.
+
+expected_output:
+  - "Must report the verification code: VERIFY-8K3P5N9"
+
+tags:
+  - confluence
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES214"
+  SPACE_NAME="Holmes Test Space 214"
+  PAGE_TITLE="Verification Page"
+  VERIFICATION_CODE="VERIFY-8K3P5N9"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 214\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+
+  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+  echo "Space created with ID: ${SPACE_ID}"
+
+  sleep 2
+
+  echo "Creating page with verification code..."
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"type\": \"page\",
+      \"title\": \"${PAGE_TITLE}\",
+      \"space\": {
+        \"key\": \"${SPACE_KEY}\"
+      },
+      \"body\": {
+        \"storage\": {
+          \"value\": \"<p>This page contains a verification code for testing.</p><p>The verification code is: <strong>${VERIFICATION_CODE}</strong></p><p>This code must be extracted by the LLM to pass the test.</p>\",
+          \"representation\": \"storage\"
+        }
+      }
+    }")
+
+  PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
+  PAGE_BODY=$(echo "$PAGE_RESPONSE" | sed '$d')
+
+  if [ "$PAGE_HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create page. HTTP ${PAGE_HTTP_CODE}: ${PAGE_BODY}"
+    exit 1
+  fi
+
+  PAGE_ID=$(echo "$PAGE_BODY" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  echo "Page created with ID: ${PAGE_ID}"
+
+  echo "Verifying page content..."
+  VERIFY=$(curl -L -s \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/${PAGE_ID}?expand=body.storage" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+  if echo "$VERIFY" | grep -q "${VERIFICATION_CODE}"; then
+    echo "Page content verified"
+  else
+    echo "Page verification failed - code not found in content"
+    exit 1
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES214"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

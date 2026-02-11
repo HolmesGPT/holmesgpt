@@ -454,6 +454,11 @@ toolsets:
       api_url: http://localhost:10177
 ```
 
+**Always run evals before submitting when possible:**
+1. `poetry run pytest -k "test_name" --only-setup --no-cov` — verify setup
+2. `poetry run pytest -k "test_name" --no-cov` — run full test
+3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
+
 ## Documentation Lookup
 
 When asked about content from the HolmesGPT documentation website (https://holmesgpt.dev/), look in the local `docs/` directory:

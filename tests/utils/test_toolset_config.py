@@ -3,9 +3,11 @@
 import logging
 from typing import Any, ClassVar, Dict, Optional
 
+from _pytest.logging import LogCaptureFixture
 from pydantic import Field
 
 from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
+from holmes.plugins.toolsets.elasticsearch.elasticsearch import ElasticsearchConfig
 from holmes.plugins.toolsets.kafka import KafkaClusterConfig, KafkaConfig
 from holmes.plugins.toolsets.newrelic.newrelic import NewrelicConfig
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusConfig
@@ -100,17 +102,44 @@ class TestPrometheusConfigBackwardCompatibility:
         with caplog.at_level(logging.WARNING):
             config = PrometheusConfig(
                 prometheus_url="http://prometheus:9090",
+                headers={"Authorization": "Bearer test"},
                 default_query_timeout_seconds=45,
                 prometheus_ssl_enabled=False,
             )
 
+        assert config.prometheus_url == "http://prometheus:9090/"
+        # headers should be migrated to additional_headers
+        assert config.additional_headers == {"Authorization": "Bearer test"}
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
+        assert "headers -> additional_headers" in caplog.text
         assert (
             "default_query_timeout_seconds -> query_timeout_seconds_default"
             in caplog.text
         )
         assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
+
+    def test_headers_to_additional_headers_migration(
+        self, caplog: LogCaptureFixture
+    ) -> None:
+        """Test that headers is properly migrated to additional_headers."""
+        with caplog.at_level(logging.WARNING):
+            # Create config using deprecated headers field
+            old_config = PrometheusConfig(
+                prometheus_url="http://prometheus:9090",
+                headers={"Authorization": "Bearer token123"},
+            )
+
+        # Create config using new additional_headers field
+        new_config = PrometheusConfig(
+            prometheus_url="http://prometheus:9090",
+            additional_headers={"Authorization": "Bearer token123"},
+        )
+
+        # Both should result in the same additional_headers value
+        assert old_config.additional_headers == new_config.additional_headers
+        assert old_config.additional_headers == {"Authorization": "Bearer token123"}
+        assert "headers -> additional_headers" in caplog.text
 
     def test_new_prometheus_fields_no_warning(self, caplog):
         """Test that new Prometheus field names don't trigger warnings."""
@@ -119,9 +148,12 @@ class TestPrometheusConfigBackwardCompatibility:
                 prometheus_url="http://prometheus:9090",
                 query_timeout_seconds_default=30,
                 verify_ssl=True,
+                additional_headers={"Authorization": "Bearer test"},
             )
 
+        assert config.prometheus_url == "http://prometheus:9090/"
         assert config.query_timeout_seconds_default == 30
+        assert config.additional_headers == {"Authorization": "Bearer test"}
         assert "deprecated" not in caplog.text.lower()
 
 
@@ -205,6 +237,59 @@ class TestDatadogConfigBackwardCompatibility:
         assert config_old.app_key == config_new.app_key
         assert str(config_old.api_url) == str(config_new.api_url)
         assert config_old.timeout_seconds == config_new.timeout_seconds
+
+
+class TestElasticsearchConfigBackwardCompatibility:
+    """Test backward compatibility for ElasticsearchConfig deprecated fields."""
+
+    def test_deprecated_elasticsearch_fields(self, caplog):
+        """Test that deprecated Elasticsearch config fields are migrated."""
+        with caplog.at_level(logging.WARNING):
+            config = ElasticsearchConfig(
+                url="https://elasticsearch:9200",
+                timeout=30,
+            )
+
+        assert config.api_url == "https://elasticsearch:9200"
+        assert config.timeout_seconds == 30
+        assert "url -> api_url" in caplog.text
+        assert "timeout -> timeout_seconds" in caplog.text
+
+    def test_new_elasticsearch_fields_no_warning(self, caplog):
+        """Test that new Elasticsearch field names don't trigger warnings."""
+        with caplog.at_level(logging.WARNING):
+            config = ElasticsearchConfig(
+                api_url="https://elasticsearch:9200",
+                timeout_seconds=15,
+            )
+
+        assert config.api_url == "https://elasticsearch:9200"
+        assert config.timeout_seconds == 15
+        assert "deprecated" not in caplog.text.lower()
+
+    def test_old_and_new_elasticsearch_config_equal(self):
+        """Test that config created with old fields equals config with new fields."""
+        # Config using old field names
+        old_config = ElasticsearchConfig(
+            url="https://elasticsearch:9200",
+            api_key="test-api-key",
+            timeout=20,
+            verify_ssl=False,
+        )
+
+        # Config using new field names
+        new_config = ElasticsearchConfig(
+            api_url="https://elasticsearch:9200",
+            api_key="test-api-key",
+            timeout_seconds=20,
+            verify_ssl=False,
+        )
+
+        # Both configs should have the same values
+        assert old_config.api_url == new_config.api_url
+        assert old_config.timeout_seconds == new_config.timeout_seconds
+        assert old_config.api_key == new_config.api_key
+        assert old_config.verify_ssl == new_config.verify_ssl
 
 
 class TestKafkaConfigBackwardCompatibility:

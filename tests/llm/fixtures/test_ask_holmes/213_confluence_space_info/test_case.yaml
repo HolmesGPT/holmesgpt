@@ -1,0 +1,72 @@
+user_prompt: |
+  Query the Confluence space with key 'HOLMES213' and tell me the space name and space ID.
+
+expected_output:
+  - "Must report the space name: Holmes Test Space 213"
+  - "Must report the space ID as a number"
+
+tags:
+  - confluence
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES213"
+  SPACE_NAME="Holmes Test Space 213"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 213\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+
+  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+  echo "Space created with ID: ${SPACE_ID}"
+
+  echo "Verifying space exists..."
+  VERIFY=$(curl -s -w "%{http_code}" -o /dev/null \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+  if [ "$VERIFY" -ne 200 ]; then
+    echo "Space verification failed with HTTP ${VERIFY}"
+    exit 1
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES213"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

@@ -17,7 +17,7 @@ toolsets:
             prometheus_url: http://<your-prometheus-service>:9090
 
             # Optional:
-            #headers:
+            #additional_headers:
             #    Authorization: "Basic <base_64_encoded_string>"
 ```
 
@@ -75,7 +75,7 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
           enabled: true
           config:
             prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
-            headers:
+            additional_headers:
               token: "{{ env.CORALOGIX_API_KEY }}"
             discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
             tool_calls_return_data: true
@@ -193,7 +193,7 @@ To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
          enabled: true
          config:
            prometheus_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
-           headers:
+           additional_headers:
              Authorization: Bearer YOUR_GLSA_TOKEN
    ```
 
@@ -214,7 +214,7 @@ toolsets:
     enabled: true
     config:
       prometheus_url: http://prometheus-server.monitoring.svc.cluster.local:9090
-      headers:
+      additional_headers:
         Authorization: "Basic <base64_encoded_credentials>"
 
       # Discovery settings
@@ -239,7 +239,7 @@ toolsets:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `prometheus_url` | - | Prometheus server URL (include protocol and port) |
-| `headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
+| `additional_headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
 | `discover_metrics_from_last_hours` | `1` | Only discover metrics with data in last N hours |
 | `query_timeout_seconds_default` | `20` | Default PromQL query timeout |
 | `query_timeout_seconds_hard_max` | `180` | Maximum query timeout |
