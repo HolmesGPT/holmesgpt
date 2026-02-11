@@ -4,13 +4,6 @@ API Toolsets enable HolmesGPT to make authenticated HTTP requests to external AP
 
 Unlike MCP servers which require custom server implementations, API toolsets work directly with existing HTTP APIs using standard authentication methods.
 
-## Key Features
-
-- **Endpoint Whitelisting**: Control exactly which API endpoints HolmesGPT can access
-- **Multiple Authentication Methods**: Support for Basic Auth, Bearer tokens, and custom headers
-- **Multi-Instance Support**: Configure multiple instances of the same API with different credentials
-- **Custom Instructions**: Provide API-specific guidance to improve LLM tool usage
-
 ## When to Use API Toolsets
 
 **Use API Toolsets when:**
@@ -53,6 +46,14 @@ toolsets:
       To get parent page information, use the expand parameter: `?expand=ancestors`
       The ancestors array will contain the parent page details.
 ```
+
+## Key Features
+
+- **Endpoint Whitelisting**: Control exactly which API endpoints HolmesGPT can access
+- **Multiple Authentication Methods**: Support for Basic Auth, Bearer tokens, and custom headers
+- **Multi-Instance Support**: Configure multiple instances of the same API with different credentials
+- **Custom Instructions**: Provide API-specific guidance to improve LLM tool usage
+
 
 ### Configuration Fields
 
