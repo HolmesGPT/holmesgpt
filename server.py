@@ -57,10 +57,6 @@ from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
 from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
-from holmes.core.tools_utils.filesystem_result_storage import (
-    cleanup_old_chats,
-    touch_chat,
-)
 
 # removed: add_runbooks_to_user_prompt
 
@@ -279,9 +275,10 @@ def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
 
 @app.post("/api/issue_chat")
 def issue_conversation(issue_chat_request: IssueChatRequest, http_request: Request):
+    ai = None
     try:
         runbooks = config.get_runbook_catalog()
-        ai = config.create_toolcalling_llm(dal=dal, model=issue_chat_request.model, chat_id=issue_chat_request.chat_id)
+        ai = config.create_toolcalling_llm(dal=dal, model=issue_chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
 
         messages = build_issue_chat_messages(
@@ -307,6 +304,9 @@ def issue_conversation(issue_chat_request: IssueChatRequest, http_request: Reque
     except Exception as e:
         logging.error(f"Error in /api/issue_chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if ai:
+            ai.cleanup()
 
 
 def already_answered(conversation_history: Optional[List[dict]]) -> bool:
@@ -347,8 +347,17 @@ def extract_passthrough_headers(request: Request) -> dict:
     return {"headers": passthrough_headers} if passthrough_headers else {}
 
 
+def _stream_with_cleanup(ai, stream_generator):
+    """Wrap a stream generator to clean up tool result files after streaming completes."""
+    try:
+        yield from stream_generator
+    finally:
+        ai.cleanup()
+
+
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest, http_request: Request):
+    ai = None
     try:
         # Log incoming request details
         has_images = bool(chat_request.images)
@@ -360,12 +369,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
         )
 
         runbooks = config.get_runbook_catalog()
-        ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model, chat_id=chat_request.chat_id)
+        ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
         global_instructions = dal.get_global_instructions_for_account()
-
-        # Mark this chat as active and evict old chats
-        touch_chat(ai.chat_id)
-        cleanup_old_chats()
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -416,17 +421,18 @@ def chat(chat_request: ChatRequest, http_request: Request):
             ]
 
         if chat_request.stream:
-            return StreamingResponse(
-                stream_chat_formatter(
-                    ai.call_stream(
-                        msgs=messages,
-                        enable_tool_approval=chat_request.enable_tool_approval or False,
-                        tool_decisions=chat_request.tool_decisions,
-                        response_format=chat_request.response_format,
-                        request_context=request_context,
-                    ),
-                    [f.model_dump() for f in follow_up_actions],
+            stream = stream_chat_formatter(
+                ai.call_stream(
+                    msgs=messages,
+                    enable_tool_approval=chat_request.enable_tool_approval or False,
+                    tool_decisions=chat_request.tool_decisions,
+                    response_format=chat_request.response_format,
+                    request_context=request_context,
                 ),
+                [f.model_dump() for f in follow_up_actions],
+            )
+            return StreamingResponse(
+                _stream_with_cleanup(ai, stream),
                 media_type="text/event-stream",
             )
         else:
@@ -437,9 +443,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 request_context=request_context,
             )
 
-            # For non-streaming, we need to handle approvals differently
-            # This is a simplified version - in practice, non-streaming with approvals
-            # would require a different approach or conversion to streaming
             return ChatResponse(
                 analysis=llm_call.result,
                 tool_calls=llm_call.tool_calls,
@@ -454,6 +457,11 @@ def chat(chat_request: ChatRequest, http_request: Request):
     except Exception as e:
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # For non-streaming, clean up here. For streaming, cleanup
+        # happens in _stream_with_cleanup after the generator finishes.
+        if ai and not chat_request.stream:
+            ai.cleanup()
 
 
 scheduled_prompts_executor = ScheduledPromptsExecutor(

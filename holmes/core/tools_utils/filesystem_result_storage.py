@@ -36,10 +36,11 @@ def ensure_chat_directory(chat_id: str) -> Path:
 
 
 def cleanup_chat(chat_id: str) -> bool:
-    chat_path = get_chat_path(chat_id)
-    if chat_path.exists():
+    """Delete the entire chat directory (UUID dir and its tool_results subdir)."""
+    chat_root = get_storage_base_path() / chat_id
+    if chat_root.exists():
         try:
-            shutil.rmtree(chat_path)
+            shutil.rmtree(chat_root)
             logging.debug(f"Cleaned up tool result storage for chat {chat_id}")
             return True
         except Exception as e:
@@ -74,57 +75,3 @@ def save_large_result(
     except Exception as e:
         logging.warning(f"Failed to save tool result to filesystem: {e}")
         return None
-
-
-def touch_chat(chat_id: str) -> None:
-    """Update the chat directory's mtime to mark it as recently used.
-
-    Called at request start so that continued conversations keep their
-    chat directory fresh, even if no new files are written.
-    """
-    chat_path = get_chat_path(chat_id)
-    if chat_path.exists():
-        try:
-            chat_path.touch()
-        except Exception as e:
-            logging.warning(f"Failed to touch chat {chat_id}: {e}")
-
-
-def cleanup_old_chats(max_chats: int = 3) -> int:
-    """Keep the most recent chat directories and delete the rest.
-
-    Chat directories are sorted by mtime (newest first). Only the first
-    max_chats are kept; older ones are removed.
-
-    Returns:
-        Number of chat directories deleted.
-    """
-    storage_path = get_storage_base_path()
-    if not storage_path.exists():
-        return 0
-
-    chats = []
-    try:
-        for item in storage_path.iterdir():
-            if item.is_dir():
-                try:
-                    chats.append((item, item.stat().st_mtime))
-                except OSError:
-                    pass
-    except Exception as e:
-        logging.warning(f"Failed to list chats for cleanup: {e}")
-        return 0
-
-    chats.sort(key=lambda x: x[1], reverse=True)
-
-    count = 0
-    for item, _ in chats[max_chats:]:
-        try:
-            shutil.rmtree(item)
-            count += 1
-        except Exception as e:
-            logging.warning(f"Failed to cleanup chat {item.name}: {e}")
-
-    if count > 0:
-        logging.debug(f"Cleaned up {count} old tool result chats, kept {min(len(chats), max_chats)}")
-    return count

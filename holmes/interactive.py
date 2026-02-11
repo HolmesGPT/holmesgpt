@@ -1307,7 +1307,7 @@ def run_interactive_loop(
                     show_completer.update_history([])
                     # Clean up old session's tool result files and start fresh
                     ai.cleanup()
-                    ai.chat_id = generate_chat_id()
+                    ai.chat_id = generate_chat_id()  # New session dir for next conversation
                     continue
                 elif command == SlashCommands.TOOLS_CONFIG.command:
                     pretty_print_toolset_status(ai.tool_executor.toolsets, console)

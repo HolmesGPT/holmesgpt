@@ -364,41 +364,44 @@ def ask(
         prompt_component_overrides=prompt_component_overrides,
     )
 
-    with tracer.start_trace(
-        f'holmes ask "{prompt}"', span_type=SpanType.TASK
-    ) as trace_span:
-        trace_span.log(input=prompt, metadata={"type": "user_question"})
-        response = ai.call(messages, trace_span=trace_span)
-        trace_span.log(
-            output=response.result,
+    try:
+        with tracer.start_trace(
+            f'holmes ask "{prompt}"', span_type=SpanType.TASK
+        ) as trace_span:
+            trace_span.log(input=prompt, metadata={"type": "user_question"})
+            response = ai.call(messages, trace_span=trace_span)
+            trace_span.log(
+                output=response.result,
+            )
+            trace_url = tracer.get_trace_url()
+
+        messages = response.messages  # type: ignore # Update messages with the full history
+
+        if json_output_file:
+            write_json_file(json_output_file, response.model_dump())
+
+        issue = Issue(
+            id=str(uuid.uuid4()),
+            name=prompt,  # type: ignore
+            source_type="holmes-ask",
+            raw={"prompt": prompt, "full_conversation": messages},
+            source_instance_id=socket.gethostname(),
         )
-        trace_url = tracer.get_trace_url()
+        handle_result(
+            response,
+            console,
+            destination,  # type: ignore
+            config,
+            issue,
+            show_tool_output,
+            False,  # type: ignore
+            log_costs,
+        )
 
-    messages = response.messages  # type: ignore # Update messages with the full history
-
-    if json_output_file:
-        write_json_file(json_output_file, response.model_dump())
-
-    issue = Issue(
-        id=str(uuid.uuid4()),
-        name=prompt,  # type: ignore
-        source_type="holmes-ask",
-        raw={"prompt": prompt, "full_conversation": messages},
-        source_instance_id=socket.gethostname(),
-    )
-    handle_result(
-        response,
-        console,
-        destination,  # type: ignore
-        config,
-        issue,
-        show_tool_output,
-        False,  # type: ignore
-        log_costs,
-    )
-
-    if trace_url:
-        console.print(f"🔍 View trace: {trace_url}")
+        if trace_url:
+            console.print(f"🔍 View trace: {trace_url}")
+    finally:
+        ai.cleanup()
 
 
 @investigate_app.command()

@@ -247,7 +247,6 @@ class ToolCallingLLM:
         max_steps: int,
         llm: LLM,
         tracer=None,
-        chat_id: Optional[str] = None,
     ):
         self.tool_executor = tool_executor
         self.max_steps = max_steps
@@ -260,7 +259,7 @@ class ToolCallingLLM:
         self._runbook_in_use: bool = False
 
         # Chat ID for filesystem storage of large tool results
-        self.chat_id = chat_id or generate_chat_id()
+        self.chat_id = generate_chat_id()
 
     def reset_interaction_state(self) -> None:
         """
