@@ -1,7 +1,6 @@
 import logging
+from pathlib import Path
 from typing import Optional
-
-from pydantic import BaseModel
 
 from holmes.common.env_vars import load_bool
 from holmes.core.llm import LLM
@@ -9,11 +8,6 @@ from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.core.tools_utils.filesystem_result_storage import save_large_result
 from holmes.utils import sentry_helper
-
-
-class ToolCallSizeMetadata(BaseModel):
-    messages_token: int
-    max_tokens_allowed: int
 
 
 def get_pct_token_count(percent_of_total_context_window: float, llm: LLM) -> int:
@@ -28,22 +22,16 @@ def get_pct_token_count(percent_of_total_context_window: float, llm: LLM) -> int
 def prevent_overly_big_tool_response(
     tool_call_result: ToolCallResult,
     llm: LLM,
-    chat_id: Optional[str] = None,
+    tool_results_dir: Optional[Path] = None,
 ) -> int:
     """
     Handle tool results that exceed the context window limit.
 
-    If chat_id is provided and filesystem storage is enabled, saves large
-    results to filesystem and returns a pointer message to the LLM. Otherwise,
+    If tool_results_dir is provided and filesystem storage is enabled, saves large
+    results to the directory and returns a pointer message to the LLM. Otherwise,
     falls back to dropping the data with an error message.
 
-    Args:
-        tool_call_result: The tool call result to check/process
-        llm: The LLM instance for token counting
-        chat_id: Optional chat ID for filesystem storage
-
-    Returns:
-        The token count of the original message
+    Returns the token count of the original message.
     """
     message = tool_call_result.as_tool_call_message()
     messages_token = llm.count_tokens(messages=[message]).total_tokens
@@ -54,16 +42,15 @@ def prevent_overly_big_tool_response(
     if messages_token <= max_tokens_allowed:
         return messages_token
 
-    size_info = (
-        f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
-    )
+    size_info = f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
 
-    # Try filesystem storage if chat_id is provided and storage is enabled
+    # Try filesystem storage if a directory is provided and storage is enabled
     file_path = None
-    if chat_id and load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
+    filesystem_data = ""
+    if tool_results_dir and load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
         filesystem_data, is_json = tool_call_result.result.stringify_data(compact=False)
         file_path = save_large_result(
-            chat_id=chat_id,
+            tool_results_dir=tool_results_dir,
             tool_name=tool_call_result.tool_name,
             tool_call_id=tool_call_result.tool_call_id,
             content=filesystem_data,
@@ -91,8 +78,8 @@ def prevent_overly_big_tool_response(
             f"Try to repeat the query but proactively narrow down the result "
             f"so that the tool answer fits within the allowed number of tokens."
         )
-
-    sentry_helper.capture_toolcall_contains_too_many_tokens(
-        tool_call_result, messages_token, max_tokens_allowed
-    )
+        # Only report to Sentry when data is dropped (filesystem storage unavailable/failed)
+        sentry_helper.capture_toolcall_contains_too_many_tokens(
+            tool_call_result, messages_token, max_tokens_allowed
+        )
     return messages_token

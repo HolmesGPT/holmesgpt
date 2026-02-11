@@ -1,10 +1,10 @@
 import json
 import logging
-import os
 from typing import Any, Dict, Optional, Tuple
 
 import jq
 
+from holmes.common.env_vars import load_bool
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _enable_json_filter_params() -> bool:
-    return os.environ.get("HOLMES_ENABLE_JSON_FILTER_PARAMS", "true").lower() == "true"
+    return bool(load_bool("HOLMES_ENABLE_JSON_FILTER_PARAMS", True))
 
 
 def _truncate_to_depth(value: Any, max_depth: Optional[int], current_depth: int = 0):

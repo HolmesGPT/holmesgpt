@@ -37,6 +37,7 @@ from holmes.core.prompt import (
 )
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tools import pretty_print_toolset_status
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import run_interactive_loop
 from holmes.plugins.destinations import DestinationType
@@ -288,13 +289,6 @@ def ask(
     tracer = TracingFactory.create_tracer(trace, project="HolmesGPT-CLI")
     tracer.start_experiment()
 
-    ai = config.create_console_toolcalling_llm(
-        dal=None,  # type: ignore
-        refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
-        tracer=tracer,
-        model_name=model,
-    )
-
     if prompt_file and prompt:
         raise typer.BadParameter(
             "You cannot provide both a prompt argument and a prompt file. Please use one or the other."
@@ -332,39 +326,47 @@ def ask(
             PromptComponent.TODOWRITE_REMINDER: False,
         }
 
-    if interactive:
-        run_interactive_loop(
-            ai,
-            console,
-            prompt,
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(
+            dal=None,  # type: ignore
+            refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
+            tracer=tracer,
+            model_name=model,
+            tool_results_dir=tool_results_dir,
+        )
+
+        if interactive:
+            run_interactive_loop(
+                ai,
+                console,
+                prompt,
+                include_file,
+                show_tool_output,
+                tracer,
+                config.get_runbook_catalog(),
+                system_prompt_additions,
+                json_output_file=json_output_file,
+                bash_always_deny=bash_always_deny,
+                bash_always_allow=bash_always_allow,
+                prompt_component_overrides=prompt_component_overrides,
+            )
+            return
+
+        if include_file:
+            for file_path in include_file:
+                console.print(
+                    f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+                )
+
+        messages = build_initial_ask_messages(
+            prompt,  # type: ignore
             include_file,
-            show_tool_output,
-            tracer,
+            ai.tool_executor,
             config.get_runbook_catalog(),
             system_prompt_additions,
-            json_output_file=json_output_file,
-            bash_always_deny=bash_always_deny,
-            bash_always_allow=bash_always_allow,
             prompt_component_overrides=prompt_component_overrides,
         )
-        return
 
-    if include_file:
-        for file_path in include_file:
-            console.print(
-                f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
-            )
-
-    messages = build_initial_ask_messages(
-        prompt,  # type: ignore
-        include_file,
-        ai.tool_executor,
-        config.get_runbook_catalog(),
-        system_prompt_additions,
-        prompt_component_overrides=prompt_component_overrides,
-    )
-
-    try:
         with tracer.start_trace(
             f'holmes ask "{prompt}"', span_type=SpanType.TASK
         ) as trace_span:
@@ -400,8 +402,6 @@ def ask(
 
         if trace_url:
             console.print(f"🔍 View trace: {trace_url}")
-    finally:
-        ai.cleanup()
 
 
 @investigate_app.command()

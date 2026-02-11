@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import textwrap
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import sentry_sdk
@@ -38,10 +39,6 @@ from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
     ToolInvokeContext,
-)
-from holmes.core.tools_utils.filesystem_result_storage import (
-    cleanup_chat,
-    generate_chat_id,
 )
 from holmes.core.tools_utils.tool_context_window_limiter import (
     prevent_overly_big_tool_response,
@@ -246,20 +243,19 @@ class ToolCallingLLM:
         tool_executor: ToolExecutor,
         max_steps: int,
         llm: LLM,
+        tool_results_dir: Optional[Path],
         tracer=None,
     ):
         self.tool_executor = tool_executor
         self.max_steps = max_steps
         self.tracer = tracer
         self.llm = llm
+        self.tool_results_dir = tool_results_dir
         self.approval_callback: Optional[
             Callable[[StructuredToolResult], tuple[bool, Optional[str]]]
         ] = None
 
         self._runbook_in_use: bool = False
-
-        # Chat ID for filesystem storage of large tool results
-        self.chat_id = generate_chat_id()
 
     def reset_interaction_state(self) -> None:
         """
@@ -267,28 +263,13 @@ class ToolCallingLLM:
         """
         self._runbook_in_use = False
 
-    def cleanup(self) -> None:
-        """
-        Clean up resources associated with this LLM instance.
-
-        This includes removing any tool results saved to the filesystem
-        during this chat.
-        """
-        cleanup_chat(self.chat_id)
-
-    def _can_use_filesystem_storage(self) -> bool:
-        """Check if filesystem storage for large tool results is available.
-
-        Filesystem storage requires bash toolset to be enabled with
-        include_default_allow_deny_list=True, so the LLM can use bash
-        commands to read the saved files.
-        """
-        enabled_toolsets = getattr(self.tool_executor, "enabled_toolsets", [])
-        for toolset in enabled_toolsets:
+    def _has_bash_for_file_access(self) -> bool:
+        """Check if bash toolset is available for reading saved tool result files."""
+        for toolset in self.tool_executor.enabled_toolsets:
             if toolset.name == "bash":
-                config = getattr(toolset, "config", None)
-                if config and getattr(config, "include_default_allow_deny_list", False):
-                    return True
+                config = toolset.config
+                if config and hasattr(config, "include_default_allow_deny_list"):
+                    return config.include_default_allow_deny_list
                 return False
         return False
 
@@ -843,7 +824,9 @@ class ToolCallingLLM:
             original_token_count = prevent_overly_big_tool_response(
                 tool_call_result=tool_call_result,
                 llm=self.llm,
-                chat_id=self.chat_id if self._can_use_filesystem_storage() else None,
+                tool_results_dir=self.tool_results_dir
+                if self.tool_results_dir and self._has_bash_for_file_access()
+                else None,
             )
 
             ToolCallingLLM._log_tool_call_result(
@@ -1220,9 +1203,10 @@ class IssueInvestigator(ToolCallingLLM):
         tool_executor: ToolExecutor,
         max_steps: int,
         llm: LLM,
+        tool_results_dir: Optional[Path],
         cluster_name: Optional[str],
     ):
-        super().__init__(tool_executor, max_steps, llm)
+        super().__init__(tool_executor, max_steps, llm, tool_results_dir)
         self.cluster_name = cluster_name
 
     def investigate(
