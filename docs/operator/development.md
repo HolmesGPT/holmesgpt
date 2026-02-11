@@ -60,20 +60,6 @@ docker build -f Dockerfile.operator -t holmes-operator:1.0.0-dev .
 docker history holmes-operator:dev
 ```
 
-
-### Multi-Architecture Builds
-
-For ARM-based machines (M1/M2 Macs):
-
-```bash
-# Build for multiple architectures
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -f Dockerfile.operator \
-  -t holmes-operator:dev \
-  --load .
-```
-
 ## Modifying Helm Manifests
 
 ### Operator Template Files
