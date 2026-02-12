@@ -10,8 +10,11 @@
  * Usage from external links:
  *   https://holmesgpt.dev/ai-providers/anthropic/?tab=robusta-helm-chart
  *   https://holmesgpt.dev/ai-providers/anthropic/?tab=holmes-cli
+ *
+ * Uses MkDocs Material's document$ observable so it works with
+ * navigation.instant (XHR-based page loads), not just initial load.
  */
-document.addEventListener("DOMContentLoaded", function () {
+document$.subscribe(function () {
   var params = new URLSearchParams(window.location.search);
   var tab = params.get("tab");
   if (!tab) return;
@@ -25,7 +28,7 @@ document.addEventListener("DOMContentLoaded", function () {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "");
+      .replace(/(^-+|-+$)/g, "");
     if (labelSlug === targetSlug) {
       label.click();
     }
