@@ -47,14 +47,14 @@ from holmes.utils.stream import (
     StreamEvents,
     StreamMessage,
     add_token_count_to_metadata,
-    build_stream_event_token_count,
-    build_stream_event_llm_iteration_start,
-    build_stream_event_llm_iteration_complete,
-    build_stream_event_tool_invoke_start,
-    build_stream_event_tool_invoke_end,
-    build_stream_event_parse_response,
     build_stream_event_context_check,
     build_stream_event_error_handling,
+    build_stream_event_llm_iteration_complete,
+    build_stream_event_llm_iteration_start,
+    build_stream_event_parse_response,
+    build_stream_event_token_count,
+    build_stream_event_tool_invoke_end,
+    build_stream_event_tool_invoke_start,
 )
 from holmes.utils.tags import parse_messages_tags
 
@@ -123,12 +123,13 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
 
         # Extract tool_call_metadata from the content string
         # Format: tool_call_metadata={"tool_name": "...", ...}
-        match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
+        # Use raw_decode to properly handle nested JSON objects
+        match = re.search(r"tool_call_metadata=(\{)", content)
         if not match:
             continue
 
         try:
-            metadata = json.loads(match.group(1))
+            metadata, _ = json.JSONDecoder().raw_decode(content, match.start(1))
             if "bash_session_approved_prefixes" in metadata:
                 prefixes.update(metadata["bash_session_approved_prefixes"])
         except (json.JSONDecodeError, KeyError):
@@ -1002,8 +1003,12 @@ class ToolCallingLLM:
             # Emit context check end event for OTEL tracing
             yield build_stream_event_context_check(
                 is_start=False,
-                tokens_used=limit_result.max_context_size - limit_result.maximum_output_token if hasattr(limit_result, 'max_context_size') else None,
-                tokens_limit=limit_result.max_context_size if hasattr(limit_result, 'max_context_size') else None,
+                tokens_used=limit_result.tokens.total_tokens
+                if hasattr(limit_result, "tokens")
+                else None,
+                tokens_limit=limit_result.max_context_size
+                if hasattr(limit_result, "max_context_size")
+                else None,
                 compaction_needed=limit_result.conversation_history_compacted,
             )
 
@@ -1021,7 +1026,6 @@ class ToolCallingLLM:
                 model=self.llm.model,
             )
 
-
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
@@ -1038,12 +1042,18 @@ class ToolCallingLLM:
 
                 # Emit LLM iteration complete event for OTEL tracing
                 usage = getattr(full_response, "usage", None)
-                finish_reasons = getattr(full_response.choices[0], "finish_reason", None) if full_response.choices else None
+                finish_reasons = (
+                    getattr(full_response.choices[0], "finish_reason", None)
+                    if full_response.choices
+                    else None
+                )
                 yield build_stream_event_llm_iteration_complete(
                     iteration=i,
                     model=self.llm.model,
                     prompt_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
-                    completion_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0)
+                    if usage
+                    else 0,
                     total_tokens=getattr(usage, "total_tokens", 0) if usage else 0,
                     finish_reason=finish_reasons,
                     cost_usd=_extract_cost_from_response(full_response),
@@ -1194,9 +1204,22 @@ class ToolCallingLLM:
                     tool_call_result: ToolCallResult = future.result()
 
                     # Emit tool invoke end event for OTEL tracing
-                    tool_status = "SUCCESS" if tool_call_result.result.status == StructuredToolResultStatus.SUCCESS else "FAILURE"
-                    tool_result_str = str(tool_call_result.result.data) if tool_call_result.result.data else None
-                    tool_error_str = tool_call_result.result.error if tool_call_result.result.error else None
+                    tool_status = (
+                        "SUCCESS"
+                        if tool_call_result.result.status
+                        == StructuredToolResultStatus.SUCCESS
+                        else "FAILURE"
+                    )
+                    tool_result_str = (
+                        str(tool_call_result.result.data)
+                        if tool_call_result.result.data
+                        else None
+                    )
+                    tool_error_str = (
+                        tool_call_result.result.error
+                        if tool_call_result.result.error
+                        else None
+                    )
                     yield build_stream_event_tool_invoke_end(
                         tool_name=tool_call_result.tool_name,
                         tool_call_id=tool_call_result.tool_call_id,

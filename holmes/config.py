@@ -13,6 +13,7 @@ from pydantic import (
     FilePath,
     PrivateAttr,
     SecretStr,
+    model_validator,
 )
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
@@ -164,7 +165,7 @@ class Config(RobustaBaseConfig):
 
         config_from_file: Optional[Config] = None
         if config_file is not None and config_file.exists():
-            logging.debug(f"Loading config from {config_file}")
+            logging.info(f"Loading config from {config_file}")
             config_from_file = load_model_from_file(cls, config_file)
 
         cli_options = {k: v for k, v in kwargs.items() if v is not None and v != []}

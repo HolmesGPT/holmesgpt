@@ -40,6 +40,13 @@ def create_mock_llm_response(content: str, tool_calls=None):
     mock_response.choices[0].message.content = content
     mock_response.choices[0].message.tool_calls = tool_calls
     mock_response.choices[0].message.reasoning_content = None
+    # Set finish_reason to avoid MagicMock serialization issues in OTEL tracing events
+    mock_response.choices[0].finish_reason = "stop" if not tool_calls else "tool_calls"
+    # Set usage to avoid MagicMock serialization issues
+    mock_response.usage = MagicMock()
+    mock_response.usage.prompt_tokens = 100
+    mock_response.usage.completion_tokens = 50
+    mock_response.usage.total_tokens = 150
     mock_response.choices[0].message.model_dump.return_value = {
         "role": "assistant",
         "content": content,

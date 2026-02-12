@@ -33,6 +33,18 @@ except ImportError:
         Span = Any
         SpanTypeAttribute = Any
 
+try:
+    from experimental.otel.attributes import truncate
+    from experimental.otel.tracing import get_tracer, init_otel_tracer, set_span_error
+
+    OTEL_EXPERIMENTAL_AVAILABLE = True
+except ImportError:
+    OTEL_EXPERIMENTAL_AVAILABLE = False
+    truncate = None  # type: ignore
+    set_span_error = None  # type: ignore
+    get_tracer = None  # type: ignore
+    init_otel_tracer = None  # type: ignore
+
 
 session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -312,8 +324,6 @@ class OTELSpan:
         **kwargs,
     ) -> None:
         """Log data to span as attributes (Braintrust compatibility)."""
-        from experimental.otel.attributes import truncate
-
         if input is not None:
             self._span.set_attribute("gen_ai.prompt", truncate(str(input)))
         if output is not None:
@@ -344,8 +354,6 @@ class OTELSpan:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if exc_val:
-            from experimental.otel.tracing import set_span_error
-
             set_span_error(self._span, exc_val)
         self.end()
 
@@ -361,8 +369,6 @@ class OTELTracer:
     def _ensure_initialized(self) -> None:
         """Lazy initialization of OTEL tracer."""
         if not self._initialized:
-            from experimental.otel.tracing import get_tracer, init_otel_tracer
-
             init_otel_tracer()
             self._native_tracer = get_tracer(self._service_name)
             self._initialized = True
@@ -472,7 +478,9 @@ class CompositeSpan:
 class CompositeTracer:
     """Tracer that delegates to multiple tracers for dual tracing."""
 
-    def __init__(self, tracers: List[Union[OTELTracer, "BraintrustTracer", DummyTracer]]):
+    def __init__(
+        self, tracers: List[Union[OTELTracer, "BraintrustTracer", DummyTracer]]
+    ):
         self._tracers = tracers
 
     def start_experiment(
@@ -522,8 +530,6 @@ class TracingFactory:
         if TracingFactory._otel_initialized:
             return True
         try:
-            from experimental.otel.tracing import init_otel_tracer
-
             result = init_otel_tracer()
             TracingFactory._otel_initialized = result
             return result

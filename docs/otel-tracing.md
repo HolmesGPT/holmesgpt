@@ -214,9 +214,13 @@ with tracer.start_trace("my_operation", SpanType.TASK) as span:
         child.log(input="tool input", output="tool output")
 ```
 
-## AWS OSIS Integration
+## Backend-Specific Configuration
 
-For [AWS OpenSearch Ingestion Service (OSIS)](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ingestion.html), the implementation:
+HolmesGPT's OTEL tracing works with any OTLP-compatible backend (e.g., Jaeger, Grafana Tempo, OpenSearch Data Prepper). The example below shows AWS-specific configuration for [AWS OpenSearch Ingestion Service (OSIS)](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ingestion.html):
+
+### AWS OSIS Example
+
+For AWS OSIS, the implementation:
 
 1. Automatically detects OSIS endpoints (`.osis.` in URL)
 2. Uses AWS SigV4 request signing

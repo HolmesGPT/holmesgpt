@@ -5,6 +5,7 @@ Based on patterns from ml-commons AgentTracer.java
 
 import atexit
 import hashlib
+import importlib.metadata
 import logging
 import os
 from typing import Optional
@@ -485,8 +486,6 @@ def set_span_error(span: trace.Span, error: Exception) -> None:
 def _get_version() -> str:
     """Get HolmesGPT version."""
     try:
-        from holmes import get_version
-
-        return get_version()
+        return importlib.metadata.version("holmesgpt")
     except Exception:
         return "unknown"

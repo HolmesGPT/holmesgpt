@@ -17,7 +17,13 @@ from typing import (
 
 import typer
 from benedict import benedict  # type: ignore
-from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    ValidationError,
+    model_validator,
+)
 
 from holmes.plugins.prompts import load_prompt
 
@@ -96,6 +102,15 @@ class ToolsetConfig(BaseModel):
 
         return data
 
+
+
+try:
+    # pydantic v2
+    from pydantic_core import PydanticUndefined  # type: ignore
+except Exception:  # pragma: no cover
+    PydanticUndefined = object()  # type: ignore
+
+
 class RobustaBaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
@@ -137,6 +152,7 @@ def load_model_from_file(
             fg="red",
         )
         sys.exit()
+
 
 def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
     """
@@ -192,6 +208,7 @@ def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
         out[field_name] = example_value
 
     return out
+
 
 def _extract_base_model_subclass(annotation: Any) -> Optional[Type[BaseModel]]:
     """

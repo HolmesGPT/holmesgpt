@@ -158,8 +158,10 @@ TRUNCATION_MARKER = "...[TRUNCATED]"
 def truncate(value: Optional[str], max_size: int = MAX_ATTRIBUTE_SIZE) -> str:
     """Truncate a string value to prevent OTEL payload size errors.
 
-    Based on OTEL best practices for attribute size limits.
-    See: https://opentelemetry.io/docs/specs/otel/common/#attribute-limits
+    Based on OTEL best practices for attribute size limits and ml-commons patterns.
+    See:
+    - OTEL attribute limits: https://opentelemetry.io/docs/specs/otel/common/#attribute-limits
+    - ml-commons AgentTracer: https://github.com/opensearch-project/ml-commons/blob/2.x/ml-algorithms/src/main/java/org/opensearch/ml/engine/algorithms/agent/AgentTracer.java
 
     Args:
         value: The string to truncate (can be None)

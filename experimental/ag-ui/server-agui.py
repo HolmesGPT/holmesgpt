@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 import os
+from typing import Any
 
 from holmes.utils.cert_utils import add_custom_certificate
 
@@ -30,7 +31,6 @@ from experimental.otel.tracing import get_tracer, set_span_error
 from experimental.otel import attributes as otel_attr
 from experimental.otel.metrics import (
     init_otel_metrics,
-    shutdown_otel_metrics,
     record_token_usage,
     record_operation_duration,
     record_tool_duration,
@@ -186,9 +186,8 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 enable_tool_approval=chat_request.enable_tool_approval or False,
             )
             tool_call_count = 0
-            tool_start_times: dict[
-                str, float
-            ] = {}  # Track tool start times for duration calculation
+            tool_start_times: dict[str, float] = {}  # Float timestamps only
+            active_spans: dict[str, Any] = {}  # Span objects for cleanup
 
             # Track current LLM iteration span for proper span hierarchy
             current_chat_span = None
@@ -217,18 +216,30 @@ def agui_chat(input_data: RunAgentInput, request: Request):
 
                     # Create new chat span as child of root span
                     # Following Gen AI semantic conventions: "chat {model}"
-                    iteration_model = chunk.data.get("model", model_name) if hasattr(chunk, "data") else model_name
+                    iteration_model = (
+                        chunk.data.get("model", model_name)
+                        if hasattr(chunk, "data")
+                        else model_name
+                    )
                     current_chat_span = tracer.start_span(
                         f"{otel_attr.SPAN_CHAT} {iteration_model}",
                         context=trace.set_span_in_context(root_span),
                     )
-                    current_iteration = chunk.data.get("iteration", 0) if hasattr(chunk, "data") else 0
+                    current_iteration = (
+                        chunk.data.get("iteration", 0) if hasattr(chunk, "data") else 0
+                    )
                     current_chat_span.set_attribute(otel_attr.OPERATION_NAME, "chat")
                     current_chat_span.set_attribute(otel_attr.MODEL, iteration_model)
-                    current_chat_span.set_attribute(otel_attr.AGENT_ITERATION, current_iteration)
+                    current_chat_span.set_attribute(
+                        otel_attr.AGENT_ITERATION, current_iteration
+                    )
                     # Propagate correlation attributes to child spans for querying
-                    current_chat_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
-                    current_chat_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
+                    current_chat_span.set_attribute(
+                        otel_attr.REQUEST_ID, input_data.run_id or ""
+                    )
+                    current_chat_span.set_attribute(
+                        otel_attr.CONVERSATION_ID, input_data.thread_id or ""
+                    )
                     iteration_count = current_iteration
                     continue
 
@@ -242,13 +253,23 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         finish_reason = chunk.data.get("finish_reason")
                         iteration_model = chunk.data.get("model", model_name)
 
-                        current_chat_span.set_attribute(otel_attr.INPUT_TOKENS, prompt_tokens)
-                        current_chat_span.set_attribute(otel_attr.OUTPUT_TOKENS, completion_tokens)
-                        current_chat_span.set_attribute(otel_attr.TOTAL_TOKENS, total_tokens)
+                        current_chat_span.set_attribute(
+                            otel_attr.INPUT_TOKENS, prompt_tokens
+                        )
+                        current_chat_span.set_attribute(
+                            otel_attr.OUTPUT_TOKENS, completion_tokens
+                        )
+                        current_chat_span.set_attribute(
+                            otel_attr.TOTAL_TOKENS, total_tokens
+                        )
                         if cost_usd:
-                            current_chat_span.set_attribute(otel_attr.COST_USD, cost_usd)
+                            current_chat_span.set_attribute(
+                                otel_attr.COST_USD, cost_usd
+                            )
                         if finish_reason:
-                            current_chat_span.set_attribute(otel_attr.FINISH_REASON, finish_reason)
+                            current_chat_span.set_attribute(
+                                otel_attr.FINISH_REASON, finish_reason
+                            )
 
                         # Record token usage metrics
                         record_token_usage(
@@ -276,7 +297,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     if hasattr(chunk, "data"):
                         tool_name = chunk.data.get("tool_name", "unknown")
                         tool_call_id = chunk.data.get("tool_call_id", "unknown")
-                        parent_span = current_chat_span if current_chat_span else root_span
+                        parent_span = (
+                            current_chat_span if current_chat_span else root_span
+                        )
                         invoke_span = tracer.start_span(
                             f"{otel_attr.SPAN_INVOKE_TOOL} {tool_name}",
                             context=trace.set_span_in_context(parent_span),
@@ -284,30 +307,39 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         invoke_span.set_attribute(otel_attr.TOOL_NAME, tool_name)
                         invoke_span.set_attribute(otel_attr.TOOL_CALL_ID, tool_call_id)
                         # Propagate correlation attributes
-                        invoke_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
-                        invoke_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
+                        invoke_span.set_attribute(
+                            otel_attr.REQUEST_ID, input_data.run_id or ""
+                        )
+                        invoke_span.set_attribute(
+                            otel_attr.CONVERSATION_ID, input_data.thread_id or ""
+                        )
                         if chunk.data.get("tool_arguments"):
                             invoke_span.set_attribute(
                                 otel_attr.TOOL_INPUT,
                                 otel_attr.truncate(chunk.data.get("tool_arguments")),
                             )
                         # Store span for later end
-                        tool_start_times[f"invoke_{tool_call_id}"] = invoke_span
+                        active_spans[f"invoke_{tool_call_id}"] = invoke_span
                     continue
 
                 elif event_type == StreamEvents.TOOL_INVOKE_END.value:
                     if hasattr(chunk, "data"):
                         tool_call_id = chunk.data.get("tool_call_id", "unknown")
-                        invoke_span = tool_start_times.pop(f"invoke_{tool_call_id}", None)
+                        invoke_span = active_spans.pop(f"invoke_{tool_call_id}", None)
                         if invoke_span:
-                            invoke_span.set_attribute(otel_attr.TOOL_STATUS, chunk.data.get("status", "UNKNOWN"))
+                            invoke_span.set_attribute(
+                                otel_attr.TOOL_STATUS,
+                                chunk.data.get("status", "UNKNOWN"),
+                            )
                             if chunk.data.get("result"):
                                 invoke_span.set_attribute(
                                     otel_attr.TOOL_OUTPUT,
                                     otel_attr.truncate(chunk.data.get("result")),
                                 )
                             if chunk.data.get("error"):
-                                invoke_span.set_attribute(otel_attr.ERROR_MESSAGE, chunk.data.get("error"))
+                                invoke_span.set_attribute(
+                                    otel_attr.ERROR_MESSAGE, chunk.data.get("error")
+                                )
                             invoke_span.end()
                     continue
 
@@ -319,18 +351,27 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         context=trace.set_span_in_context(parent_span),
                     )
                     # Propagate correlation attributes
-                    parse_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
-                    parse_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
-                    tool_start_times["parse_response"] = parse_span
+                    parse_span.set_attribute(
+                        otel_attr.REQUEST_ID, input_data.run_id or ""
+                    )
+                    parse_span.set_attribute(
+                        otel_attr.CONVERSATION_ID, input_data.thread_id or ""
+                    )
+                    active_spans["parse_response"] = parse_span
                     continue
 
                 elif event_type == StreamEvents.PARSE_RESPONSE_END.value:
-                    parse_span = tool_start_times.pop("parse_response", None)
+                    parse_span = active_spans.pop("parse_response", None)
                     if parse_span and hasattr(chunk, "data"):
                         if chunk.data.get("tool_call_count") is not None:
-                            parse_span.set_attribute(otel_attr.TOOL_CALL_COUNT, chunk.data.get("tool_call_count"))
+                            parse_span.set_attribute(
+                                otel_attr.TOOL_CALL_COUNT,
+                                chunk.data.get("tool_call_count"),
+                            )
                         if chunk.data.get("finish_reason"):
-                            parse_span.set_attribute(otel_attr.FINISH_REASON, chunk.data.get("finish_reason"))
+                            parse_span.set_attribute(
+                                otel_attr.FINISH_REASON, chunk.data.get("finish_reason")
+                            )
                         parse_span.end()
                     continue
 
@@ -341,20 +382,32 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         context=trace.set_span_in_context(root_span),
                     )
                     # Propagate correlation attributes
-                    context_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
-                    context_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
-                    tool_start_times["context_check"] = context_span
+                    context_span.set_attribute(
+                        otel_attr.REQUEST_ID, input_data.run_id or ""
+                    )
+                    context_span.set_attribute(
+                        otel_attr.CONVERSATION_ID, input_data.thread_id or ""
+                    )
+                    active_spans["context_check"] = context_span
                     continue
 
                 elif event_type == StreamEvents.CONTEXT_CHECK_END.value:
-                    context_span = tool_start_times.pop("context_check", None)
+                    context_span = active_spans.pop("context_check", None)
                     if context_span and hasattr(chunk, "data"):
                         if chunk.data.get("tokens_used") is not None:
-                            context_span.set_attribute(otel_attr.CONTEXT_TOKENS_USED, chunk.data.get("tokens_used"))
+                            context_span.set_attribute(
+                                otel_attr.CONTEXT_TOKENS_USED,
+                                chunk.data.get("tokens_used"),
+                            )
                         if chunk.data.get("tokens_limit") is not None:
-                            context_span.set_attribute(otel_attr.CONTEXT_TOKENS_LIMIT, chunk.data.get("tokens_limit"))
+                            context_span.set_attribute(
+                                otel_attr.CONTEXT_TOKENS_LIMIT,
+                                chunk.data.get("tokens_limit"),
+                            )
                         if chunk.data.get("compaction_needed"):
-                            context_span.set_attribute("compaction_needed", chunk.data.get("compaction_needed"))
+                            context_span.set_attribute(
+                                "compaction_needed", chunk.data.get("compaction_needed")
+                            )
                         context_span.end()
                     continue
 
@@ -366,20 +419,30 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         context=trace.set_span_in_context(parent_span),
                     )
                     # Propagate correlation attributes
-                    error_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
-                    error_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
+                    error_span.set_attribute(
+                        otel_attr.REQUEST_ID, input_data.run_id or ""
+                    )
+                    error_span.set_attribute(
+                        otel_attr.CONVERSATION_ID, input_data.thread_id or ""
+                    )
                     if hasattr(chunk, "data"):
                         if chunk.data.get("error_type"):
-                            error_span.set_attribute(otel_attr.ERROR_TYPE, chunk.data.get("error_type"))
+                            error_span.set_attribute(
+                                otel_attr.ERROR_TYPE, chunk.data.get("error_type")
+                            )
                         if chunk.data.get("error_message"):
-                            error_span.set_attribute(otel_attr.ERROR_MESSAGE, chunk.data.get("error_message"))
+                            error_span.set_attribute(
+                                otel_attr.ERROR_MESSAGE, chunk.data.get("error_message")
+                            )
                         if chunk.data.get("will_retry") is not None:
-                            error_span.set_attribute("will_retry", chunk.data.get("will_retry"))
-                    tool_start_times["error_handling"] = error_span
+                            error_span.set_attribute(
+                                "will_retry", chunk.data.get("will_retry")
+                            )
+                    active_spans["error_handling"] = error_span
                     continue
 
                 elif event_type == StreamEvents.ERROR_HANDLING_END.value:
-                    error_span = tool_start_times.pop("error_handling", None)
+                    error_span = active_spans.pop("error_handling", None)
                     if error_span:
                         error_span.end()
                     continue
@@ -424,12 +487,16 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         )
 
                         # Tool spans are children of the current chat span (proper hierarchy)
-                        parent_span = current_chat_span if current_chat_span else root_span
+                        parent_span = (
+                            current_chat_span if current_chat_span else root_span
+                        )
                         tool_span = tracer.start_span(
                             f"{otel_attr.SPAN_EXECUTE_TOOL} {tool_name}",
                             context=trace.set_span_in_context(parent_span),
                         )
-                        tool_span.set_attribute(otel_attr.OPERATION_NAME, "execute_tool")
+                        tool_span.set_attribute(
+                            otel_attr.OPERATION_NAME, "execute_tool"
+                        )
                         tool_span.set_attribute(otel_attr.TOOL_NAME, tool_name)
                         tool_span.set_attribute(otel_attr.TOOL_CALL_ID, tool_call_id)
                         tool_span.set_attribute(otel_attr.TOOL_DURATION_MS, duration_ms)
@@ -438,8 +505,12 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             otel_attr.truncate(str(chunk.data.get("result", {}))),
                         )
                         # Propagate correlation attributes
-                        tool_span.set_attribute(otel_attr.REQUEST_ID, input_data.run_id or "")
-                        tool_span.set_attribute(otel_attr.CONVERSATION_ID, input_data.thread_id or "")
+                        tool_span.set_attribute(
+                            otel_attr.REQUEST_ID, input_data.run_id or ""
+                        )
+                        tool_span.set_attribute(
+                            otel_attr.CONVERSATION_ID, input_data.thread_id or ""
+                        )
                         tool_span.end()
 
                         # Record tool execution metrics
@@ -448,7 +519,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             tool_name=tool_name,
                             success=True,
                         )
-                        increment_tool_calls(count=1, tool_name=tool_name, model=model_name)
+                        increment_tool_calls(
+                            count=1, tool_name=tool_name, model=model_name
+                        )
 
                         front_end_tool_invoked = False
                         if _should_graph_timeseries_data(tool_name=tool_name):
@@ -508,7 +581,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             root_span.set_attribute(otel_attr.METRIC_AGENT_ITERATIONS, iteration_count)
             root_span.set_attribute(otel_attr.INPUT_TOKENS, total_input_tokens)
             root_span.set_attribute(otel_attr.OUTPUT_TOKENS, total_output_tokens)
-            root_span.set_attribute(otel_attr.TOTAL_TOKENS, total_input_tokens + total_output_tokens)
+            root_span.set_attribute(
+                otel_attr.TOTAL_TOKENS, total_input_tokens + total_output_tokens
+            )
             if total_cost_usd > 0:
                 root_span.set_attribute(otel_attr.COST_USD, total_cost_usd)
             root_span.set_attribute(otel_attr.RESULT_SUCCESS, True)
@@ -521,7 +596,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 agent_name="HolmesGPT",
                 success=True,
             )
-            increment_iterations(count=iteration_count, model=model_name, agent_name="HolmesGPT")
+            increment_iterations(
+                count=iteration_count, model=model_name, agent_name="HolmesGPT"
+            )
 
             logging.info(
                 f"[AG-UI] Stream completed for run_id={input_data.run_id}, sending RUN_FINISHED"
@@ -539,11 +616,23 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             if current_chat_span is not None:
                 set_span_error(current_chat_span, e)
                 current_chat_span.end()
+
+            # Clean up any unclosed spans to prevent span leaks
+            for key, span in list(active_spans.items()):
+                try:
+                    set_span_error(span, e)
+                    span.end()
+                except Exception:
+                    pass  # Best effort cleanup
+            active_spans.clear()
+
             set_span_error(root_span, e)
 
             # Record error metrics
             error_type = type(e).__name__
-            increment_errors(count=1, error_type=error_type, operation_name="invoke_agent")
+            increment_errors(
+                count=1, error_type=error_type, operation_name="invoke_agent"
+            )
             operation_duration = time.time() - operation_start_time
             record_operation_duration(
                 duration_seconds=operation_duration,
@@ -553,9 +642,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 success=False,
             )
 
-            logging.info(
-                f"[AG-UI] Sending RUN_ERROR for run_id={input_data.run_id}"
-            )
+            logging.info(f"[AG-UI] Sending RUN_ERROR for run_id={input_data.run_id}")
             yield encoder.encode(
                 RunErrorEvent(
                     type=EventType.RUN_ERROR,
