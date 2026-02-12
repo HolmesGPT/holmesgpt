@@ -58,6 +58,25 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 RUN chmod 777 argocd
 RUN ./argocd --help
 
+# Set up OpenShift CLI (oc)
+ARG OC_VERSION=latest
+ARG OC_ARM_URL=https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux-arm64.tar.gz
+ARG OC_AMD_URL=https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux.tar.gz
+# Conditional download based on the platform
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+    curl -fsSL -o oc.tar.gz $OC_ARM_URL && \
+    tar -xzf oc.tar.gz && \
+    rm oc.tar.gz; \
+    elif [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+    curl -fsSL -o oc.tar.gz $OC_AMD_URL && \
+    tar -xzf oc.tar.gz && \
+    rm oc.tar.gz; \
+    else \
+    echo "Unsupported platform: $TARGETPLATFORM"; exit 1; \
+    fi
+RUN chmod 755 oc
+RUN ./oc version --client
+
 # Install Helm
 RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
@@ -129,6 +148,11 @@ RUN kube-lineage --version
 # Set up ArgoCD
 COPY --from=builder /argocd /usr/local/bin/argocd
 RUN argocd --help
+
+# Set up OpenShift CLI
+COPY --from=builder /oc /usr/local/bin/oc
+RUN chmod 555 /usr/local/bin/oc
+RUN oc version --client
 
 # Set up Helm
 COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
