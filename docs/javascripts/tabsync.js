@@ -1,7 +1,13 @@
 /**
- * URL-based tab selection for MkDocs Material content tabs.
+ * URL-based tab selection and persistence for MkDocs Material content tabs.
  *
- * Supports ?tab=<slug> query parameter to pre-select a tab on page load.
+ * How it works:
+ * 1. A ?tab=<slug> query parameter sets the preferred tab and saves it
+ *    to localStorage so it persists across page navigations.
+ * 2. On every page load (including instant navigations), the saved
+ *    preference is applied to all tab groups on the page.
+ * 3. Clicking a tab manually also updates the saved preference.
+ *
  * Tab slugs are lowercase, hyphenated versions of tab labels:
  *   - "Robusta Helm Chart" -> robusta-helm-chart
  *   - "Holmes Helm Chart"  -> holmes-helm-chart
@@ -14,23 +20,48 @@
  * Uses MkDocs Material's document$ observable so it works with
  * navigation.instant (XHR-based page loads), not just initial load.
  */
-document$.subscribe(function () {
-  var params = new URLSearchParams(window.location.search);
-  var tab = params.get("tab");
-  if (!tab) return;
+var STORAGE_KEY = "holmesgpt-tab-pref";
 
-  var targetSlug = tab.toLowerCase();
+function slugify(text) {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-+|-+$)/g, "");
+}
 
-  // Find all tab labels and click the ones matching the requested slug
+function selectTab(targetSlug) {
   var labels = document.querySelectorAll(".tabbed-labels > label");
   labels.forEach(function (label) {
-    var labelSlug = label.textContent
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-+|-+$)/g, "");
-    if (labelSlug === targetSlug) {
+    if (slugify(label.textContent) === targetSlug) {
       label.click();
     }
+  });
+}
+
+document$.subscribe(function () {
+  // 1. Check URL param — takes priority and updates stored preference
+  var params = new URLSearchParams(window.location.search);
+  var tabParam = params.get("tab");
+  if (tabParam) {
+    var slug = tabParam.toLowerCase();
+    try { localStorage.setItem(STORAGE_KEY, slug); } catch (e) {}
+    selectTab(slug);
+    return;
+  }
+
+  // 2. Otherwise apply stored preference
+  try {
+    var saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      selectTab(saved);
+    }
+  } catch (e) {}
+
+  // 3. When user clicks a tab, save their preference
+  document.querySelectorAll(".tabbed-labels > label").forEach(function (label) {
+    label.addEventListener("click", function () {
+      try { localStorage.setItem(STORAGE_KEY, slugify(label.textContent)); } catch (e) {}
+    });
   });
 });
