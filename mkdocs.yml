@@ -34,6 +34,7 @@ nav:
           - Gemini: ai-providers/gemini.md
           - "Google Vertex AI": ai-providers/google-vertex-ai.md
           - Ollama: ai-providers/ollama.md
+          - OpenRouter: ai-providers/openrouter.md
           - OpenAI: ai-providers/openai.md
           - "OpenAI-Compatible": ai-providers/openai-compatible.md
           - Other: ai-providers/other.md
