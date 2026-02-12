@@ -13,41 +13,6 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
 ## Configuration
 
-=== "Robusta Helm Chart"
-
-    **Azure AD Workload Identity**
-
-    ```yaml
-    holmes:
-      toolsets:
-        azure/sql:
-          enabled: true
-          config:
-            database:
-              subscription_id: "your-subscription-id"
-              resource_group: "your-resource-group"
-              server_name: "your-azure-sql-server-name"
-              database_name: "your-azure-sql-database-name"
-    ```
-
-    **Service Principal**
-
-    ```yaml
-    holmes:
-      toolsets:
-        azure/sql:
-          enabled: true
-          config:
-            tenant_id: "your-tenant-id"
-            client_id: "your-client-id"
-            client_secret: "your-client-secret"
-            database:
-              subscription_id: "your-subscription-id"
-              resource_group: "your-resource-group"
-              server_name: "your-azure-sql-server-name"
-              database_name: "your-azure-sql-database-name"
-    ```
-
 === "Holmes CLI"
 
     **Azure AD Workload Identity**
@@ -86,6 +51,41 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Robusta Helm Chart"
+
+    **Azure AD Workload Identity**
+
+    ```yaml
+    holmes:
+      toolsets:
+        azure/sql:
+          enabled: true
+          config:
+            database:
+              subscription_id: "your-subscription-id"
+              resource_group: "your-resource-group"
+              server_name: "your-azure-sql-server-name"
+              database_name: "your-azure-sql-database-name"
+    ```
+
+    **Service Principal**
+
+    ```yaml
+    holmes:
+      toolsets:
+        azure/sql:
+          enabled: true
+          config:
+            tenant_id: "your-tenant-id"
+            client_id: "your-client-id"
+            client_secret: "your-client-secret"
+            database:
+              subscription_id: "your-subscription-id"
+              resource_group: "your-resource-group"
+              server_name: "your-azure-sql-server-name"
+              database_name: "your-azure-sql-database-name"
+    ```
 
 ## Roles / Access controls
 

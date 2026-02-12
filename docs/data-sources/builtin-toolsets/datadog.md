@@ -18,60 +18,45 @@ You'll need two keys and your site URL from your Datadog account:
 
 ### 2. Configure HolmesGPT
 
-=== "Robusta Helm Chart"
+=== "Holmes CLI"
 
-    First, create a Kubernetes secret with your API keys:
+    Set environment variables:
     ```bash
-    kubectl create secret generic holmes-datadog-secrets \
-      --from-literal=dd-api-key=your-datadog-api-key \
-      --from-literal=dd-app-key=your-datadog-app-key
+    export DD_API_KEY="your-datadog-api-key"
+    export DD_APP_KEY="your-datadog-app-key"
     ```
 
-    Then add to your Robusta Helm values:
+    Add to your config file:
     ```yaml
-    holmes:
-      # Load API keys from secret
-      additionalEnvVars:
-        - name: DD_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: holmes-datadog-secrets
-              key: dd-api-key
-        - name: DD_APP_KEY
-          valueFrom:
-            secretKeyRef:
-              name: holmes-datadog-secrets
-              key: dd-app-key
+    toolsets:
+      # Enable all Datadog toolsets
+      datadog/logs:
+        enabled: true
+        config:
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com  # Change for EU/other regions
 
-      toolsets:
-        # Enable all Datadog toolsets
-        datadog/logs:
-          enabled: true
-          config:
-            api_key: "{{ env.DD_API_KEY }}"
-            app_key: "{{ env.DD_APP_KEY }}"
-            api_url: https://app.datadoghq.com  # Change for EU/other regions
+      datadog/metrics:
+        enabled: true
+        config:
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
 
-        datadog/metrics:
-          enabled: true
-          config:
-            api_key: "{{ env.DD_API_KEY }}"
-            app_key: "{{ env.DD_APP_KEY }}"
-            api_url: https://app.datadoghq.com
+      datadog/traces:
+        enabled: true
+        config:
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
 
-        datadog/traces:
-          enabled: true
-          config:
-            api_key: "{{ env.DD_API_KEY }}"
-            app_key: "{{ env.DD_APP_KEY }}"
-            api_url: https://app.datadoghq.com
-
-        datadog/general:
-          enabled: true
-          config:
-            api_key: "{{ env.DD_API_KEY }}"
-            app_key: "{{ env.DD_APP_KEY }}"
-            api_url: https://app.datadoghq.com
+      datadog/general:
+        enabled: true
+        config:
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
     ```
 
 === "Holmes Helm Chart"
@@ -129,45 +114,60 @@ You'll need two keys and your site URL from your Datadog account:
           api_url: https://app.datadoghq.com
     ```
 
-=== "Holmes CLI"
+=== "Robusta Helm Chart"
 
-    Set environment variables:
+    First, create a Kubernetes secret with your API keys:
     ```bash
-    export DD_API_KEY="your-datadog-api-key"
-    export DD_APP_KEY="your-datadog-app-key"
+    kubectl create secret generic holmes-datadog-secrets \
+      --from-literal=dd-api-key=your-datadog-api-key \
+      --from-literal=dd-app-key=your-datadog-app-key
     ```
 
-    Add to your config file:
+    Then add to your Robusta Helm values:
     ```yaml
-    toolsets:
-      # Enable all Datadog toolsets
-      datadog/logs:
-        enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com  # Change for EU/other regions
+    holmes:
+      # Load API keys from secret
+      additionalEnvVars:
+        - name: DD_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: holmes-datadog-secrets
+              key: dd-api-key
+        - name: DD_APP_KEY
+          valueFrom:
+            secretKeyRef:
+              name: holmes-datadog-secrets
+              key: dd-app-key
 
-      datadog/metrics:
-        enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com
+      toolsets:
+        # Enable all Datadog toolsets
+        datadog/logs:
+          enabled: true
+          config:
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com  # Change for EU/other regions
 
-      datadog/traces:
-        enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com
+        datadog/metrics:
+          enabled: true
+          config:
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com
 
-      datadog/general:
-        enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com
+        datadog/traces:
+          enabled: true
+          config:
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com
+
+        datadog/general:
+          enabled: true
+          config:
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com
     ```
 
 ### 3. Test It Works

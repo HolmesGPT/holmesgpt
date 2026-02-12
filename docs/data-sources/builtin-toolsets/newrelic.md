@@ -11,19 +11,6 @@ You can find these in your New Relic account under Administration > API keys and
 
 ## Configuration
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        newrelic:
-          enabled: true
-          config:
-            api_key: "<your New Relic API key>"
-            account_id: "<your New Relic account ID>"
-            is_eu_datacenter: false  # Set to true if using New Relic EU region
-    ```
-
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -39,6 +26,19 @@ You can find these in your New Relic account under Administration > API keys and
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        newrelic:
+          enabled: true
+          config:
+            api_key: "<your New Relic API key>"
+            account_id: "<your New Relic account ID>"
+            is_eu_datacenter: false  # Set to true if using New Relic EU region
+    ```
 
 ## Capabilities
 

@@ -10,21 +10,6 @@ A [Grafana service account token](https://grafana.com/docs/grafana/latest/admini
 
 ## Configuration
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/dashboards:
-          enabled: true
-          config:
-            api_key: <your grafana API key>
-            api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
-            # Optional: Additional headers for all requests
-            # additional_headers:
-            #   X-Custom-Header: "custom-value"
-    ```
-
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -47,6 +32,21 @@ A [Grafana service account token](https://grafana.com/docs/grafana/latest/admini
 
     ```bash
     holmes ask "Show me all dashboards tagged with 'kubernetes'"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        grafana/dashboards:
+          enabled: true
+          config:
+            api_key: <your grafana API key>
+            api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
+            # Optional: Additional headers for all requests
+            # additional_headers:
+            #   X-Custom-Header: "custom-value"
     ```
 
 ## Capabilities

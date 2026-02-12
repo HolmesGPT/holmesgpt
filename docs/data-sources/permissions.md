@@ -9,6 +9,21 @@ HolmesGPT may require access to additional Kubernetes resources or CRDs for spec
 
 HolmesGPT includes read-only permissions for common Kubernetes operators and tools by default. These can be individually enabled or disabled:
 
+=== "Holmes Helm Chart"
+
+    ```yaml
+    crdPermissions:
+      argo: true
+      flux: true
+      kafka: true
+      keda: true 
+      crossplane: true
+      istio: true 
+      gatewayApi: true
+      velero: true
+      externalSecrets: true
+    ```
+
 === "Robusta Helm Chart"
 
     ```yaml
@@ -26,21 +41,6 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
         externalSecrets: true
     ```
 
-=== "Holmes Helm Chart"
-
-    ```yaml
-    crdPermissions:
-      argo: true
-      flux: true
-      kafka: true
-      keda: true 
-      crossplane: true
-      istio: true 
-      gatewayApi: true
-      velero: true
-      externalSecrets: true
-    ```
-
 ## Adding Custom Permissions
 
 For resources not covered by the default CRD permissions, you can add custom ClusterRole rules.
@@ -53,6 +53,23 @@ For resources not covered by the default CRD permissions, you can add custom Clu
 ## Example: Adding Cert-Manager Permissions
 
 To enable HolmesGPT to analyze cert-manager certificates and issuers (not included in default permissions), add custom ClusterRole rules:
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    customClusterRoleRules:
+      - apiGroups: ["cert-manager.io"]
+        resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
+        verbs: ["get", "list", "watch"]
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes holmes/holmes --values=values.yaml
+    ```
 
 === "Robusta Helm Chart"
 
@@ -71,23 +88,6 @@ To enable HolmesGPT to analyze cert-manager certificates and issuers (not includ
 
     ```bash
     helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    customClusterRoleRules:
-      - apiGroups: ["cert-manager.io"]
-        resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
-        verbs: ["get", "list", "watch"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes holmes/holmes --values=values.yaml
     ```
 
 ## Key Benefits

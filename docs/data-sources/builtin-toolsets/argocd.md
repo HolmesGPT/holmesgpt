@@ -45,6 +45,25 @@ This is the recommended approach if your ArgoCD is inside your Kubernetes cluste
 
 HolmesGPT needs permission to establish a port-forward to ArgoCD. The configuration below includes that authorization.
 
+=== "Holmes CLI"
+
+    Set the following environment variables:
+
+    ```bash
+    export ARGOCD_AUTH_TOKEN="<your-argocd-token>"
+    export ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
+    ```
+
+    Then add the following to **~/.holmes/config.yaml**:
+
+    ```yaml
+    toolsets:
+        argocd/core:
+            enabled: true
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
 === "Robusta Helm Chart"
 
     ```yaml
@@ -65,25 +84,6 @@ HolmesGPT needs permission to establish a port-forward to ArgoCD. The configurat
 
     --8<-- "snippets/helm_upgrade_command.md"
 
-=== "Holmes CLI"
-
-    Set the following environment variables:
-
-    ```bash
-    export ARGOCD_AUTH_TOKEN="<your-argocd-token>"
-    export ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
-    ```
-
-    Then add the following to **~/.holmes/config.yaml**:
-
-    ```yaml
-    toolsets:
-        argocd/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
 !!! note
 
     For in-cluster address, use the cluster DNS. For example: `--port-forward --port-forward-namespace argocd --server argocd-server.argocd.svc.cluster.local --insecure --grpc-web`
@@ -95,22 +95,6 @@ HolmesGPT needs permission to establish a port-forward to ArgoCD. The configurat
 ### 2. Server URL
 
 This is the recommended approach if your ArgoCD is reachable through a public DNS.
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: ARGOCD_AUTH_TOKEN
-              value: "<your-argocd-token>"
-            - name: ARGOCD_SERVER
-              value: "argocd.example.com"
-        toolsets:
-            argocd/core:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 === "Holmes CLI"
 
@@ -136,6 +120,22 @@ This is the recommended approach if your ArgoCD is reachable through a public DN
     ```bash
     holmes ask "Which ArgoCD applications are failing and why?"
     ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+        additionalEnvVars:
+            - name: ARGOCD_AUTH_TOKEN
+              value: "<your-argocd-token>"
+            - name: ARGOCD_SERVER
+              value: "argocd.example.com"
+        toolsets:
+            argocd/core:
+                enabled: true
+    ```
+
+    --8<-- "snippets/helm_upgrade_command.md"
 
 !!! note
 

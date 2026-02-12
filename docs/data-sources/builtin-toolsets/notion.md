@@ -25,6 +25,22 @@ Enabling this toolset allows HolmesGPT to fetch pages from Notion, making it use
 
 ## Configuration
 
+=== "Holmes CLI"
+
+    First, set the environment variable:
+    ```bash
+    export NOTION_AUTH="<your Notion integration secret>"
+    ```
+
+    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+    ```yaml
+    toolsets:
+        notion:
+            enabled: true
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
 === "Robusta Helm Chart"
 
     ```yaml
@@ -42,25 +58,15 @@ Enabling this toolset allows HolmesGPT to fetch pages from Notion, making it use
 
     --8<-- "snippets/helm_upgrade_command.md"
 
-=== "Holmes CLI"
-
-    First, set the environment variable:
-    ```bash
-    export NOTION_AUTH="<your Notion integration secret>"
-    ```
-
-    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-    ```yaml
-    toolsets:
-        notion:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
 ### Timeout Configuration
 
 By default, the Notion toolset uses a 5-second timeout for webpage requests. If you need to increase the timeout for slower Notion API responses, you can set the `INTERNET_TOOLSET_TIMEOUT_SECONDS` environment variable:
+
+=== "Holmes CLI"
+
+    ```bash
+    export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
+    ```
 
 === "Robusta Helm Chart"
 
@@ -69,12 +75,6 @@ By default, the Notion toolset uses a 5-second timeout for webpage requests. If 
         additionalEnvVars:
             - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
               value: "30"
-    ```
-
-=== "Holmes CLI"
-
-    ```bash
-    export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
     ```
 
 ## Capabilities

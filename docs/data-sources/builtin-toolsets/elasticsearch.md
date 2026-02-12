@@ -17,47 +17,31 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 
 ## Configuration
 
-=== "Robusta Helm Chart"
+=== "Holmes CLI"
 
-    First, create a Kubernetes secret with your credentials:
-
-    ```bash
-    kubectl create secret generic elasticsearch-credentials \
-      --from-literal=api-key=your-api-key
-    ```
-
-    Then add to your Robusta Helm values:
+    Add to your config file (`~/.holmes/config.yaml`):
 
     ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: ELASTICSEARCH_URL
-          value: "https://your-cluster.es.cloud.io:443"
-        - name: ELASTICSEARCH_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: elasticsearch-credentials
-              key: api-key
-      toolsets:
-        elasticsearch/data:
-          enabled: true
-          config:
-            api_url: "{{ env.ELASTICSEARCH_URL }}"
-            api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
-            # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
-        elasticsearch/cluster:
-          enabled: true
-          config:
-            api_url: "{{ env.ELASTICSEARCH_URL }}"
-            api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
-            # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+    toolsets:
+      elasticsearch/data:
+        enabled: true
+        config:
+          api_url: "https://your-cluster.es.cloud.io:443"
+          api_key: "your-api-key"
+          # Alternative: use basic auth instead of api_key
+          # username: "elastic"
+          # password: "your-password"
+      elasticsearch/cluster:
+        enabled: true
+        config:
+          api_url: "https://your-cluster.es.cloud.io:443"
+          api_key: "your-api-key"
+          # Alternative: use basic auth instead of api_key
+          # username: "elastic"
+          # password: "your-password"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
@@ -99,31 +83,47 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
           # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
     ```
 
-=== "Holmes CLI"
+=== "Robusta Helm Chart"
 
-    Add to your config file (`~/.holmes/config.yaml`):
+    First, create a Kubernetes secret with your credentials:
 
-    ```yaml
-    toolsets:
-      elasticsearch/data:
-        enabled: true
-        config:
-          api_url: "https://your-cluster.es.cloud.io:443"
-          api_key: "your-api-key"
-          # Alternative: use basic auth instead of api_key
-          # username: "elastic"
-          # password: "your-password"
-      elasticsearch/cluster:
-        enabled: true
-        config:
-          api_url: "https://your-cluster.es.cloud.io:443"
-          api_key: "your-api-key"
-          # Alternative: use basic auth instead of api_key
-          # username: "elastic"
-          # password: "your-password"
+    ```bash
+    kubectl create secret generic elasticsearch-credentials \
+      --from-literal=api-key=your-api-key
     ```
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+    Then add to your Robusta Helm values:
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: ELASTICSEARCH_URL
+          value: "https://your-cluster.es.cloud.io:443"
+        - name: ELASTICSEARCH_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: api-key
+      toolsets:
+        elasticsearch/data:
+          enabled: true
+          config:
+            api_url: "{{ env.ELASTICSEARCH_URL }}"
+            api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+            # Alternative: use basic auth instead of api_key
+            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
+            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+        elasticsearch/cluster:
+          enabled: true
+          config:
+            api_url: "{{ env.ELASTICSEARCH_URL }}"
+            api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+            # Alternative: use basic auth instead of api_key
+            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
+            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+    ```
+
+    --8<-- "snippets/helm_upgrade_command.md"
 
 !!! tip "Enable only what you need"
     You can enable just `elasticsearch/data` or `elasticsearch/cluster` depending on your needs. Most users who just want to search logs only need `elasticsearch/data`.

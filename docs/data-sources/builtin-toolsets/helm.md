@@ -6,6 +6,18 @@ By enabling this toolset, HolmesGPT will be able to provide read access to a clu
 
 ## Configuration
 
+=== "Holmes CLI"
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
+    ```yaml
+    toolsets:
+        helm/core:
+            enabled: true
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
 === "Robusta Helm Chart"
 
     ```yaml
@@ -32,18 +44,6 @@ By enabling this toolset, HolmesGPT will be able to provide read access to a clu
     ```
 
     --8<-- "snippets/helm_upgrade_command.md"
-
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-        helm/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
 
 ## Capabilities
 

@@ -7,30 +7,6 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
 
 ## Configuration
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        bash:
-          enabled: true
-          config:
-            include_default_allow_deny_list: true
-            allow:
-              - "my-custom-command"  # Added to defaults
-            deny:
-              - "kubectl get secret"  # Added to defaults
-    ```
-
-    With `include_default_allow_deny_list: true`, Holmes includes a default list of safe read-only commands:
-
-    - Kubernetes: `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl events`
-    - Text processing: `grep`, `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`
-    - JSON: `jq`, `base64`
-    - File system: `ls`, `find`, `stat`, `df`, `du`
-
-    See [default_lists.py](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py) for the complete list.
-
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -59,6 +35,30 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
     |------|-------------|
     | `--bash-always-deny` | Automatically deny commands not in the allow list |
     | `--bash-always-allow` | Automatically approve all commands (use with caution) |
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        bash:
+          enabled: true
+          config:
+            include_default_allow_deny_list: true
+            allow:
+              - "my-custom-command"  # Added to defaults
+            deny:
+              - "kubectl get secret"  # Added to defaults
+    ```
+
+    With `include_default_allow_deny_list: true`, Holmes includes a default list of safe read-only commands:
+
+    - Kubernetes: `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl events`
+    - Text processing: `grep`, `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`
+    - JSON: `jq`, `base64`
+    - File system: `ls`, `find`, `stat`, `df`, `du`
+
+    See [default_lists.py](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py) for the complete list.
 
 ## Command Approval
 

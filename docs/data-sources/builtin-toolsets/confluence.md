@@ -6,24 +6,6 @@ This toolset requires an [Atlassian API Key](https://support.atlassian.com/atlas
 
 ## Configuration
 
-=== "Robusta Helm Chart"
-
-    **Helm Values:**
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: CONFLUENCE_USER
-              value: <Confluence username>
-            - name: CONFLUENCE_API_KEY
-              value: <Confluence API key>
-            - name: CONFLUENCE_BASE_URL
-              value: <Confluence base URL>
-        toolsets:
-            confluence:
-                enabled: true
-    ```
-
 === "Holmes CLI"
 
     Set the following environment variables and the Confluence toolset will be automatically enabled:
@@ -41,6 +23,24 @@ This toolset requires an [Atlassian API Key](https://support.atlassian.com/atlas
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Robusta Helm Chart"
+
+    **Helm Values:**
+
+    ```yaml
+    holmes:
+        additionalEnvVars:
+            - name: CONFLUENCE_USER
+              value: <Confluence username>
+            - name: CONFLUENCE_API_KEY
+              value: <Confluence API key>
+            - name: CONFLUENCE_BASE_URL
+              value: <Confluence base URL>
+        toolsets:
+            confluence:
+                enabled: true
+    ```
 
 ## Capabilities
 

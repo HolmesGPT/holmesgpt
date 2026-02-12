@@ -12,61 +12,6 @@ It operates in read-only mode by default to ensure safety while investigating pr
 
 ## Configuration
 
-=== "Robusta Helm Chart"
-
-    Add the following minimal configuration to your `generated_values.yaml`:
-
-    ```yaml
-    globalConfig:
-      # Your existing Robusta configuration
-
-    # Add the Holmes MCP addon configuration
-    holmes:
-      mcpAddons:
-        mariadb:
-          enabled: true
-
-          # Database connection configuration
-          config:
-            host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
-            database: "production_db"                    # Database name
-            username: "holmes_readonly"                  # Database username
-            password: "secure_password"                  # Database password
-    ```
-
-    For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
-
-=== "Holmes Helm Chart"
-
-    Add the following minimal configuration to your `values.yaml` file:
-
-    ```yaml
-    mcpAddons:
-      mariadb:
-        enabled: true
-
-        # Database connection configuration
-        config:
-          host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
-          database: "production_db"                    # Database name
-          username: "holmes_readonly"                  # Database username
-          password: "secure_password"                  # Database password
-    ```
-
-    For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).
-
-    Then deploy or upgrade your Holmes installation:
-
-    ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
 === "Holmes CLI"
 
     For CLI usage, you need to deploy the MariaDB MCP server first, then configure Holmes to connect to it. Below is an example on how to deploy it in your cluster.
@@ -251,6 +196,61 @@ It operates in read-only mode by default to ensure safety while investigating pr
     ```yaml
     config:
       url: "http://localhost:8000/mcp"
+    ```
+
+=== "Holmes Helm Chart"
+
+    Add the following minimal configuration to your `values.yaml` file:
+
+    ```yaml
+    mcpAddons:
+      mariadb:
+        enabled: true
+
+        # Database connection configuration
+        config:
+          host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
+          database: "production_db"                    # Database name
+          username: "holmes_readonly"                  # Database username
+          password: "secure_password"                  # Database password
+    ```
+
+    For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).
+
+    Then deploy or upgrade your Holmes installation:
+
+    ```bash
+    helm upgrade --install holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Add the following minimal configuration to your `generated_values.yaml`:
+
+    ```yaml
+    globalConfig:
+      # Your existing Robusta configuration
+
+    # Add the Holmes MCP addon configuration
+    holmes:
+      mcpAddons:
+        mariadb:
+          enabled: true
+
+          # Database connection configuration
+          config:
+            host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
+            database: "production_db"                    # Database name
+            username: "holmes_readonly"                  # Database username
+            password: "secure_password"                  # Database password
+    ```
+
+    For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).
+
+    Then deploy or upgrade your Robusta installation:
+
+    ```bash
+    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
 ## Database User Setup

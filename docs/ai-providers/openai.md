@@ -11,6 +11,58 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
 
 ## Configuration
 
+=== "Holmes CLI"
+
+    **Using Environment Variables:**
+    ```bash
+    export OPENAI_API_KEY="your-openai-api-key"
+    holmes ask "what pods are failing?"
+    ```
+
+    **Using Command Line Parameters:**
+
+    You can also pass the API key directly as a command-line parameter:
+    ```bash
+    holmes ask "what pods are failing?" --api-key="your-api-key"
+    ```
+
+=== "Holmes Helm Chart"
+
+    **Create Kubernetes Secret:**
+    ```bash
+    kubectl create secret generic holmes-secrets \
+      --from-literal=openai-api-key="sk-..." \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    additionalEnvVars:
+      - name: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: holmes-secrets
+            key: openai-api-key
+
+    # Configure at least one model using modelList
+    modelList:
+      gpt-4.1:
+        api_key: "{{ env.OPENAI_API_KEY }}"
+        model: openai/gpt-4.1
+        temperature: 0
+
+      gpt-5:
+        api_key: "{{ env.OPENAI_API_KEY }}"
+        model: openai/gpt-5
+        temperature: 1
+        reasoning_effort: medium
+
+    # Optional: Set default model (use modelList key name)
+    config:
+      model: "gpt-4.1"  # This refers to the key name in modelList above
+    ```
+
 === "Robusta Helm Chart"
 
     **Create Kubernetes Secret:**
@@ -51,58 +103,6 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
         model: "gpt-4.1"  # This refers to the key name in modelList above
     ```
 
-=== "Holmes Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: OPENAI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: openai-api-key
-
-    # Configure at least one model using modelList
-    modelList:
-      gpt-4.1:
-        api_key: "{{ env.OPENAI_API_KEY }}"
-        model: openai/gpt-4.1
-        temperature: 0
-
-      gpt-5:
-        api_key: "{{ env.OPENAI_API_KEY }}"
-        model: openai/gpt-5
-        temperature: 1
-        reasoning_effort: medium
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "gpt-4.1"  # This refers to the key name in modelList above
-    ```
-
-=== "Holmes CLI"
-
-    **Using Environment Variables:**
-    ```bash
-    export OPENAI_API_KEY="your-openai-api-key"
-    holmes ask "what pods are failing?"
-    ```
-
-    **Using Command Line Parameters:**
-
-    You can also pass the API key directly as a command-line parameter:
-    ```bash
-    holmes ask "what pods are failing?" --api-key="your-api-key"
-    ```
-
 ## Available Models
 
 Most OpenAI models are supported. For example:
@@ -124,34 +124,21 @@ holmes ask "what pods are failing?" --model="gpt-5"
 
 When using GPT-5 models, you can control the reasoning effort level. This allows you to balance between response quality and processing time/cost.
 
-=== "Robusta Helm Chart"
+=== "Holmes CLI"
 
-    **Configure in modelList:**
-    ```yaml
-    # values.yaml
-    holmes:
-      modelList:
-        gpt-5-minimal:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-5
-          temperature: 1
-          reasoning_effort: minimal  # Fast responses
+    **Using Environment Variables:**
+    ```bash
+    # Use minimal reasoning effort for faster responses
+    export REASONING_EFFORT="minimal"
+    holmes ask "what pods are failing?" --model="gpt-5"
 
-        gpt-5-medium:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-5
-          temperature: 1
-          reasoning_effort: medium  # Balanced (default)
+    # Use default reasoning effort
+    export REASONING_EFFORT="medium"
+    holmes ask "what pods are failing?" --model="gpt-5"
 
-        gpt-5-high:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-5
-          temperature: 1
-          reasoning_effort: high  # Complex investigations
-
-      # Use the appropriate model based on your needs
-      config:
-        model: "gpt-5-medium"
+    # Use high reasoning effort for complex investigations
+    export REASONING_EFFORT="high"
+    holmes ask "what pods are failing?" --model="gpt-5"
     ```
 
 === "Holmes Helm Chart"
@@ -183,21 +170,34 @@ When using GPT-5 models, you can control the reasoning effort level. This allows
       model: "gpt-5-medium"
     ```
 
-=== "Holmes CLI"
+=== "Robusta Helm Chart"
 
-    **Using Environment Variables:**
-    ```bash
-    # Use minimal reasoning effort for faster responses
-    export REASONING_EFFORT="minimal"
-    holmes ask "what pods are failing?" --model="gpt-5"
+    **Configure in modelList:**
+    ```yaml
+    # values.yaml
+    holmes:
+      modelList:
+        gpt-5-minimal:
+          api_key: "{{ env.OPENAI_API_KEY }}"
+          model: openai/gpt-5
+          temperature: 1
+          reasoning_effort: minimal  # Fast responses
 
-    # Use default reasoning effort
-    export REASONING_EFFORT="medium"
-    holmes ask "what pods are failing?" --model="gpt-5"
+        gpt-5-medium:
+          api_key: "{{ env.OPENAI_API_KEY }}"
+          model: openai/gpt-5
+          temperature: 1
+          reasoning_effort: medium  # Balanced (default)
 
-    # Use high reasoning effort for complex investigations
-    export REASONING_EFFORT="high"
-    holmes ask "what pods are failing?" --model="gpt-5"
+        gpt-5-high:
+          api_key: "{{ env.OPENAI_API_KEY }}"
+          model: openai/gpt-5
+          temperature: 1
+          reasoning_effort: high  # Complex investigations
+
+      # Use the appropriate model based on your needs
+      config:
+        model: "gpt-5-medium"
     ```
 
 **Available reasoning effort levels:**
