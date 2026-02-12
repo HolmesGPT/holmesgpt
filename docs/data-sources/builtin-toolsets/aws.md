@@ -106,45 +106,6 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
 Choose your installation method:
 
-=== "Holmes Helm Chart"
-
-    **Step 2a: Update your values.yaml**
-
-    Add the AWS MCP addon configuration:
-
-    ```yaml
-    mcpAddons:
-      aws:
-        enabled: true
-
-        serviceAccount:
-          create: true
-          annotations:
-            # Use the IAM role ARN from Step 1
-            eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
-
-        config:
-          region: "us-east-1"  # Change to your AWS region
-    ```
-
-    For additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
-
-    **Step 2b: Deploy Holmes**
-
-    ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
-    **Step 2c: Verify the deployment**
-
-    ```bash
-    # Check that the MCP server pod is running
-    kubectl get pods -l app.kubernetes.io/name=aws-mcp-server
-
-    # Check the logs for any errors
-    kubectl logs -l app.kubernetes.io/name=aws-mcp-server
-    ```
-
 === "Robusta Helm Chart"
 
     **Step 2a: Update your Helm values**
@@ -173,6 +134,45 @@ Choose your installation method:
 
     ```bash
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    ```
+
+    **Step 2c: Verify the deployment**
+
+    ```bash
+    # Check that the MCP server pod is running
+    kubectl get pods -l app.kubernetes.io/name=aws-mcp-server
+
+    # Check the logs for any errors
+    kubectl logs -l app.kubernetes.io/name=aws-mcp-server
+    ```
+
+=== "Holmes Helm Chart"
+
+    **Step 2a: Update your values.yaml**
+
+    Add the AWS MCP addon configuration:
+
+    ```yaml
+    mcpAddons:
+      aws:
+        enabled: true
+
+        serviceAccount:
+          create: true
+          annotations:
+            # Use the IAM role ARN from Step 1
+            eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
+
+        config:
+          region: "us-east-1"  # Change to your AWS region
+    ```
+
+    For additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
+
+    **Step 2b: Deploy Holmes**
+
+    ```bash
+    helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
     **Step 2c: Verify the deployment**
@@ -483,44 +483,6 @@ aws eks describe-cluster --name <cluster-name> --query "cluster.identity.oidc.is
 
 Once the IAM roles are set up, configure the Helm chart to enable multi-account mode:
 
-=== "Holmes Helm Chart"
-
-    Add the following configuration to your `values.yaml` file:
-
-    ```yaml
-    mcpAddons:
-      aws:
-        enabled: true
-
-        # AWS configuration
-        config:
-          region: "us-east-1"  # Your AWS region
-          readOnlyMode: true
-
-        # Multi-account configuration
-        multiAccount:
-          enabled: true
-          profiles:
-            dev:
-              account_id: "111111111111"
-              role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
-              region: "us-east-1"  # optional, defaults to the region specified in config
-            prod:
-              account_id: "222222222222"
-              role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
-              region: "us-east-1"  # optional, defaults to the region specified in config
-          llm_account_descriptions: |
-            You must use the --profile flag to specify the account to use.
-            Example: --profile dev - this is the development account and contains the development resources
-            Example: --profile prod - this is the production account and contains the production resources
-
-        # Note: When multiAccount.enabled is true, IRSA annotations are not used
-        # The service account will use EKS token projection instead
-        serviceAccount:
-          create: true
-          # annotations are ignored when multiAccount is enabled
-    ```
-
 === "Robusta Helm Chart"
 
     Add the following configuration to your Helm values:
@@ -558,6 +520,44 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
           serviceAccount:
             create: true
             # annotations are ignored when multiAccount is enabled
+    ```
+
+=== "Holmes Helm Chart"
+
+    Add the following configuration to your `values.yaml` file:
+
+    ```yaml
+    mcpAddons:
+      aws:
+        enabled: true
+
+        # AWS configuration
+        config:
+          region: "us-east-1"  # Your AWS region
+          readOnlyMode: true
+
+        # Multi-account configuration
+        multiAccount:
+          enabled: true
+          profiles:
+            dev:
+              account_id: "111111111111"
+              role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
+              region: "us-east-1"  # optional, defaults to the region specified in config
+            prod:
+              account_id: "222222222222"
+              role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
+              region: "us-east-1"  # optional, defaults to the region specified in config
+          llm_account_descriptions: |
+            You must use the --profile flag to specify the account to use.
+            Example: --profile dev - this is the development account and contains the development resources
+            Example: --profile prod - this is the production account and contains the production resources
+
+        # Note: When multiAccount.enabled is true, IRSA annotations are not used
+        # The service account will use EKS token projection instead
+        serviceAccount:
+          create: true
+          # annotations are ignored when multiAccount is enabled
     ```
 
 === "Holmes CLI"

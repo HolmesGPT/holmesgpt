@@ -60,6 +60,19 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
 
 ### Configuration (Grafana Proxy)
 
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        grafana/tempo:
+          enabled: true
+          config:
+            api_key: <your grafana API key>
+            api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
+            grafana_datasource_uid: <the UID of the tempo data source in Grafana>
+    ```
+
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -82,6 +95,12 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
     holmes ask "The payments DB is very slow, check tempo for any trace data"
     ```
 
+## Direct Connection
+
+The toolset can directly connect to a Tempo instance without proxying through a Grafana instance. This is done by not setting the `grafana_datasource_uid` field. Not setting this field makes HolmesGPT assume that it is directly connecting to Tempo.
+
+### Configuration (Direct Connection)
+
 === "Robusta Helm Chart"
 
     ```yaml
@@ -90,16 +109,10 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
         grafana/tempo:
           enabled: true
           config:
-            api_key: <your grafana API key>
-            api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
-            grafana_datasource_uid: <the UID of the tempo data source in Grafana>
+            api_url: http://tempo.monitoring
+            additional_headers:
+              X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
     ```
-
-## Direct Connection
-
-The toolset can directly connect to a Tempo instance without proxying through a Grafana instance. This is done by not setting the `grafana_datasource_uid` field. Not setting this field makes HolmesGPT assume that it is directly connecting to Tempo.
-
-### Configuration (Direct Connection)
 
 === "Holmes CLI"
 
@@ -116,19 +129,6 @@ The toolset can directly connect to a Tempo instance without proxying through a 
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/tempo:
-          enabled: true
-          config:
-            api_url: http://tempo.monitoring
-            additional_headers:
-              X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
-    ```
 
 ## Advanced Configuration
 

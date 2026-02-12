@@ -25,28 +25,51 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
     - **Context window**: 98,304 tokens
     - **Max output**: 32,768 tokens
 
-=== "Holmes CLI"
+=== "Robusta Helm Chart"
 
-    **Set the API key and token limits:**
+    **Option 1: Using Kubernetes Secret (Recommended):**
     ```bash
-    export NOVITA_API_KEY="your-novita-api-key"
-
-    # Override the default token limits with correct values
-    export OVERRIDE_MAX_CONTENT_SIZE=98304  # 98k context window
-    export OVERRIDE_MAX_OUTPUT_TOKEN=32768   # 32k max output
+    kubectl create secret generic robusta-holmes-secret \
+      --from-literal=novita-api-key="your-novita-api-key" \
+      -n <namespace>
     ```
 
-    **Use the model:**
-    ```bash
-    holmes ask "what pods are failing?" --model="novita/deepseek/deepseek-v3.1-terminus"
+    ```yaml
+    # values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: NOVITA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: novita-api-key
+
+      modelList:
+        deepseek-terminus:
+          model: novita/deepseek/deepseek-v3.1-terminus
+          api_key: "{{ env.NOVITA_API_KEY }}"
+          custom_args:
+            max_context_size: 98304  # Override context window to 98k tokens
     ```
 
-    **Or pass the API key directly:**
-    ```bash
-    OVERRIDE_MAX_CONTENT_SIZE=98304 OVERRIDE_MAX_OUTPUT_TOKEN=32768 \
-    holmes ask "what pods are failing?" \
-      --model="novita/deepseek/deepseek-v3.1-terminus" \
-      --api-key="your-novita-api-key"
+    **Option 2: Direct Value (Less Secure):**
+
+    !!! warning
+        This method stores the API key in plain text in your values file. Use Kubernetes Secrets for production environments.
+
+    ```yaml
+    # values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: NOVITA_API_KEY
+          value: "your-novita-api-key"  # API key directly in values file
+
+      modelList:
+        deepseek-terminus:
+          model: novita/deepseek/deepseek-v3.1-terminus
+          api_key: "{{ env.NOVITA_API_KEY }}"
+          custom_args:
+            max_context_size: 98304  # Override context window to 98k tokens
     ```
 
 === "Holmes Helm Chart"
@@ -94,51 +117,28 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
           max_context_size: 98304  # Override context window to 98k tokens
     ```
 
-=== "Robusta Helm Chart"
+=== "Holmes CLI"
 
-    **Option 1: Using Kubernetes Secret (Recommended):**
+    **Set the API key and token limits:**
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=novita-api-key="your-novita-api-key" \
-      -n <namespace>
+    export NOVITA_API_KEY="your-novita-api-key"
+
+    # Override the default token limits with correct values
+    export OVERRIDE_MAX_CONTENT_SIZE=98304  # 98k context window
+    export OVERRIDE_MAX_OUTPUT_TOKEN=32768   # 32k max output
     ```
 
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: NOVITA_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: novita-api-key
-
-      modelList:
-        deepseek-terminus:
-          model: novita/deepseek/deepseek-v3.1-terminus
-          api_key: "{{ env.NOVITA_API_KEY }}"
-          custom_args:
-            max_context_size: 98304  # Override context window to 98k tokens
+    **Use the model:**
+    ```bash
+    holmes ask "what pods are failing?" --model="novita/deepseek/deepseek-v3.1-terminus"
     ```
 
-    **Option 2: Direct Value (Less Secure):**
-
-    !!! warning
-        This method stores the API key in plain text in your values file. Use Kubernetes Secrets for production environments.
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: NOVITA_API_KEY
-          value: "your-novita-api-key"  # API key directly in values file
-
-      modelList:
-        deepseek-terminus:
-          model: novita/deepseek/deepseek-v3.1-terminus
-          api_key: "{{ env.NOVITA_API_KEY }}"
-          custom_args:
-            max_context_size: 98304  # Override context window to 98k tokens
+    **Or pass the API key directly:**
+    ```bash
+    OVERRIDE_MAX_CONTENT_SIZE=98304 OVERRIDE_MAX_OUTPUT_TOKEN=32768 \
+    holmes ask "what pods are failing?" \
+      --model="novita/deepseek/deepseek-v3.1-terminus" \
+      --api-key="your-novita-api-key"
     ```
 
 ## General Model Configuration Parameters

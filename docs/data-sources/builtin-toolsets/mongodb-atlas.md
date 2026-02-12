@@ -14,6 +14,26 @@ By enabling this toolset, HolmesGPT can access MongoDB Atlas projects and proces
 
 ## Configuration
 
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: MONGODB_ATLAS_PUBLIC_KEY
+          value: "<your-public-api-key>"
+        - name: MONGODB_ATLAS_PRIVATE_KEY
+          value: "<your-private-api-key>"
+        - name: MONGODB_ATLAS_PROJECT_ID
+          value: "<your-project-id>"
+      toolsets:
+        MongoDBAtlas:
+          enabled: true
+          config:
+            public_key: "<your-public-api-key>"
+            private_key: "<your-private-api-key>"
+            project_id: "<your-project-id>"
+    ```
+
 === "Holmes CLI"
 
     First, set the following environment variables:
@@ -37,26 +57,6 @@ By enabling this toolset, HolmesGPT can access MongoDB Atlas projects and proces
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MONGODB_ATLAS_PUBLIC_KEY
-          value: "<your-public-api-key>"
-        - name: MONGODB_ATLAS_PRIVATE_KEY
-          value: "<your-private-api-key>"
-        - name: MONGODB_ATLAS_PROJECT_ID
-          value: "<your-project-id>"
-      toolsets:
-        MongoDBAtlas:
-          enabled: true
-          config:
-            public_key: "<your-public-api-key>"
-            private_key: "<your-private-api-key>"
-            project_id: "<your-project-id>"
-    ```
 
 ## Setting up MongoDB Atlas API Keys
 

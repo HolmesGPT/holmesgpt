@@ -10,14 +10,68 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
 
 ## Configuration
 
-=== "Holmes CLI"
+=== "Robusta Helm Chart"
 
+    **Create Kubernetes Secret:**
     ```bash
-    export VERTEXAI_PROJECT="your-project-id"
-    export VERTEXAI_LOCATION="us-central1"
-    export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account-key.json"
+    # First, encode your service account JSON key
+    kubectl create secret generic robusta-holmes-secret \
+      --from-file=google-credentials=path/to/service-account-key.json \
+      --from-literal=vertexai-project="your-project-id" \
+      --from-literal=vertexai-location="us-central1" \
+      -n <namespace>
+    ```
 
-    holmes ask "what pods are failing?" --model="vertex_ai/<your-vertex-model>"
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: VERTEXAI_PROJECT
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: vertexai-project
+        - name: VERTEXAI_LOCATION
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: vertexai-location
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/etc/google-credentials/google-credentials"
+
+      # Mount the credentials file (required for file-based authentication)
+      # See: https://kubernetes.io/docs/concepts/storage/volumes/#secret
+      additionalVolumes:
+        - name: google-credentials
+          secret:
+            secretName: robusta-holmes-secret
+            items:
+              - key: google-credentials
+                path: google-credentials
+
+      additionalVolumeMounts:
+        - name: google-credentials
+          mountPath: /etc/google-credentials
+          readOnly: true
+
+      # Configure at least one model using modelList
+      modelList:
+        vertex-gemini-pro:
+          vertex_project: "{{ env.VERTEXAI_PROJECT }}"
+          vertex_location: "{{ env.VERTEXAI_LOCATION }}"
+          model: vertex_ai/gemini-pro
+          temperature: 1
+
+        vertex-gemini-flash:
+          vertex_project: "{{ env.VERTEXAI_PROJECT }}"
+          vertex_location: "{{ env.VERTEXAI_LOCATION }}"
+          model: vertex_ai/gemini-1.5-flash
+          temperature: 1
+
+      # Optional: Set default model (use modelList key name)
+      config:
+        model: "vertex-gemini-pro"  # This refers to the key name in modelList above
     ```
 
 === "Holmes Helm Chart"
@@ -83,68 +137,14 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
       model: "vertex-gemini-pro"  # This refers to the key name in modelList above
     ```
 
-=== "Robusta Helm Chart"
+=== "Holmes CLI"
 
-    **Create Kubernetes Secret:**
     ```bash
-    # First, encode your service account JSON key
-    kubectl create secret generic robusta-holmes-secret \
-      --from-file=google-credentials=path/to/service-account-key.json \
-      --from-literal=vertexai-project="your-project-id" \
-      --from-literal=vertexai-location="us-central1" \
-      -n <namespace>
-    ```
+    export VERTEXAI_PROJECT="your-project-id"
+    export VERTEXAI_LOCATION="us-central1"
+    export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account-key.json"
 
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: VERTEXAI_PROJECT
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: vertexai-project
-        - name: VERTEXAI_LOCATION
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: vertexai-location
-        - name: GOOGLE_APPLICATION_CREDENTIALS
-          value: "/etc/google-credentials/google-credentials"
-
-      # Mount the credentials file (required for file-based authentication)
-      # See: https://kubernetes.io/docs/concepts/storage/volumes/#secret
-      additionalVolumes:
-        - name: google-credentials
-          secret:
-            secretName: robusta-holmes-secret
-            items:
-              - key: google-credentials
-                path: google-credentials
-
-      additionalVolumeMounts:
-        - name: google-credentials
-          mountPath: /etc/google-credentials
-          readOnly: true
-
-      # Configure at least one model using modelList
-      modelList:
-        vertex-gemini-pro:
-          vertex_project: "{{ env.VERTEXAI_PROJECT }}"
-          vertex_location: "{{ env.VERTEXAI_LOCATION }}"
-          model: vertex_ai/gemini-pro
-          temperature: 1
-
-        vertex-gemini-flash:
-          vertex_project: "{{ env.VERTEXAI_PROJECT }}"
-          vertex_location: "{{ env.VERTEXAI_LOCATION }}"
-          model: vertex_ai/gemini-1.5-flash
-          temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "vertex-gemini-pro"  # This refers to the key name in modelList above
+    holmes ask "what pods are failing?" --model="vertex_ai/<your-vertex-model>"
     ```
 
 ## Using CLI Parameters

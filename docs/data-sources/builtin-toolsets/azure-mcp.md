@@ -19,6 +19,189 @@ Before deploying the Azure MCP server, ensure you have:
 
 ## Configuration
 
+=== "Robusta Helm Chart"
+
+    **Workload Identity Authentication (Recommended for AKS)**
+
+    ```yaml
+    globalConfig:
+      # Your existing Robusta configuration
+
+    # Add the Holmes MCP addon configuration
+    holmes:
+      mcpAddons:
+        azure:
+          enabled: true
+
+          # Service account configuration
+          serviceAccount:
+            create: true
+            name: "azure-api-mcp-sa"
+            annotations:
+              azure.workload.identity/client-id: "YOUR_CLIENT_ID"
+              azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
+
+          # Azure configuration
+          config:
+            tenantId: "YOUR_TENANT_ID"
+            subscriptionId: "YOUR_SUBSCRIPTION_ID"
+            authMethod: "workload-identity"
+            clientId: "YOUR_CLIENT_ID"
+            readOnlyMode: true
+    ```
+
+    **Service Principal Authentication**
+
+    ```yaml
+    globalConfig:
+      # Your existing Robusta configuration
+
+    holmes:
+      mcpAddons:
+        azure:
+          enabled: true
+
+          serviceAccount:
+            create: true
+            name: "azure-api-mcp-sa"
+
+          config:
+            tenantId: "YOUR_TENANT_ID"
+            subscriptionId: "YOUR_SUBSCRIPTION_ID"
+            authMethod: "service-principal"
+            readOnlyMode: true
+
+          secretName: "azure-mcp-creds"
+    ```
+
+    Create the secret before deploying:
+
+    ```bash
+    kubectl create secret generic azure-mcp-creds \
+      --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
+      --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
+      -n YOUR_NAMESPACE
+    ```
+
+    **Managed Identity Authentication**
+
+    ```yaml
+    globalConfig:
+      # Your existing Robusta configuration
+
+    holmes:
+      mcpAddons:
+        azure:
+          enabled: true
+
+          config:
+            tenantId: "YOUR_TENANT_ID"
+            subscriptionId: "YOUR_SUBSCRIPTION_ID"
+            authMethod: "managed-identity"
+            clientId: "YOUR_MANAGED_IDENTITY_CLIENT_ID"
+            readOnlyMode: true
+    ```
+
+    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
+
+    Then deploy or upgrade your Robusta installation:
+
+    ```bash
+    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    ```
+
+=== "Holmes Helm Chart"
+
+    **Workload Identity Authentication (Recommended for AKS)**
+
+    The recommended approach for AKS clusters is to use Workload Identity. This provides secure, passwordless authentication.
+
+    ```yaml
+    mcpAddons:
+      azure:
+        enabled: true
+
+        # Service account configuration
+        serviceAccount:
+          create: true
+          name: "azure-api-mcp-sa"
+          annotations:
+            azure.workload.identity/client-id: "YOUR_CLIENT_ID"
+            azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
+
+        # Azure configuration
+        config:
+          tenantId: "YOUR_TENANT_ID"
+          subscriptionId: "YOUR_SUBSCRIPTION_ID"
+          authMethod: "workload-identity"
+          clientId: "YOUR_CLIENT_ID"
+          readOnlyMode: true  # Recommended for safety
+    ```
+
+    **Setup Steps:**
+
+    1. Follow the [Workload Identity setup guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/azure#workload-identity-setup-for-aks)
+    2. Create a managed identity and assign Azure RBAC roles
+    3. Configure federated identity credentials
+    4. Deploy with the configuration above
+
+    **Service Principal Authentication**
+
+    For non-AKS clusters or if Workload Identity is not available:
+
+    ```yaml
+    mcpAddons:
+      azure:
+        enabled: true
+
+        serviceAccount:
+          create: true
+          name: "azure-api-mcp-sa"
+
+        config:
+          tenantId: "YOUR_TENANT_ID"
+          subscriptionId: "YOUR_SUBSCRIPTION_ID"
+          authMethod: "service-principal"
+          readOnlyMode: true
+
+        # Reference to existing secret with credentials
+        secretName: "azure-mcp-creds"
+    ```
+
+    Create the secret before deploying:
+
+    ```bash
+    kubectl create secret generic azure-mcp-creds \
+      --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
+      --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
+      -n YOUR_NAMESPACE
+    ```
+
+    **Managed Identity Authentication**
+
+    For AKS clusters with node-level managed identity:
+
+    ```yaml
+    mcpAddons:
+      azure:
+        enabled: true
+
+        config:
+          tenantId: "YOUR_TENANT_ID"
+          subscriptionId: "YOUR_SUBSCRIPTION_ID"
+          authMethod: "managed-identity"
+          clientId: "YOUR_MANAGED_IDENTITY_CLIENT_ID"
+          readOnlyMode: true
+    ```
+
+    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
+
+    Then deploy or upgrade your Holmes installation:
+
+    ```bash
+    helm upgrade --install holmes robusta/holmes -f values.yaml
+    ```
+
 === "Holmes CLI"
 
     For CLI usage, you need to deploy the Azure MCP server first, then configure Holmes to connect to it.
@@ -224,189 +407,6 @@ Before deploying the Azure MCP server, ensure you have:
     Then update the URL in config.yaml to:
     ```yaml
     url: "http://localhost:8000"
-    ```
-
-=== "Holmes Helm Chart"
-
-    **Workload Identity Authentication (Recommended for AKS)**
-
-    The recommended approach for AKS clusters is to use Workload Identity. This provides secure, passwordless authentication.
-
-    ```yaml
-    mcpAddons:
-      azure:
-        enabled: true
-
-        # Service account configuration
-        serviceAccount:
-          create: true
-          name: "azure-api-mcp-sa"
-          annotations:
-            azure.workload.identity/client-id: "YOUR_CLIENT_ID"
-            azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
-
-        # Azure configuration
-        config:
-          tenantId: "YOUR_TENANT_ID"
-          subscriptionId: "YOUR_SUBSCRIPTION_ID"
-          authMethod: "workload-identity"
-          clientId: "YOUR_CLIENT_ID"
-          readOnlyMode: true  # Recommended for safety
-    ```
-
-    **Setup Steps:**
-
-    1. Follow the [Workload Identity setup guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/azure#workload-identity-setup-for-aks)
-    2. Create a managed identity and assign Azure RBAC roles
-    3. Configure federated identity credentials
-    4. Deploy with the configuration above
-
-    **Service Principal Authentication**
-
-    For non-AKS clusters or if Workload Identity is not available:
-
-    ```yaml
-    mcpAddons:
-      azure:
-        enabled: true
-
-        serviceAccount:
-          create: true
-          name: "azure-api-mcp-sa"
-
-        config:
-          tenantId: "YOUR_TENANT_ID"
-          subscriptionId: "YOUR_SUBSCRIPTION_ID"
-          authMethod: "service-principal"
-          readOnlyMode: true
-
-        # Reference to existing secret with credentials
-        secretName: "azure-mcp-creds"
-    ```
-
-    Create the secret before deploying:
-
-    ```bash
-    kubectl create secret generic azure-mcp-creds \
-      --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
-      --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
-      -n YOUR_NAMESPACE
-    ```
-
-    **Managed Identity Authentication**
-
-    For AKS clusters with node-level managed identity:
-
-    ```yaml
-    mcpAddons:
-      azure:
-        enabled: true
-
-        config:
-          tenantId: "YOUR_TENANT_ID"
-          subscriptionId: "YOUR_SUBSCRIPTION_ID"
-          authMethod: "managed-identity"
-          clientId: "YOUR_MANAGED_IDENTITY_CLIENT_ID"
-          readOnlyMode: true
-    ```
-
-    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
-
-    Then deploy or upgrade your Holmes installation:
-
-    ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Workload Identity Authentication (Recommended for AKS)**
-
-    ```yaml
-    globalConfig:
-      # Your existing Robusta configuration
-
-    # Add the Holmes MCP addon configuration
-    holmes:
-      mcpAddons:
-        azure:
-          enabled: true
-
-          # Service account configuration
-          serviceAccount:
-            create: true
-            name: "azure-api-mcp-sa"
-            annotations:
-              azure.workload.identity/client-id: "YOUR_CLIENT_ID"
-              azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
-
-          # Azure configuration
-          config:
-            tenantId: "YOUR_TENANT_ID"
-            subscriptionId: "YOUR_SUBSCRIPTION_ID"
-            authMethod: "workload-identity"
-            clientId: "YOUR_CLIENT_ID"
-            readOnlyMode: true
-    ```
-
-    **Service Principal Authentication**
-
-    ```yaml
-    globalConfig:
-      # Your existing Robusta configuration
-
-    holmes:
-      mcpAddons:
-        azure:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "azure-api-mcp-sa"
-
-          config:
-            tenantId: "YOUR_TENANT_ID"
-            subscriptionId: "YOUR_SUBSCRIPTION_ID"
-            authMethod: "service-principal"
-            readOnlyMode: true
-
-          secretName: "azure-mcp-creds"
-    ```
-
-    Create the secret before deploying:
-
-    ```bash
-    kubectl create secret generic azure-mcp-creds \
-      --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
-      --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
-      -n YOUR_NAMESPACE
-    ```
-
-    **Managed Identity Authentication**
-
-    ```yaml
-    globalConfig:
-      # Your existing Robusta configuration
-
-    holmes:
-      mcpAddons:
-        azure:
-          enabled: true
-
-          config:
-            tenantId: "YOUR_TENANT_ID"
-            subscriptionId: "YOUR_SUBSCRIPTION_ID"
-            authMethod: "managed-identity"
-            clientId: "YOUR_MANAGED_IDENTITY_CLIENT_ID"
-            readOnlyMode: true
-    ```
-
-    For additional configuration options (resources, network policy, node selectors, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
 ## IAM Configuration

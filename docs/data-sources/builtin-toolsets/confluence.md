@@ -6,24 +6,6 @@ This toolset requires an [Atlassian API Key](https://support.atlassian.com/atlas
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Set the following environment variables and the Confluence toolset will be automatically enabled:
-
-    ```bash
-    export CONFLUENCE_USER="<Confluence username>"
-    export CONFLUENCE_API_KEY="<Confluence API key>"
-    export CONFLUENCE_BASE_URL="<Confluence base URL>"
-    ```
-
-    To test, run:
-
-    ```bash
-    holmes ask "why is my application failing? Get relevant runbooks from Confluence"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
 === "Robusta Helm Chart"
 
     **Helm Values:**
@@ -41,6 +23,24 @@ This toolset requires an [Atlassian API Key](https://support.atlassian.com/atlas
             confluence:
                 enabled: true
     ```
+
+=== "Holmes CLI"
+
+    Set the following environment variables and the Confluence toolset will be automatically enabled:
+
+    ```bash
+    export CONFLUENCE_USER="<Confluence username>"
+    export CONFLUENCE_API_KEY="<Confluence API key>"
+    export CONFLUENCE_BASE_URL="<Confluence base URL>"
+    ```
+
+    To test, run:
+
+    ```bash
+    holmes ask "why is my application failing? Get relevant runbooks from Confluence"
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
 
 ## Capabilities
 

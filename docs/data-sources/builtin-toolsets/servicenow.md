@@ -64,6 +64,22 @@ You should receive a JSON response. If you get an authentication error, check yo
 
 ## Configuration
 
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        servicenow/tables:
+          enabled: true
+          config:
+            api_key: <your servicenow API key>  # e.g. now_1234567890abcdef
+            api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+
+            # Optional
+            api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
+            health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
+    ```
+
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -87,22 +103,6 @@ You should receive a JSON response. If you get an authentication error, check yo
 
     ```bash
     holmes ask "Show me all change requests from the last 24 hours"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        servicenow/tables:
-          enabled: true
-          config:
-            api_key: <your servicenow API key>  # e.g. now_1234567890abcdef
-            api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-
-            # Optional
-            api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
-            health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
     ```
 
 ### Optional Fields

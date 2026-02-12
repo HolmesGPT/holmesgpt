@@ -7,6 +7,24 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
 
 ## Configuration
 
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        kubectl-run:
+          enabled: true
+          config:
+            allowed_images:
+              - image: "busybox:1.36"
+                allowed_commands:
+                  - "nslookup .*"
+                  - "ping -c 3 .*"
+              - image: "curlimages/curl:8.8.0"
+                allowed_commands:
+                  - "curl .*"
+    ```
+
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**:
@@ -25,24 +43,6 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
             - image: "curlimages/curl:8.8.0"
               allowed_commands:
                 - "curl .*"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        kubectl-run:
-          enabled: true
-          config:
-            allowed_images:
-              - image: "busybox:1.36"
-                allowed_commands:
-                  - "nslookup .*"
-                  - "ping -c 3 .*"
-              - image: "curlimages/curl:8.8.0"
-                allowed_commands:
-                  - "curl .*"
     ```
 
 ## Security
