@@ -82,6 +82,12 @@ def stream_investigate_formatter(
                 yield create_sse_message(message.event.value, message.data)
     except litellm.exceptions.RateLimitError as e:
         yield create_rate_limit_error_message(str(e))
+    except Exception as e:
+        logging.error(f"Error during streaming investigation: {e}", exc_info=True)
+        if "Model is getting throttled" in str(e):
+            yield create_rate_limit_error_message(str(e))
+        else:
+            yield create_sse_error_message(description=str(e), error_code=1, msg=str(e))
 
 
 def stream_chat_formatter(
@@ -119,7 +125,7 @@ def stream_chat_formatter(
     except litellm.exceptions.RateLimitError as e:
         yield create_rate_limit_error_message(str(e))
     except Exception as e:
-        logging.error(e)
+        logging.error(f"Error during streaming chat: {e}", exc_info=True)
         if "Model is getting throttled" in str(e):  # happens for bedrock
             yield create_rate_limit_error_message(str(e))
         else:
