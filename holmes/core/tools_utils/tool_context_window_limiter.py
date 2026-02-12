@@ -58,15 +58,19 @@ def prevent_overly_big_tool_response(
         )
 
     if file_path:
-        # Include a preview (~10% of max tool size) so the LLM sees the same format as the file
-        preview_chars = max_tokens_allowed * 4 // 10  # ~4 chars per token, 10% of max
-        preview = filesystem_data[:preview_chars]
-        tool_call_result.result.data = (
+        boilerplate = (
             f"{size_info}\n"
             f"Saved to: {file_path}\n"
             f"Use the bash commands to access the data that won't require prompting the user for approval (e.g. cat, grep, head, tail, jq).\n"
-            f"\nPreview:\n{preview}"
+            f"\nPreview:\n"
         )
+        # Allocate remaining char budget to the preview so the final string fits the context window
+        chars_per_token = 4
+        safety_margin_chars_per_token = chars_per_token / 2
+        max_chars = max_tokens_allowed * safety_margin_chars_per_token
+        preview_budget = int(max(0, max_chars - len(boilerplate)))
+        preview = filesystem_data[:preview_budget]
+        tool_call_result.result.data = f"{boilerplate}{preview}"
         logging.info(
             f"Large tool result ({messages_token} tokens) saved to {file_path}"
         )

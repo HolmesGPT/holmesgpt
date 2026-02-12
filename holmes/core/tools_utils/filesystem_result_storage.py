@@ -50,8 +50,8 @@ def save_large_result(
     Returns the file path, or None if storage failed.
     """
     try:
-        safe_name = re.sub(r"[^\w\-.]", "_", tool_name)
-        safe_id = re.sub(r"[^\w\-.]", "_", tool_call_id)
+        safe_name = re.sub(r"[^\w\-]", "_", tool_name)
+        safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
         extension = ".json" if is_json else ".txt"
         file_path = tool_results_dir / f"{safe_name}_{safe_id}{extension}"
         file_path.write_text(content, encoding="utf-8")
