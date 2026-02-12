@@ -42,6 +42,12 @@ spec:
       - name: holmes
         image: "{{ .Values.registry }}/{{ .Values.image }}"
         imagePullPolicy: {{ .Values.imagePullPolicy }}
+        # Read-only root filesystem for security hardening.
+        # /tmp is mounted as a writable emptyDir for ephemeral tool result files.
+        # Required for OpenShift restricted SCC and other security-hardened
+        # environments that enforce read-only root filesystems.
+        securityContext:
+          readOnlyRootFilesystem: true
         command: ["python3", "-u", "server.py"]
         ports:
         - containerPort: 5050
@@ -88,6 +94,8 @@ spec:
             exec:
               command: ["bash", "-c", "kill -SIGINT 1"]
         volumeMounts:
+          - name: tmp-volume
+            mountPath: /tmp
           - name: playbooks-config-secret
             mountPath: /etc/robusta/config
           - name: custom-toolsets-configmap
@@ -106,6 +114,9 @@ spec:
       tolerations: {{ toYaml .Values.tolerations | nindent 8 }}
       {{- end }}
       volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 256Mi
         - name: playbooks-config-secret
           secret:
             secretName: robusta-playbooks-config-secret

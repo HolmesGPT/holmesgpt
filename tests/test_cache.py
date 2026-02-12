@@ -102,7 +102,9 @@ def test_cached_output(model: str, request):
                 request=request,
             )
             tool_executor = ToolExecutor(toolset_manager.toolsets)
-            ai = ToolCallingLLM(tool_executor=tool_executor, max_steps=1, llm=llm)
+            ai = ToolCallingLLM(
+                tool_executor=tool_executor, max_steps=1, llm=llm, tool_results_dir=None
+            )
             config = Config()
 
             mock_dal = load_mock_dal(
