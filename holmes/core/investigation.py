@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from holmes.config import Config
@@ -27,6 +28,7 @@ def investigate_issues(
     trace_span=DummySpan(),
     runbooks: Optional[RunbookCatalog] = None,
     request_context: Optional[Dict[str, Any]] = None,
+    tool_results_dir: Optional[Path] = None,
 ) -> InvestigationResult:
     context = dal.get_issue_data(investigate_request.context.get("robusta_issue_id"))
 
@@ -40,7 +42,9 @@ def investigate_issues(
     create_issue_investigator_span = trace_span.start_span(
         "create_issue_investigator", SpanType.FUNCTION.value
     )
-    ai = config.create_issue_investigator(dal=dal, model=model)
+    ai = config.create_issue_investigator(
+        dal=dal, model=model, tool_results_dir=tool_results_dir
+    )
     create_issue_investigator_span.end()
 
     issue = Issue(
@@ -82,8 +86,11 @@ def get_investigation_context(
     dal: SupabaseDal,
     config: Config,
     request_structured_output_from_llm: Optional[bool] = None,
+    tool_results_dir: Optional[Path] = None,
 ):
-    ai = config.create_issue_investigator(dal=dal, model=investigate_request.model)
+    ai = config.create_issue_investigator(
+        dal=dal, model=investigate_request.model, tool_results_dir=tool_results_dir
+    )
 
     raw_data = investigate_request.model_dump()
     context = dal.get_issue_data(investigate_request.context.get("robusta_issue_id"))
