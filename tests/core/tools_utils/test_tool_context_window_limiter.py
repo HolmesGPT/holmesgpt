@@ -102,11 +102,7 @@ class TestPreventOverlyBigToolResponse:
             )
             assert success_tool_call_result.result.data is None
             assert "too large to return" in success_tool_call_result.result.error
-            assert "3000 tokens" in success_tool_call_result.result.error
-            assert "2048" in success_tool_call_result.result.error
-            assert (
-                "31.7" in success_tool_call_result.result.error
-            )  # (3000-2048)/3000 * 100
+            assert "3000/2048 tokens" in success_tool_call_result.result.error
 
     def test_token_calculation_accuracy(self, mock_llm, success_tool_call_result):
         """Test that token calculations are accurate."""
@@ -130,10 +126,7 @@ class TestPreventOverlyBigToolResponse:
 
             prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
 
-            # Calculate expected percentage: (2000-1024)/2000 * 100 = 48.8%
-            assert "48.8" in success_tool_call_result.result.error
-            assert "2000 tokens" in success_tool_call_result.result.error
-            assert "1024" in success_tool_call_result.result.error
+            assert "2000/1024 tokens" in success_tool_call_result.result.error
 
     def test_message_construction_calls_as_tool_call_message(
         self, mock_llm, success_tool_call_result
@@ -189,8 +182,7 @@ class TestPreventOverlyBigToolResponse:
                 success_tool_call_result.result.status
                 == StructuredToolResultStatus.ERROR
             )
-            assert "1000 tokens" in success_tool_call_result.result.error
-            assert "819" in success_tool_call_result.result.error
+            assert "1000/819 tokens" in success_tool_call_result.result.error
 
     def test_edge_case_exactly_at_limit(self, mock_llm, success_tool_call_result):
         """Test behavior when token count is exactly at the limit."""
@@ -243,11 +235,6 @@ class TestPreventOverlyBigToolResponse:
 
             error_msg = success_tool_call_result.result.error
             assert "The tool call result is too large to return" in error_msg
-            assert "2000 tokens" in error_msg
-            assert "1000" in error_msg
-            assert "Instructions for the LLM" in error_msg
-            assert "try to repeat the query" in error_msg
+            assert "2000/1000 tokens" in error_msg
+            assert "Try to repeat the query" in error_msg
             assert "narrow down the result" in error_msg
-
-            # Check percentage calculation: (2000-1000)/2000 * 100 = 50.0%
-            assert "50" in error_msg

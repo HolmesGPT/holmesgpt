@@ -56,6 +56,7 @@ from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
 
 # removed: add_runbooks_to_user_prompt
@@ -226,15 +227,17 @@ def investigate_issues(investigate_request: InvestigateRequest, http_request: Re
     try:
         runbooks = config.get_runbook_catalog()
         request_context = extract_passthrough_headers(http_request)
-        result = investigation.investigate_issues(
-            investigate_request=investigate_request,
-            dal=dal,
-            config=config,
-            model=investigate_request.model,
-            runbooks=runbooks,
-            request_context=request_context,
-        )
-        return result
+        with tool_result_storage() as tool_results_dir:
+            result = investigation.investigate_issues(
+                investigate_request=investigate_request,
+                dal=dal,
+                config=config,
+                model=investigate_request.model,
+                runbooks=runbooks,
+                request_context=request_context,
+                tool_results_dir=tool_results_dir,
+            )
+            return result
 
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
@@ -248,27 +251,36 @@ def investigate_issues(investigate_request: InvestigateRequest, http_request: Re
 @app.post("/api/stream/investigate")
 def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
     try:
+        storage = tool_result_storage()
+        tool_results_dir = storage.__enter__()
         ai, system_prompt, user_prompt, response_format, sections = (
-            investigation.get_investigation_context(req, dal, config)
+            investigation.get_investigation_context(
+                req, dal, config, tool_results_dir=tool_results_dir
+            )
         )
         request_context = extract_passthrough_headers(http_request)
 
         return StreamingResponse(
-            stream_investigate_formatter(
-                ai.call_stream(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    response_format=response_format,
-                    sections=sections,
-                    request_context=request_context,
+            _stream_with_storage_cleanup(
+                storage,
+                stream_investigate_formatter(
+                    ai.call_stream(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response_format=response_format,
+                        sections=sections,
+                        request_context=request_context,
+                    ),
                 ),
             ),
             media_type="text/event-stream",
         )
 
     except AuthenticationError as e:
+        storage.__exit__(None, None, None)
         raise HTTPException(status_code=401, detail=e.message)
     except Exception as e:
+        storage.__exit__(None, None, None)
         logging.exception(f"Error in /api/stream/investigate: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -277,25 +289,32 @@ def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
 def issue_conversation(issue_chat_request: IssueChatRequest, http_request: Request):
     try:
         runbooks = config.get_runbook_catalog()
-        ai = config.create_toolcalling_llm(dal=dal, model=issue_chat_request.model)
-        global_instructions = dal.get_global_instructions_for_account()
+        with tool_result_storage() as tool_results_dir:
+            ai = config.create_toolcalling_llm(
+                dal=dal,
+                model=issue_chat_request.model,
+                tool_results_dir=tool_results_dir,
+            )
+            global_instructions = dal.get_global_instructions_for_account()
 
-        messages = build_issue_chat_messages(
-            issue_chat_request=issue_chat_request,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            runbooks=runbooks,
-        )
-        request_context = extract_passthrough_headers(http_request)
-        llm_call = ai.messages_call(messages=messages, request_context=request_context)
+            messages = build_issue_chat_messages(
+                issue_chat_request=issue_chat_request,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+                runbooks=runbooks,
+            )
+            request_context = extract_passthrough_headers(http_request)
+            llm_call = ai.messages_call(
+                messages=messages, request_context=request_context
+            )
 
-        return ChatResponse(
-            analysis=llm_call.result,
-            tool_calls=llm_call.tool_calls,
-            conversation_history=llm_call.messages,
-            metadata=llm_call.metadata,
-        )
+            return ChatResponse(
+                analysis=llm_call.result,
+                tool_calls=llm_call.tool_calls,
+                conversation_history=llm_call.messages,
+                metadata=llm_call.metadata,
+            )
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:
@@ -343,6 +362,14 @@ def extract_passthrough_headers(request: Request) -> dict:
     return {"headers": passthrough_headers} if passthrough_headers else {}
 
 
+def _stream_with_storage_cleanup(storage, stream_generator):
+    """Wrap a stream generator to clean up tool result files after streaming completes."""
+    try:
+        yield from stream_generator
+    finally:
+        storage.__exit__(None, None, None)
+
+
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest, http_request: Request):
     try:
@@ -356,8 +383,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
         )
 
         runbooks = config.get_runbook_catalog()
-        ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
-        global_instructions = dal.get_global_instructions_for_account()
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -370,19 +395,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     prompt_component_overrides[PromptComponent(k.lower())] = v
                 except ValueError:
                     logging.warning(f"Unknown behavior_controls key '{k}', ignoring")
-
-        messages = build_chat_messages(
-            chat_request.ask,
-            chat_request.conversation_history,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            additional_system_prompt=chat_request.additional_system_prompt,
-            runbooks=runbooks,
-            images=chat_request.images,
-            prompt_component_overrides=prompt_component_overrides,
-        )
-        request_context = extract_passthrough_headers(http_request)
 
         follow_up_actions = []
         if not already_answered(chat_request.conversation_history):
@@ -407,38 +419,59 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 ),
             ]
 
+        request_context = extract_passthrough_headers(http_request)
+
+        storage = tool_result_storage()
+        tool_results_dir = storage.__enter__()
+        ai = config.create_toolcalling_llm(
+            dal=dal, model=chat_request.model, tool_results_dir=tool_results_dir
+        )
+        global_instructions = dal.get_global_instructions_for_account()
+        messages = build_chat_messages(
+            chat_request.ask,
+            chat_request.conversation_history,
+            ai=ai,
+            config=config,
+            global_instructions=global_instructions,
+            additional_system_prompt=chat_request.additional_system_prompt,
+            runbooks=runbooks,
+            images=chat_request.images,
+            prompt_component_overrides=prompt_component_overrides,
+        )
+
         if chat_request.stream:
-            return StreamingResponse(
-                stream_chat_formatter(
-                    ai.call_stream(
-                        msgs=messages,
-                        enable_tool_approval=chat_request.enable_tool_approval or False,
-                        tool_decisions=chat_request.tool_decisions,
-                        response_format=chat_request.response_format,
-                        request_context=request_context,
-                    ),
-                    [f.model_dump() for f in follow_up_actions],
+            stream = stream_chat_formatter(
+                ai.call_stream(
+                    msgs=messages,
+                    enable_tool_approval=chat_request.enable_tool_approval or False,
+                    tool_decisions=chat_request.tool_decisions,
+                    response_format=chat_request.response_format,
+                    request_context=request_context,
                 ),
+                [f.model_dump() for f in follow_up_actions],
+            )
+            return StreamingResponse(
+                _stream_with_storage_cleanup(storage, stream),
                 media_type="text/event-stream",
             )
         else:
-            llm_call = ai.messages_call(
-                messages=messages,
-                trace_span=chat_request.trace_span,
-                response_format=chat_request.response_format,
-                request_context=request_context,
-            )
+            try:
+                llm_call = ai.messages_call(
+                    messages=messages,
+                    trace_span=chat_request.trace_span,
+                    response_format=chat_request.response_format,
+                    request_context=request_context,
+                )
 
-            # For non-streaming, we need to handle approvals differently
-            # This is a simplified version - in practice, non-streaming with approvals
-            # would require a different approach or conversion to streaming
-            return ChatResponse(
-                analysis=llm_call.result,
-                tool_calls=llm_call.tool_calls,
-                conversation_history=llm_call.messages,
-                follow_up_actions=follow_up_actions,
-                metadata=llm_call.metadata,
-            )
+                return ChatResponse(
+                    analysis=llm_call.result,
+                    tool_calls=llm_call.tool_calls,
+                    conversation_history=llm_call.messages,
+                    follow_up_actions=follow_up_actions,
+                    metadata=llm_call.metadata,
+                )
+            finally:
+                storage.__exit__(None, None, None)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:
