@@ -47,16 +47,15 @@ document$.subscribe(function () {
     var slug = tabParam.toLowerCase();
     try { localStorage.setItem(STORAGE_KEY, slug); } catch (e) {}
     selectTab(slug);
-    return;
+  } else {
+    // 2. Otherwise apply stored preference
+    try {
+      var saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        selectTab(saved);
+      }
+    } catch (e) {}
   }
-
-  // 2. Otherwise apply stored preference
-  try {
-    var saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      selectTab(saved);
-    }
-  } catch (e) {}
 
   // 3. When user clicks a tab, save their preference
   document.querySelectorAll(".tabbed-labels > label").forEach(function (label) {
