@@ -51,6 +51,7 @@ from holmes.core.models import (
     IssueChatRequest,
 )
 from holmes.core.prompt import PromptComponent
+from holmes.core.tools import ToolsetStatusEnum, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
@@ -136,6 +137,22 @@ def sync_before_server_start():
         logging.error("Failed to start scheduled prompts executor", exc_info=True)
 
 
+def _has_failed_mcp_toolsets() -> bool:
+    """Check if any MCP toolsets are in FAILED state."""
+    executor = config._server_tool_executor
+    if not executor:
+        return False
+    return any(
+        t.type == ToolsetType.MCP and t.status == ToolsetStatusEnum.FAILED
+        for t in executor.toolsets
+    )
+
+
+# Backoff schedule for retrying failed MCP servers (seconds).
+# After exhausting this list, falls back to the regular refresh interval.
+_MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
+
+
 def _toolset_status_refresh_loop():
     interval = TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
     if interval <= 0:
@@ -147,8 +164,21 @@ def _toolset_status_refresh_loop():
     )
 
     def refresh_loop():
+        backoff_index = 0
+
         while True:
-            time.sleep(interval)
+            # Use shorter intervals when MCP servers are failing
+            if _has_failed_mcp_toolsets() and backoff_index < len(_MCP_RETRY_BACKOFF_SCHEDULE):
+                sleep_time = _MCP_RETRY_BACKOFF_SCHEDULE[backoff_index]
+                backoff_index += 1
+                logging.info(
+                    f"Failed MCP server(s) detected, retrying in {sleep_time} seconds"
+                )
+            else:
+                sleep_time = interval
+                backoff_index = 0
+
+            time.sleep(sleep_time)
             try:
                 changes = config.refresh_server_tool_executor(dal)
                 if changes:
