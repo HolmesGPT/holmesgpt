@@ -28,6 +28,24 @@ from holmes.core.tools import (
 )
 from holmes.utils.pydantic_utils import ToolsetConfig
 
+logger = logging.getLogger(__name__)
+
+
+def _extract_root_error_message(exc: Exception) -> str:
+    """Extract the actual error message from an ExceptionGroup.
+
+    When the MCP library's internal asyncio.TaskGroup encounters errors (e.g. auth
+    failures, connection refused), the real exception gets wrapped in an
+    ExceptionGroup with the unhelpful message "unhandled errors in a TaskGroup
+    (1 sub-exception)".  This function unwraps the group to surface the actual
+    root-cause error so that users see, for example, "401 Unauthorized" instead.
+    """
+    current: BaseException = exc
+    while hasattr(current, "exceptions") and current.exceptions:
+        current = current.exceptions[0]
+    return str(current)
+
+
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
@@ -231,9 +249,10 @@ class RemoteMCPTool(Tool):
             with lock:
                 return asyncio.run(self._invoke_async(params, context.request_context))
         except Exception as e:
+            error_detail = _extract_root_error_message(e)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=str(e.args),
+                error=error_detail,
                 params=params,
                 invocation=f"MCPtool {self.name} with params {params}",
             )
@@ -491,9 +510,11 @@ class RemoteMCPToolset(Toolset):
 
             return (True, "")
         except Exception as e:
+            error_detail = _extract_root_error_message(e)
             return (
                 False,
-                f"Failed to load mcp server {self.name}: {str(e)}",
+                f"Failed to load mcp server {self.name}: {error_detail}"
+                ". If the server is still starting up, Holmes will retry automatically",
             )
 
     async def _get_server_tools(self):

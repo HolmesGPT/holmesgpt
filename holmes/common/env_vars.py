@@ -153,6 +153,9 @@ ROBUSTA_UI_DOMAIN = os.environ.get(
 TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
     os.environ.get("TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS", 300)
 )
+# Backoff schedule (seconds) for retrying failed MCP servers before falling
+# back to TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS.
+MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
 
 # Filesystem storage for large tool results
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
