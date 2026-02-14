@@ -33,6 +33,7 @@ from holmes.common.env_vars import (
     HOLMES_HOST,
     HOLMES_PORT,
     LOG_PERFORMANCE,
+    MCP_RETRY_BACKOFF_SCHEDULE,
     SENTRY_DSN,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
@@ -148,11 +149,6 @@ def _has_failed_mcp_toolsets() -> bool:
     )
 
 
-# Backoff schedule for retrying failed MCP servers (seconds).
-# After exhausting this list, falls back to the regular refresh interval.
-_MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
-
-
 def _get_next_refresh_interval(
     has_failed_mcp: bool,
     backoff_index: int,
@@ -162,8 +158,8 @@ def _get_next_refresh_interval(
 
     Returns (sleep_seconds, new_backoff_index).
     """
-    if has_failed_mcp and backoff_index < len(_MCP_RETRY_BACKOFF_SCHEDULE):
-        return _MCP_RETRY_BACKOFF_SCHEDULE[backoff_index], backoff_index + 1
+    if has_failed_mcp and backoff_index < len(MCP_RETRY_BACKOFF_SCHEDULE):
+        return MCP_RETRY_BACKOFF_SCHEDULE[backoff_index], backoff_index + 1
     return default_interval, 0
 
 

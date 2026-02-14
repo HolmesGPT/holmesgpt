@@ -1,4 +1,5 @@
-from server import _get_next_refresh_interval, _MCP_RETRY_BACKOFF_SCHEDULE
+from holmes.common.env_vars import MCP_RETRY_BACKOFF_SCHEDULE
+from server import _get_next_refresh_interval
 
 
 class TestMCPRefreshBackoff:
@@ -18,7 +19,7 @@ class TestMCPRefreshBackoff:
 
     def test_falls_back_to_default_after_schedule_exhausted(self):
         """After the backoff schedule is exhausted, falls back to the default interval."""
-        schedule_len = len(_MCP_RETRY_BACKOFF_SCHEDULE)
+        schedule_len = len(MCP_RETRY_BACKOFF_SCHEDULE)
         sleep, idx = _get_next_refresh_interval(
             has_failed_mcp=True, backoff_index=schedule_len, default_interval=300
         )
