@@ -82,6 +82,10 @@ def init_logging():
     if httpx_logger:
         httpx_logger.setLevel(logging.WARNING)
 
+    litellm_logger = logging.getLogger("LiteLLM")
+    if litellm_logger:
+        litellm_logger.handlers = []
+
     logging.info(f"logger initialized using {logging_level} log level")
 
 
@@ -251,6 +255,8 @@ def investigate_issues(investigate_request: InvestigateRequest, http_request: Re
 @app.post("/api/stream/investigate")
 def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
     try:
+        req_info = f"/api/stream/investigate request: title={req.title}"
+        logging.info(f"Received {req_info}")
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
         ai, system_prompt, user_prompt, response_format, sections = (
@@ -272,6 +278,7 @@ def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
                         request_context=request_context,
                     ),
                 ),
+                req_info
             ),
             media_type="text/event-stream",
         )
@@ -362,11 +369,12 @@ def extract_passthrough_headers(request: Request) -> dict:
     return {"headers": passthrough_headers} if passthrough_headers else {}
 
 
-def _stream_with_storage_cleanup(storage, stream_generator):
+def _stream_with_storage_cleanup(storage, stream_generator, req_info):
     """Wrap a stream generator to clean up tool result files after streaming completes."""
     try:
         yield from stream_generator
     finally:
+        logging.info(f"Stream request end: {req_info}")
         storage.__exit__(None, None, None)
 
 
@@ -376,8 +384,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
         # Log incoming request details
         has_images = bool(chat_request.images)
         has_structured_output = bool(chat_request.response_format)
+        req_info = f"/api/chat request: ask={chat_request.ask}"
         logging.info(
-            f"Received /api/chat request: model={chat_request.model}, "
+            f"Received: {req_info}, model={chat_request.model}, "
             f"images={has_images}, structured_output={has_structured_output}, "
             f"streaming={chat_request.stream}"
         )
@@ -451,7 +460,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 [f.model_dump() for f in follow_up_actions],
             )
             return StreamingResponse(
-                _stream_with_storage_cleanup(storage, stream),
+                _stream_with_storage_cleanup(storage, stream, req_info),
                 media_type="text/event-stream",
             )
         else:
@@ -463,6 +472,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     request_context=request_context,
                 )
 
+                logging.info(f"Completed {req_info}")
                 return ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
