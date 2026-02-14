@@ -2,10 +2,15 @@ name: Scenario tests
 
 on:
   pull_request:
+    paths:
+      - 'holmes/plugins/toolsets/mcp/**'
+      - 'holmes/common/env_vars.py'
+      - 'server.py'
+      - 'tests/scenarios/**'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 jobs:
@@ -16,16 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find scenarios missing evidence
+      - name: Find scenarios to run
         id: find
         run: |
           scenarios='[]'
           for dir in tests/scenarios/*/; do
             [ -f "$dir/scenario.sh" ] || continue
-            if [ ! -f "$dir/evidence.md" ]; then
-              name=$(basename "$dir")
-              scenarios=$(echo "$scenarios" | jq -c --arg s "$name" '. + [$s]')
-            fi
+            name=$(basename "$dir")
+            scenarios=$(echo "$scenarios" | jq -c --arg s "$name" '. + [$s]')
           done
           echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
           echo "Scenarios to run: $scenarios"
@@ -44,9 +47,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: branch
-          ref: ${{ github.head_ref }}
-          # Need push access to commit evidence back
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout master
         uses: actions/checkout@v4
@@ -85,30 +85,20 @@ jobs:
         run: |
           bash "branch/tests/scenarios/${{ matrix.scenario }}/scenario.sh"
 
-      - name: Commit evidence
-        working-directory: branch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          evidence="tests/scenarios/${{ matrix.scenario }}/evidence.md"
-          if [ -f "$evidence" ]; then
-            git add "$evidence"
-            git commit -s -m "Add scenario evidence: ${{ matrix.scenario }}"
-            git push
-          fi
-
       - name: Post evidence to PR
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const path = `branch/tests/scenarios/${{ matrix.scenario }}/evidence.md`;
-            if (!fs.existsSync(path)) return;
+            if (!fs.existsSync(path)) {
+              core.warning('No evidence.md generated');
+              return;
+            }
             const evidence = fs.readFileSync(path, 'utf8');
             const marker = `<!-- scenario:${{ matrix.scenario }} -->`;
 
-            // Find existing comment to update
             const {data: comments} = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
