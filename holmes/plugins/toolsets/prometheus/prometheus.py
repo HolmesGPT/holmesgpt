@@ -463,23 +463,31 @@ def adjust_step_for_max_points(
     """
     Adjusts the step parameter to ensure the number of data points doesn't exceed max_points.
 
+    The default max_points is MAX_GRAPH_POINTS (env var, default 500). The LLM can override
+    this to request higher resolution (up to 5x the default) for simple queries like single
+    time series, or lower resolution for overview graphs. Token-based truncation provides
+    an additional safety net for responses that are too large.
+
     Args:
         start_timestamp: RFC3339 formatted start time
         end_timestamp: RFC3339 formatted end time
         step: The requested step duration in seconds (None for auto-calculation)
-        max_points_override: Optional override for max points (must be <= MAX_GRAPH_POINTS)
+        max_points_override: Optional override for max points. Can exceed MAX_GRAPH_POINTS
+            up to 5x the default to allow higher resolution for simple queries.
 
     Returns:
         Adjusted step value in seconds that ensures points <= max_points
     """
+    hard_limit = MAX_GRAPH_POINTS * 5
+
     # Use override if provided and valid, otherwise use default
     max_points = MAX_GRAPH_POINTS
     if max_points_override is not None:
-        if max_points_override > MAX_GRAPH_POINTS:
+        if max_points_override > hard_limit:
             logging.warning(
-                f"max_points override ({max_points_override}) exceeds system limit ({MAX_GRAPH_POINTS}), using {MAX_GRAPH_POINTS}"
+                f"max_points override ({max_points_override}) exceeds hard limit ({hard_limit}), using {hard_limit}"
             )
-            max_points = MAX_GRAPH_POINTS
+            max_points = hard_limit
         elif max_points_override < 1:
             logging.warning(
                 f"max_points override ({max_points_override}) is invalid, using default {MAX_GRAPH_POINTS}"
@@ -494,12 +502,11 @@ def adjust_step_for_max_points(
 
     time_range_seconds = (end_dt - start_dt).total_seconds()
 
-    # If no step provided, calculate a reasonable default
-    # Aim for ~60 data points across the time range (1 per minute for hourly, etc)
+    # If no step provided, calculate default targeting max_points data points
     if step is None:
-        step = max(1, time_range_seconds / 60)
+        step = max(1, time_range_seconds / max_points)
         logging.debug(
-            f"No step provided, defaulting to {step}s for {time_range_seconds}s range"
+            f"No step provided, defaulting to {step}s for {time_range_seconds}s range (targeting {max_points} points)"
         )
 
     current_points = time_range_seconds / step
@@ -1562,9 +1569,10 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 ),
                 "max_points": ToolParameter(
                     description=(
-                        f"Maximum number of data points to return. Default: {int(MAX_GRAPH_POINTS)}. "
-                        f"Can be reduced to get fewer data points (e.g., 50 for simpler graphs). "
-                        f"Cannot exceed system limit of {int(MAX_GRAPH_POINTS)}. "
+                        f"Maximum number of data points per series. Default: {int(MAX_GRAPH_POINTS)}. "
+                        f"Increase for higher resolution (e.g., {int(MAX_GRAPH_POINTS * 2)} for detailed single-series graphs). "
+                        f"Decrease for overview graphs (e.g., 50). "
+                        f"Maximum: {int(MAX_GRAPH_POINTS * 5)}. "
                         f"If your query would return more points than this limit, the step will be automatically adjusted."
                     ),
                     type="number",
