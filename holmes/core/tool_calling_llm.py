@@ -493,7 +493,18 @@ class ToolCallingLLM:
                         "The Azure model you chose is not supported. Model version 1106 and higher required."
                     )
                 else:
+                    logging.error(
+                        f"LLM BadRequestError on model={self.llm.model} (iteration {i}): {e}",
+                        exc_info=True,
+                    )
                     raise
+            except Exception as e:
+                logging.error(
+                    f"LLM call failed on model={self.llm.model} (iteration {i}): "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                raise
 
             response = full_response.choices[0]  # type: ignore
 
@@ -1001,7 +1012,18 @@ class ToolCallingLLM:
                         "The Azure model you chose is not supported. Model version 1106 and higher required."
                     ) from e
                 else:
+                    logging.error(
+                        f"LLM BadRequestError on model={self.llm.model} (streaming iteration {i}): {e}",
+                        exc_info=True,
+                    )
                     raise
+            except Exception as e:
+                logging.error(
+                    f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                raise
 
             response_message = full_response.choices[0].message  # type: ignore
             if response_message and response_format:
