@@ -127,21 +127,21 @@ class TestMaxPointsOverride:
         assert result == 3.6
 
     def test_override_capped_at_hard_limit(self, monkeypatch):
-        """Override cannot exceed 5x MAX_GRAPH_POINTS (hard limit)."""
+        """Override cannot exceed 2x MAX_GRAPH_POINTS (hard limit)."""
         import holmes.plugins.toolsets.prometheus.prometheus as prom_module
 
         monkeypatch.setattr(prom_module, "MAX_GRAPH_POINTS", 500.0)
 
-        # Hard limit is 500 * 5 = 2500
-        # Requesting 5000 should be capped at 2500
-        # 1 hour range with 2500 points -> step = 3600/2500 = 1.44
+        # Hard limit is 500 * 2 = 1000
+        # Requesting 2000 should be capped at 1000
+        # 1 hour range with 1000 points -> step = 3600/1000 = 3.6
         result = adjust_step_for_max_points(
             "2024-01-01T00:00:00Z",
             "2024-01-01T01:00:00Z",
             step=None,
-            max_points_override=5000,
+            max_points_override=2000,
         )
-        assert result == 3600 / 2500
+        assert result == 3600 / 1000
 
     def test_override_below_default_is_allowed(self, monkeypatch):
         """LLM can request fewer points for simpler graphs."""

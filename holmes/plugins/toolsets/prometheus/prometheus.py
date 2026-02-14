@@ -464,8 +464,8 @@ def adjust_step_for_max_points(
     Adjusts the step parameter to ensure the number of data points doesn't exceed max_points.
 
     The default max_points is MAX_GRAPH_POINTS (env var, default 500). The LLM can override
-    this to request higher resolution (up to 5x the default) for simple queries like single
-    time series, or lower resolution for overview graphs. Token-based truncation provides
+    this to request higher resolution (up to 2x the default) for simple low-cardinality
+    queries, or lower resolution for overview graphs. Token-based truncation provides
     an additional safety net for responses that are too large.
 
     Args:
@@ -473,12 +473,12 @@ def adjust_step_for_max_points(
         end_timestamp: RFC3339 formatted end time
         step: The requested step duration in seconds (None for auto-calculation)
         max_points_override: Optional override for max points. Can exceed MAX_GRAPH_POINTS
-            up to 5x the default to allow higher resolution for simple queries.
+            up to 2x the default to allow higher resolution for low-cardinality queries.
 
     Returns:
         Adjusted step value in seconds that ensures points <= max_points
     """
-    hard_limit = MAX_GRAPH_POINTS * 5
+    hard_limit = MAX_GRAPH_POINTS * 2
 
     # Use override if provided and valid, otherwise use default
     max_points = MAX_GRAPH_POINTS
@@ -1570,9 +1570,9 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 "max_points": ToolParameter(
                     description=(
                         f"Maximum number of data points per series. Default: {int(MAX_GRAPH_POINTS)}. "
-                        f"Increase for higher resolution (e.g., {int(MAX_GRAPH_POINTS * 2)} for detailed single-series graphs). "
-                        f"Decrease for overview graphs (e.g., 50). "
-                        f"Maximum: {int(MAX_GRAPH_POINTS * 5)}. "
+                        f"Only increase above default for queries returning few time series (1-3 series). "
+                        f"Decrease for overview graphs or high-cardinality queries (e.g., 50). "
+                        f"Maximum: {int(MAX_GRAPH_POINTS * 2)}. "
                         f"If your query would return more points than this limit, the step will be automatically adjusted."
                     ),
                     type="number",
