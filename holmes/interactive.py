@@ -1279,7 +1279,7 @@ def run_interactive_loop(
                     console.print(
                         f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
                     )
-                    return
+                    break
                 elif command == SlashCommands.HELP.command:
                     console.print(
                         f"[bold {HELP_COLOR}]Available commands:[/bold {HELP_COLOR}]"
@@ -1304,6 +1304,7 @@ def run_interactive_loop(
                     all_tool_calls_history.clear()
                     # Reset the show completer history
                     show_completer.update_history([])
+                    ai.reset_interaction_state()
                     continue
                 elif command == SlashCommands.TOOLS_CONFIG.command:
                     pretty_print_toolset_status(ai.tool_executor.toolsets, console)
@@ -1358,7 +1359,9 @@ def run_interactive_loop(
             if messages is None:
                 if include_files:
                     for file_path in include_files:
-                        console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+                        console.print(
+                            f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+                        )
                 messages = build_initial_ask_messages(
                     user_input,
                     include_files,

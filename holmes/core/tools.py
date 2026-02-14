@@ -92,22 +92,36 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
 
-    def get_stringified_data(self) -> str:
+    def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
+        """Serialize the data field to a string.
+
+        Args:
+            compact: If True, produce minified JSON (saves tokens).
+                     If False, produce pretty-printed JSON (readable for grep/head/tail).
+
+        Returns:
+            A tuple of (stringified_data, is_json).
+        """
         if self.data is None:
-            return ""
+            return "", False
 
         if isinstance(self.data, str):
-            return self.data
-        else:
-            try:
-                if isinstance(self.data, BaseModel):
-                    return self.data.model_dump_json()
+            return self.data, False
+
+        try:
+            if isinstance(self.data, BaseModel):
+                return self.data.model_dump_json(indent=None if compact else 2), True
+            else:
+                if compact:
+                    return json.dumps(self.data, separators=(",", ":"), ensure_ascii=False), True
                 else:
-                    return json.dumps(
-                        self.data, separators=(",", ":"), ensure_ascii=False
-                    )
-            except Exception:
-                return str(self.data)
+                    return json.dumps(self.data, indent=2, ensure_ascii=False), True
+        except Exception:
+            return str(self.data), False
+
+    def get_stringified_data(self) -> str:
+        text, _ = self.stringify_data(compact=True)
+        return text
 
 
 class ApprovalRequirement(BaseModel):
