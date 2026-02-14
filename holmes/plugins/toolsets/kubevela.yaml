@@ -1,0 +1,98 @@
+toolsets:
+  kubevela/core:
+    description: "Set of tools to inspect KubeVela applications, components, and workflows"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubevela/"
+    icon_url: "https://kubevela.io/img/logo.svg"
+    llm_instructions: |
+      You have access to a set of KubeVela tools for debugging cloud-native application deployments.
+      KubeVela is an application delivery platform that abstracts Kubernetes complexity using the Open Application Model (OAM).
+
+      IMPORTANT: If you are asked about application health or deployment issues, ALWAYS check:
+        1. The application status and health
+        2. Component statuses within the application
+        3. Workflow execution status if the app uses workflows
+        4. Trait configurations (ingress, autoscaling, etc.)
+
+      These tools help you investigate issues with KubeVela-managed applications in your Kubernetes clusters.
+      In addition to the general investigation steps, ALWAYS follow these steps:
+        1. List applications to find the app in question
+        2. Get detailed application status including components and traits
+        3. Check workflow status if applicable
+        4. Inspect component definitions to understand what resources are created
+        5. Compare KubeVela application state with actual Kubernetes resources
+        6. Check for misconfigurations in traits or policies
+
+      {% if tool_names|list|length > 0 %}
+      The following commands are available to introspect KubeVela: {{ ", ".join(tool_names) }}
+      {% endif %}
+
+      ALWAYS investigate the actual Kubernetes resources created by KubeVela to provide complete diagnostics.
+      DO NOT tell the user to check configurations without being specific - investigate on their behalf and provide actionable solutions.
+    tags:
+      - core
+    prerequisites:
+      - command: "vela version"
+    tools:
+      - name: "vela_app_list"
+        description: "List all KubeVela applications across namespaces or in a specific namespace"
+        command: "vela ls{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %}"
+
+      - name: "vela_app_status"
+        description: "Get detailed status of a KubeVela application including components, traits, and health"
+        command: "vela status {{ app_name }} -n {{ namespace }}"
+
+      - name: "vela_app_show"
+        description: "Show the application specification and configuration"
+        command: "kubectl get application {{ app_name }} -n {{ namespace }} -o yaml"
+
+      - name: "vela_logs"
+        description: "Get logs from a KubeVela application or specific component"
+        command: "vela logs {{ app_name }} -n {{ namespace }}{% if component %} -c {{ component }}{% endif %}{% if pod %} --pod {{ pod }}{% endif %} --tail {{ tail | default(500) }} -y"
+
+      - name: "vela_port_forward"
+        description: "Check port-forward capability for debugging (informational only, doesn't create actual port-forward)"
+        command: "echo 'Port-forward available with: vela port-forward {{ app_name }} -n {{ namespace }}{% if port %} {{ port }}{% endif %}'"
+
+      - name: "vela_component_list"
+        description: "List available component definitions in the cluster"
+        command: "vela components"
+
+      - name: "vela_trait_list"
+        description: "List available trait definitions (like ingress, autoscaling, etc.)"
+        command: "vela traits"
+
+      - name: "vela_workflow_list"
+        description: "List workflow definitions available in the cluster"
+        command: "vela workflow list"
+
+      - name: "vela_workflow_status"
+        description: "Get the status of a workflow execution for an application"
+        command: "vela workflow status {{ app_name }} -n {{ namespace }}"
+
+      - name: "vela_workflow_logs"
+        description: "Get logs from a workflow execution"
+        command: "vela workflow logs {{ app_name }} -n {{ namespace }} --tail {{ tail | default(500) }} -y"
+
+      - name: "vela_addon_list"
+        description: "List installed KubeVela addons"
+        command: "vela addon list"
+
+      - name: "vela_addon_status"
+        description: "Get detailed status of a specific addon"
+        command: "vela addon status {{ addon_name }}"
+
+      - name: "vela_definition_show"
+        description: "Show details of a component, trait, or workflow definition"
+        command: "vela def get {{ definition_name }}{% if type %} --type {{ type }}{% endif %}"
+
+      - name: "vela_top"
+        description: "Show resource usage (CPU/Memory) for application pods"
+        command: "kubectl top pods -l app.oam.dev/name={{ app_name }} -n {{ namespace }}"
+
+      - name: "vela_dry_run"
+        description: "Preview the Kubernetes resources that would be created by an application spec"
+        command: "vela dry-run -f {{ file_path }}"
+
+      - name: "vela_live_diff"
+        description: "Show difference between local spec and running application"
+        command: "vela live-diff -f {{ file_path }} -n {{ namespace }}"

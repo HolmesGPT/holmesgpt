@@ -2,6 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from benedict import benedict
@@ -11,6 +12,7 @@ from holmes.core.config import config_path_dir
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
+from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
 
 if TYPE_CHECKING:
@@ -55,6 +57,7 @@ class ToolsetManager:
         toolset_status_location: Optional[FilePath] = None,
         global_fast_model: Optional[str] = None,
         custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
+        config_file_path: Optional[Path] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
@@ -65,6 +68,7 @@ class ToolsetManager:
         self.toolsets.update(mcp_servers or {})
         self.custom_toolsets = custom_toolsets
         self.global_fast_model = global_fast_model
+        self.config_file_path = config_file_path
 
         if toolset_status_location is None:
             toolset_status_location = FilePath(DEFAULT_TOOLSET_STATUS_LOCATION)
@@ -261,6 +265,19 @@ class ToolsetManager:
             json.dump(toolset_status, f, indent=2)
         logging.info(f"Toolset statuses are cached to {self.toolset_status_location}")
 
+    def _get_datasource_file_paths(self) -> list[str]:
+        """
+        Collect all datasource config file paths for hash tracking.
+        Includes the main config file and any custom toolset files from the config.
+        """
+        paths: list[str] = []
+        if self.config_file_path:
+            paths.append(str(self.config_file_path))
+        if self.custom_toolsets:
+            for p in self.custom_toolsets:
+                paths.append(str(p))
+        return paths
+
     def load_toolset_with_status(
         self,
         dal: Optional[SupabaseDal] = None,
@@ -274,6 +291,14 @@ class ToolsetManager:
         2. load the custom toolsets from config, and override the built-in toolsets
         3. load the custom toolsets from CLI, and raise error if the custom toolset from CLI conflicts with existing toolsets
         """
+
+        # Check if any datasource config file has changed since the last run.
+        # If so, force a refresh of toolset status even if cached status exists.
+        if not refresh_status:
+            datasource_paths = self._get_datasource_file_paths()
+            if datasource_paths and check_and_update_config_hashes(datasource_paths):
+                logging.info("Datasource config file(s) changed, refreshing toolsets")
+                refresh_status = True
 
         if not os.path.exists(self.toolset_status_location) or refresh_status:
             logging.info("Refreshing available datasources (toolsets)")

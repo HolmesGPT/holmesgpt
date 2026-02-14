@@ -55,6 +55,16 @@ create_rate_limit_error_message = partial(
 )
 
 
+def _is_rate_limit_error(e: Exception) -> bool:
+    """Check if an exception is a rate limit error.
+
+    Bedrock raises a generic Exception with 'Model is getting throttled'
+    instead of litellm.exceptions.RateLimitError, so we need a string check
+    as a fallback.
+    """
+    return isinstance(e, litellm.exceptions.RateLimitError) or "Model is getting throttled" in str(e)
+
+
 def stream_investigate_formatter(
     call_stream: Generator[StreamMessage, None, None],
 ):
@@ -80,8 +90,12 @@ def stream_investigate_formatter(
                 )
             else:
                 yield create_sse_message(message.event.value, message.data)
-    except litellm.exceptions.RateLimitError as e:
-        yield create_rate_limit_error_message(str(e))
+    except Exception as e:
+        logging.error(f"Error during streaming investigation: {e}", exc_info=True)
+        if _is_rate_limit_error(e):
+            yield create_rate_limit_error_message(str(e))
+        else:
+            yield create_sse_error_message(description=str(e), error_code=1, msg=str(e))
 
 
 def stream_chat_formatter(
@@ -116,11 +130,9 @@ def stream_chat_formatter(
                 )
             else:
                 yield create_sse_message(message.event.value, message.data)
-    except litellm.exceptions.RateLimitError as e:
-        yield create_rate_limit_error_message(str(e))
     except Exception as e:
-        logging.error(e)
-        if "Model is getting throttled" in str(e):  # happens for bedrock
+        logging.error(f"Error during streaming chat: {e}", exc_info=True)
+        if _is_rate_limit_error(e):
             yield create_rate_limit_error_message(str(e))
         else:
             yield create_sse_error_message(description=str(e), error_code=1, msg=str(e))

@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import tempfile
 from typing import Optional
 
 # Recommended models for different providers
@@ -155,3 +156,8 @@ TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
 # Backoff schedule (seconds) for retrying failed MCP servers before falling
 # back to TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS.
 MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
+
+# Filesystem storage for large tool results
+HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
+    "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
+)

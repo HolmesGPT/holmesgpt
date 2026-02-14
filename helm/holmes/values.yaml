@@ -99,8 +99,8 @@ mcpAddons:
       name: "aws-api-mcp-sa"
       annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
-    image: "aws-api-mcp-server:1.0.1"
-    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/devel"
+    image: "aws-api-mcp-server:2.0.1"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     resources:
       requests:
@@ -119,7 +119,7 @@ mcpAddons:
     # When multiAccount.profiles is defined, the chart will use EKS token projection
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
-      image: "multi-aws-api-mcp-server:2.0.0"
+      image: "multi-aws-api-mcp-server:2.0.1"
       # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
       profiles: {}
       llm_account_descriptions: ""
@@ -140,8 +140,8 @@ mcpAddons:
   mariadb:
     enabled: false
 
-    image: "mariadb-http-mcp-minimal:1.0.5"
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    image: "mariadb-http-mcp-minimal:1.0.6"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
       host: ""       # MariaDB host
@@ -210,7 +210,7 @@ mcpAddons:
 
     # Container registry for GCP MCP images
     # Build images from: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: "IfNotPresent"
 
     # Workload Identity configuration (works for observability/storage MCPs, not gcloud)
@@ -230,7 +230,7 @@ mcpAddons:
     # gcloud MCP - General GCP management via gcloud CLI
     gcloud:
       enabled: true
-      image: "gcloud-cli-mcp:1.0.7"
+      image: "gcloud-cli-mcp:1.0.9"
       port: 8000
       resources:
         requests:
@@ -242,7 +242,7 @@ mcpAddons:
     # Observability MCP - Cloud Logging, Monitoring, Trace, Error Reporting
     observability:
       enabled: true
-      image: "gcloud-observability-mcp:1.0.0"
+      image: "gcloud-observability-mcp:1.0.1"
       port: 8001
       resources:
         requests:
@@ -254,7 +254,7 @@ mcpAddons:
     # Storage MCP - Cloud Storage operations
     storage:
       enabled: true
-      image: "gcloud-storage-mcp:1.0.0"
+      image: "gcloud-storage-mcp:1.0.1"
       port: 8002
       resources:
         requests:
@@ -281,8 +281,8 @@ mcpAddons:
         # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
         # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
 
-    image: "azure-cli-mcp:1.0.1"
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    image: "azure-cli-mcp:1.0.2"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: "IfNotPresent"
 
     config:
@@ -340,8 +340,8 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.0"
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    image: "github-mcp:1.0.1"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
     # Authentication - PAT from Kubernetes secret
