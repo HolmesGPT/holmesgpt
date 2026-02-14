@@ -1549,7 +1549,11 @@ class ExecuteRangeQuery(BasePrometheusTool):
                     required=False,
                 ),
                 "step": ToolParameter(
-                    description="Query resolution step width in duration format or float number of seconds",
+                    description=(
+                        "Query resolution step width in duration format or float number of seconds. "
+                        "Smaller step = higher resolution but more data points. "
+                        "If not provided, automatically calculated from the time range and max_points."
+                    ),
                     type="number",
                     required=False,
                 ),
