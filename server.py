@@ -153,6 +153,20 @@ def _has_failed_mcp_toolsets() -> bool:
 _MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
 
 
+def _get_next_refresh_interval(
+    has_failed_mcp: bool,
+    backoff_index: int,
+    default_interval: int,
+) -> tuple[int, int]:
+    """Determine the next sleep interval and updated backoff index.
+
+    Returns (sleep_seconds, new_backoff_index).
+    """
+    if has_failed_mcp and backoff_index < len(_MCP_RETRY_BACKOFF_SCHEDULE):
+        return _MCP_RETRY_BACKOFF_SCHEDULE[backoff_index], backoff_index + 1
+    return default_interval, 0
+
+
 def _toolset_status_refresh_loop():
     interval = TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
     if interval <= 0:
@@ -168,15 +182,13 @@ def _toolset_status_refresh_loop():
 
         while True:
             # Use shorter intervals when MCP servers are failing
-            if _has_failed_mcp_toolsets() and backoff_index < len(_MCP_RETRY_BACKOFF_SCHEDULE):
-                sleep_time = _MCP_RETRY_BACKOFF_SCHEDULE[backoff_index]
-                backoff_index += 1
+            sleep_time, backoff_index = _get_next_refresh_interval(
+                _has_failed_mcp_toolsets(), backoff_index, interval
+            )
+            if sleep_time < interval:
                 logging.info(
                     f"Failed MCP server(s) detected, retrying in {sleep_time} seconds"
                 )
-            else:
-                sleep_time = interval
-                backoff_index = 0
 
             time.sleep(sleep_time)
             try:
