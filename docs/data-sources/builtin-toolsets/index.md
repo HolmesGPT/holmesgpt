@@ -27,6 +27,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-web:{ .lg .middle } **Internet**](internet.md)
 -   [:simple-apachekafka:{ .lg .middle } **Kafka**](kafka.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)
+-   [:simple-kubernetes:{ .lg .middle } **KubeVela**](kubevela.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
 -   [:simple-grafana:{ .lg .middle } **Loki**](grafanaloki.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
