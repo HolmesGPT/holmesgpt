@@ -23,6 +23,7 @@ nav:
   - Internet: internet.md
   - Kafka: kafka.md
   - Kubernetes: kubernetes.md
+  - KubeVela: kubevela.md
   - MariaDB (MCP): mariadb-mcp.md
   - MongoDB Atlas: mongodb-atlas.md
   - New Relic: newrelic.md

@@ -1,4 +1,4 @@
-user_prompt: "What is the database connection string configured for the payment gateway service in the platform-config ConfigMap in namespace app-212? Report the exact connection string."
+user_prompt: "In namespace app-212, there is a ConfigMap called platform-config with a data key 'platform-config.yaml'. That YAML has a top-level 'services' map where each service has a 'database.connection_string' field. What is the exact database connection_string for the 'payment-gateway' service?"
 
 expected_output:
   - "Must report the exact database connection string: postgresql://admin@db-pmt-7k3m9x.internal.svc:5432/transactions_v2"
@@ -16,10 +16,10 @@ before_test: |
 
   python3 generate_configs.py /tmp/holmesgpt-test-212-platform-config.yaml
 
+  kubectl delete configmap platform-config -n app-212 --ignore-not-found
   kubectl create configmap platform-config \
     --from-file=platform-config.yaml=/tmp/holmesgpt-test-212-platform-config.yaml \
-    -n app-212 \
-    --dry-run=client -o yaml | kubectl apply -f -
+    -n app-212
 
   # Verify needle is present (retry loop for eventual consistency)
   VERIFIED=false
@@ -39,6 +39,8 @@ before_test: |
 
   rm -f /tmp/holmesgpt-test-212-platform-config.yaml
   echo "Setup complete"
+
+include_tool_calls: true
 
 after_test: |
   kubectl delete namespace app-212 --ignore-not-found
