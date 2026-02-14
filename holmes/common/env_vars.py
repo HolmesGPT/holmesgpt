@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import tempfile
 from typing import Optional
 
 # Recommended models for different providers
@@ -151,4 +152,9 @@ ROBUSTA_UI_DOMAIN = os.environ.get(
 # Set to 0 to disable periodic refresh
 TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
     os.environ.get("TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS", 300)
+)
+
+# Filesystem storage for large tool results
+HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
+    "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
 )

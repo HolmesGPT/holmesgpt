@@ -2,6 +2,6 @@ nav:
   - index.md
   - Built-in Toolsets: builtin-toolsets
   - Custom Toolsets: custom-toolsets.md
-  - API Toolsets: api-toolsets.md
+  - HTTP Connectors: api-toolsets.md
   - MCP Servers: remote-mcp-servers.md
   - Adding Permissions for Additional Resources: permissions.md

@@ -14,6 +14,7 @@ from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
 from holmes.core.prompt import build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.runbooks import RunbookCatalog, load_runbook_catalog
@@ -198,84 +199,90 @@ def ask_holmes(
         )
         toolset_span.log(metadata={"toolset_names": enabled_toolsets})
 
-    ai = ToolCallingLLM(
-        tool_executor=tool_executor,
-        max_steps=40,
-        llm=create_eval_llm(model=model, tracer=tracer),
-    )
+    with tool_result_storage() as tool_results_dir:
+        ai = ToolCallingLLM(
+            tool_executor=tool_executor,
+            max_steps=40,
+            llm=create_eval_llm(model=model, tracer=tracer),
+            tool_results_dir=tool_results_dir,
+        )
 
-    test_type = (
-        test_case.test_type or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
-    )
-    if test_type == "cli":
-        if test_case.conversation_history:
-            pytest.skip("CLI mode does not support conversation history tests")
-        else:
-            if test_case.runbooks is None:
-                runbooks = load_runbook_catalog()
-            elif test_case.runbooks == {}:
-                runbooks = None
+        test_type = (
+            test_case.test_type
+            or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
+        )
+        if test_type == "cli":
+            if test_case.conversation_history:
+                pytest.skip("CLI mode does not support conversation history tests")
             else:
-                try:
-                    runbooks = RunbookCatalog(**test_case.runbooks)
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
-                        f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
-                    ) from e
-            messages = build_initial_ask_messages(
-                initial_user_prompt=test_case.user_prompt,
-                file_paths=None,
-                tool_executor=ai.tool_executor,
-                runbooks=runbooks,
-                system_prompt_additions=additional_system_prompt,
+                if test_case.runbooks is None:
+                    runbooks = load_runbook_catalog()
+                elif test_case.runbooks == {}:
+                    runbooks = None
+                else:
+                    try:
+                        runbooks = RunbookCatalog(**test_case.runbooks)
+                    except Exception as e:
+                        raise ValueError(
+                            f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
+                            f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
+                        ) from e
+                messages = build_initial_ask_messages(
+                    initial_user_prompt=test_case.user_prompt,
+                    file_paths=None,
+                    tool_executor=ai.tool_executor,
+                    runbooks=runbooks,
+                    system_prompt_additions=additional_system_prompt,
+                )
+        else:
+            chat_request = ChatRequest(
+                ask=test_case.user_prompt,
+                additional_system_prompt=additional_system_prompt,
             )
-    else:
-        chat_request = ChatRequest(
-            ask=test_case.user_prompt, additional_system_prompt=additional_system_prompt
-        )
-        config = Config()
-        if test_case.cluster_name:
-            config.cluster_name = test_case.cluster_name
+            config = Config()
+            if test_case.cluster_name:
+                config.cluster_name = test_case.cluster_name
 
-        mock_dal = load_mock_dal(
-            Path(test_case.folder), generate_mocks=False, initialize_base=False
-        )
-        runbooks = load_runbook_catalog(mock_dal)
-        global_instructions = mock_dal.get_global_instructions_for_account()
+            mock_dal = load_mock_dal(
+                Path(test_case.folder), generate_mocks=False, initialize_base=False
+            )
+            runbooks = load_runbook_catalog(mock_dal)
+            global_instructions = mock_dal.get_global_instructions_for_account()
 
-        messages = build_chat_messages(
-            ask=chat_request.ask,
-            conversation_history=test_case.conversation_history,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            runbooks=runbooks,
-            additional_system_prompt=additional_system_prompt,
-        )
+            messages = build_chat_messages(
+                ask=chat_request.ask,
+                conversation_history=test_case.conversation_history,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+                runbooks=runbooks,
+                additional_system_prompt=additional_system_prompt,
+            )
 
-    # Create LLM completion trace within current context
-    with tracer.start_trace("Holmes Run", span_type=SpanType.TASK) as llm_span:
-        start_time = time.time()
-        result = ai.messages_call(messages=messages, trace_span=llm_span)
-        holmes_duration = time.time() - start_time
-        # Log duration directly to eval_span
-        eval_span.log(metadata={"holmes_duration": holmes_duration})
-        # Store metrics in user_properties for GitHub report
+        # Create LLM completion trace within current context
+        with tracer.start_trace("Holmes Run", span_type=SpanType.TASK) as llm_span:
+            start_time = time.time()
+            result = ai.messages_call(messages=messages, trace_span=llm_span)
+            holmes_duration = time.time() - start_time
+            # Log duration directly to eval_span
+            eval_span.log(metadata={"holmes_duration": holmes_duration})
+            # Store metrics in user_properties for GitHub report
+            if request:
+                request.node.user_properties.append(
+                    ("holmes_duration", holmes_duration)
+                )
+                if result.num_llm_calls is not None:
+                    request.node.user_properties.append(
+                        ("num_llm_calls", result.num_llm_calls)
+                    )
+                if result.tool_calls is not None:
+                    request.node.user_properties.append(
+                        ("tool_call_count", len(result.tool_calls))
+                    )
+
+        # Check for any mock errors that occurred during tool execution
+        # This will raise an exception if any mock data errors happened
         if request:
-            request.node.user_properties.append(("holmes_duration", holmes_duration))
-            if result.num_llm_calls is not None:
-                request.node.user_properties.append(
-                    ("num_llm_calls", result.num_llm_calls)
-                )
-            if result.tool_calls is not None:
-                request.node.user_properties.append(
-                    ("tool_call_count", len(result.tool_calls))
-                )
+            check_for_mock_errors(request)
 
-    # Check for any mock errors that occurred during tool execution
-    # This will raise an exception if any mock data errors happened
-    if request:
-        check_for_mock_errors(request)
-
-    return result
+        return result
