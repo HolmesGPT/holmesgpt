@@ -34,8 +34,6 @@ CORE_ALLOW_LIST: List[str] = [
     "kubectl auth can-i",
     "kubectl diff",
     "kubectl events",
-    # Kube-lineage
-    "kube-lineage",
     # JSON processing
     "jq",
     # Text filtering (operates on stdin/piped data)

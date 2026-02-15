@@ -59,7 +59,6 @@ The `builtin_allowlist` field controls which commands are pre-approved:
 | Category | Commands |
 |----------|----------|
 | Kubernetes | `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl explain`, `kubectl api-resources`, `kubectl config view`, `kubectl config current-context`, `kubectl cluster-info`, `kubectl version`, `kubectl auth can-i`, `kubectl diff`, `kubectl events` |
-| Other | `kube-lineage` |
 | JSON | `jq` |
 | Text processing | `grep`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr` |
 | System info | `id`, `whoami`, `hostname`, `uname`, `date`, `which`, `type` |

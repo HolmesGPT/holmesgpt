@@ -298,7 +298,7 @@ class TestGetEffectiveLists:
 
     def test_backwards_compat_include_default_true(self):
         """Test that deprecated include_default_allow_deny_list=True maps to extended."""
-        config = BashExecutorConfig(builtin_allowlist="extended")
+        config = BashExecutorConfig(include_default_allow_deny_list=True)
         assert config.builtin_allowlist == "extended"
         allow_list, deny_list = get_effective_lists(config)
         assert "kubectl get" in allow_list
@@ -318,7 +318,6 @@ class TestGetEffectiveLists:
         assert "kubectl describe" in CORE_ALLOW_LIST
         assert "grep" in CORE_ALLOW_LIST
         assert "jq" in CORE_ALLOW_LIST
-        assert "kube-lineage" in CORE_ALLOW_LIST
         assert "cat" not in CORE_ALLOW_LIST
 
         # EXTENDED_ALLOW_LIST has everything including filesystem
