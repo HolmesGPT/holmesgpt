@@ -1,13 +1,14 @@
 # GitHub Models
 
-Configure HolmesGPT to use GitHub's AI Models Marketplace.
+Configure HolmesGPT to use [GitHub Models](https://github.com/marketplace/models){:target="_blank"}.
 
 ## Setup
 
-Get a [GitHub Personal Access Token](https://github.com/settings/tokens){:target="_blank"} with appropriate permissions to access GitHub Models.
+Create a [GitHub Personal Access Token](https://github.com/settings/tokens){:target="_blank"} (fine-grained) with the **Models** permission:
 
-!!! info "GitHub Models Marketplace"
-    GitHub Models provides access to various AI models through GitHub's marketplace, including models from Meta, Microsoft, and other providers.
+![GitHub PAT Models Permission](../assets/github-models-pat-permissions.png)
+
+Browse the full list of available models at [github.com/marketplace/models](https://github.com/marketplace/models){:target="_blank"}.
 
 ## Configuration
 
@@ -16,18 +17,17 @@ Get a [GitHub Personal Access Token](https://github.com/settings/tokens){:target
     **Using Environment Variables:**
     ```bash
     export GITHUB_API_KEY="your-github-token"
-    holmes ask "what pods are failing?" --model="github/gpt-5.2"
+    holmes ask "what pods are failing?" --model="github/gpt-4o"
     ```
 
     **Using Command Line Parameters:**
 
-    You can also pass the API key directly as a command-line parameter:
     ```bash
-    holmes ask "what pods are failing?" --model="github/gpt-5.2" --api-key="your-github-token"
+    holmes ask "what pods are failing?" --model="github/gpt-4o" --api-key="your-github-token"
     ```
 
     !!! note "Model Naming"
-        Use `github/` prefix followed by the model name, ignoring company prefixes. For example, `openai/gpt-5.2` becomes `github/gpt-5.2`.
+        Use `github/` prefix followed by the model name, dropping the company prefix. For example, `openai/gpt-4o` in the catalog becomes `github/gpt-4o`.
 
 === "Holmes Helm Chart"
 
@@ -48,16 +48,14 @@ Get a [GitHub Personal Access Token](https://github.com/settings/tokens){:target
             name: holmes-secrets
             key: github-api-key
 
-    # Configure at least one model using modelList
     modelList:
-      gpt-5-2:
+      gpt-4o:
         api_key: "{{ env.GITHUB_API_KEY }}"
-        model: github/gpt-5.2
+        model: github/gpt-4o
         temperature: 0
 
-    # Optional: Set default model (use modelList key name)
     config:
-      model: "gpt-5-2"  # This refers to the key name in modelList above
+      model: "gpt-4o"
     ```
 
 === "Robusta Helm Chart"
@@ -80,37 +78,17 @@ Get a [GitHub Personal Access Token](https://github.com/settings/tokens){:target
               name: robusta-holmes-secret
               key: github-api-key
 
-      # Configure at least one model using modelList
       modelList:
-        gpt-5-2:
+        gpt-4o:
           api_key: "{{ env.GITHUB_API_KEY }}"
-          model: github/gpt-5.2
+          model: github/gpt-4o
           temperature: 0
 
-      # Optional: Set default model (use modelList key name)
       config:
-        model: "gpt-5-2"  # This refers to the key name in modelList above
+        model: "gpt-4o"
     ```
-
-## Available Models
-
-GitHub Models provides access to various models from different providers. Example:
-
-- `github/gpt-5.2`
-
-!!! tip "Model Names"
-    When using GitHub Models, omit the company prefix from the model name. For example, `openai/gpt-5.2` becomes `github/gpt-5.2`.
-
-## Features
-
-GitHub Models supports tool/function calling for compatible models.
-
-## Example Usage
-
-```bash
-holmes ask "what pods are failing?" --model="github/gpt-5.2"
-```
 
 ## Additional Resources
 
-HolmesGPT uses the LiteLLM API to support GitHub Models provider. Refer to [LiteLLM GitHub docs](https://docs.litellm.ai/docs/providers/github){:target="_blank"} for more details.
+- [GitHub Models Catalog](https://github.com/marketplace/models){:target="_blank"} - browse all available models
+- [LiteLLM GitHub provider docs](https://docs.litellm.ai/docs/providers/github){:target="_blank"}
