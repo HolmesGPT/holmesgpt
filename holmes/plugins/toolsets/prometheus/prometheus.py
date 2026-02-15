@@ -31,6 +31,7 @@ from holmes.core.tools import (
 )
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.core.tools_utils.tool_context_window_limiter import get_pct_token_count
+from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.logging_utils.logging_api import (
@@ -1575,7 +1576,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
                     description=(
                         f"Maximum number of data points per series. Default: {int(MAX_GRAPH_POINTS)}. "
                         f"Only increase above default for queries returning few time series (1-3 series). "
-                        f"Decrease for overview graphs or high-cardinality queries (e.g., 50). "
+                        f"Decrease for high-cardinality queries (e.g., 50) to avoid hitting maximum number of data points. "
                         f"Maximum: {int(MAX_GRAPH_POINTS * 2)}. "
                         f"If your query would return more points than this limit, the step will be automatically adjusted."
                     ),
@@ -1806,7 +1807,16 @@ class PrometheusToolset(Toolset):
         template_file_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "prometheus_instructions.jinja2")
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+        tool_names = [t.name for t in self.tools]
+        self.llm_instructions = load_and_render_prompt(
+            prompt=f"file://{template_file_path}",
+            context={
+                "tool_names": tool_names,
+                "config": self.config,
+                "default_max_points": int(MAX_GRAPH_POINTS),
+                "hard_max_points": int(MAX_GRAPH_POINTS * 2),
+            },
+        )
 
     def determine_prometheus_class(
         self, config: dict[str, Any]
