@@ -1,0 +1,10 @@
+user_prompt: "Run 'git stash show -p'. If disapproved by the user, just say you failed without trying anything else."
+expected_output:
+  - The suggested prefixes contains exactly one item
+  - This item is 'git stash show'
+description: |
+  Tests that for mixed operations (can branch to read or write), a longer prefix is used.
+  'git stash' can do show (read) or pop/push/apply (write), so we need 'git stash show' not just 'git stash'.
+include_tool_calls: true
+tags:
+  - question-answer

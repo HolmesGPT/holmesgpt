@@ -50,7 +50,7 @@ from tests.llm.utils.test_results import TestResult
 
 # Configuration constants
 DEBUG_SEPARATOR = "=" * 80
-LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate", "test_workload_health"]
+LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate"]
 DEFAULT_SYSTEM_PROMPT_URL = (
     "https://platform.robusta.dev/api/additional-system-prompt.json"
 )
@@ -108,7 +108,6 @@ def is_llm_test(nodeid: str) -> bool:
         [
             "test_ask_holmes" in nodeid,
             "test_investigate" in nodeid,
-            "test_workload_health" in nodeid,
         ]
     )
 
@@ -430,6 +429,11 @@ def force_pytest_output(request):
 def check_llm_api_with_test_call():
     """Check if LLM API is available by testing ALL models that will be used"""
     import litellm
+
+    # Respect SSL_VERIFY env var for sandbox/proxy environments
+    ssl_verify_env = os.environ.get("SSL_VERIFY", "true").lower()
+    if ssl_verify_env in ("false", "0", "no"):
+        litellm.ssl_verify = False
 
     # Get all models that will be tested
     test_models = MODEL.split(",")
@@ -825,8 +829,6 @@ def _collect_test_results_from_stats(terminalreporter):
                     test_type = "ask"
                 elif "test_investigate" in nodeid:
                     test_type = "investigate"
-                elif "test_workload_health" in nodeid:
-                    test_type = "workload_health"
                 else:
                     test_type = "unknown"
 
@@ -856,6 +858,7 @@ def _collect_test_results_from_stats(terminalreporter):
                     "braintrust_span_id": None,
                     "braintrust_root_span_id": None,
                     "clean_test_case_id": None,  # Not available for skipped tests
+                    "env_config": "default",  # Not available for skipped tests
                 }
                 continue
             elif when != "call":
@@ -910,8 +913,6 @@ def _collect_test_results_from_stats(terminalreporter):
                 test_type = "ask"
             elif "test_investigate" in nodeid:
                 test_type = "investigate"
-            elif "test_workload_health" in nodeid:
-                test_type = "workload_health"
             else:
                 test_type = "unknown"
 
@@ -961,6 +962,7 @@ def _collect_test_results_from_stats(terminalreporter):
                     "encountered_throttling", False
                 ),  # Any throttling during execution
                 "model": user_props.get("model", "Unknown"),
+                "env_config": user_props.get("env_config", "default"),
                 "clean_test_case_id": user_props.get("clean_test_case_id"),
                 "braintrust_span_id": user_props.get("braintrust_span_id"),
                 "braintrust_root_span_id": user_props.get("braintrust_root_span_id"),
@@ -985,7 +987,7 @@ def _collect_test_results_from_stats(terminalreporter):
     results_with_ids = []
     for result in test_results.values():
         # If we have a clean test case ID from the test, use it
-        # This is set in test_ask_holmes.py, test_investigate.py, and test_workload_health.py
+        # This is set in test_ask_holmes.py and test_investigate.py
         # via: request.node.user_properties.append(("clean_test_case_id", test_case.id))
         # It provides the clean test case ID without model suffixes that pytest adds when
         # parameterizing with multiple models (e.g., "01_how_many_pods" instead of

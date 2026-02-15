@@ -1,0 +1,9 @@
+{% if output_instructions %}
+You are updating tickets in {{ source }} so verify you follow all the following instructions:
+
+Always validate pod names before generating links.
+When creating Grafana dashboard links, ensure that **EVERY** link is relevant to the issue investigated and express it in the link text.
+{% for instruction in output_instructions %}
+{{ instruction }}
+{% endfor %}
+{% endif %}

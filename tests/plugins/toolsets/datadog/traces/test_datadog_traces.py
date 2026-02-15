@@ -15,10 +15,10 @@ class TestDatadogTracesToolset:
     def setup_method(self):
         """Setup test configuration."""
         self.config = {
-            "dd_api_key": "test_api_key",
-            "dd_app_key": "test_app_key",
-            "site_api_url": "https://api.datadoghq.com",
-            "request_timeout": 60,
+            "api_key": "test_api_key",
+            "app_key": "test_app_key",
+            "api_url": "https://api.datadoghq.com",
+            "timeout_seconds": 60,
         }
 
     def test_toolset_initialization(self):
@@ -68,16 +68,6 @@ class TestDatadogTracesToolset:
         assert not success
         assert "No configuration provided" in error_msg
 
-    def test_get_example_config(self):
-        """Test get_example_config method."""
-        toolset = DatadogTracesToolset()
-        example_config = toolset.get_example_config()
-
-        assert "dd_api_key" in example_config
-        assert "dd_app_key" in example_config
-        assert "site_api_url" in example_config
-        assert "request_timeout" in example_config
-
 
 class TestFetchDatadogSpansByFilter:
     """Unit tests for FetchDatadogSpansByFilter tool."""
@@ -86,8 +76,8 @@ class TestFetchDatadogSpansByFilter:
         """Setup test configuration."""
         self.toolset = DatadogTracesToolset()
         self.toolset.dd_config = MagicMock()
-        self.toolset.dd_config.site_api_url = "https://api.datadoghq.com"
-        self.toolset.dd_config.request_timeout = 60
+        self.toolset.dd_config.api_url = "https://api.datadoghq.com"
+        self.toolset.dd_config.timeout_seconds = 60
         self.tool = GetSpans(self.toolset)
 
     def test_get_parameterized_one_liner(self):

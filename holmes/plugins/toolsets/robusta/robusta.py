@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from holmes.common.env_vars import load_bool
 from holmes.core.supabase_dal import FindingType, SupabaseDal
@@ -407,6 +407,3 @@ class RobustaToolset(Toolset):
             os.path.join(os.path.dirname(__file__), "robusta_instructions.jinja2")
         )
         self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}

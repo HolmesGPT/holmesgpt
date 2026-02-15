@@ -514,12 +514,13 @@ class TestTransformerPerformanceMetrics:
 
     def setup_method(self):
         """Set up test fixtures."""
-        # Track whether llm_summarize was originally registered for restoration
-        self.llm_summarize_was_registered = registry.is_registered("llm_summarize")
-
-        # Clean up existing registrations
+        # Save original transformer registration if it exists
+        self.original_llm_summarize = None
         if registry.is_registered("llm_summarize"):
+            self.original_llm_summarize = registry._transformers["llm_summarize"]
             registry.unregister("llm_summarize")
+
+        # Clean up any mock registrations
         if registry.is_registered("MockSummarizeTransformer"):
             registry.unregister("MockSummarizeTransformer")
 
@@ -534,8 +535,9 @@ class TestTransformerPerformanceMetrics:
         if registry.is_registered("MockSummarizeTransformer"):
             registry.unregister("MockSummarizeTransformer")
 
-        # Note: Original transformer restoration is not possible without accessing private registry attributes.
-        # Test isolation is maintained by cleaning up our mock registrations.
+        # Restore original transformer if it existed
+        if self.original_llm_summarize is not None:
+            registry.register(self.original_llm_summarize)
 
     def test_transformer_performance_logging(self):
         """Test that transformer execution metrics are logged."""

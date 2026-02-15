@@ -43,9 +43,6 @@ class SampleToolset(Toolset):
         super().__init__(*args, **kwargs)
         self.tools: List[Tool] = [DummyTool()]
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
 
 def test_check_prerequisites_none():
     toolset = SampleToolset(prerequisites=[])

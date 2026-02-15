@@ -1,0 +1,36 @@
+toolsets:
+  confluence:
+    type: http
+    enabled: true
+    config:
+      endpoints:
+        - hosts:
+            - "*.atlassian.net"
+          paths: ["/wiki/rest/api/*"]
+          methods: ["GET"]
+          auth:
+            type: basic
+            username: "{{ env.CONFLUENCE_USER }}"
+            password: "{{ env.CONFLUENCE_API_KEY }}"
+      verify_ssl: true
+      timeout_seconds: 30
+    llm_instructions: |
+      ### Confluence REST API
+
+      You can query Confluence using the REST API.
+
+      The base URL is: {{ env.CONFLUENCE_BASE_URL }}
+
+      Common endpoints:
+      - GET /wiki/rest/api/space/{spaceKey} - Get space information
+      - GET /wiki/rest/api/content/{contentId}?expand=body.storage - Get page content with body
+      - GET /wiki/rest/api/content/search?cql={query} - Search using CQL
+
+      To search for pages by title, use CQL like: `title="Page Title" AND space=SPACEKEY`
+
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

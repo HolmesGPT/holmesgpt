@@ -37,22 +37,31 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
     # - "Killed" in output (Linux OOM killer message)
     # - "MemoryError" (Python)
     # - "Cannot allocate memory" (various tools)
-    is_oom = (
-        return_code in (137, -9)
-        or "Killed" in output
+    # - "out of memory" (Go runtime: "runtime: out of memory", "fatal error: out of memory")
+    #
+    # Note: String-based detection only triggers on non-zero exit codes to avoid
+    # false positives when commands succeed but output contains OOM-related text
+    # (e.g., kubectl describing a pod that was OOMKilled).
+    has_oom_strings = (
+        "Killed" in output
         or "MemoryError" in output
         or "Cannot allocate memory" in output
         or "bad_alloc" in output
+        or "out of memory" in output
     )
+    is_oom = return_code in (137, -9) or (return_code != 0 and has_oom_strings)
 
     if is_oom:
         hint = (
-            f"\n\n[OOM] Command was killed due to memory limits (current limit: {TOOL_MEMORY_LIMIT_MB} MB). "
-            f"Try querying the data differently to reduce memory usage - add filters to narrow the results, "
+            f"[OOM] Command was killed due to memory limits (current limit: {TOOL_MEMORY_LIMIT_MB} MB). "
+            f"Note to humans: this is OK, Holmes will retry with filters to reduce memory usage.\n"
+            f"Note to agent: Try querying the data differently to reduce memory usage - add filters to narrow the results, "
             f"use smaller time ranges, or try alternative tools that may be more memory-efficient. "
             f"If you cannot succeed with a modified query, you may recommend the user increase the limit "
             f"by setting the TOOL_MEMORY_LIMIT_MB environment variable (Tool memory limit, MB)."
         )
-        return output + hint
+        if output:
+            return hint + "\n\n" + output
+        return hint
 
     return output

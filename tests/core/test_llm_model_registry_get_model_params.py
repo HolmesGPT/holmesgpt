@@ -12,12 +12,18 @@ class TestLLMModelRegistryGetModelParams:
     """Test LLMModelRegistry.get_model_params method."""
 
     @pytest.fixture
-    def mock_config(self):
+    def mock_config(self, monkeypatch):
         """Create a mock config for testing."""
+        # LLMModelRegistry accesses these config attributes during initialization
+        # (see holmes/core/llm.py lines 490-497)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         config = MagicMock(spec=Config)
         config.should_try_robusta_ai = False
         config.model = None
         config.cluster_name = None
+        config.api_base = None
+        config.api_version = None
+        config.api_key = None
         return config
 
     @pytest.fixture

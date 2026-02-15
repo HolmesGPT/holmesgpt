@@ -7,7 +7,7 @@ import pytest
 from requests.exceptions import HTTPError, RequestException  # type: ignore
 
 from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
-from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI
+from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI, TempoAPIError
 
 # Test constants
 TEST_SERVICE_NAME = "checkout-service"
@@ -20,7 +20,7 @@ class TestGrafanaTempoAPI:
     def config(self):
         """Create a test configuration."""
         return GrafanaTempoConfig(
-            url="https://grafana.example.com",
+            api_url="https://grafana.example.com",
             api_key="test-api-key",
             grafana_datasource_uid="tempo-uid",
         )
@@ -355,8 +355,6 @@ class TestGrafanaTempoAPI:
         mock_response.raise_for_status.side_effect = http_error
         mock_get.return_value = mock_response
 
-        from holmes.plugins.toolsets.grafana.grafana_tempo_api import TempoAPIError
-
         with pytest.raises(TempoAPIError) as exc_info:
             api.query_trace_by_id_v2("nonexistent")
 
@@ -395,7 +393,7 @@ class TestGrafanaTempoAPIIntegration:
     def config(self):
         """Create configuration for integration tests from environment variables."""
         return GrafanaTempoConfig(
-            url=os.getenv("GRAFANA_URL", ""),
+            api_url=os.getenv("GRAFANA_URL", ""),
             api_key=os.getenv("GRAFANA_API_KEY", ""),
             grafana_datasource_uid=os.getenv("GRAFANA_TEMPO_DATASOURCE_UID", ""),
         )

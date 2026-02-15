@@ -1,12 +1,14 @@
 import logging
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, ClassVar, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 import backoff
 import requests  # type: ignore
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, Field
 from requests.auth import HTTPBasicAuth  # type: ignore
+
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 # --- Enums and Pydantic Models (Mostly Unchanged) ---
 
@@ -16,36 +18,62 @@ class ClusterConnectionStatus(str, Enum):
     ERROR = "error"
 
 
-class RabbitMQClusterConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
+class RabbitMQClusterConfig(ToolsetConfig):
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "verify_certs": "verify_ssl",
+        "management_url": "api_url",
+        "request_timeout_seconds": "timeout_seconds",
+    }
 
-    id: str = "rabbitmq"  # must be unique
-    management_url: str  # e.g., http://rabbitmq-service:15672
-    username: Optional[str] = None
-    password: Optional[str] = None
-    request_timeout_seconds: int = 30
-    verify_ssl: bool = True
+    id: str = Field(
+        default="rabbitmq",
+        title="ID",
+        description="Unique identifier for this cluster",
+        examples=["rabbitmq", "rabbitmq-prod"],
+    )
+    api_url: str = Field(
+        title="API URL",
+        description="RabbitMQ Management API URL",
+        examples=[
+            "http://<your-rabbitmq-server-or-service>:15672",
+        ],
+    )
+    username: Optional[str] = Field(
+        default=None,
+        title="Username",
+        description="Username for authentication",
+        examples=["holmes_user"],
+    )
+    password: Optional[str] = Field(
+        default=None,
+        title="Password",
+        description="Password for authentication",
+        examples=["holmes_password"],
+    )
+    timeout_seconds: int = Field(
+        default=30,
+        title="Request Timeout",
+        description="Request timeout in seconds",
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        title="Verify SSL",
+        description="Whether to verify SSL certificates",
+    )
 
-    @model_validator(mode="after")
-    def handle_deprecated_fields(self):
-        extra = self.model_extra or {}
-        deprecated = []
-
-        # Map old name to new name
-        if "verify_certs" in extra:
-            self.verify_ssl = extra["verify_certs"]
-            deprecated.append("verify_certs -> verify_ssl")
-
-        if deprecated:
-            logging.warning(
-                f"RabbitMQ config uses deprecated field names: {', '.join(deprecated)}. "
-                "Please update your configuration."
-            )
-        return self
-
-    # For internal use
-    connection_status: Optional[ClusterConnectionStatus] = None
-    connection_error: Optional[str] = None
+    # For internal use (excluded from serialization; not part of user config)
+    connection_status: Optional[ClusterConnectionStatus] = Field(
+        default=None,
+        exclude=True,
+        description="(internal) Connection status set by toolset health check",
+        json_schema_extra={"readOnly": True},
+    )
+    connection_error: Optional[str] = Field(
+        default=None,
+        exclude=True,
+        description="(internal) Connection error message set by toolset health check",
+        json_schema_extra={"readOnly": True},
+    )
 
 
 class Partition(BaseModel):
@@ -129,7 +157,7 @@ def make_request(
             auth=get_auth(config),
             params=params,
             json=data,
-            timeout=config.request_timeout_seconds,
+            timeout=config.timeout_seconds,
             verify=config.verify_ssl,
         )
         response.raise_for_status()
@@ -162,7 +190,7 @@ def get_status_from_node(
         hostname = parts[1]
 
         # Construct the target node's management URL based on the original config's scheme/port
-        parsed_original_url = urlparse(config.management_url)
+        parsed_original_url = urlparse(config.api_url)
         scheme = parsed_original_url.scheme or "http"
         port = parsed_original_url.port or (
             443 if scheme == "https" else 15672
@@ -232,7 +260,7 @@ def get_cluster_status(config: RabbitMQClusterConfig) -> ClusterStatus:
     """
     raw_nodes_data: List[Dict] = []
     try:
-        url = get_url(config.management_url, "api/nodes")
+        url = get_url(config.api_url, "api/nodes")
         raw_nodes_data = make_request(
             config=config,
             method="GET",
@@ -242,7 +270,7 @@ def get_cluster_status(config: RabbitMQClusterConfig) -> ClusterStatus:
         config.connection_error = None
     except Exception as e:
         logging.error(
-            f"Failed to get primary cluster status from {config.management_url}: {e}"
+            f"Failed to get primary cluster status from {config.api_url}: {e}"
         )
         config.connection_status = ClusterConnectionStatus.ERROR
         config.connection_error = str(e)

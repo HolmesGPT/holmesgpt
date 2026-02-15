@@ -2,7 +2,7 @@ import logging
 import os
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import List, Optional, Union, cast
 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
@@ -265,6 +265,3 @@ class RunbookToolset(Toolset):
             config=config,
             enabled=True,
         )
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}

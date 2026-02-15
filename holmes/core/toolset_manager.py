@@ -2,6 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from benedict import benedict
@@ -11,6 +12,7 @@ from holmes.core.config import config_path_dir
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
+from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
 
 if TYPE_CHECKING:
@@ -55,6 +57,7 @@ class ToolsetManager:
         toolset_status_location: Optional[FilePath] = None,
         global_fast_model: Optional[str] = None,
         custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
+        config_file_path: Optional[Path] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
@@ -65,6 +68,7 @@ class ToolsetManager:
         self.toolsets.update(mcp_servers or {})
         self.custom_toolsets = custom_toolsets
         self.global_fast_model = global_fast_model
+        self.config_file_path = config_file_path
 
         if toolset_status_location is None:
             toolset_status_location = FilePath(DEFAULT_TOOLSET_STATUS_LOCATION)
@@ -98,6 +102,7 @@ class ToolsetManager:
         check_prerequisites=True,
         enable_all_toolsets=False,
         toolset_tags: Optional[List[ToolsetTag]] = None,
+        silent: bool = False,
     ) -> List[Toolset]:
         """
         List all built-in and custom toolsets.
@@ -167,16 +172,16 @@ class ToolsetManager:
                 enabled_toolsets.append(toolset)
             else:
                 toolset.status = ToolsetStatusEnum.DISABLED
-        self.check_toolset_prerequisites(enabled_toolsets)
+        self.check_toolset_prerequisites(enabled_toolsets, silent=silent)
 
         return final_toolsets
 
     @classmethod
-    def check_toolset_prerequisites(cls, toolsets: list[Toolset]):
+    def check_toolset_prerequisites(cls, toolsets: list[Toolset], silent: bool = False):
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
             for toolset in toolsets:
-                futures.append(executor.submit(toolset.check_prerequisites))
+                futures.append(executor.submit(toolset.check_prerequisites, silent))
 
             for _ in concurrent.futures.as_completed(futures):
                 pass
@@ -260,6 +265,19 @@ class ToolsetManager:
             json.dump(toolset_status, f, indent=2)
         logging.info(f"Toolset statuses are cached to {self.toolset_status_location}")
 
+    def _get_datasource_file_paths(self) -> list[str]:
+        """
+        Collect all datasource config file paths for hash tracking.
+        Includes the main config file and any custom toolset files from the config.
+        """
+        paths: list[str] = []
+        if self.config_file_path:
+            paths.append(str(self.config_file_path))
+        if self.custom_toolsets:
+            for p in self.custom_toolsets:
+                paths.append(str(p))
+        return paths
+
     def load_toolset_with_status(
         self,
         dal: Optional[SupabaseDal] = None,
@@ -273,6 +291,14 @@ class ToolsetManager:
         2. load the custom toolsets from config, and override the built-in toolsets
         3. load the custom toolsets from CLI, and raise error if the custom toolset from CLI conflicts with existing toolsets
         """
+
+        # Check if any datasource config file has changed since the last run.
+        # If so, force a refresh of toolset status even if cached status exists.
+        if not refresh_status:
+            datasource_paths = self._get_datasource_file_paths()
+            if datasource_paths and check_and_update_config_hashes(datasource_paths):
+                logging.info("Datasource config file(s) changed, refreshing toolsets")
+                refresh_status = True
 
         if not os.path.exists(self.toolset_status_location) or refresh_status:
             logging.info("Refreshing available datasources (toolsets)")
@@ -365,7 +391,6 @@ class ToolsetManager:
         )
         return toolsets_with_status
 
-    # TODO(mainred): cache and refresh periodically toolset status for server if necessary
     def list_server_toolsets(
         self, dal: Optional[SupabaseDal] = None, refresh_status=True
     ) -> List[Toolset]:
@@ -382,6 +407,31 @@ class ToolsetManager:
             toolset_tags=self.server_tool_tags,
         )
         return toolsets_with_status
+
+    def refresh_server_toolsets_and_get_changes(
+        self,
+        current_toolsets: List[Toolset],
+        dal: Optional[SupabaseDal] = None,
+    ) -> tuple[List[Toolset], List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]]]:
+        old_status_by_name: dict[str, ToolsetStatusEnum] = {
+            toolset.name: toolset.status for toolset in current_toolsets
+        }
+
+        new_toolsets = self._list_all_toolsets(
+            dal,
+            check_prerequisites=True,
+            enable_all_toolsets=False,
+            toolset_tags=self.server_tool_tags,
+            silent=True,
+        )
+
+        changes: List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]] = []
+        for toolset in new_toolsets:
+            old_status = old_status_by_name.get(toolset.name)
+            if old_status is not None and old_status != toolset.status:
+                changes.append((toolset.name, old_status, toolset.status))
+
+        return new_toolsets, changes
 
     def _load_toolsets_from_paths(
         self,
@@ -454,7 +504,6 @@ class ToolsetManager:
                 - env:
                     - API_ENDPOINT
                 - command: "curl ${API_ENDPOINT}"
-            additional_instructions: "jq -r '.result.results[].userData | fromjson | .text | fromjson | .log'"
             tools:
                 - name: "curl_example"
                   description: "Perform a curl request to example.com using variables"

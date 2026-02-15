@@ -19,7 +19,6 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
     BasePodLoggingToolset,
     FetchPodLogsParams,
     LoggingCapability,
-    LoggingConfig,
     PodLoggingTool,
 )
 from holmes.plugins.toolsets.utils import process_timestamps_to_int, to_unix_ms
@@ -95,9 +94,6 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
             return False, "kubectl command not found"
         except Exception as e:
             return False, f"kubectl health check error: {str(e)}"
-
-    def get_example_config(self):
-        return LoggingConfig().model_dump()
 
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
         try:

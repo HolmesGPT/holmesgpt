@@ -35,16 +35,17 @@ from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
 from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
     OpenSearchQueryAssistToolset,
 )
-from holmes.plugins.toolsets.git import GitToolset
 from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import GrafanaLokiToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import GrafanaTempoToolset
+from holmes.plugins.toolsets.http.http_toolset import HttpToolset
 from holmes.plugins.toolsets.internet.internet import InternetToolset
 from holmes.plugins.toolsets.internet.notion import NotionToolset
 from holmes.plugins.toolsets.investigator.core_investigation import (
     CoreInvestigationToolset,
 )
 from holmes.plugins.toolsets.kafka import KafkaToolset
+from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
@@ -98,8 +99,8 @@ def load_python_toolsets(
         OpenSearchQueryAssistToolset(),
         CoralogixToolset(),
         RabbitMQToolset(),
-        GitToolset(),
         BashExecutorToolset(),
+        KubectlRunToolset(),
         MongoDBAtlasToolset(),
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
@@ -194,6 +195,8 @@ def load_toolsets_from_config(
             # MCP server is not a built-in toolset, so we need to set the type explicitly
             if toolset_type == ToolsetType.MCP.value:
                 validated_toolset = RemoteMCPToolset(**config, name=name)
+            elif toolset_type == ToolsetType.HTTP.value:
+                validated_toolset = HttpToolset(name=name, **config)
             elif strict_check:
                 validated_toolset = YAMLToolset(**config, name=name)  # type: ignore
             else:

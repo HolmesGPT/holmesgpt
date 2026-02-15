@@ -1,0 +1,102 @@
+# Test that Holmes can find and describe custom Prometheus alerting rules
+user_prompt: "What Prometheus alerting rule monitors order processing time? Tell me the rule name, the PromQL expression, and what severity it has."
+
+expected_output:
+  - "Must identify the alert name: OrderProcessingLatencyHigh"
+  - "Must include the PromQL expression containing histogram_quantile and order_processing_duration"
+  - "Must mention the severity label is 'warning'"
+
+tags:
+  - prometheus
+  - question-answer
+
+include_tool_calls: true
+
+port_forwards:
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 10211
+    remote_port: 9090
+
+before_test: |
+  set -e
+
+  echo "=== Debugging: List all pods in default namespace ==="
+  kubectl get pods -n default -o wide
+
+  echo ""
+  echo "=== Debugging: List all statefulsets in default namespace ==="
+  kubectl get statefulsets -n default
+
+  echo ""
+  echo "=== Debugging: List all deployments in default namespace ==="
+  kubectl get deployments -n default
+
+  echo ""
+  echo "⚙️ Applying PrometheusRule CRD to default namespace..."
+  kubectl apply -f prometheus-rule.yaml -n default
+
+  echo ""
+  echo "🔍 Checking Prometheus ruleSelector configuration..."
+  kubectl get prometheus -n default -o jsonpath='{.items[0].spec.ruleSelector}' || echo "No ruleSelector found"
+  echo ""
+  kubectl get prometheus -n default -o jsonpath='{.items[0].spec.ruleNamespaceSelector}' || echo "No ruleNamespaceSelector found"
+  echo ""
+
+  echo "🔍 Listing all PrometheusRules in cluster..."
+  kubectl get prometheusrule -A
+
+  # Find the Prometheus pod name (it's a StatefulSet, not Deployment)
+  echo ""
+  echo "🔍 Finding Prometheus pod..."
+  PROM_POD=$(kubectl get pods -n default -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')
+  echo "Prometheus pod: $PROM_POD"
+
+  if [ -z "$PROM_POD" ]; then
+    echo "❌ Could not find Prometheus pod!"
+    kubectl get pods -n default -l release=robusta
+    exit 1
+  fi
+
+  echo "🔍 Verifying rule is loaded by Prometheus..."
+  RULES_LOADED=false
+  for i in {1..60}; do
+    # Use the pod name directly, not deployment
+    RULES_OUTPUT=$(kubectl exec -n default "$PROM_POD" -c prometheus -- wget -q -O- http://localhost:9090/api/v1/rules 2>&1 || true)
+    if echo "$RULES_OUTPUT" | grep -q "OrderProcessingLatencyHigh"; then
+      echo "✅ Custom alerting rule is loaded!"
+      RULES_LOADED=true
+      break
+    fi
+    echo "⏳ Attempt $i/60: Rule not loaded yet, waiting for Prometheus to pick it up..."
+    # On first attempt, show what we got
+    if [ "$i" = "1" ]; then
+      echo "Debug - First rules output (truncated): $(echo "$RULES_OUTPUT" | head -c 500)"
+    fi
+    sleep 2
+  done
+
+  if [ "$RULES_LOADED" = false ]; then
+    echo "❌ Rule failed to load after 120 seconds"
+    echo ""
+    echo "=== PrometheusRule status ==="
+    kubectl get prometheusrule -n default order-processing-alerts -o yaml || true
+    echo ""
+    echo "=== Prometheus Operator logs (last 50 lines) ==="
+    kubectl logs -n default -l app.kubernetes.io/name=prometheus-operator --tail=50 2>&1 || echo "No operator logs found"
+    echo ""
+    echo "=== Prometheus pod logs (last 30 lines) ==="
+    kubectl logs -n default "$PROM_POD" -c prometheus --tail=30 2>&1 || echo "No prometheus logs found"
+    echo ""
+    echo "=== Prometheus rules API output ==="
+    kubectl exec -n default "$PROM_POD" -c prometheus -- wget -q -O- http://localhost:9090/api/v1/rules 2>&1 | head -500 || echo "Failed to get rules"
+    echo ""
+    echo "=== Prometheus config status ==="
+    kubectl exec -n default "$PROM_POD" -c prometheus -- wget -q -O- http://localhost:9090/api/v1/status/config 2>&1 | head -200 || echo "Failed to get config"
+    exit 1
+  fi
+
+  echo "✅ Test setup completed successfully"
+
+after_test: |
+  kubectl delete prometheusrule -n default order-processing-alerts || true

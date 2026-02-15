@@ -193,8 +193,8 @@ class BenchmarkRunner:
         result = subprocess.run(cmd)
         return result.returncode
 
-    def generate_report(self) -> None:
-        """Generate benchmark reports from test results."""
+    def generate_report(self) -> Optional[Path]:
+        """Generate benchmark reports from test results. Returns the generated file path or None."""
         print()
         print("=" * 50)
         print("Generating benchmark report...")
@@ -204,24 +204,18 @@ class BenchmarkRunner:
             print(
                 "⚠️  Report generation script not found: tests/generate_eval_report.py"
             )
-            return
+            return None
 
-        # Create output directories based on benchmark type
+        # Create output directories
         docs_dir = Path("docs/development/evaluations")
         history_dir = docs_dir / "history"
         history_dir.mkdir(parents=True, exist_ok=True)
 
-        # Determine output file based on benchmark type
-        # History files always use results_TIMESTAMP.md format (⚡ in title distinguishes fast)
-        if self.benchmark_type == "fast-benchmark":
-            main_output = docs_dir / "fast-benchmark-results.md"
-        elif self.benchmark_type == "full-benchmark":
-            main_output = docs_dir / "full-benchmark-results.md"
-        else:
-            # Custom markers - use full benchmark output location
-            main_output = docs_dir / "full-benchmark-results.md"
+        # Generate directly to history folder (⚡ in title distinguishes fast benchmarks)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        history_output = history_dir / f"results_{timestamp}.md"
 
-        # Build base command
+        # Build command to generate report directly to history folder
         cmd = [
             "poetry",
             "run",
@@ -230,7 +224,7 @@ class BenchmarkRunner:
             "--json-file",
             "eval_results.json",
             "--output-file",
-            str(main_output),
+            str(history_output),
             "--models",
             ",".join(self.models),
         ]
@@ -246,18 +240,7 @@ class BenchmarkRunner:
 
         try:
             subprocess.run(cmd, check=True, env=env)
-            print(f"✅ Report generated: {main_output}")
-
-            # Generate historical copy first (⚡ in title distinguishes fast benchmarks)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            history_output = history_dir / f"results_{timestamp}.md"
-
-            # Update command for historical output
-            cmd_history = cmd.copy()
-            output_idx = cmd_history.index("--output-file") + 1
-            cmd_history[output_idx] = str(history_output)
-            subprocess.run(cmd_history, check=True, env=env)
-            print(f"📁 Saved historical copy: {history_output}")
+            print(f"✅ Report generated: {history_output}")
 
             # Create redirect page for latest-results.md pointing to the history file
             latest_output = docs_dir / "latest-results.md"
@@ -277,11 +260,13 @@ If you are not redirected automatically, [click here]({history_relative}).
 """
             latest_output.write_text(redirect_content)
             print(f"📋 Updated redirect: {latest_output} -> {history_relative}")
+            return history_output
 
         except subprocess.CalledProcessError as e:
             print(f"❌ Report generation failed: {e}")
+            return None
 
-    def show_summary(self) -> None:
+    def show_summary(self, report_file: Optional[Path] = None) -> None:
         """Display test execution summary and next steps."""
         print()
         print("=" * 50)
@@ -306,31 +291,24 @@ If you are not redirected automatically, [click here]({history_relative}).
         print()
         print("Generated files:")
 
-        # Determine which result file to check based on benchmark type
-        if self.benchmark_type == "fast-benchmark":
-            result_file = "docs/development/evaluations/fast-benchmark-results.md"
-        else:
-            result_file = "docs/development/evaluations/full-benchmark-results.md"
-
         files_to_check = [
-            ("eval_results.json", "JSON results"),
-            ("evals_report.md", "Evaluation report"),
-            (result_file, "Benchmark results"),
-            ("docs/development/evaluations/latest-results.md", "Latest results"),
+            Path("eval_results.json"),
+            Path("docs/development/evaluations/latest-results.md"),
         ]
+        if report_file:
+            files_to_check.append(report_file)
 
-        for filename, description in files_to_check:
-            path = Path(filename)
+        for path in files_to_check:
             if path.exists():
                 line_count = sum(1 for _ in path.open())
-                print(f"  ✓ {filename} ({line_count} lines)")
+                print(f"  ✓ {path} ({line_count} lines)")
 
         print()
         print("=" * 50)
         print("✅ Benchmark run complete!")
         print()
         print("To commit results (like CI/CD would on main):")
-        print(f"  git add {result_file}")
+        print("  git add docs/development/evaluations/history/")
         print("  git add docs/development/evaluations/latest-results.md")
         print("  git commit -m 'Update benchmark results [skip ci]'")
         print("=" * 50)
@@ -340,8 +318,8 @@ If you are not redirected automatically, [click here]({history_relative}).
         self.check_environment()
         self.setup_environment()
         exit_code = self.run_tests()
-        self.generate_report()
-        self.show_summary()
+        report_file = self.generate_report()
+        self.show_summary(report_file)
         return exit_code
 
 
@@ -356,16 +334,14 @@ Benchmark Types:
   full-benchmark  - Comprehensive tests (markers: easy or medium or hard or regression or benchmark)
 
 Examples:
-  %(prog)s                                    # Default: fast-benchmark with default models
-  %(prog)s --benchmark-type fast-benchmark    # Explicit fast benchmark
-  %(prog)s --benchmark-type full-benchmark    # Full comprehensive benchmark
-  %(prog)s --models gpt-4o                    # Test only gpt-4o (fast-benchmark)
-  %(prog)s --markers easy --iterations 3      # Custom markers (cannot combine with --benchmark-type)
-  %(prog)s --filter 01_how_many_pods          # Run specific test
-  %(prog)s --parallel 6                       # Run with 6 parallel workers
-  %(prog)s --parallel 1                       # Run sequentially (no parallelism)
-  %(prog)s --no-strict-setup                  # Disable strict setup mode
-  %(prog)s --no-braintrust                    # Run without Braintrust (for development only)
+  %(prog)s --models gpt-4o                              # Test gpt-4o with fast-benchmark (default)
+  %(prog)s --models gpt-4o,claude-sonnet                # Test multiple models
+  %(prog)s --models gpt-4o --benchmark-type full        # Full comprehensive benchmark
+  %(prog)s --models gpt-4o --markers easy --iterations 3  # Custom markers
+  %(prog)s --models gpt-4o --filter 01_how_many_pods    # Run specific test
+  %(prog)s --models gpt-4o --parallel 6                 # Run with 6 parallel workers
+  %(prog)s --models gpt-4o --no-strict-setup            # Disable strict setup mode
+  %(prog)s --models gpt-4o --no-braintrust              # Run without Braintrust
 
 Environment variables:
   OPENAI_API_KEY, ANTHROPIC_API_KEY    - LLM API keys
@@ -379,8 +355,8 @@ Environment variables:
     parser.add_argument(
         "--models",
         type=str,
-        default="gpt-5.1,gpt-5,sonnet-4.5,haiku-4.5,deepseek-3.1",
-        help="Comma-separated list of models to test (default: %(default)s)",
+        required=True,
+        help="Comma-separated list of models to test (required)",
     )
 
     parser.add_argument(
