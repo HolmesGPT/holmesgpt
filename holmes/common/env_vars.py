@@ -93,6 +93,7 @@ LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
 
 
 MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 500))
+MAX_GRAPH_POINTS_HARD_LIMIT = float(os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 2))
 
 # Limit each tool response to N% of the total context window.
 # Number between 0 and 100

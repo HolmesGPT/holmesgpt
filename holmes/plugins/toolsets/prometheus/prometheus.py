@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
 from requests.exceptions import SSLError  # type: ignore
 
-from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
+from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS, MAX_GRAPH_POINTS_HARD_LIMIT
 from holmes.common.openshift import load_openshift_token
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -479,7 +479,7 @@ def adjust_step_for_max_points(
     Returns:
         Adjusted step value in seconds that ensures points <= max_points
     """
-    hard_limit = MAX_GRAPH_POINTS * 2
+    hard_limit = MAX_GRAPH_POINTS_HARD_LIMIT
 
     # Use override if provided and valid, otherwise use default
     max_points = MAX_GRAPH_POINTS
@@ -1577,7 +1577,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
                         f"Maximum number of data points per series. Default: {int(MAX_GRAPH_POINTS)}. "
                         f"Only increase above default for queries returning few time series (1-3 series). "
                         f"Decrease for high-cardinality queries (e.g., 50) to avoid hitting maximum number of data points. "
-                        f"Maximum: {int(MAX_GRAPH_POINTS * 2)}. "
+                        f"Maximum: {int(MAX_GRAPH_POINTS_HARD_LIMIT)}. "
                         f"If your query would return more points than this limit, the step will be automatically adjusted."
                     ),
                     type="number",
@@ -1814,7 +1814,7 @@ class PrometheusToolset(Toolset):
                 "tool_names": tool_names,
                 "config": self.config,
                 "default_max_points": int(MAX_GRAPH_POINTS),
-                "hard_max_points": int(MAX_GRAPH_POINTS * 2),
+                "hard_max_points": int(MAX_GRAPH_POINTS_HARD_LIMIT),
             },
         )
 
