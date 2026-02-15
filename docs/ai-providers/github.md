@@ -17,17 +17,17 @@ Browse the full list of available models at [github.com/marketplace/models](http
     **Using Environment Variables:**
     ```bash
     export GITHUB_API_KEY="your-github-token"
-    holmes ask "what pods are failing?" --model="github/gpt-4o"
+    holmes ask "what pods are failing?" --model="github/gpt-4.1"
     ```
 
     **Using Command Line Parameters:**
 
     ```bash
-    holmes ask "what pods are failing?" --model="github/gpt-4o" --api-key="your-github-token"
+    holmes ask "what pods are failing?" --model="github/gpt-4.1" --api-key="your-github-token"
     ```
 
     !!! note "Model Naming"
-        Use `github/` prefix followed by the model name, dropping the company prefix. For example, `openai/gpt-4o` in the catalog becomes `github/gpt-4o`.
+        Use `github/` prefix followed by the model name, dropping the company prefix. For example, `openai/gpt-4.1` in the catalog becomes `github/gpt-4.1`.
 
 === "Holmes Helm Chart"
 
@@ -49,13 +49,13 @@ Browse the full list of available models at [github.com/marketplace/models](http
             key: github-api-key
 
     modelList:
-      gpt-4o:
+      gpt-4-1:
         api_key: "{{ env.GITHUB_API_KEY }}"
-        model: github/gpt-4o
+        model: github/gpt-4.1
         temperature: 0
 
     config:
-      model: "gpt-4o"
+      model: "gpt-4-1"
     ```
 
 === "Robusta Helm Chart"
