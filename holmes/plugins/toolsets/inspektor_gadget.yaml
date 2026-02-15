@@ -1,0 +1,199 @@
+toolsets:
+  inspektor-gadget/node:
+    description: "Inspektor Gadget eBPF-based observability for Kubernetes node-level troubleshooting"
+    docs_url: "https://inspektor-gadget.io/docs/latest/"
+    icon_url: "https://raw.githubusercontent.com/inspektor-gadget/inspektor-gadget/main/docs/images/logo/icon.png"
+    llm_instructions: |
+      Inspektor Gadget runs eBPF gadgets on Kubernetes nodes via kubectl debug for deep system observability.
+
+      WORKFLOW - Be proactive, don't ask questions:
+      1. If user mentions a pod/deployment/service, first run `kubectl get pod <name> -o wide` to get the node name, pod IP, and other metadata
+      2. Extract namespace and pod name from context to use as filters
+      3. Run the appropriate gadget with filters to minimize noise
+      4. Correlate and summarize findings - connect IPs/ports from gadget output back to pod names, identify patterns, and highlight potential issues
+
+      IMPORTANT - Node-level filtering:
+      - These tools run on a specific NODE, not cluster-wide
+      - Filtering by namespace/podname only affects pods ON THAT NODE
+      - Always filter by namespace and podname when investigating a specific workload to reduce noise
+
+      FILTERING BEST PRACTICES:
+      - Always pass namespace and podname when known - node-level data is noisy without filters
+      - For trace tools, use shorter timeouts (5-10s) initially, increase if needed
+      - Snapshot tools are instant, use them first to understand current state
+
+      NOTE: These tools create ephemeral debug pods. You can review past traces by checking logs of debug pods.
+    tags:
+      - cli
+    prerequisites:
+      - command: "kubectl version --client"
+      - env:
+          - ENABLE_INSPEKTOR_GADGET
+
+    tools:
+      - name: "ig_node_snapshot_process"
+        description: "Snapshot of running processes on a node."
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run snapshot_process:v0.49.0 -o json --timeout 5{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+
+      - name: "ig_node_snapshot_socket"
+        description: "Snapshot of open sockets on a node."
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run snapshot_socket:v0.49.0 -o json --timeout 5{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+
+      - name: "ig_node_trace_exec"
+        description: "Trace process execution events on a node."
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          timeout:
+            type: integer
+            description: "Timeout in seconds"
+            default: 30
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_exec:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+
+      - name: "ig_node_traceloop"
+        description: "Capture system calls in real-time, acting as a flight recorder for your applications"
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          timeout:
+            type: integer
+            description: "Timeout in seconds"
+            default: 30
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run traceloop:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+
+
+      - name: "ig_node_trace_open"
+        description: "Trace file open events on a node."
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          timeout:
+            type: integer
+            description: "Timeout in seconds"
+            default: 30
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_open:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+
+      - name: "ig_node_trace_tcp"
+        description: "Trace TCP connection events on a node."
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          timeout:
+            type: integer
+            description: "Timeout in seconds"
+            default: 30
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_tcp:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+
+      - name: "ig_node_trace_dns"
+        description: "Trace DNS query events on a node."
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          timeout:
+            type: integer
+            description: "Timeout in seconds"
+            default: 30
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_dns:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+
+  inspektor-gadget/tcpdump:
+    description: "Inspektor Gadget tcpdump gadget for Kubernetes node-level packet capture"
+    docs_url: "https://inspektor-gadget.io/docs/latest/"
+    icon_url: "https://raw.githubusercontent.com/inspektor-gadget/inspektor-gadget/main/docs/images/logo/icon.png"
+    llm_instructions: |
+      Inspektor Gadget tcpdump captures network packets on Kubernetes nodes via kubectl debug.
+
+      WORKFLOW - Be proactive:
+      1. If user mentions a pod/service, first get the node name and pod IP via `kubectl get pod <name> -o wide`
+      2. Always filter by namespace and podname to reduce noise
+      3. Use tcpdump filter expressions to narrow down traffic (e.g., port 80, host 10.0.0.1)
+      4. Correlate captured traffic - map IPs/ports back to pod names, identify communication patterns, and summarize potential issues
+
+      IMPORTANT: Captures only traffic from pods ON THE SPECIFIED NODE, not cluster-wide.
+
+      NOTE: These tools create ephemeral debug pods. You can review past captures by checking logs of debug pods.
+    tags:
+      - cli
+    prerequisites:
+      - command: "kubectl version --client"
+      - command: "tcpdump --version"
+      - env:
+          - ENABLE_INSPEKTOR_GADGET
+
+    tools:
+      - name: "ig_node_tcpdump"
+        description: "Capture network packets on a node. Use filter for tcpdump expressions (e.g., port 80, host 10.0.0.1)."
+        parameters:
+          node_name:
+            type: string
+            description: "Kubernetes node name"
+          timeout:
+            type: integer
+            description: "Timeout in seconds"
+            default: 30
+          filter:
+            type: string
+            description: "Tcpdump filter expression"
+            default: ""
+          namespace:
+            type: string
+            description: "Kubernetes namespace to filter"
+          podname:
+            type: string
+            description: "Pod name to filter"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run tcpdump:v0.49.0 -o pcap-ng --timeout {{ timeout }}{% if filter %} --pf {{ filter }}{% endif %}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} | tcpdump -nvr -"
+

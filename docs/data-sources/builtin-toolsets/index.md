@@ -24,6 +24,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
+-   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
 -   [:material-web:{ .lg .middle } **Internet**](internet.md)
 -   [:simple-apachekafka:{ .lg .middle } **Kafka**](kafka.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)

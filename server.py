@@ -33,6 +33,7 @@ from holmes.common.env_vars import (
     HOLMES_HOST,
     HOLMES_PORT,
     LOG_PERFORMANCE,
+    MCP_RETRY_BACKOFF_SCHEDULE,
     SENTRY_DSN,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
@@ -51,6 +52,7 @@ from holmes.core.models import (
     IssueChatRequest,
 )
 from holmes.core.prompt import PromptComponent
+from holmes.core.tools import ToolsetStatusEnum, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
@@ -141,6 +143,31 @@ def sync_before_server_start():
         logging.error("Failed to start scheduled prompts executor", exc_info=True)
 
 
+def _has_failed_mcp_toolsets() -> bool:
+    """Check if any MCP toolsets are in FAILED state."""
+    executor = config._server_tool_executor
+    if not executor:
+        return False
+    return any(
+        t.type == ToolsetType.MCP and t.status == ToolsetStatusEnum.FAILED
+        for t in executor.toolsets
+    )
+
+
+def _get_next_refresh_interval(
+    has_failed_mcp: bool,
+    backoff_index: int,
+    default_interval: int,
+) -> tuple[int, int]:
+    """Determine the next sleep interval and updated backoff index.
+
+    Returns (sleep_seconds, new_backoff_index).
+    """
+    if has_failed_mcp and backoff_index < len(MCP_RETRY_BACKOFF_SCHEDULE):
+        return MCP_RETRY_BACKOFF_SCHEDULE[backoff_index], backoff_index + 1
+    return default_interval, 0
+
+
 def _toolset_status_refresh_loop():
     interval = TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
     if interval <= 0:
@@ -152,8 +179,19 @@ def _toolset_status_refresh_loop():
     )
 
     def refresh_loop():
+        backoff_index = 0
+
         while True:
-            time.sleep(interval)
+            # Use shorter intervals when MCP servers are failing
+            sleep_time, backoff_index = _get_next_refresh_interval(
+                _has_failed_mcp_toolsets(), backoff_index, interval
+            )
+            if sleep_time < interval:
+                logging.info(
+                    f"Failed MCP server(s) detected, retrying in {sleep_time} seconds"
+                )
+
+            time.sleep(sleep_time)
             try:
                 changes = config.refresh_server_tool_executor(dal)
                 if changes:
