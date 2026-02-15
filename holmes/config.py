@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import sentry_sdk
 import yaml  # type: ignore
-from pydantic import BaseModel, ConfigDict, FilePath, PrivateAttr, SecretStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    FilePath,
+    PrivateAttr,
+    SecretStr,
+    model_validator,
+)
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
@@ -103,6 +110,7 @@ class Config(RobustaBaseConfig):
     _toolset_manager: Optional[ToolsetManager] = PrivateAttr(None)
     _llm_model_registry: Optional[LLMModelRegistry] = PrivateAttr(None)
     _dal: Optional[SupabaseDal] = PrivateAttr(None)
+    _config_file_path: Optional[Path] = PrivateAttr(None)
 
     @property
     def toolset_manager(self) -> ToolsetManager:
@@ -114,6 +122,7 @@ class Config(RobustaBaseConfig):
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
                 global_fast_model=self.fast_model,
                 custom_runbook_catalogs=self.custom_runbook_catalogs,
+                config_file_path=self._config_file_path,
             )
         return self._toolset_manager
 
@@ -175,6 +184,9 @@ class Config(RobustaBaseConfig):
             merged_config = config_from_file.dict()
             merged_config.update(cli_options)
             result = cls(**merged_config)
+
+        if config_file is not None and config_file.exists():
+            result._config_file_path = config_file
 
         result.log_useful_info()
         return result
@@ -317,6 +329,7 @@ class Config(RobustaBaseConfig):
         refresh_toolsets: bool = False,
         tracer=None,
         model_name: Optional[str] = None,
+        tool_results_dir: Optional[Path] = None,
     ) -> "ToolCallingLLM":
         tool_executor = self.create_console_tool_executor(dal, refresh_toolsets)
         from holmes.core.tool_calling_llm import ToolCallingLLM
@@ -325,6 +338,7 @@ class Config(RobustaBaseConfig):
             tool_executor,
             self.max_steps,
             self._get_llm(tracer=tracer, model_key=model_name),
+            tool_results_dir=tool_results_dir,
         )
 
     def create_agui_toolcalling_llm(
@@ -332,12 +346,16 @@ class Config(RobustaBaseConfig):
         dal: Optional["SupabaseDal"] = None,
         model: Optional[str] = None,
         tracer=None,
+        tool_results_dir: Optional[Path] = None,
     ) -> "ToolCallingLLM":
         tool_executor = self.create_agui_tool_executor(dal)
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         return ToolCallingLLM(
-            tool_executor, self.max_steps, self._get_llm(model, tracer)
+            tool_executor,
+            self.max_steps,
+            self._get_llm(model, tracer),
+            tool_results_dir=tool_results_dir,
         )
 
     def create_toolcalling_llm(
@@ -345,12 +363,16 @@ class Config(RobustaBaseConfig):
         dal: Optional["SupabaseDal"] = None,
         model: Optional[str] = None,
         tracer=None,
+        tool_results_dir: Optional[Path] = None,
     ) -> "ToolCallingLLM":
         tool_executor = self.create_tool_executor(dal)
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         return ToolCallingLLM(
-            tool_executor, self.max_steps, self._get_llm(model, tracer)
+            tool_executor,
+            self.max_steps,
+            self._get_llm(model, tracer),
+            tool_results_dir=tool_results_dir,
         )
 
     def create_issue_investigator(
@@ -358,6 +380,7 @@ class Config(RobustaBaseConfig):
         dal: Optional["SupabaseDal"] = None,
         model: Optional[str] = None,
         tracer=None,
+        tool_results_dir: Optional[Path] = None,
     ) -> "IssueInvestigator":
         tool_executor = self.create_tool_executor(dal)
         from holmes.core.tool_calling_llm import IssueInvestigator
@@ -366,11 +389,15 @@ class Config(RobustaBaseConfig):
             tool_executor=tool_executor,
             max_steps=self.max_steps,
             llm=self._get_llm(model, tracer),
+            tool_results_dir=tool_results_dir,
             cluster_name=self.cluster_name,
         )
 
     def create_console_issue_investigator(
-        self, dal: Optional["SupabaseDal"] = None, model_name: Optional[str] = None
+        self,
+        dal: Optional["SupabaseDal"] = None,
+        model_name: Optional[str] = None,
+        tool_results_dir: Optional[Path] = None,
     ) -> "IssueInvestigator":
         tool_executor = self.create_console_tool_executor(dal=dal)
         from holmes.core.tool_calling_llm import IssueInvestigator
@@ -379,6 +406,7 @@ class Config(RobustaBaseConfig):
             tool_executor=tool_executor,
             max_steps=self.max_steps,
             llm=self._get_llm(model_key=model_name),
+            tool_results_dir=tool_results_dir,
             cluster_name=self.cluster_name,
         )
 

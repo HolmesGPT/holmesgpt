@@ -39,7 +39,7 @@ def test_mimir_direct_toolset_health_check():
     toolset = PrometheusToolset()
     toolset.config = {
         "prometheus_url": "http://localhost:9009/prometheus",
-        "headers": {"X-Scope-OrgID": "DEMO"},
+        "additional_headers": {"X-Scope-OrgID": "DEMO"},
     }
     toolset.check_prerequisites()
 

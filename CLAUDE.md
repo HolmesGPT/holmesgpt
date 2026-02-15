@@ -12,9 +12,6 @@ HolmesGPT is an AI-powered troubleshooting agent that connects to observability 
 ```bash
 # Install dependencies with Poetry
 poetry install
-
-# Install pre-commit hooks
-poetry run pre-commit install
 ```
 
 ### Testing
@@ -35,11 +32,12 @@ make test-llm-investigate         # Test AlertManager investigations
 poetry run pytest tests/llm/ -n 6 -vv  # Run all LLM tests in parallel
 
 # Run pre-commit checks (includes ruff, mypy, poetry validation)
+# NOTE: Only run these when the user explicitly asks. They run in CI automatically.
 make check
 poetry run pre-commit run -a
 ```
 
-### Code Quality
+### Code Quality (only run when explicitly asked)
 ```bash
 # Format code with ruff
 poetry run ruff format
@@ -166,129 +164,25 @@ See `prometheus/prometheus.py` PrometheusConfig for a complete example.
 2. **Integration Tests**: Test toolset integrations
 3. **LLM Evaluation Tests** (`tests/llm/`): End-to-end tests using fixtures
 
-**LLM Test Structure**:
-- `tests/llm/fixtures/test_ask_holmes/`: 53+ test scenarios with YAML configs
-- Each test has expected outputs validated by LLM-as-judge
-- Supports Braintrust integration for result tracking
-
-**Running LLM Tests**:
+**Running regular (non-LLM) tests**:
 ```bash
-# Run all LLM tests
-poetry run pytest -m 'llm' --no-cov
+poetry run pytest tests -m "not llm"
+make test-without-llm
+```
 
-# Run specific test - IMPORTANT: Use -k flag, NOT full test path!
-# CORRECT - use -k flag with test name pattern:
-poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
-poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
+**Running LLM eval tests**:
+```bash
+# Run specific eval - IMPORTANT: Use -k flag, NOT full test path with brackets
+poetry run pytest -k "09_crashpod" --no-cov
 
-# WRONG - DO NOT specify full test path with brackets:
-# poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
-# This syntax fails when environment variables are passed!
+# Run all evals in parallel
+poetry run pytest tests/llm/ -n 6 --no-cov
 
-# Run regression tests (easy marker) - all should pass with ITERATIONS=10
+# Regression evals
 poetry run pytest -m 'llm and easy' --no-cov
-ITERATIONS=10 poetry run pytest -m 'llm and easy' --no-cov
-
-# Run tests in parallel
-poetry run pytest tests/llm/ -n 6
-
-# Test with different models
-# Note: When using Anthropic models, set CLASSIFIER_MODEL to OpenAI (Anthropic not supported as classifier)
-MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
-
-# Setting environment variables - IMPORTANT:
-# Environment variables must be set BEFORE the poetry command, NOT as pytest arguments
-# CORRECT:
-EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
-
-# WRONG - this won't work:
-# poetry run pytest EVAL_SETUP_TIMEOUT=600 -m 'llm' -k "slow_test"
 ```
 
-### Evaluation CLI Reference
-
-**Custom Pytest Flags**:
-- `--skip-setup`: Skip before_test commands (useful for iterative testing)
-- `--skip-cleanup`: Skip after_test commands (useful for debugging)
-
-**Environment Variables**:
-- `MODEL`: LLM model(s) to use - supports comma-separated list (e.g., `gpt-4.1` or `gpt-4.1,anthropic/claude-sonnet-4-20250514`)
-- `CLASSIFIER_MODEL`: Model for scoring answers (defaults to MODEL)
-- `RUN_LIVE=true`: Execute real commands (now enabled by default)
-- `ITERATIONS=<number>`: Run each test multiple times
-- `UPLOAD_DATASET=true`: Sync dataset to Braintrust
-- `EXPERIMENT_ID`: Custom experiment name for tracking
-- `BRAINTRUST_API_KEY`: Enable Braintrust integration
-- `ASK_HOLMES_TEST_TYPE`: Controls message building flow in ask_holmes tests
-  - `cli` (default): Uses `build_initial_ask_messages` like the CLI ask() command (skips conversation history tests)
-  - `server`: Uses `build_chat_messages` with ChatRequest for server-style flow
-- `SSL_VERIFY`: Set to `false`, `0`, or `no` to disable SSL certificate verification for litellm and OpenAI client (useful for sandbox environments with TLS interception proxies)
-
-**Sandbox/Proxy SSL Issues**:
-
-When running tests in a sandbox environment with a TLS interception proxy, you may encounter SSL certificate verification errors like:
-```
-TLS_error: CERTIFICATE_VERIFY_FAILED: verify cert failed
-```
-
-To resolve this, set the `SSL_VERIFY` environment variable:
-```bash
-SSL_VERIFY=false poetry run pytest -m "confluence" --no-cov -v
-```
-
-This disables SSL verification for both litellm (used by Holmes) and the OpenAI client (used by the LLM-as-judge classifier).
-
-**Common Evaluation Patterns**:
-
-```bash
-# Run tests multiple times for reliability
-ITERATIONS=100 poetry run pytest tests/llm/test_ask_holmes.py -k "flaky_test"
-
-# Model comparison workflow
-EXPERIMENT_ID=gpt41_baseline MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
-EXPERIMENT_ID=claude_opus41_test MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
-
-# Debug with verbose output
-poetry run pytest -vv -s tests/llm/test_ask_holmes.py -k "failing_test" --no-cov
-
-# List tests by marker
-poetry run pytest -m "llm and not network" --collect-only -q
-
-# Test marker combinations
-poetry run pytest -m "llm and easy" --no-cov  # Regression tests
-poetry run pytest -m "llm and not easy" --no-cov  # Non-regression tests
-```
-
-## Tag Management Guidelines
-
-**Before adding new tags**:
-1. Check existing tags in `pyproject.toml` markers section
-2. Ask user permission for new tags  
-3. Use descriptive, hyphenated names (e.g., `grafana-dashboard`, not `grafana_dashboard`)
-
-**Tag naming conventions**:
-- Service-specific: `grafana-dashboard`, `prometheus-metrics`, `loki`
-- Functionality: `question-answer`, `chain-of-causation` 
-- Difficulty: `easy`, `medium`, `hard`
-- Infrastructure: `kubernetes`, `database`, `traces`
-
-**Adding new tags workflow**:
-1. Add tag to `pyproject.toml` markers section with description
-2. Apply tag to relevant test files
-3. Verify tag filtering works: `pytest -m "new-tag" --collect-only`
-
-**Available Test Markers (same as eval tags)**:
-Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask the user before adding a new one.
-
-**Important**: The `regression` marker identifies critical tests that must always pass in CI/CD. The `easy` marker is a legacy marker that contains broader regression tests.
-
-**Test Infrastructure Notes**:
-- All test state tracking uses pytest's `user_properties` to ensure compatibility with pytest-xdist parallel execution
-- Test results are stored in `user_properties` and aggregated in the terminal summary
-- This design ensures tests work correctly when run in parallel with `-n` flag
-- **Important for LLM tests**: Each test must use a dedicated namespace `app-<testid>` (e.g., `app-01`, `app-02`) to prevent conflicts when tests run simultaneously
-- All pod names must be unique across tests (e.g., `giant-narwhal`, `blue-whale`, `sea-turtle`) - never reuse pod names between tests
-- **Resource naming in evals**: Never use names that hint at the problem or expected behavior (e.g., avoid `broken-pod`, `test-project-that-does-not-exist`, `crashloop-app`). Use neutral names that don't give away what the LLM should discover
+For the complete eval CLI reference (flags, env vars, model comparison, debugging), see the `/create-eval` skill which contains full documentation in its reference files.
 
 ## Configuration
 
@@ -315,8 +209,9 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 **Code Quality**:
 - Use Ruff for formatting and linting (configured in pyproject.toml)
 - Type hints required (mypy configuration in pyproject.toml)
-- Pre-commit hooks enforce quality checks
+- Pre-commit hooks enforce quality checks in CI
 - **ALWAYS place Python imports at the top of the file**, not inside functions or methods
+- **NEVER run `pre-commit`, `ruff`, or `mypy` unless the user explicitly asks you to**. These tools are triggered by commit hooks which are not installed on all machines, and running them causes widespread formatting/type changes to files unrelated to your task. Only lint/format files you are actively editing, and only if asked.
 
 **Documentation Examples**:
 - **ALWAYS use Anthropic Claude models** in code examples and documentation:
@@ -334,10 +229,18 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 **Pull Request Process**:
 - PRs require maintainer approval
-- Pre-commit hooks must pass
+- Pre-commit hooks are checked in CI (do NOT run them locally unless asked)
 - LLM evaluation tests run automatically in CI
 - Keep PRs focused and include tests
 - **ALWAYS use `git commit -s`** to sign off commits (required for DCO)
+- **When committing, use `git commit -s --no-verify`** to skip local pre-commit hooks (they are not installed consistently and will cause unrelated changes)
+
+**Git Workflow Guidelines**:
+- ALWAYS create commits, NEVER amend
+- ALWAYS merge, NEVER rebase
+- ALWAYS push, NEVER force push
+- Maintain a history of your work to allow the user to revert back to a previous iteration
+
 
 **File Structure Conventions**:
 - Toolsets: `holmes/plugins/toolsets/{name}.yaml` or `{name}/`
@@ -352,9 +255,9 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Use environment variables or config files for API keys
 - RBAC permissions are respected for Kubernetes access
 
-## Eval Notes
+## Eval Tests (LLM Evaluations)
 
-### Creating New Eval Tests
+For creating, running, and debugging LLM eval tests, use the `/create-eval` skill. It contains the complete workflow, test_case.yaml field reference, anti-hallucination patterns, infrastructure setup guides, and CLI reference.
 
 **Test Structure:**
 - Use sequential test numbers: check existing tests for next available number
@@ -370,7 +273,7 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
 - `before_test` creates test data in the cloud service, `after_test` cleans up
-- Use `toolsets.yaml` to configure the toolset with env var references: `url: "{{ env.ELASTICSEARCH_URL }}"`
+- Use `toolsets.yaml` to configure the toolset with env var references: `api_url: "{{ env.ELASTICSEARCH_URL }}"`
 - **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 - **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
 
@@ -548,8 +451,13 @@ toolsets:
   grafana/dashboards:
     enabled: true
     config:  # All toolset-specific config under 'config'
-      url: http://localhost:10177
+      api_url: http://localhost:10177
 ```
+
+**Always run evals before submitting when possible:**
+1. `poetry run pytest -k "test_name" --only-setup --no-cov` — verify setup
+2. `poetry run pytest -k "test_name" --no-cov` — run full test
+3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
 
 ## Documentation Lookup
 

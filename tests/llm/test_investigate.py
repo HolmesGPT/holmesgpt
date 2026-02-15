@@ -11,6 +11,7 @@ import pytest
 
 from holmes.config import Config
 from holmes.core.investigation import investigate_issues
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.investigation_structured_output import DEFAULT_SECTIONS
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tool_calling_llm import IssueInvestigator
@@ -71,10 +72,11 @@ class MockConfig(Config):
         dal: Optional[SupabaseDal] = None,
         model: Optional[str] = None,
         tracer=None,
+        tool_results_dir=None,
     ) -> IssueInvestigator:
         # Use our tracer instead of the passed one
         return super().create_issue_investigator(
-            dal=dal, model=model, tracer=self._tracer
+            dal=dal, model=model, tracer=self._tracer, tool_results_dir=tool_results_dir
         )
 
 
@@ -141,6 +143,7 @@ def test_investigate(
                 with ExitStack() as stack:
                     stack.enter_context(apply_env_config(env_config))
                     stack.enter_context(set_test_env_vars(test_case))
+                    tool_results_dir = stack.enter_context(tool_result_storage())
 
                     with eval_span.start_span(
                         "Caching tools executor for create_issue_investigator",
@@ -163,6 +166,7 @@ def test_investigate(
                             retry_enabled=retry_enabled,
                             test_id=test_case.id,
                             model=model,
+                            tool_results_dir=tool_results_dir,
                         )
                         holmes_duration = time.time() - start_time
                     # Log duration directly to eval_span

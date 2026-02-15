@@ -20,25 +20,33 @@ Choose your setup path based on your environment:
 
 Workload Identity is Google's recommended way to authenticate workloads on GKE. It eliminates service account keys by allowing Kubernetes service accounts to impersonate GCP service accounts.
 
+**Define your variables:**
+
+```bash
+PROJECT_ID=your-project-id
+CLUSTER_NAME=your-cluster-name
+REGION=your-region
+```
+
 **Step 1: Enable Workload Identity on Your Cluster**
 
 ```bash
-gcloud container clusters update CLUSTER_NAME \
-  --project PROJECT_ID \
-  --workload-pool=PROJECT_ID.svc.id.goog \
-  --region REGION
+gcloud container clusters update ${CLUSTER_NAME} \
+  --project ${PROJECT_ID} \
+  --workload-pool=${PROJECT_ID}.svc.id.goog \
+  --region ${REGION}
 ```
 
 **Step 2: Enable Workload Identity on Node Pools**
 
-Repeat for all node pools where Holmes pods may run:
+Repeat for each node pool where Holmes pods may run, replacing `<node-pool-name>` with your node pool name:
 
 ```bash
-gcloud container node-pools update NODE_POOL_NAME \
-  --project PROJECT_ID \
-  --cluster CLUSTER_NAME \
+gcloud container node-pools update <node-pool-name> \
+  --project ${PROJECT_ID} \
+  --cluster ${CLUSTER_NAME} \
   --workload-metadata=GKE_METADATA \
-  --region REGION
+  --region ${REGION}
 ```
 
 **Step 3: Create and Configure GCP Service Account**
@@ -49,7 +57,6 @@ gcloud iam service-accounts create holmes-gcp-mcp \
   --display-name="Holmes GCP MCP Service Account"
 
 # Grant roles (see IAM Permissions Details below for full list)
-PROJECT_ID=your-project
 SA_EMAIL=holmes-gcp-mcp@${PROJECT_ID}.iam.gserviceaccount.com
 
 for role in browser compute.viewer container.viewer logging.privateLogViewer monitoring.viewer; do
@@ -65,7 +72,7 @@ done
     ```bash
     git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
     cd holmes-mcp-integrations/servers/gcp
-    ./setup-gcp-service-account.sh --project your-project-id --skip-key-generation
+    ./setup-gcp-service-account.sh --project ${PROJECT_ID} --skip-key-generation
     ```
 
     **What's Included:** Audit logs, networking, database metadata, security findings, container visibility, monitoring/logging/tracing.
@@ -74,14 +81,14 @@ done
 
 **Step 4: Bind Kubernetes Service Account to GCP Service Account**
 
-```bash
-gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@PROJECT_ID.iam.gserviceaccount.com \
-  --project PROJECT_ID \
-  --role roles/iam.workloadIdentityUser \
-  --member "serviceAccount:PROJECT_ID.svc.id.goog[NAMESPACE/gcp-mcp-sa]"
-```
+Replace `<namespace>` with the Kubernetes namespace where Holmes will be deployed:
 
-Replace `PROJECT_ID` with your GCP project and `NAMESPACE` with the Kubernetes namespace where Holmes will be deployed.
+```bash
+gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.iam.gserviceaccount.com \
+  --project ${PROJECT_ID} \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:${PROJECT_ID}.svc.id.goog[<namespace>/gcp-mcp-sa]"
+```
 
 **Step 5: Deploy with Helm**
 
