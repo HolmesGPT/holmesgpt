@@ -28,10 +28,10 @@ if not os.environ.get("KAFKA_BOOTSTRAP_SERVER"):
     pytestmark = pytest.mark.skip(reason="KAFKA_BOOTSTRAP_SERVER must be set")
 
 kafka_config = {
-    "kafka_clusters": [
+    "clusters": [
         {
             "name": "kafka",
-            "kafka_broker": KAFKA_BOOTSTRAP_SERVER,
+            "broker": KAFKA_BOOTSTRAP_SERVER,
         }
     ]
 }

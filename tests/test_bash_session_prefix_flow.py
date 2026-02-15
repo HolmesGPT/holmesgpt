@@ -232,7 +232,12 @@ def test_bash_session_prefix_memory_flow(
     ]
 
     # Create real ToolCallingLLM (not mocked!)
-    ai = ToolCallingLLM(tool_executor=mock_tool_executor, max_steps=10, llm=mock_llm)
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=10,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
     mock_create_toolcalling_llm.return_value = ai
 
     # Track LLM call count to return different responses

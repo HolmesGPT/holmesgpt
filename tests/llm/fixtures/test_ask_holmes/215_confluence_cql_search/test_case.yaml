@@ -1,0 +1,115 @@
+user_prompt: |
+  Search Confluence for pages containing the text 'holmeseval215secret' and tell me
+  the title of the page you find.
+
+expected_output:
+  - "Must report the page title: Secret Document 215"
+
+tags:
+  - confluence
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES215"
+  SPACE_NAME="Holmes Test Space 215"
+  PAGE_TITLE="Secret Document 215"
+  SECRET_TEXT="holmeseval215secret"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 215\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+
+  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+  echo "Space created with ID: ${SPACE_ID}"
+
+  sleep 2
+
+  echo "Creating page with secret text..."
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"type\": \"page\",
+      \"title\": \"${PAGE_TITLE}\",
+      \"space\": {
+        \"key\": \"${SPACE_KEY}\"
+      },
+      \"body\": {
+        \"storage\": {
+          \"value\": \"<p>This is a confidential document for testing purposes.</p><p>Internal reference code: ${SECRET_TEXT}</p><p>This document should only be findable via search.</p>\",
+          \"representation\": \"storage\"
+        }
+      }
+    }")
+
+  PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
+  PAGE_BODY=$(echo "$PAGE_RESPONSE" | sed '$d')
+
+  if [ "$PAGE_HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create page. HTTP ${PAGE_HTTP_CODE}: ${PAGE_BODY}"
+    exit 1
+  fi
+
+  PAGE_ID=$(echo "$PAGE_BODY" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  echo "Page created with ID: ${PAGE_ID}"
+
+  echo "Waiting for Confluence search indexing..."
+  sleep 10
+
+  echo "Verifying page is searchable..."
+  for i in $(seq 1 12); do
+    SEARCH_RESULT=$(curl -L -s \
+      "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/search?cql=text~\"${SECRET_TEXT}\"" \
+      -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+    if echo "$SEARCH_RESULT" | grep -q "${PAGE_TITLE}"; then
+      echo "Page is searchable (attempt ${i})"
+      echo "Setup complete"
+      exit 0
+    fi
+
+    echo "Search not ready, waiting... (attempt ${i}/12)"
+    sleep 5
+  done
+
+  echo "Warning: Search verification timed out, but continuing with test"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES215"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

@@ -1,0 +1,144 @@
+user_prompt: |
+  In Confluence space 'HOLMES216', find the page titled 'Child Page 216' and tell me
+  the title of its parent page.
+
+expected_output:
+  - "Must report the parent page title: Parent Page 216X"
+
+tags:
+  - confluence
+  - question-answer
+  - hard
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES216"
+  SPACE_NAME="Holmes Test Space 216"
+  PARENT_TITLE="Parent Page 216X"
+  CHILD_TITLE="Child Page 216"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 216\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+
+  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+  echo "Space created with ID: ${SPACE_ID}"
+
+  sleep 2
+
+  echo "Creating parent page..."
+  PARENT_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"type\": \"page\",
+      \"title\": \"${PARENT_TITLE}\",
+      \"space\": {
+        \"key\": \"${SPACE_KEY}\"
+      },
+      \"body\": {
+        \"storage\": {
+          \"value\": \"<p>This is the parent page for testing page hierarchy.</p>\",
+          \"representation\": \"storage\"
+        }
+      }
+    }")
+
+  PARENT_HTTP_CODE=$(echo "$PARENT_RESPONSE" | tail -n1)
+  PARENT_BODY=$(echo "$PARENT_RESPONSE" | sed '$d')
+
+  if [ "$PARENT_HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create parent page. HTTP ${PARENT_HTTP_CODE}: ${PARENT_BODY}"
+    exit 1
+  fi
+
+  PARENT_ID=$(echo "$PARENT_BODY" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  echo "Parent page created with ID: ${PARENT_ID}"
+
+  sleep 2
+
+  echo "Creating child page under parent..."
+  CHILD_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"type\": \"page\",
+      \"title\": \"${CHILD_TITLE}\",
+      \"space\": {
+        \"key\": \"${SPACE_KEY}\"
+      },
+      \"ancestors\": [
+        {
+          \"id\": \"${PARENT_ID}\"
+        }
+      ],
+      \"body\": {
+        \"storage\": {
+          \"value\": \"<p>This is a child page. Its parent should be discoverable via the API.</p>\",
+          \"representation\": \"storage\"
+        }
+      }
+    }")
+
+  CHILD_HTTP_CODE=$(echo "$CHILD_RESPONSE" | tail -n1)
+  CHILD_BODY=$(echo "$CHILD_RESPONSE" | sed '$d')
+
+  if [ "$CHILD_HTTP_CODE" -ne 200 ]; then
+    echo "Failed to create child page. HTTP ${CHILD_HTTP_CODE}: ${CHILD_BODY}"
+    exit 1
+  fi
+
+  CHILD_ID=$(echo "$CHILD_BODY" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  echo "Child page created with ID: ${CHILD_ID}"
+
+  echo "Verifying page hierarchy..."
+  VERIFY=$(curl -L -s \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/${CHILD_ID}?expand=ancestors" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+  if echo "$VERIFY" | grep -q "${PARENT_TITLE}"; then
+    echo "Page hierarchy verified"
+  else
+    echo "Warning: Parent title not found in ancestors, but continuing"
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES216"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

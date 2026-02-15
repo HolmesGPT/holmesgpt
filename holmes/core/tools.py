@@ -24,7 +24,6 @@ from typing import (
     Union,
 )
 
-from holmes.utils.pydantic_utils import build_config_example
 from jinja2 import Template
 from pydantic import (
     BaseModel,
@@ -47,6 +46,7 @@ from holmes.core.transformers import (
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
 from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
+from holmes.utils.pydantic_utils import build_config_example
 
 if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
@@ -91,23 +91,37 @@ class StructuredToolResult(BaseModel):
     invocation: Optional[str] = None
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
-    
-    def get_stringified_data(self) -> str:
+
+    def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
+        """Serialize the data field to a string.
+
+        Args:
+            compact: If True, produce minified JSON (saves tokens).
+                     If False, produce pretty-printed JSON (readable for grep/head/tail).
+
+        Returns:
+            A tuple of (stringified_data, is_json).
+        """
         if self.data is None:
-            return ""
+            return "", False
 
         if isinstance(self.data, str):
-            return self.data
-        else:
-            try:
-                if isinstance(self.data, BaseModel):
-                    return self.data.model_dump_json()
+            return self.data, False
+
+        try:
+            if isinstance(self.data, BaseModel):
+                return self.data.model_dump_json(indent=None if compact else 2), True
+            else:
+                if compact:
+                    return json.dumps(self.data, separators=(",", ":"), ensure_ascii=False), True
                 else:
-                    return json.dumps(
-                        self.data, separators=(",", ":"), ensure_ascii=False
-                    )
-            except Exception:
-                return str(self.data)
+                    return json.dumps(self.data, indent=2, ensure_ascii=False), True
+        except Exception:
+            return str(self.data), False
+
+    def get_stringified_data(self) -> str:
+        text, _ = self.stringify_data(compact=True)
+        return text
 
 
 class ApprovalRequirement(BaseModel):
@@ -147,6 +161,7 @@ class ToolsetType(str, Enum):
     BUILTIN = "built-in"
     CUSTOMIZED = "custom"
     MCP = "mcp"
+    HTTP = "http"
 
 
 class ToolParameter(BaseModel):
@@ -816,7 +831,6 @@ class Toolset(BaseModel):
         if not silent:
             logger.info(f"✅ Toolset {self.name}")
 
-
     def get_config_example(self) -> Optional[Dict[str, Any]]:
         """Returns a JSON-serializable example object for the toolset's configuration.
 
@@ -825,7 +839,6 @@ class Toolset(BaseModel):
         if self.config_classes:
             return build_config_example(self.config_classes[0])
         return None
-        
 
     def get_config_schema(self) -> Optional[Dict[str, Any]]:
         """Returns JSON Schema for the toolset's configuration.

@@ -21,7 +21,7 @@ class TestDatadogToolsetCheckPrerequisites:
         assert toolset.status == ToolsetStatusEnum.FAILED
         assert (
             toolset.error
-            == "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
+            == "Missing config for api_key, app_key, or api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
         )
 
     def test_check_prerequisites_empty_config(self):
@@ -33,15 +33,15 @@ class TestDatadogToolsetCheckPrerequisites:
         assert toolset.status == ToolsetStatusEnum.FAILED
         assert (
             toolset.error
-            == "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
+            == "Missing config for api_key, app_key, or api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
         )
 
     def test_check_prerequisites_missing_required_fields(self):
         """Test check_prerequisites with missing required fields"""
         toolset = DatadogLogsToolset()
         toolset.config = {
-            "dd_api_key": "test-api-key",
-            # Missing dd_app_key and site_api_url
+            "api_key": "test-api-key",
+            # Missing app_key and api_url
         }
         toolset.check_prerequisites()
 
@@ -53,9 +53,9 @@ class TestDatadogToolsetCheckPrerequisites:
         """Test check_prerequisites with invalid config format"""
         toolset = DatadogLogsToolset()
         toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
+            "api_key": "test-api-key",
+            "app_key": "test-app-key",
+            "api_url": "https://api.datadoghq.com",
             "storage_tiers": ["invalid-tier"],  # Invalid storage tier
         }
         toolset.check_prerequisites()
@@ -77,19 +77,19 @@ class TestDatadogToolsetCheckPrerequisites:
 
         toolset = DatadogLogsToolset()
         toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
+            "api_key": "test-api-key",
+            "app_key": "test-app-key",
+            "api_url": "https://api.datadoghq.com",
         }
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.ENABLED
         assert toolset.error is None  # Changed from "" to None
         assert toolset.dd_config is not None
-        assert toolset.dd_config.dd_api_key == "test-api-key"
-        assert toolset.dd_config.dd_app_key == "test-app-key"
+        assert toolset.dd_config.api_key == "test-api-key"
+        assert toolset.dd_config.app_key == "test-app-key"
         assert (
-            str(toolset.dd_config.site_api_url).rstrip("/")
+            str(toolset.dd_config.api_url).rstrip("/")
             == "https://api.datadoghq.com"
         )
         assert toolset.dd_config.storage_tiers == DEFAULT_STORAGE_TIERS
@@ -103,9 +103,9 @@ class TestDatadogToolsetCheckPrerequisites:
 
         toolset = DatadogLogsToolset()
         toolset.config = {
-            "dd_api_key": "invalid-api-key",
-            "dd_app_key": "invalid-app-key",
-            "site_api_url": "https://api.datadoghq.com",
+            "api_key": "invalid-api-key",
+            "app_key": "invalid-app-key",
+            "api_url": "https://api.datadoghq.com",
         }
         toolset.check_prerequisites()
 
@@ -122,9 +122,9 @@ class TestDatadogToolsetCheckPrerequisites:
 
         toolset = DatadogLogsToolset()
         toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
+            "api_key": "test-api-key",
+            "app_key": "test-app-key",
+            "api_url": "https://api.datadoghq.com",
         }
         toolset.check_prerequisites()
 
@@ -139,15 +139,15 @@ class TestDatadogToolsetCheckPrerequisites:
         mock_execute_request.return_value = {}
         toolset = DatadogLogsToolset()
         toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.us3.datadoghq.com",
+            "api_key": "test-api-key",
+            "app_key": "test-app-key",
+            "api_url": "https://api.us3.datadoghq.com",
             "indexes": ["main", "secondary"],
             "storage_tiers": ["indexes", "flex"],
             "labels": {"pod": "custom_pod_name", "namespace": "custom_namespace"},
             "page_size": 500,
             "default_limit": 2000,
-            "request_timeout": 120,
+            "timeout_seconds": 120,
         }
         toolset.check_prerequisites()
 
@@ -155,7 +155,7 @@ class TestDatadogToolsetCheckPrerequisites:
         assert toolset.error is None  # Changed from "" to None
         assert toolset.dd_config is not None
         assert (
-            str(toolset.dd_config.site_api_url).rstrip("/")
+            str(toolset.dd_config.api_url).rstrip("/")
             == "https://api.us3.datadoghq.com"
         )
         assert toolset.dd_config.indexes == ["main", "secondary"]
@@ -164,9 +164,9 @@ class TestDatadogToolsetCheckPrerequisites:
         """Test check_prerequisites with empty storage_tiers should fail validation"""
         toolset = DatadogLogsToolset()
         toolset.config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
+            "api_key": "test-api-key",
+            "app_key": "test-app-key",
+            "api_url": "https://api.datadoghq.com",
             "storage_tiers": [],  # Empty list
         }
         toolset.check_prerequisites()
