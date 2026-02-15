@@ -20,6 +20,7 @@ nav:
   - Loki: grafanaloki.md
   - Tempo: grafanatempo.md
   - Helm: helm.md
+  - Inspektor Gadget: inspektor-gadget.md
   - Internet: internet.md
   - Kafka: kafka.md
   - Kubernetes: kubernetes.md
