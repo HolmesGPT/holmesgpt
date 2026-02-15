@@ -1,6 +1,7 @@
 # type: ignore
 import os
 import time
+from contextlib import ExitStack
 from datetime import datetime
 from os import path
 from pathlib import Path
@@ -8,18 +9,18 @@ from typing import Optional
 from unittest.mock import patch
 
 import pytest
-from rich.console import Console
-
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
 from holmes.core.prompt import build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.runbooks import RunbookCatalog, load_runbook_catalog
 from tests.llm.utils.braintrust import log_to_braintrust
-from tests.llm.utils.commands import set_test_env_vars
+from tests.llm.utils.commands import apply_env_config, set_test_env_vars
+from tests.llm.utils.env_config import EnvConfig, get_env_configs
 from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.mock_dal import load_mock_dal
 from tests.llm.utils.mock_toolset import (
@@ -50,10 +51,17 @@ def get_ask_holmes_test_cases():
     return get_test_cases(TEST_CASES_FOLDER)
 
 
+def _get_env_config_ids():
+    """Generate ids for env_config parameterization."""
+    return [ec.name for ec in get_env_configs()]
+
+
 @pytest.mark.llm
+@pytest.mark.parametrize("env_config", get_env_configs(), ids=_get_env_config_ids())
 @pytest.mark.parametrize("model", get_models())
 @pytest.mark.parametrize("test_case", get_ask_holmes_test_cases())
 def test_ask_holmes(
+    env_config: EnvConfig,
     model: str,
     test_case: AskHolmesTestCase,
     caplog,
@@ -63,26 +71,24 @@ def test_ask_holmes(
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
-    set_initial_properties(request, test_case, model)
+    set_initial_properties(request, test_case, model, env_config)
 
     tracer = TracingFactory.create_tracer("braintrust")
-    metadata = {"model": model}
+    metadata = {"model": model, "env_config": env_config.name}
     tracer.start_experiment(additional_metadata=metadata)
 
     result: Optional[LLMResult] = None
 
     try:
         with tracer.start_trace(
-            name=f"{test_case.id}[{model}]", span_type=SpanType.EVAL
+            name=f"{test_case.id}[{model}][{env_config.name}]", span_type=SpanType.EVAL
         ) as eval_span:
             set_trace_properties(request, eval_span)
             check_and_skip_test(test_case, request, shared_test_infrastructure)
 
-            # Use contextlib.ExitStack to handle conditional context managers
-            from contextlib import ExitStack
-
             with ExitStack() as stack:
-                # Mock datetime if mocked_date is provided
+                stack.enter_context(apply_env_config(env_config))
+
                 if test_case.mocked_date:
                     mocked_datetime = datetime.fromisoformat(
                         test_case.mocked_date.replace("Z", "+00:00")
@@ -96,10 +102,8 @@ def test_ask_holmes(
                         **{"now.return_value": mocked_datetime, "side_effect": None}
                     )
 
-                # Always apply test env vars
                 stack.enter_context(set_test_env_vars(test_case))
 
-                # Run the test with retry logic
                 retry_enabled = request.config.getoption(
                     "retry-on-throttle", default=True
                 )
@@ -195,86 +199,90 @@ def ask_holmes(
         )
         toolset_span.log(metadata={"toolset_names": enabled_toolsets})
 
-    ai = ToolCallingLLM(
-        tool_executor=tool_executor,
-        max_steps=40,
-        llm=create_eval_llm(model=model, tracer=tracer),
-    )
+    with tool_result_storage() as tool_results_dir:
+        ai = ToolCallingLLM(
+            tool_executor=tool_executor,
+            max_steps=40,
+            llm=create_eval_llm(model=model, tracer=tracer),
+            tool_results_dir=tool_results_dir,
+        )
 
-    test_type = (
-        test_case.test_type or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
-    )
-    if test_type == "cli":
-        if test_case.conversation_history:
-            pytest.skip("CLI mode does not support conversation history tests")
-        else:
-            console = Console()
-            if test_case.runbooks is None:
-                runbooks = load_runbook_catalog()
-            elif test_case.runbooks == {}:
-                runbooks = None
+        test_type = (
+            test_case.test_type
+            or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
+        )
+        if test_type == "cli":
+            if test_case.conversation_history:
+                pytest.skip("CLI mode does not support conversation history tests")
             else:
-                try:
-                    runbooks = RunbookCatalog(**test_case.runbooks)
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
-                        f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
-                    ) from e
-            messages = build_initial_ask_messages(
-                console,
-                test_case.user_prompt,
-                None,
-                ai.tool_executor,
-                runbooks,
-                system_prompt_additions=additional_system_prompt,
+                if test_case.runbooks is None:
+                    runbooks = load_runbook_catalog()
+                elif test_case.runbooks == {}:
+                    runbooks = None
+                else:
+                    try:
+                        runbooks = RunbookCatalog(**test_case.runbooks)
+                    except Exception as e:
+                        raise ValueError(
+                            f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
+                            f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
+                        ) from e
+                messages = build_initial_ask_messages(
+                    initial_user_prompt=test_case.user_prompt,
+                    file_paths=None,
+                    tool_executor=ai.tool_executor,
+                    runbooks=runbooks,
+                    system_prompt_additions=additional_system_prompt,
+                )
+        else:
+            chat_request = ChatRequest(
+                ask=test_case.user_prompt,
+                additional_system_prompt=additional_system_prompt,
             )
-    else:
-        chat_request = ChatRequest(
-            ask=test_case.user_prompt, additional_system_prompt=additional_system_prompt
-        )
-        config = Config()
-        if test_case.cluster_name:
-            config.cluster_name = test_case.cluster_name
+            config = Config()
+            if test_case.cluster_name:
+                config.cluster_name = test_case.cluster_name
 
-        mock_dal = load_mock_dal(
-            Path(test_case.folder), generate_mocks=False, initialize_base=False
-        )
-        runbooks = load_runbook_catalog(mock_dal)
-        global_instructions = mock_dal.get_global_instructions_for_account()
+            mock_dal = load_mock_dal(
+                Path(test_case.folder), generate_mocks=False, initialize_base=False
+            )
+            runbooks = load_runbook_catalog(mock_dal)
+            global_instructions = mock_dal.get_global_instructions_for_account()
 
-        messages = build_chat_messages(
-            ask=chat_request.ask,
-            conversation_history=test_case.conversation_history,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            runbooks=runbooks,
-            additional_system_prompt=additional_system_prompt,
-        )
+            messages = build_chat_messages(
+                ask=chat_request.ask,
+                conversation_history=test_case.conversation_history,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+                runbooks=runbooks,
+                additional_system_prompt=additional_system_prompt,
+            )
 
-    # Create LLM completion trace within current context
-    with tracer.start_trace("Holmes Run", span_type=SpanType.TASK) as llm_span:
-        start_time = time.time()
-        result = ai.messages_call(messages=messages, trace_span=llm_span)
-        holmes_duration = time.time() - start_time
-        # Log duration directly to eval_span
-        eval_span.log(metadata={"holmes_duration": holmes_duration})
-        # Store metrics in user_properties for GitHub report
+        # Create LLM completion trace within current context
+        with tracer.start_trace("Holmes Run", span_type=SpanType.TASK) as llm_span:
+            start_time = time.time()
+            result = ai.messages_call(messages=messages, trace_span=llm_span)
+            holmes_duration = time.time() - start_time
+            # Log duration directly to eval_span
+            eval_span.log(metadata={"holmes_duration": holmes_duration})
+            # Store metrics in user_properties for GitHub report
+            if request:
+                request.node.user_properties.append(
+                    ("holmes_duration", holmes_duration)
+                )
+                if result.num_llm_calls is not None:
+                    request.node.user_properties.append(
+                        ("num_llm_calls", result.num_llm_calls)
+                    )
+                if result.tool_calls is not None:
+                    request.node.user_properties.append(
+                        ("tool_call_count", len(result.tool_calls))
+                    )
+
+        # Check for any mock errors that occurred during tool execution
+        # This will raise an exception if any mock data errors happened
         if request:
-            request.node.user_properties.append(("holmes_duration", holmes_duration))
-            if result.num_llm_calls is not None:
-                request.node.user_properties.append(
-                    ("num_llm_calls", result.num_llm_calls)
-                )
-            if result.tool_calls is not None:
-                request.node.user_properties.append(
-                    ("tool_call_count", len(result.tool_calls))
-                )
+            check_for_mock_errors(request)
 
-    # Check for any mock errors that occurred during tool execution
-    # This will raise an exception if any mock data errors happened
-    if request:
-        check_for_mock_errors(request)
-
-    return result
+        return result

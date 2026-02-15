@@ -13,7 +13,7 @@ from prometrix.models.prometheus_config import (
     AzurePrometheusConfig as PrometrixAzureConfig,
 )
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
 from requests.exceptions import SSLError  # type: ignore
 
@@ -32,6 +32,7 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.core.tools_utils.tool_context_window_limiter import get_pct_token_count
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
@@ -43,7 +44,7 @@ from holmes.plugins.toolsets.utils import (
     standard_start_datetime_tool_param_description,
     toolset_name_for_one_liner,
 )
-from holmes.utils.cache import TTLCache
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
 PROMETHEUS_METADATA_API_LIMIT = 100  # Default limit for Prometheus metadata APIs (series, labels, metadata) to prevent overwhelming responses
@@ -71,27 +72,28 @@ def format_ssl_error_message(prometheus_url: str, error: SSLError) -> str:
     )
 
 
-class PrometheusConfig(BaseModel):
-    """Prometheus toolset configuration.
+class PrometheusConfig(ToolsetConfig):
+    """Prometheus toolset configuration."""
 
-    Deprecated config names (still accepted but not in schema):
-    - default_metadata_time_window_hrs -> discover_metrics_from_last_hours
-    - default_query_timeout_seconds -> query_timeout_seconds_default
-    - max_query_timeout_seconds -> query_timeout_seconds_hard_max
-    - default_metadata_timeout_seconds -> metadata_timeout_seconds_default
-    - max_metadata_timeout_seconds -> metadata_timeout_seconds_hard_max
-    - metrics_labels_time_window_hrs -> discover_metrics_from_last_hours
-    - prometheus_ssl_enabled -> verify_ssl
-    - metrics_labels_cache_duration_hrs (no longer used)
-    - fetch_labels_with_labels_api (no longer used)
-    - fetch_metadata_with_series_api (no longer used)
-    """
-
-    model_config = ConfigDict(extra="allow")
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "headers": "additional_headers",
+        "default_metadata_time_window_hrs": "discover_metrics_from_last_hours",
+        "default_query_timeout_seconds": "query_timeout_seconds_default",
+        "max_query_timeout_seconds": "query_timeout_seconds_hard_max",
+        "default_metadata_timeout_seconds": "metadata_timeout_seconds_default",
+        "max_metadata_timeout_seconds": "metadata_timeout_seconds_hard_max",
+        "metrics_labels_time_window_hrs": "discover_metrics_from_last_hours",
+        "prometheus_ssl_enabled": "verify_ssl",
+        # Deprecated fields with no effect
+        "metrics_labels_cache_duration_hrs": None,
+        "fetch_labels_with_labels_api": None,
+        "fetch_metadata_with_series_api": None,
+    }
 
     prometheus_url: Optional[str] = Field(
         default=None,
-        description="Prometheus server URL",
+        title="URL",
+        description="Base URL of your Prometheus server including port",
         examples=[
             "http://prometheus-server.monitoring.svc.cluster.local:9090",
             "http://prometheus.monitoring.svc:9090",
@@ -100,34 +102,41 @@ class PrometheusConfig(BaseModel):
 
     discover_metrics_from_last_hours: int = Field(
         default=DEFAULT_METADATA_TIME_WINDOW_HRS,
-        description="Time window for metadata APIs (in hours). Only shows metrics active in this window",
+        title="Discovery Window",
+        description="Only discover metrics with data in this time window (hours)",
     )
 
     query_timeout_seconds_default: int = Field(
         default=DEFAULT_QUERY_TIMEOUT_SECONDS,
-        description="Default timeout for PromQL queries",
+        title="Query Timeout",
+        description="Default timeout for PromQL queries (seconds)",
     )
     query_timeout_seconds_hard_max: int = Field(
         default=MAX_QUERY_TIMEOUT_SECONDS,
-        description="Maximum allowed timeout for PromQL queries",
+        title="Max Query Timeout",
+        description="Maximum allowed timeout that the LLM can request for queries (seconds)",
     )
 
     metadata_timeout_seconds_default: int = Field(
         default=DEFAULT_METADATA_TIMEOUT_SECONDS,
-        description="Default timeout for metadata/discovery APIs",
+        title="Metadata Timeout",
+        description="Default timeout for metadata/discovery API calls (seconds)",
     )
     metadata_timeout_seconds_hard_max: int = Field(
         default=MAX_METADATA_TIMEOUT_SECONDS,
-        description="Maximum allowed timeout for metadata APIs",
+        title="Max Metadata Timeout",
+        description="Maximum allowed timeout for metadata API calls (seconds)",
     )
 
     tool_calls_return_data: bool = Field(
         default=True,
-        description="Whether tools should return the queried data (set false if you only want summaries)",
+        title="Return Data",
+        description="Set to false to return only summaries without raw Prometheus data",
     )
-    headers: Dict[str, str] = Field(
+    additional_headers: Dict[str, str] = Field(
         default_factory=dict,
-        description="Additional HTTP headers to include in Prometheus requests",
+        title="Headers",
+        description="HTTP headers for authentication (e.g., Authorization: Bearer token)",
         examples=[
             {"Authorization": "Basic <base64_encoded_credentials>"},
             {"Authorization": "Bearer <token>"},
@@ -135,25 +144,25 @@ class PrometheusConfig(BaseModel):
     )
     rules_cache_duration_seconds: Optional[int] = Field(
         default=1800,
-        description="Cache duration for Prometheus rules endpoint (seconds)",
+        title="Rules Cache Duration",
+        description="How long to cache Prometheus alerting/recording rules (seconds, null to disable)",
     )
     additional_labels: Optional[Dict[str, str]] = Field(
         default=None,
-        description="Additional label filters to apply to queries (exact-match labels)",
-        examples=[ {}, {"cluster": "prod", "namespace": "default"}],
+        title="Label Filters",
+        description="Label matchers applied to all queries (e.g., cluster=prod)",
+        examples=[{}, {"cluster": "prod", "namespace": "default"}],
     )
     verify_ssl: bool = Field(
         default=True,
-        description="Whether to verify SSL certificates when connecting to Prometheus",
+        title="Verify SSL",
+        description="Set to false to skip SSL certificate verification (for self-signed certs)",
     )
 
-    # Custom limit to the max number of tokens that a query result can take to proactively
-    #   prevent token limit issues. Expressed in % of the model's context window.
-    # This limit only overrides the global limit for all tools  (TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT)
-    #   if it is lower.
     query_response_size_limit_pct: Optional[int] = Field(
         default=None,
-        description="Optional per-toolset max response size limit, as % of model context window (lower overrides global limit)",
+        title="Response Size Limit",
+        description="Max response size as % of context window (overrides global limit if lower)",
         examples=[10, 20, 30],
     )
 
@@ -165,59 +174,15 @@ class PrometheusConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_prom_config(self):
-        # Handle deprecated config names passed as extra fields
-        # These are accepted via extra="allow" but not defined in schema
-        extra = self.model_extra or {}
-        deprecated_with_replacement = []
-
-        # Map of old names -> new names
-        deprecated_mappings = {
-            "default_metadata_time_window_hrs": "discover_metrics_from_last_hours",
-            "default_query_timeout_seconds": "query_timeout_seconds_default",
-            "max_query_timeout_seconds": "query_timeout_seconds_hard_max",
-            "default_metadata_timeout_seconds": "metadata_timeout_seconds_default",
-            "max_metadata_timeout_seconds": "metadata_timeout_seconds_hard_max",
-            "metrics_labels_time_window_hrs": "discover_metrics_from_last_hours",
-            "prometheus_ssl_enabled": "verify_ssl",
-        }
-
-        for old_name, new_name in deprecated_mappings.items():
-            if old_name in extra:
-                setattr(self, new_name, extra[old_name])
-                deprecated_with_replacement.append(f"{old_name} -> {new_name}")
-
-        if deprecated_with_replacement:
-            logging.warning(
-                f"Prometheus config uses deprecated names. Please update: "
-                f"{', '.join(deprecated_with_replacement)}"
-            )
-
-        # Check for deprecated config values that no longer have any effect
-        deprecated_no_effect = [
-            name
-            for name in [
-                "metrics_labels_cache_duration_hrs",
-                "fetch_labels_with_labels_api",
-                "fetch_metadata_with_series_api",
-            ]
-            if name in extra
-        ]
-
-        if deprecated_no_effect:
-            logging.warning(
-                f"The following Prometheus config values are deprecated and have no effect: "
-                f"{', '.join(deprecated_no_effect)}"
-            )
-
         # If openshift is enabled, and the user didn't configure auth headers, we will try to load the token from the service account.
         if IS_OPENSHIFT:
-            if self.headers.get("Authorization"):
+            if self.additional_headers.get("Authorization"):
                 return self
 
             openshift_token = load_openshift_token()
             if openshift_token:
                 logging.info("Using openshift token for prometheus toolset auth")
-                self.headers["Authorization"] = f"Bearer {openshift_token}"
+                self.additional_headers["Authorization"] = f"Bearer {openshift_token}"
 
         return self
 
@@ -441,7 +406,7 @@ def do_request(
     if verify is None:
         verify = config.verify_ssl
     if headers is None:
-        headers = config.headers or {}
+        headers = config.additional_headers or {}
 
     if isinstance(config, AMPConfig):
         client = config.get_aws_client()  # cached AWSPrometheusConnect
@@ -680,15 +645,46 @@ def create_structured_tool_result(
     )
 
 
-class ListPrometheusRules(BasePrometheusTool):
+class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
     def __init__(self, toolset: "PrometheusToolset"):
         super().__init__(
             name="list_prometheus_rules",
-            description="List all defined Prometheus rules (api/v1/rules). Will show the Prometheus rules description, expression and annotations",
-            parameters={},
+            description=(
+                "List Prometheus rules (api/v1/rules). Returns rule names, expressions, and annotations. "
+                "Use filtering parameters to reduce response size. "
+                "Without filters, returns ALL rules which may be very large."
+            ),
+            parameters=self.extend_parameters(
+                {
+                    "type": ToolParameter(
+                        description="Filter by rule type: 'alert' for alerting rules, 'record' for recording rules",
+                        type="string",
+                        required=False,
+                    ),
+                    "rule_name": ToolParameter(
+                        description="Filter by rule name(s). Can be specified multiple times for OR matching. Supports exact match only.",
+                        type="string",
+                        required=False,
+                    ),
+                    "rule_group": ToolParameter(
+                        description="Filter by rule group name(s). Can be specified multiple times for OR matching.",
+                        type="string",
+                        required=False,
+                    ),
+                    "file": ToolParameter(
+                        description="Filter by rule file path(s). Can be specified multiple times for OR matching.",
+                        type="string",
+                        required=False,
+                    ),
+                    "match": ToolParameter(
+                        description="Filter rules by label selector (e.g., '{severity=\"critical\"}', '{team=~\"platform.*\"}')",
+                        type="string",
+                        required=False,
+                    ),
+                }
+            ),
             toolset=toolset,
         )
-        self._cache = None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.config or not self.toolset.config.prometheus_url:
@@ -703,19 +699,19 @@ class ListPrometheusRules(BasePrometheusTool):
                 error="Tool not supported in AMP",
                 params=params,
             )
-        if not self._cache and self.toolset.config.rules_cache_duration_seconds:
-            self._cache = TTLCache(self.toolset.config.rules_cache_duration_seconds)  # type: ignore
         try:
-            if self._cache:
-                cached_rules = self._cache.get(PROMETHEUS_RULES_CACHE_KEY)
-                if cached_rules:
-                    logging.debug("rules returned from cache")
-
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.SUCCESS,
-                        data=cached_rules,
-                        params=params,
-                    )
+            # Build query parameters for server-side filtering
+            query_params: dict = {}
+            if params.get("type"):
+                query_params["type"] = params["type"]
+            if params.get("rule_name"):
+                query_params["rule_name[]"] = params["rule_name"]
+            if params.get("rule_group"):
+                query_params["rule_group[]"] = params["rule_group"]
+            if params.get("file"):
+                query_params["file[]"] = params["file"]
+            if params.get("match"):
+                query_params["match[]"] = params["match"]
 
             prometheus_url = self.toolset.config.prometheus_url
 
@@ -724,22 +720,21 @@ class ListPrometheusRules(BasePrometheusTool):
             rules_response = do_request(
                 config=self.toolset.config,
                 url=rules_url,
-                params=params,
+                params=query_params,
                 timeout=40,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             rules_response.raise_for_status()
             data = rules_response.json()["data"]
 
-            if self._cache:
-                self._cache.set(PROMETHEUS_RULES_CACHE_KEY, data)
-            return StructuredToolResult(
+            result = StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=data,
                 params=params,
             )
+            return self.filter_result(result, params)
         except requests.Timeout:
             logging.warning("Timeout while fetching prometheus rules", exc_info=True)
             return StructuredToolResult(
@@ -770,7 +765,17 @@ class ListPrometheusRules(BasePrometheusTool):
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Rules"
+        filters = []
+        if params.get("type"):
+            filters.append(f"type={params['type']}")
+        if params.get("rule_name"):
+            filters.append(f"name={params['rule_name']}")
+        if params.get("rule_group"):
+            filters.append(f"group={params['rule_group']}")
+        filter_str = f" ({', '.join(filters)})" if filters else ""
+        return (
+            f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Rules{filter_str}"
+        )
 
 
 class GetMetricNames(BasePrometheusTool):
@@ -860,7 +865,7 @@ class GetMetricNames(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -978,7 +983,7 @@ class GetLabelValues(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1082,7 +1087,7 @@ class GetAllLabels(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1196,7 +1201,7 @@ class GetSeries(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1275,7 +1280,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1374,7 +1379,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1623,7 +1628,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1840,7 +1845,9 @@ class PrometheusToolset(Toolset):
 
             self.config = PrometheusConfig(
                 prometheus_url=prometheus_url,
-                headers=add_prometheus_auth(os.environ.get("PROMETHEUS_AUTH_HEADER")),
+                additional_headers=add_prometheus_auth(
+                    os.environ.get("PROMETHEUS_AUTH_HEADER")
+                ),
             )
             logging.info(f"Prometheus auto discovered at url {prometheus_url}")
             self._reload_llm_instructions()
@@ -1872,7 +1879,7 @@ class PrometheusToolset(Toolset):
             response = do_request(
                 config=self.config,
                 url=url,
-                headers=self.config.headers,
+                headers=self.config.additional_headers,
                 timeout=10,
                 verify=self.config.verify_ssl,
                 method="GET",

@@ -23,7 +23,7 @@ Before deploying the Azure MCP server, ensure you have:
 
     For CLI usage, you need to deploy the Azure MCP server first, then configure Holmes to connect to it.
 
-    ### Step 1: Deploy the Azure MCP Server
+    **Step 1: Deploy the Azure MCP Server**
 
     Create a file named `azure-mcp-deployment.yaml`:
 
@@ -152,7 +152,7 @@ Before deploying the Azure MCP server, ensure you have:
     kubectl apply -f azure-mcp-deployment.yaml
     ```
 
-    ### Step 2: Configure Azure Authentication
+    **Step 2: Configure Azure Authentication**
 
     Choose one of these authentication methods:
 
@@ -187,7 +187,7 @@ Before deploying the Azure MCP server, ensure you have:
     3. Update the deployment to reference the secret (uncomment the secret reference in the YAML above)
     4. Set `AZ_AUTH_METHOD: "service-principal"` in the ConfigMap
 
-    ### Step 3: Configure Holmes CLI
+    **Step 3: Configure Holmes CLI**
 
     Add the MCP server configuration to **~/.holmes/config.yaml**:
 
@@ -213,7 +213,7 @@ Before deploying the Azure MCP server, ensure you have:
           See the Azure MCP documentation for comprehensive investigation patterns and common commands.
     ```
 
-    ### Step 4: Port Forwarding (Optional for Local Testing)
+    **Step 4: Port Forwarding (Optional for Local Testing)**
 
     If running Holmes CLI locally and need to access the MCP server:
 
@@ -228,7 +228,7 @@ Before deploying the Azure MCP server, ensure you have:
 
 === "Holmes Helm Chart"
 
-    ### Workload Identity Authentication (Recommended for AKS)
+    **Workload Identity Authentication (Recommended for AKS)**
 
     The recommended approach for AKS clusters is to use Workload Identity. This provides secure, passwordless authentication.
 
@@ -261,7 +261,7 @@ Before deploying the Azure MCP server, ensure you have:
     3. Configure federated identity credentials
     4. Deploy with the configuration above
 
-    ### Service Principal Authentication
+    **Service Principal Authentication**
 
     For non-AKS clusters or if Workload Identity is not available:
 
@@ -293,7 +293,7 @@ Before deploying the Azure MCP server, ensure you have:
       -n YOUR_NAMESPACE
     ```
 
-    ### Managed Identity Authentication
+    **Managed Identity Authentication**
 
     For AKS clusters with node-level managed identity:
 
@@ -320,7 +320,7 @@ Before deploying the Azure MCP server, ensure you have:
 
 === "Robusta Helm Chart"
 
-    ### Workload Identity Authentication (Recommended for AKS)
+    **Workload Identity Authentication (Recommended for AKS)**
 
     ```yaml
     globalConfig:
@@ -349,7 +349,7 @@ Before deploying the Azure MCP server, ensure you have:
             readOnlyMode: true
     ```
 
-    ### Service Principal Authentication
+    **Service Principal Authentication**
 
     ```yaml
     globalConfig:
@@ -382,7 +382,7 @@ Before deploying the Azure MCP server, ensure you have:
       -n YOUR_NAMESPACE
     ```
 
-    ### Managed Identity Authentication
+    **Managed Identity Authentication**
 
     ```yaml
     globalConfig:
@@ -494,147 +494,42 @@ Holmes can automatically discover and switch between subscriptions during invest
 
 After deploying the Azure MCP server, verify it's working:
 
-### Test 1: Check Pod Status
-
 ```bash
+# Check pod status
 kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
-```
 
-### Test 2: Check Logs
-
-```bash
+# Check logs
 kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
-```
 
-### Test 3: Health Check
-
-```bash
+# Health check
 kubectl port-forward -n YOUR_NAMESPACE svc/RELEASE_NAME-azure-mcp-server 8000:8000
 curl http://localhost:8000/health
-```
 
-### Test 4: Ask Holmes
-
-```bash
+# Ask Holmes
 holmes ask "Can you list all resource groups in my Azure subscription?"
 ```
 
-## Capabilities
-
-The Azure MCP server provides access to all Azure services through the Azure CLI. Common investigation patterns include:
-
-### Activity Log Investigation
-- Query recent API calls and configuration changes
-- Find who made specific changes
-- Correlate changes with issue timelines
-- Audit security events
-
-### AKS Cluster Investigation
-- Check cluster status and configuration
-- Review node pool health
-- Investigate pod scheduling issues
-- Analyze cluster diagnostics
-
-### Networking Troubleshooting
-- Examine Network Security Groups
-- Review Virtual Network configurations
-- Check Application Gateway and Load Balancer status
-- Investigate connectivity issues
-
-### Database Issues
-- Check database server status (SQL, PostgreSQL, MySQL)
-- Review firewall rules and network access
-- Analyze connection policies
-- Monitor failover group status
-
-### Certificate Management
-- Review certificates in Key Vault
-- Check certificate expiration dates
-- Investigate Application Gateway SSL configuration
-- Analyze cert-manager integration for AKS
-
-### Storage Investigation
-- Check storage account configuration
-- Review network rules and private endpoints
-- Analyze storage metrics
-- Investigate access issues
-
-### Cost Analysis
-- Query current costs by resource group
-- Review budgets and spending trends
-- Get cost optimization recommendations
-- Identify expensive resources
-
-### Historical Log Analysis
-- Query Log Analytics for deleted pod logs
-- Investigate past incidents using Azure Monitor
-- Retrieve logs for resources that no longer exist
-
 ## Common Use Cases
-
-### AKS Pod Networking Issues
 
 ```
 "Pods in namespace production can't reach Azure SQL database"
 ```
 
-Holmes will:
-1. Check pod network configuration
-2. Examine NSG rules on AKS subnet
-3. Review Azure SQL firewall rules
-4. Check Activity Log for recent network changes
-5. Provide root cause analysis
-
-### Certificate Expiration Problems
-
 ```
 "Our ingress is showing TLS errors since yesterday"
 ```
-
-Holmes will:
-1. Check certificate status in Key Vault
-2. Review Application Gateway SSL configuration
-3. Examine Activity Log for certificate operations
-4. Verify cert-manager configuration
-5. Identify expired or misconfigured certificates
-
-### AKS Cluster Upgrade Issues
 
 ```
 "After AKS upgrade, some pods are failing to schedule"
 ```
 
-Holmes will:
-1. Check cluster and node pool status
-2. Review upgrade history in Activity Log
-3. Examine node resource capacity
-4. Check for version compatibility issues
-5. Provide remediation steps
-
-### Database Connection Timeouts
-
 ```
 "Applications intermittently can't connect to PostgreSQL since 2 PM"
 ```
 
-Holmes will:
-1. Check PostgreSQL server status
-2. Review firewall rules and VNet rules
-3. Query Activity Log for configuration changes around 2 PM
-4. Examine connection policy settings
-5. Correlate timing with any infrastructure changes
-
-### Cost Spike Investigation
-
 ```
 "Our Azure costs increased 50% last week"
 ```
-
-Holmes will:
-1. Query cost data by resource group and service
-2. Identify resources with increased usage
-3. Review Activity Log for new resource deployments
-4. Provide cost breakdown and recommendations
 
 ## Troubleshooting
 

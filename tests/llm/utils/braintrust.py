@@ -241,7 +241,12 @@ def log_to_braintrust(
             and result.messages
             and len(result.messages) > 0
         ):
-            prompt = result.messages[0]["content"]
+            # Find the first message with role "system"
+            system_msg = next(
+                (m for m in result.messages if m.get("role") == "system"),
+                None
+            )
+            prompt = system_msg["content"] if system_msg else "<NO SYSTEM PROMPT FOUND>"
         elif result and hasattr(result, "prompt"):
             prompt = result.prompt
 

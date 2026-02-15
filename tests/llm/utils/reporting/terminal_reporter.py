@@ -188,7 +188,8 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
     )
 
     # Add columns with specific widths (reduced to fit terminal width)
-    table.add_column("Test", style="cyan", width=12)
+    # Wider width to accommodate model + env_config
+    table.add_column("Test", style="cyan", width=20)
     table.add_column("Status", justify="center", width=13)
     table.add_column("Time", justify="right", width=8)
     table.add_column("Turns", justify="right", width=5)
@@ -219,15 +220,26 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
             else ""
         )
 
-        # Use test_case_name and model that are already in the result dict
+        # Use test_case_name, model, and env_config that are already in the result dict
         test_case_name = result["test_case_name"]
         model = result.get("model", "")
+        env_config = result.get("env_config", "default")
+
+        # Build combined test name with model and env_config
+        parts = []
         if model:
-            combined_test_name = f"{test_case_name} ({model})"
+            parts.append(model)
         else:
-            combined_test_name = f"{test_case_name} ({result['test_type']})"
-        # Wrap test name to fit column
-        test_name_wrapped = "\n".join(textwrap.wrap(combined_test_name, width=10))
+            parts.append(result.get("test_type", ""))
+
+        # Only show env_config if there are multiple env configs in the results
+        unique_env_configs = {r.get("env_config", "default") for r in sorted_results}
+        if len(unique_env_configs) > 1:
+            parts.append(env_config)
+
+        combined_test_name = f"{test_case_name} ({', '.join(parts)})"
+        # Wrap test name to fit column (increased width to accommodate env_config)
+        test_name_wrapped = "\n".join(textwrap.wrap(combined_test_name, width=18))
 
         # Format execution time - show individual time for this specific test run
         exec_time = result.get("holmes_duration")
@@ -544,18 +556,28 @@ class TestStatistics:
         self._build_data()
 
     def _build_data(self) -> None:
-        """Organize results by test case and model."""
+        """Organize results by test case, model, and env_config (3-level nesting)."""
+        # 2-level data for backwards compatibility (test_case -> model -> results)
         self._data: Dict[str, Dict[str, List[dict]]] = defaultdict(
             lambda: defaultdict(list)
+        )
+        # 3-level data for env_config support (test_case -> model -> env_config -> results)
+        self._data_3level: Dict[str, Dict[str, Dict[str, List[dict]]]] = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(list))
         )
 
         for result in self.results:
             model = result.get("model", "Unknown")
             test_case = result["test_case_name"]
+            env_config = result.get("env_config", "default")
             self._data[test_case][model].append(result)
+            self._data_3level[test_case][model][env_config].append(result)
 
         self._models = sorted({r.get("model", "Unknown") for r in self.results})
         self._test_cases = sorted(self._data.keys())
+        self._env_configs = sorted(
+            {r.get("env_config", "default") for r in self.results}
+        )
 
     @property
     def models(self) -> List[str]:
@@ -566,6 +588,16 @@ class TestStatistics:
     def test_cases(self) -> List[str]:
         """Get sorted list of unique test cases."""
         return self._test_cases
+
+    @property
+    def env_configs(self) -> List[str]:
+        """Get sorted list of unique env configs."""
+        return self._env_configs
+
+    @property
+    def has_multiple_env_configs(self) -> bool:
+        """Check if results contain multiple env configs."""
+        return len(self._env_configs) > 1
 
     def _calculate_stats_for_results(
         self, results: List[dict]
@@ -623,6 +655,71 @@ class TestStatistics:
         """
         results = self._data[test_case].get(model, [])
         return self._calculate_stats_for_results(results)
+
+    def get_stats_with_env_config(
+        self, test_case: str, model: str, env_config: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get statistics for a specific test case, model, and env_config combination."""
+        results = self._data_3level[test_case][model].get(env_config, [])
+        return self._calculate_stats_for_results(results)
+
+    def get_test_case_env_config_stats(
+        self, test_case: str, env_config: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get statistics for a test case and env_config, aggregated across all models."""
+        all_results = []
+        for model in self._models:
+            results = self._data_3level[test_case][model].get(env_config, [])
+            all_results.extend(results)
+        return self._calculate_stats_for_results(all_results)
+
+    def get_env_config_summary(self, env_config: str) -> Dict[str, Any]:
+        """Get summary statistics for an env_config across all test cases and models."""
+        all_results = []
+        for test_case in self._test_cases:
+            for model in self._models:
+                results = self._data_3level[test_case][model].get(env_config, [])
+                all_results.extend(results)
+
+        base_stats = self._calculate_stats_for_results(all_results)
+        if not base_stats:
+            return {
+                "runs": 0,
+                "passed": 0,
+                "skipped": 0,
+                "setup_failures": 0,
+                "throttled": 0,
+                "valid_runs": 0,
+                "pass_rate": 0,
+                "avg_time": None,
+                "p90_time": None,
+                "all_times": [],
+                "total_cost": 0,
+            }
+
+        times = base_stats["times"]
+        return {
+            **base_stats,
+            "p90_time": _calculate_p90(times) if times else None,
+            "all_times": times,
+        }
+
+    def get_env_config_costs(self) -> Dict[str, float]:
+        """Get total cost for each env config."""
+        return {
+            env_config: self.get_env_config_summary(env_config).get("total_cost", 0.0)
+            for env_config in self._env_configs
+        }
+
+    def get_env_config_times(self, metric: str = "avg") -> Dict[str, Optional[float]]:
+        """Get time metric (avg or p90) for each env config."""
+        if metric not in ("avg", "p90"):
+            raise ValueError(f"Unknown metric: {metric}")
+        time_key = "avg_time" if metric == "avg" else "p90_time"
+        return {
+            env_config: self.get_env_config_summary(env_config)[time_key]
+            for env_config in self._env_configs
+        }
 
     def get_test_times(self, test_case: str) -> Dict[str, Optional[float]]:
         """Get average execution times for a test case across all models.
@@ -1049,14 +1146,125 @@ def _print_tag_performance_table(sorted_results: List[dict], console: Console) -
     console.print(tag_table)
 
 
+def _print_env_config_comparison_table(
+    sorted_results: List[dict], console: Console
+) -> None:
+    """Print an env config comparison table when multiple env configs are detected."""
+    if not sorted_results:
+        return
+
+    # Use TestStatistics for all calculations
+    stats = TestStatistics(sorted_results)
+
+    # Only show if multiple env configs are present
+    if not stats.has_multiple_env_configs:
+        return
+
+    # Create comparison table
+    comparison_table = Table(
+        title="\n🔧 ENV CONFIG COMPARISON RESULTS",
+        show_header=True,
+        header_style="bold green",
+        show_lines=True,
+        padding=(0, 1),
+    )
+
+    comparison_table.add_column("Test Case", style="bright_blue", width=30)
+    for env_config in stats.env_configs:
+        comparison_table.add_column(env_config, justify="center", width=22)
+
+    for test_case in stats.test_cases:
+        row_data = [test_case]
+
+        for env_config in stats.env_configs:
+            combo_stats = stats.get_test_case_env_config_stats(test_case, env_config)
+
+            if not combo_stats:
+                row_data.append("—")
+                continue
+
+            if combo_stats["skipped"] == combo_stats["runs"]:
+                cell_text = "[cyan]Skipped[/cyan]"
+            elif combo_stats["setup_failures"] == combo_stats["runs"]:
+                cell_text = "[magenta]Setup Fail[/magenta]"
+            else:
+                pass_pct = combo_stats["pass_rate"]
+                score_color = _get_pass_color(pass_pct)
+
+                cell_lines = [
+                    f"Score: [{score_color}]{pass_pct:.0f}%[/{score_color}]",
+                    f"Pass:  {combo_stats['passed']}/{combo_stats['valid_runs']}",
+                ]
+                if combo_stats["avg_time"]:
+                    cell_lines.append(f"Avg:   {combo_stats['avg_time']:.1f}s")
+
+                cell_text = "\n".join(cell_lines)
+
+            row_data.append(cell_text)
+
+        comparison_table.add_row(*row_data)
+
+    separator_row = _create_separator_row([28] + [18] * len(stats.env_configs))
+    comparison_table.add_row(*separator_row, style="dim")
+
+    average_row = ["Env Config Average"]
+    for env_config in stats.env_configs:
+        summary = stats.get_env_config_summary(env_config)
+        if summary["runs"] > 0 and summary["pass_rate"] is not None:
+            pass_pct = summary["pass_rate"]
+            color = _get_pass_color(pass_pct, bold=True)
+            average_row.append(f"[{color}]{pass_pct:.1f}%[/{color}]")
+        else:
+            average_row.append("—")
+    comparison_table.add_row(*average_row)
+
+    avg_times_dict = stats.get_env_config_times("avg")
+    time_row = ["Average Time"] + _format_colored_times(avg_times_dict)
+    comparison_table.add_row(*time_row)
+
+    p90_times_dict = stats.get_env_config_times("p90")
+    p90_row = ["P90 Time"] + _format_colored_times(p90_times_dict)
+    comparison_table.add_row(*p90_row)
+
+    costs_dict = stats.get_env_config_costs()
+    cost_row = ["Total Cost"] + _format_colored_costs(costs_dict)
+    comparison_table.add_row(*cost_row)
+
+    console.print(comparison_table)
+
+    best_configs = []
+    best_pass_pct = 0.0
+    for env_config in stats.env_configs:
+        summary = stats.get_env_config_summary(env_config)
+        pass_pct = summary["pass_rate"]
+        if summary["runs"] > 0:
+            if pass_pct > best_pass_pct:
+                best_pass_pct = pass_pct
+                best_configs = [env_config]
+            elif pass_pct == best_pass_pct:
+                best_configs.append(env_config)
+
+    if best_configs:
+        if len(best_configs) == 1:
+            console.print(
+                f"[cyan]Best performing env config: {best_configs[0]} ({best_pass_pct:.1f}% pass rate)[/cyan]"
+            )
+        else:
+            configs_str = ", ".join(best_configs)
+            console.print(
+                f"[cyan]Best performing env configs: {configs_str} ({best_pass_pct:.1f}% pass rate)[/cyan]"
+            )
+
+
 def _print_model_comparison_if_multiple(
     sorted_results: List[dict], console: Console
 ) -> None:
-    """Print model comparison and tag performance tables."""
+    """Print model comparison, env config comparison, and tag performance tables."""
     if not sorted_results:
         return
 
     _print_model_comparison_table(sorted_results, console)
+    _print_env_config_comparison_table(sorted_results, console)
     _print_tag_performance_table(sorted_results, console)
 
 

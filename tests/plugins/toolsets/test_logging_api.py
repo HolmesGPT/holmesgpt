@@ -195,11 +195,12 @@ class TestTruncateLogs:
     def test_truncate_logs_nominal_scenario(self):
         """Test that truncate_logs correctly truncates logs when they exceed the token limit."""
         # Create a mock LLM that simulates token counting
-
-        model = os.environ.get("MODEL")
-        if not model:
-            pytest.skip("Missing MODEL env var.")
-        llm = DefaultLLM(model=model)
+        # We mock count_tokens to return ~4 tokens per word (rough approximation)
+        mock_llm = MagicMock()
+        mock_llm.count_tokens.side_effect = lambda msgs: MagicMock(
+            total_tokens=len(str(msgs[0].get("content", ""))) // 4
+        )
+        llm = mock_llm
 
         log_message = "ERROR: Database connection failed\n"
         log_data = log_message * 2000  # Long log data

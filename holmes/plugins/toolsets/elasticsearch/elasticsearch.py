@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -17,48 +17,60 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
-class ElasticsearchConfig(BaseModel):
+class ElasticsearchConfig(ToolsetConfig):
     """Configuration for Elasticsearch/OpenSearch API access.
 
     Example configuration:
     ```yaml
-    url: "https://your-cluster.es.cloud.io"
+    api_url: "https://your-cluster.es.cloud.io"
     api_key: "base64_encoded_api_key"
     ```
 
     Or with basic auth:
     ```yaml
-    url: "https://your-cluster.es.cloud.io"
+    api_url: "https://your-cluster.es.cloud.io"
     username: "elastic"
     password: "your_password"
     ```
     """
 
-    url: str = Field(
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "url": "api_url",
+        "timeout": "timeout_seconds",
+    }
+
+    api_url: str = Field(
+        title="API URL",
         description="Elasticsearch/OpenSearch base URL",
         examples=["https://your-cluster.es.cloud.io"],
     )
     api_key: Optional[str] = Field(
         default=None,
+        title="API Key",
         description="API key for authentication (preferred over basic auth when available)",
         examples=["{{ env.ELASTICSEARCH_API_KEY }}"],
     )
     username: Optional[str] = Field(
         default=None,
+        title="Username",
         description="Username for basic auth authentication (used if api_key is not provided)",
     )
     password: Optional[str] = Field(
         default=None,
+        title="Password",
         description="Password for basic auth authentication (used if api_key is not provided)",
     )
     verify_ssl: bool = Field(
         default=True,
+        title="Verify SSL",
         description="Whether to verify SSL certificates",
     )
-    timeout: int = Field(
+    timeout_seconds: int = Field(
         default=10,
+        title="Timeout Seconds",
         description="Default request timeout in seconds",
     )
 
@@ -119,7 +131,7 @@ class ElasticsearchBaseToolset(Toolset):
         except requests.exceptions.ConnectionError:
             return (
                 False,
-                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.url}",
+                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.api_url}",
             )
         except requests.exceptions.Timeout:
             return False, "Elasticsearch health check timed out"
@@ -174,8 +186,8 @@ class ElasticsearchBaseToolset(Toolset):
             requests.exceptions.ConnectionError: For connection problems
             requests.exceptions.Timeout: For timeout errors
         """
-        url = f"{self.elasticsearch_config.url.rstrip('/')}/{endpoint.lstrip('/')}"
-        timeout = timeout or self.elasticsearch_config.timeout
+        url = f"{self.elasticsearch_config.api_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        timeout = timeout or self.elasticsearch_config.timeout_seconds
 
         response = requests.request(
             method=method,

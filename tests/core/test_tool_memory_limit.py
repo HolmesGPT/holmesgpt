@@ -50,12 +50,21 @@ class TestCheckOomAndAppendHint:
             (2, "fatal error: out of memory"),  # Go fatal error
         ],
     )
-    def test_hint_appended_on_oom_indicators(self, return_code: int, output: str):
-        """Test that hint is appended when OOM indicators are detected."""
+    def test_hint_prepended_on_oom_indicators(self, return_code: int, output: str):
+        """Test that hint is prepended when OOM indicators are detected."""
         result = check_oom_and_append_hint(output, return_code)
         assert "[OOM]" in result
         assert "TOOL_MEMORY_LIMIT_MB" in result
         assert str(TOOL_MEMORY_LIMIT_MB) in result  # Shows current limit
+        assert result.startswith("[OOM]")  # Hint comes first
+
+    def test_hint_prepended_before_output(self):
+        """Test that hint appears before the original output, not after."""
+        output = "runtime: out of memory\ngoroutine 1 [running]:\nmain.main()"
+        result = check_oom_and_append_hint(output, 2)
+        oom_pos = result.index("[OOM]")
+        output_pos = result.index("runtime: out of memory")
+        assert oom_pos < output_pos
 
     def test_hint_shows_default_when_not_configured(self, monkeypatch):
         """Test that hint shows default when env var not set."""
