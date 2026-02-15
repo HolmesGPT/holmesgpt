@@ -24,7 +24,9 @@ from holmes.core.tools import (
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
-from holmes.plugins.toolsets.bash.common.cli_prefixes import load_cli_bash_tools_approved_prefixes
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    load_cli_bash_tools_approved_prefixes,
+)
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
@@ -322,10 +324,9 @@ class BashExecutorToolset(Toolset):
             os.path.join(os.path.dirname(__file__), "bash_instructions.jinja2")
         )
 
-        # Compute effective lists (includes defaults if include_default_allow_deny_list is True)
         config = self.config or BashExecutorConfig()
         logging.debug(
-            f"Reloading bash toolset with include_default_allow_deny_list: {config.include_default_allow_deny_list}"
+            f"Reloading bash toolset with builtin_allowlist: {config.builtin_allowlist}"
         )
         effective_allow, effective_deny = get_effective_lists(config)
 
