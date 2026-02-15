@@ -70,7 +70,7 @@ toolsets:
   bash:
     enabled: true
     config:
-      include_default_allow_deny_list: true
+      builtin_allowlist: "extended"
 mcp_servers: {}
 
 resources:

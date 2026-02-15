@@ -11,8 +11,9 @@ from holmes.plugins.toolsets.bash.common.config import (
     BashExecutorConfig,
 )
 from holmes.plugins.toolsets.bash.common.default_lists import (
-    DEFAULT_ALLOW_LIST,
+    CORE_ALLOW_LIST,
     DEFAULT_DENY_LIST,
+    EXTENDED_ALLOW_LIST,
 )
 from holmes.plugins.toolsets.bash.validation import (
     CompoundStatementError,
@@ -237,16 +238,38 @@ class TestCheckHardcodedBlocks:
 class TestGetEffectiveLists:
     """Tests for effective allow/deny list computation."""
 
-    def test_empty_config(self):
-        """Test with empty config."""
-        config = BashExecutorConfig()
+    def test_none_config(self):
+        """Test with builtin_allowlist='none'."""
+        config = BashExecutorConfig(builtin_allowlist="none")
         allow_list, deny_list = get_effective_lists(config)
         assert allow_list == []
         assert deny_list == []
 
+    def test_core_config_default(self):
+        """Test that default config uses core allowlist."""
+        config = BashExecutorConfig()
+        allow_list, deny_list = get_effective_lists(config)
+        # Core list includes kubectl and grep but not cat
+        assert "kubectl get" in allow_list
+        assert "kubectl describe" in allow_list
+        assert "grep" in allow_list
+        assert "cat" not in allow_list
+
+    def test_extended_config(self):
+        """Test with builtin_allowlist='extended'."""
+        config = BashExecutorConfig(builtin_allowlist="extended")
+        allow_list, deny_list = get_effective_lists(config)
+        # Extended includes everything from core plus filesystem commands
+        assert "kubectl get" in allow_list
+        assert "grep" in allow_list
+        assert "cat" in allow_list
+        assert "find" in allow_list
+        assert "ls" in allow_list
+
     def test_custom_lists(self):
         """Test with custom allow/deny lists."""
         config = BashExecutorConfig(
+            builtin_allowlist="none",
             allow=["kubectl get", "grep"],
             deny=["kubectl delete"],
         )
@@ -255,32 +278,53 @@ class TestGetEffectiveLists:
         assert "grep" in allow_list
         assert "kubectl delete" in deny_list
 
-    def test_include_defaults(self):
-        """Test with default lists included."""
+    def test_extended_with_custom(self):
+        """Test extended builtin list merged with custom entries."""
         config = BashExecutorConfig(
-            include_default_allow_deny_list=True,
+            builtin_allowlist="extended",
             allow=["custom-command"],
             deny=["custom-deny"],
         )
         allow_list, deny_list = get_effective_lists(config)
 
-        # Should include defaults
+        # Should include builtins
         assert "kubectl get" in allow_list
         assert "grep" in allow_list
+        assert "cat" in allow_list
         # Should include custom
         assert "custom-command" in allow_list
         # Should include custom deny
         assert "custom-deny" in deny_list
 
+    def test_backwards_compat_include_default_true(self):
+        """Test that deprecated include_default_allow_deny_list=True maps to extended."""
+        config = BashExecutorConfig(include_default_allow_deny_list=True)
+        assert config.builtin_allowlist == "extended"
+        allow_list, deny_list = get_effective_lists(config)
+        assert "kubectl get" in allow_list
+        assert "cat" in allow_list
+
+    def test_backwards_compat_include_default_false(self):
+        """Test that deprecated include_default_allow_deny_list=False maps to none."""
+        config = BashExecutorConfig(include_default_allow_deny_list=False)
+        assert config.builtin_allowlist == "none"
+        allow_list, deny_list = get_effective_lists(config)
+        assert allow_list == []
+
     def test_default_lists_content(self):
         """Verify default lists have expected content."""
-        # Check DEFAULT_ALLOW_LIST has key commands
-        assert "kubectl get" in DEFAULT_ALLOW_LIST
-        assert "kubectl describe" in DEFAULT_ALLOW_LIST
-        assert "grep" in DEFAULT_ALLOW_LIST
-        assert "cat" in DEFAULT_ALLOW_LIST
-        assert "kube-lineage" in DEFAULT_ALLOW_LIST
-        assert "jq" in DEFAULT_ALLOW_LIST
+        # CORE_ALLOW_LIST has kubectl and text processing but not filesystem
+        assert "kubectl get" in CORE_ALLOW_LIST
+        assert "kubectl describe" in CORE_ALLOW_LIST
+        assert "grep" in CORE_ALLOW_LIST
+        assert "jq" in CORE_ALLOW_LIST
+        assert "cat" not in CORE_ALLOW_LIST
+
+        # EXTENDED_ALLOW_LIST has everything including filesystem
+        assert "kubectl get" in EXTENDED_ALLOW_LIST
+        assert "cat" in EXTENDED_ALLOW_LIST
+        assert "find" in EXTENDED_ALLOW_LIST
+        assert "ls" in EXTENDED_ALLOW_LIST
 
         # DEFAULT_DENY_LIST is empty by default - users configure their own
         assert len(DEFAULT_DENY_LIST) == 0
@@ -515,7 +559,7 @@ class TestUserConfiguredDenyList:
     def test_user_configured_deny_blocks_command(self):
         """Test that user-configured deny list blocks commands."""
         config = BashExecutorConfig(
-            include_default_allow_deny_list=True,
+            builtin_allowlist="extended",
             deny=["kubectl get secret"],
         )
         allow_list, deny_list = get_effective_lists(config)
@@ -531,7 +575,7 @@ class TestUserConfiguredDenyList:
     def test_user_configured_deny_path_syntax(self):
         """Test that user-configured deny blocks path syntax."""
         config = BashExecutorConfig(
-            include_default_allow_deny_list=True,
+            builtin_allowlist="extended",
             deny=["kubectl get secret"],
         )
         allow_list, deny_list = get_effective_lists(config)
@@ -546,7 +590,7 @@ class TestUserConfiguredDenyList:
 
     def test_kubectl_get_pods_allowed_with_defaults(self):
         """Test that non-denied kubectl commands are allowed."""
-        config = BashExecutorConfig(include_default_allow_deny_list=True)
+        config = BashExecutorConfig(builtin_allowlist="extended")
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "kubectl get pods -n default",
