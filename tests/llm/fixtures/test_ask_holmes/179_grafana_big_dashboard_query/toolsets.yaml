@@ -4,5 +4,5 @@ toolsets:
   grafana/dashboards:
     enabled: true
     config:
-      url: http://localhost:10179
+      api_url: http://localhost:10179
       api_key: ""

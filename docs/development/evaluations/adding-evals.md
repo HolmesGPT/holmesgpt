@@ -171,14 +171,14 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: http://loki.app-143.svc.cluster.local:3100
+      api_url: http://loki.app-143.svc.cluster.local:3100
       api_key: ""
   kafka/admin:
     enabled: true
     config:
-      kafka_clusters:
+      clusters:
         - name: "kafka"
-          kafka_broker: "kafka:9092"
+          broker: "kafka:9092"
 ```
 
 ### Port Forwarding

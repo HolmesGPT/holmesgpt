@@ -24,7 +24,9 @@ from holmes.core.tools import (
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
-from holmes.plugins.toolsets.bash.common.cli_prefixes import load_cli_bash_tools_approved_prefixes
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    load_cli_bash_tools_approved_prefixes,
+)
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
@@ -97,12 +99,14 @@ class RunBashCommand(Tool):
         super().__init__(
             name="bash",
             description=(
-                "Executes a simple one-liner bash command and returns its output. "
-                "Only supports: single commands, pipes (|), && , ||, ;, &. "
-                "NOT supported: for/while/until loops, if/case statements, subshells $() or backticks. "
+                "Executes a bash command and returns its output. "
+                "Supports: single commands, pipes (|), &&, ||, ;, &. "
+                "Also supports (requires user approval): for/while/until loops, if/case statements, "
+                "subshells $() and backticks. "
                 "You must provide suggested_prefixes - one prefix per command segment. "
                 "Example: for 'kubectl get pods | grep error', provide "
-                "suggested_prefixes=['kubectl get', 'grep']."
+                "suggested_prefixes=['kubectl get', 'grep']. "
+                "For scripts with loops/conditionals, provide prefixes for the key operations inside."
             ),
             parameters={
                 "command": ToolParameter(
@@ -177,13 +181,10 @@ class RunBashCommand(Tool):
 
         if validation_result.status == ValidationStatus.APPROVAL_REQUIRED:
             logging.info(f"Bash command requires approval: {command_str}")
-            prefixes_to_save = (
-                validation_result.prefixes_needing_approval or suggested_prefixes
-            )
-            prefixes_display = ", ".join(prefixes_to_save)
+            prefixes_to_save = validation_result.prefixes_needing_approval
             return ApprovalRequirement(
                 needs_approval=True,
-                reason=f"Command prefix(es) not in allow list: {prefixes_display}",
+                reason=f"Command requires approval. {validation_result.message}",
                 prefixes_to_save=prefixes_to_save,
             )
 
@@ -272,12 +273,6 @@ class RunBashCommand(Tool):
         elif validation_result.deny_reason == DenyReason.DENY_LIST:
             return f"Command blocked by configuration: {validation_result.message}"
 
-        elif validation_result.deny_reason == DenyReason.SUBSHELL_DETECTED:
-            return f"Security error: {validation_result.message}"
-
-        elif validation_result.deny_reason == DenyReason.PARSE_ERROR:
-            return f"Parse error: {validation_result.message}"
-
         elif validation_result.deny_reason == DenyReason.PREFIX_NOT_IN_COMMAND:
             return f"Invalid prefix: {validation_result.message}"
 
@@ -322,10 +317,9 @@ class BashExecutorToolset(Toolset):
             os.path.join(os.path.dirname(__file__), "bash_instructions.jinja2")
         )
 
-        # Compute effective lists (includes defaults if include_default_allow_deny_list is True)
         config = self.config or BashExecutorConfig()
         logging.debug(
-            f"Reloading bash toolset with include_default_allow_deny_list: {config.include_default_allow_deny_list}"
+            f"Reloading bash toolset with builtin_allowlist: {config.builtin_allowlist}"
         )
         effective_allow, effective_deny = get_effective_lists(config)
 

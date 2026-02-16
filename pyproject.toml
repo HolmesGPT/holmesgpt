@@ -12,6 +12,7 @@ holmes = "holmes.main:run"
 [tool.poetry.dependencies]
 python = "^3.10"
 openai = "^2.8.0"
+jiter = "!=0.13.0"  # Exclude 0.13.0 due to corrupted Windows wheel (RECORD file issue)
 jinja2 = "^3.1.2"
 typer = "^0.15.4"
 python-benedict = "^0.33.1"

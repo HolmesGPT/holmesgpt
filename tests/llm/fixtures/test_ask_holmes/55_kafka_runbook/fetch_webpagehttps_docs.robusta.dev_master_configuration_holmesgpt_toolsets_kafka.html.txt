@@ -26,19 +26,19 @@ holmes:
         kafka/admin:
             enabled: true
             config:
-                kafka_clusters:
+                clusters:
                     - name: aks-prod-kafka
-                      kafka_broker: kafka-1.aks-prod-kafka-brokers.kafka.svc:9095
-                      kafka_username: kafka-plaintext-user
-                      kafka_password: ******
-                      kafka_sasl_mechanism: SCRAM-SHA-512
-                      kafka_security_protocol: SASL_PLAINTEXT
+                      broker: kafka-1.aks-prod-kafka-brokers.kafka.svc:9095
+                      username: kafka-plaintext-user
+                      password: ******
+                      sasl_mechanism: SCRAM-SHA-512
+                      security_protocol: SASL_PLAINTEXT
                     - name: gke-stg-kafka
-                      kafka_broker: gke-kafka.gke-stg-kafka-brokers.kafka.svc:9095
-                      kafka_username: kafka-plaintext-user
-                      kafka_password: ****
-                      kafka_sasl_mechanism: SCRAM-SHA-512
-                      kafka_security_protocol: SASL_PLAINTEXT
+                      broker: gke-kafka.gke-stg-kafka-brokers.kafka.svc:9095
+                      username: kafka-plaintext-user
+                      password: ****
+                      sasl_mechanism: SCRAM-SHA-512
+                      security_protocol: SASL_PLAINTEXT
 
 ```
 
@@ -47,12 +47,12 @@ Below is a description of the configuration field for each cluster:
 | Config key | Description |
 | --- | --- |
 | name | Give a meaningful name to your cluster. Holmes will use it to decide what cluster to look into. Names must be unique across all clusters. |
-| kafka\_broker | List of host/port pairs to use for establishing the initial connection to the Kafka cluster. Comma separated values. |
-| kafka\_client\_id | An id string to pass to the server when making requests. The purpose of this is to be able to track the source of requests beyond just ip/port by allowing a logical application name to be included in server-side request logging. |
-| kafka\_security\_protocol | Protocol used to communicate with brokers. Valid values are: PLAINTEXT, SSL, SASL\_PLAINTEXT, SASL\_SSL |
-| kafka\_sasl\_mechanism | SASL mechanism used for client connections. This may be any mechanism for which a security provider is available. GSSAPI is the default mechanism. |
-| kafka\_username | Sets the SASL credentials used for this client. This key sets the username. |
-| kafka\_password | Sets the SASL credentials used for this client. This key sets the password. |
+| broker | List of host/port pairs to use for establishing the initial connection to the Kafka cluster. Comma separated values. |
+| client\_id | An id string to pass to the server when making requests. The purpose of this is to be able to track the source of requests beyond just ip/port by allowing a logical application name to be included in server-side request logging. |
+| security\_protocol | Protocol used to communicate with brokers. Valid values are: PLAINTEXT, SSL, SASL\_PLAINTEXT, SASL\_SSL |
+| sasl\_mechanism | SASL mechanism used for client connections. This may be any mechanism for which a security provider is available. GSSAPI is the default mechanism. |
+| username | Sets the SASL credentials used for this client. This key sets the username. |
+| password | Sets the SASL credentials used for this client. This key sets the password. |
 
 Update your Helm values (generated\_values.yaml) with the above configuration and run a Helm upgrade:
 

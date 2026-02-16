@@ -95,6 +95,7 @@ RUN apt-get update \
     git \
     apt-transport-https \
     gnupg2 \
+    tcpdump \
     && apt-get purge -y --auto-remove \
     && apt-get install -y --no-install-recommends libexpat1 \
     && rm -rf /var/lib/apt/lists/*

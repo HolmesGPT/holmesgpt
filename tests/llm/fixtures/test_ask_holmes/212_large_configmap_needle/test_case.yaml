@@ -1,0 +1,47 @@
+user_prompt: "In namespace app-212, there is a ConfigMap called platform-config with a data key 'platform-config.yaml'. That YAML has a top-level 'services' map where each service has a 'database.connection_string' field. What is the exact database connection_string for the 'payment-gateway' service?"
+
+expected_output:
+  - "Must report the exact database connection string: postgresql://admin@db-pmt-7k3m9x.internal.svc:5432/transactions_v2"
+  - "Must include the unique identifier 7k3m9x in the connection string"
+
+tags:
+  - kubernetes
+  - question-answer
+  - context_window
+  - easy
+
+before_test: |
+  set -e
+  kubectl create namespace app-212 --dry-run=client -o yaml | kubectl apply -f -
+
+  python3 generate_configs.py /tmp/holmesgpt-test-212-platform-config.yaml
+
+  kubectl delete configmap platform-config -n app-212 --ignore-not-found
+  kubectl create configmap platform-config \
+    --from-file=platform-config.yaml=/tmp/holmesgpt-test-212-platform-config.yaml \
+    -n app-212
+
+  # Verify needle is present (retry loop for eventual consistency)
+  VERIFIED=false
+  for i in $(seq 1 30); do
+    if kubectl get configmap platform-config -n app-212 -o jsonpath='{.data.platform-config\.yaml}' 2>/dev/null | grep -q '7k3m9x'; then
+      echo "Needle verified on attempt $i"
+      VERIFIED=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$VERIFIED" = false ]; then
+    echo "Needle value 7k3m9x not found in ConfigMap after 30 attempts"
+    exit 1
+  fi
+
+  rm -f /tmp/holmesgpt-test-212-platform-config.yaml
+  echo "Setup complete"
+
+include_tool_calls: true
+
+after_test: |
+  kubectl delete namespace app-212 --ignore-not-found
+  rm -f /tmp/holmesgpt-test-212-platform-config.yaml

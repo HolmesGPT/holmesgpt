@@ -8,7 +8,7 @@ import threading
 import urllib
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Dict, List, Optional, Type
 
 import pytest
 from pydantic import BaseModel
@@ -24,6 +24,7 @@ from holmes.core.tools import (
     YAMLToolset,
 )
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_file
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from tests.llm.utils.mock_dal import load_mock_dal
 
 
@@ -712,16 +713,32 @@ class MockToolsetManager:
         self, builtin_toolsets: List[Toolset], custom_definitions: List[Toolset]
     ) -> List[Toolset]:
         """Configure builtin toolsets with custom definitions."""
+        from holmes.plugins.toolsets.http.http_toolset import HttpToolset
+
         configured = []
 
         # First, validate that all custom definitions reference existing toolsets
+        # (except for HTTP and MCP toolsets which are dynamically created)
         builtin_names = {ts.name for ts in builtin_toolsets}
         for definition in custom_definitions:
+            # Skip validation for HTTP/MCP toolsets - they are not built-in
+            if isinstance(definition, (HttpToolset, RemoteMCPToolset)):
+                continue
             if definition.name not in builtin_names:
                 raise RuntimeError(
                     f"Toolset '{definition.name}' referenced in toolsets.yaml does not exist. "
                     f"Available toolsets: {', '.join(sorted(builtin_names))}"
                 )
+
+        # Collect HTTP toolsets from custom definitions - these override/replace built-ins
+        http_toolsets = {
+            d.name: d for d in custom_definitions if isinstance(d, HttpToolset)
+        }
+
+        # Collect MCP toolsets from custom definitions
+        mcp_toolsets = {
+            d.name: d for d in custom_definitions if isinstance(d, RemoteMCPToolset)
+        }
 
         mock_dal = load_mock_dal(
             test_case_folder=Path(self.test_case_folder),
@@ -729,6 +746,9 @@ class MockToolsetManager:
             initialize_base=False,
         )
         for toolset in builtin_toolsets:
+            # Skip built-in toolsets that are replaced by HTTP or MCP toolsets
+            if toolset.name in http_toolsets or toolset.name in mcp_toolsets:
+                continue
             # Replace RunbookToolset with one that has test folder search path
             if toolset.name == "runbook":
                 from holmes.plugins.toolsets.runbook.runbook_fetcher import (
@@ -831,10 +851,71 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                     # In MOCK mode, just set status to ENABLED for enabled toolsets
                     toolset.status = ToolsetStatusEnum.ENABLED
 
+        # Add HTTP toolsets from custom definitions (they override/replace built-ins)
+        for http_toolset in http_toolsets.values():
+            configured.append(http_toolset)
+
+            # Check prerequisites for enabled HTTP toolsets
+            if http_toolset.enabled:
+                toolset_mode = self._get_toolset_mode(http_toolset.name)
+                if toolset_mode == MockMode.LIVE or toolset_mode == MockMode.GENERATE:
+                    try:
+                        http_toolset.check_prerequisites()
+
+                        if (
+                            http_toolset.status != ToolsetStatusEnum.ENABLED
+                            and not self.allow_toolset_failures
+                        ):
+                            raise ToolsetPrerequisiteError(
+                                toolset_name=http_toolset.name,
+                                error_detail=http_toolset.error or "Unknown error",
+                            )
+                    except ToolsetPrerequisiteError:
+                        raise
+                    except Exception as e:
+                        raise ToolsetPrerequisiteError(
+                            toolset_name=http_toolset.name,
+                            error_detail=str(e),
+                        ) from e
+                else:
+                    # In MOCK mode, just set status to ENABLED for enabled toolsets
+                    http_toolset.status = ToolsetStatusEnum.ENABLED
+
+        # Add MCP toolsets from custom definitions
+        for mcp_toolset in mcp_toolsets.values():
+            configured.append(mcp_toolset)
+
+            # Check prerequisites for enabled MCP toolsets
+            if mcp_toolset.enabled:
+                toolset_mode = self._get_toolset_mode(mcp_toolset.name)
+                if toolset_mode == MockMode.LIVE or toolset_mode == MockMode.GENERATE:
+                    try:
+                        mcp_toolset.check_prerequisites()
+
+                        if (
+                            mcp_toolset.status != ToolsetStatusEnum.ENABLED
+                            and not self.allow_toolset_failures
+                        ):
+                            raise ToolsetPrerequisiteError(
+                                toolset_name=mcp_toolset.name,
+                                error_detail=mcp_toolset.error or "Unknown error",
+                            )
+                    except ToolsetPrerequisiteError:
+                        raise
+                    except Exception as e:
+                        raise ToolsetPrerequisiteError(
+                            toolset_name=mcp_toolset.name,
+                            error_detail=str(e),
+                        ) from e
+                else:
+                    # In MOCK mode, just set status to ENABLED for enabled toolsets
+                    mcp_toolset.status = ToolsetStatusEnum.ENABLED
+
         return configured
 
     def _wrap_enabled_toolsets(self):
         """Wrap tools with mock-aware wrappers for enabled toolsets based on their specific modes."""
+
         # For each enabled toolset, determine its specific mode and wrap if needed
         for i, toolset in enumerate(self.toolsets):
             # Only wrap enabled toolsets
@@ -844,6 +925,9 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                     continue
                 # Never mock the core_investigation toolset - TodoWrite and other investigation tools should always run live
                 if toolset.name == "core_investigation":
+                    continue
+                # Never mock MCP toolsets - they connect to remote MCP servers and should always run live
+                if isinstance(toolset, RemoteMCPToolset):
                     continue
 
                 # Determine the mode for this specific toolset

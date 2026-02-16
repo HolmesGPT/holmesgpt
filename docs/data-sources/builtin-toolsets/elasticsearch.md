@@ -26,7 +26,7 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
       elasticsearch/data:
         enabled: true
         config:
-          url: "https://your-cluster.es.cloud.io:443"
+          api_url: "https://your-cluster.es.cloud.io:443"
           api_key: "your-api-key"
           # Alternative: use basic auth instead of api_key
           # username: "elastic"
@@ -34,7 +34,7 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
       elasticsearch/cluster:
         enabled: true
         config:
-          url: "https://your-cluster.es.cloud.io:443"
+          api_url: "https://your-cluster.es.cloud.io:443"
           api_key: "your-api-key"
           # Alternative: use basic auth instead of api_key
           # username: "elastic"
@@ -68,7 +68,7 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
       elasticsearch/data:
         enabled: true
         config:
-          url: "{{ env.ELASTICSEARCH_URL }}"
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
           # username: "{{ env.ELASTICSEARCH_USERNAME }}"
@@ -76,7 +76,7 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
       elasticsearch/cluster:
         enabled: true
         config:
-          url: "{{ env.ELASTICSEARCH_URL }}"
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
           # username: "{{ env.ELASTICSEARCH_USERNAME }}"
@@ -108,7 +108,7 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
         elasticsearch/data:
           enabled: true
           config:
-            url: "{{ env.ELASTICSEARCH_URL }}"
+            api_url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
             # Alternative: use basic auth instead of api_key
             # username: "{{ env.ELASTICSEARCH_USERNAME }}"
@@ -116,7 +116,7 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
         elasticsearch/cluster:
           enabled: true
           config:
-            url: "{{ env.ELASTICSEARCH_URL }}"
+            api_url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
             # Alternative: use basic auth instead of api_key
             # username: "{{ env.ELASTICSEARCH_USERNAME }}"
@@ -143,7 +143,7 @@ The toolsets support multiple authentication methods:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `verify_ssl` | `true` | Verify SSL certificates |
-| `timeout` | `10` | Request timeout in seconds |
+| `timeout_seconds` | `10` | Request timeout in seconds |
 
 ## Tools
 
@@ -172,14 +172,14 @@ The toolsets support multiple authentication methods:
 
 ## OpenSearch Compatibility
 
-These toolsets are fully compatible with OpenSearch clusters. Simply point the `url` to your OpenSearch endpoint:
+These toolsets are fully compatible with OpenSearch clusters. Simply point the `api_url` to your OpenSearch endpoint:
 
 ```yaml
 toolsets:
   elasticsearch/data:
     enabled: true
     config:
-      url: "https://your-opensearch-cluster:9200"
+      api_url: "https://your-opensearch-cluster:9200"
       username: "admin"
       password: "your-password"
       verify_ssl: true

@@ -10,9 +10,9 @@ toolsets:
   kafka/admin:
     enabled: true
     config:
-      kafka_clusters:
+      clusters:
         - name: "kafka"
-          kafka_broker: "kafka:9092" # local DNS likely need to resolve kafka to localhost
+          broker: "kafka:9092" # local DNS likely need to resolve kafka to localhost
 
   aks/core:
     enabled: false
