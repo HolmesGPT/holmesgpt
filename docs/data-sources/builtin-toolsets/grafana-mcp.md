@@ -27,7 +27,7 @@ The Grafana MCP server provides comprehensive access to your Grafana instance an
       grafana:
         description: "Grafana observability and dashboards"
         config:
-          url: "http://localhost:8000/mcp"
+          url: "https://your-grafana-instance/mcp"
           mode: streamable-http
           extra_headers:
             X-Grafana-API-Key: "<YOUR_TOKEN>"
@@ -69,7 +69,7 @@ The Grafana MCP server provides comprehensive access to your Grafana instance an
       grafana:
         description: "Grafana observability and dashboards"
         config:
-          url: "http://grafana-mcp.holmes-mcp.svc.cluster.local:8000/mcp"  # Change holmes-mcp to your namespace
+          url: "https://your-grafana-instance/mcp"
           mode: streamable-http
           extra_headers:
             X-Grafana-API-Key: "{{ env.GRAFANA_API_KEY }}"
@@ -114,7 +114,7 @@ The Grafana MCP server provides comprehensive access to your Grafana instance an
         grafana:
           description: "Grafana observability and dashboards"
           config:
-            url: "http://grafana-mcp.holmes-mcp.svc.cluster.local:8000/mcp"  # Change holmes-mcp to your namespace
+            url: "https://your-grafana-instance/mcp"
             mode: streamable-http
             extra_headers:
               X-Grafana-API-Key: "{{ env.GRAFANA_API_KEY }}"
@@ -158,19 +158,6 @@ The Grafana MCP server exposes ~57 tools organized by category:
 For the full list of tools, see the [Grafana MCP Server documentation](https://github.com/grafana/mcp-grafana).
 
 ## Testing the Connection
-
-```bash
-# Verify the MCP server pod is running
-kubectl get pods -l app=grafana-mcp
-
-# Check logs for errors
-kubectl logs -l app=grafana-mcp
-
-# Port-forward for local testing
-kubectl port-forward svc/grafana-mcp 8000:8000
-```
-
-Then test with Holmes:
 
 ```bash
 holmes ask "List all Grafana dashboards"
