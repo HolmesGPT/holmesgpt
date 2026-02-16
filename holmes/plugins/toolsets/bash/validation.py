@@ -327,7 +327,7 @@ def validate_command(
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message="Command contains complex syntax which requires approval.",
-            prefixes_needing_approval=suggested_prefixes,
+            prefixes_needing_approval=[],
         )
 
     # Validate each segment against deny/allow lists
@@ -343,8 +343,17 @@ def validate_command(
         if result.status == ValidationStatus.APPROVAL_REQUIRED:
             unapproved_segments.append(segment)
 
-    # Compound commands always require approval, even if all segments are allowed
-    if contains_compound_command or unapproved_segments:
+    # Compound commands always require approval, even if all segments are allowed.
+    # Only unapproved-segment approvals save prefixes to the allow list —
+    # compound and unparseable approvals are one-time only.
+    if contains_compound_command:
+        return ValidationResult(
+            status=ValidationStatus.APPROVAL_REQUIRED,
+            message="Contains compound statements (for/while/if/etc).",
+            prefixes_needing_approval=[],
+        )
+
+    if unapproved_segments:
         prefixes_needing_approval = list(
             dict.fromkeys(
                 prefix
@@ -352,13 +361,9 @@ def validate_command(
                 if not any(match_prefix(prefix, allowed) for allowed in allow_list)
             )
         )
-        if contains_compound_command:
-            message = "Contains compound statements (for/while/if/etc)."
-        else:
-            message = f"Segment(s) not in allow list: {', '.join(repr(s) for s in unapproved_segments)}"
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
-            message=message,
+            message=f"Segment(s) not in allow list: {', '.join(repr(s) for s in unapproved_segments)}",
             prefixes_needing_approval=prefixes_needing_approval,
         )
 

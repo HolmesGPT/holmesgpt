@@ -848,7 +848,7 @@ class TestCompoundStatements:
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         assert result.message == "Command contains complex syntax which requires approval."
-        assert result.prefixes_needing_approval == ["echo"]
+        assert result.prefixes_needing_approval == []
 
     # ==================== Subshells: validated via segment checking ====================
 
