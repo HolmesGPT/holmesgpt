@@ -22,6 +22,7 @@ nav:
           - "Python SDK": installation/python-installation.md
     - Walkthrough:
           - "Overview": walkthrough/index.md
+          - "Recommended Setup": walkthrough/recommended-setup.md
           - "Interactive Mode": walkthrough/interactive-mode.md
           - "CI/CD Troubleshooting": walkthrough/cicd-troubleshooting.md
           - "Investigating Prometheus Alerts": walkthrough/investigating-prometheus-alerts.md

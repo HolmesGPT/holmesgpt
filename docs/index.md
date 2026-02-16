@@ -34,6 +34,10 @@ AI Agent for Troubleshooting Cloud-Native Environments.
 
 </div>
 
+## Already Installed?
+
+**[Connect your data sources](walkthrough/recommended-setup.md)** to unlock deeper investigations with metrics, logs, and cloud provider access.
+
 ## Need Help?
 
 - **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
