@@ -19,23 +19,21 @@ pip install "https://github.com/HolmesGPT/holmesgpt/archive/refs/heads/master.zi
 import os
 from holmes.config import Config
 from holmes.core.prompt import build_initial_ask_messages
-from rich.console import Console
 
 print("🚀 Initializing HolmesGPT...")
 
 # Create configuration
 print("Creating configuration...")
 config = Config(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    model="gpt-4.1",
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    model="anthropic/claude-sonnet-4-5-20250929",
     max_steps=10
 )
 print(f"✅ Configuration created with model: {config.model}")
 
-# Create AI instance and console
+# Create AI instance
 print("Creating AI instance...")
 ai = config.create_console_toolcalling_llm()
-console = Console()
 print("✅ AI instance ready")
 
 # Ask a question
@@ -44,7 +42,6 @@ print(f"\n🔍 Asking: '{question}'")
 
 # Build initial messages with system prompt
 messages = build_initial_ask_messages(
-    console=console,
     initial_user_prompt=question,
     file_paths=None,
     tool_executor=ai.tool_executor,
@@ -70,28 +67,26 @@ Complete example of using HolmesGPT Python SDK with progress tracking
 import os
 from holmes.config import Config
 from holmes.core.prompt import build_initial_ask_messages
-from rich.console import Console
 
 def main():
     print("🚀 Starting HolmesGPT Python SDK Example")
     print("=" * 60)
 
-    # Set API key (you can also set OPENAI_API_KEY environment variable)
-    api_key = os.getenv("OPENAI_API_KEY", "your-api-key-here")
+    # Set API key (you can also set ANTHROPIC_API_KEY environment variable)
+    api_key = os.getenv("ANTHROPIC_API_KEY", "your-api-key-here")
 
     print("Step 1: Creating configuration...")
     # Create configuration
     config = Config(
         api_key=api_key,
-        model="gpt-4.1",
+        model="anthropic/claude-sonnet-4-5-20250929",
         max_steps=10
     )
     print(f"✅ Configuration created with model: {config.model}")
 
     print("\nStep 2: Creating AI instance...")
-    # Create AI instance and console
+    # Create AI instance
     ai = config.create_console_toolcalling_llm()
-    console = Console()
     print("✅ AI instance created successfully")
 
     print("\nStep 3: Listing available toolsets...")
@@ -125,7 +120,6 @@ def main():
 
             # Build initial messages
             messages = build_initial_ask_messages(
-                console=console,
                 initial_user_prompt=question,
                 file_paths=None,
                 tool_executor=ai.tool_executor,
@@ -165,7 +159,7 @@ Save this as `holmesgpt_tool_details_example.py` and run:
 
 ```bash
 # Make sure your API key is set
-export OPENAI_API_KEY="your-actual-api-key"
+export ANTHROPIC_API_KEY="your-actual-api-key"
 
 # Run the example
 python holmesgpt_tool_details_example.py
@@ -192,9 +186,7 @@ Example showing how to ask follow-up questions with conversation context
 
 import os
 from holmes.config import Config
-from holmes.plugins.prompts import load_and_render_prompt
 from holmes.core.prompt import build_initial_ask_messages
-from rich.console import Console
 
 def main():
     print("🚀 Starting HolmesGPT Follow-up Questions Example")
@@ -202,14 +194,13 @@ def main():
 
     # Create configuration
     config = Config(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        model="gpt-4.1",
+        api_key=os.getenv("ANTHROPIC_API_KEY"),
+        model="anthropic/claude-sonnet-4-5-20250929",
         max_steps=10
     )
 
-    # Create AI instance and console
+    # Create AI instance
     ai = config.create_console_toolcalling_llm()
-    console = Console()
 
     # First question
     print("\n🔍 First Question:")
@@ -218,7 +209,6 @@ def main():
 
     # Build initial messages (includes system prompt + first user message)
     messages = build_initial_ask_messages(
-        console=console,
         initial_user_prompt=first_question,
         file_paths=None,
         tool_executor=ai.tool_executor,
@@ -279,15 +269,15 @@ from holmes.config import Config
 # Basic configuration example
 config = Config(
     api_key="your-api-key",
-    model="gpt-4.1",  # or "anthropic/claude-sonnet-4-20250514", etc.
+    model="anthropic/claude-sonnet-4-5-20250929",
     max_steps=10
 )
 
-# Minimal configuration (API key only)
+# Minimal configuration (API key only, uses default model gpt-4.1)
 config = Config(api_key="your-api-key")
 
 # Environment-based configuration
-config = Config()  # Will auto-detect API key from OPENAI_API_KEY
+config = Config()  # Will auto-detect API key from environment variables
 ```
 
 ### Advanced Configuration
@@ -299,7 +289,7 @@ from holmes.config import Config
 config = Config(
     # LLM settings
     api_key="your-api-key",
-    model="gpt-4.1",
+    model="anthropic/claude-sonnet-4-5-20250929",
     max_steps=10,
 
     # Custom toolsets
@@ -344,22 +334,21 @@ Instead of passing `api_key` to the Config constructor, you can set these enviro
 
 ```bash
 # AI Provider (choose one)
-export OPENAI_API_KEY="your-openai-key"
 export ANTHROPIC_API_KEY="your-anthropic-key"
-export GOOGLE_API_KEY="your-google-key"
+export OPENAI_API_KEY="your-openai-key"
+export GEMINI_API_KEY="your-google-key"
 
 # Optional: Custom configuration
 export HOLMES_CONFIG_PATH="/path/to/config.yaml"
 export HOLMES_LOG_LEVEL="INFO"
-
 ```
 
-> **📚 See Also:** Check the [Environment Variables Reference](../reference/environment-variables.md) for complete documentation of all available environment variables.
+> **See Also:** Check the [Environment Variables Reference](../reference/environment-variables.md) for complete documentation of all available environment variables.
 
 **Usage with environment variables:**
 ```python
 import os
-os.environ["OPENAI_API_KEY"] = "your-api-key"
+os.environ["ANTHROPIC_API_KEY"] = "your-api-key"
 
 config = Config()  # Will auto-detect API key from environment
 ```
