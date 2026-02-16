@@ -116,6 +116,7 @@ class TestMaxPointsOverride:
         import holmes.plugins.toolsets.prometheus.prometheus as prom_module
 
         monkeypatch.setattr(prom_module, "MAX_GRAPH_POINTS", 500.0)
+        monkeypatch.setattr(prom_module, "MAX_GRAPH_POINTS_HARD_LIMIT", 1000.0)
 
         # 1 hour range, requesting 1000 points -> step = 3600/1000 = 3.6
         result = adjust_step_for_max_points(
@@ -127,10 +128,11 @@ class TestMaxPointsOverride:
         assert result == 3.6
 
     def test_override_capped_at_hard_limit(self, monkeypatch):
-        """Override cannot exceed 2x MAX_GRAPH_POINTS (hard limit)."""
+        """Override cannot exceed MAX_GRAPH_POINTS_HARD_LIMIT."""
         import holmes.plugins.toolsets.prometheus.prometheus as prom_module
 
         monkeypatch.setattr(prom_module, "MAX_GRAPH_POINTS", 500.0)
+        monkeypatch.setattr(prom_module, "MAX_GRAPH_POINTS_HARD_LIMIT", 1000.0)
 
         # Hard limit is 500 * 2 = 1000
         # Requesting 2000 should be capped at 1000
@@ -179,6 +181,7 @@ class TestMaxPointsOverride:
         import holmes.plugins.toolsets.prometheus.prometheus as prom_module
 
         monkeypatch.setattr(prom_module, "MAX_GRAPH_POINTS", 500.0)
+        monkeypatch.setattr(prom_module, "MAX_GRAPH_POINTS_HARD_LIMIT", 1000.0)
 
         # 1 hour range, step=1 (would give 3600 points), max_points=1000
         # 3600 > 1000, so adjusted_step = 3600/1000 = 3.6
