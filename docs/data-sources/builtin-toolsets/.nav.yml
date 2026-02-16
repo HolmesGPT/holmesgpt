@@ -16,6 +16,7 @@ nav:
   - Elasticsearch / OpenSearch: elasticsearch.md
   - GCP (MCP): gcp.md
   - GitHub (MCP): github-mcp.md
+  - Grafana (MCP): grafana-mcp.md
   - Grafana Dashboards: grafanadashboards.md
   - Loki: grafanaloki.md
   - Tempo: grafanatempo.md

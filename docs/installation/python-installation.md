@@ -295,16 +295,15 @@ config = Config()  # Will auto-detect API key from OPENAI_API_KEY
 ```python
 from holmes.config import Config
 
-# Complete configuration with custom toolsets and runbooks
+# Complete configuration with custom toolsets
 config = Config(
     # LLM settings
     api_key="your-api-key",
     model="gpt-4.1",
     max_steps=10,
 
-    # Custom toolsets and runbooks
+    # Custom toolsets
     custom_toolsets=["/path/to/custom/toolset.yaml"],
-    custom_runbooks=["/path/to/custom/runbook.yaml"],
 )
 ```
 
@@ -320,7 +319,6 @@ Main configuration class for HolmesGPT.
 - `model` (str, optional) - Model to use (default: "gpt-4.1")
 - `max_steps` (int, optional) - Maximum investigation steps (default: 10)
 - `custom_toolsets` (list, optional) - Custom toolset file paths
-- `custom_runbooks` (list, optional) - Custom runbook file paths
 
 **Class Methods:**
 

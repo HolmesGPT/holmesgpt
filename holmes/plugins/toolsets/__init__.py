@@ -70,6 +70,13 @@ def load_toolsets_from_file(
                 f"Failed to load toolsets from {toolsets_path}: file is empty or invalid YAML."
             )
         toolsets_dict = parsed_yaml.get("toolsets", {})
+        mcp_config = parsed_yaml.get("mcp_servers", {})
+
+        for server_config in mcp_config.values():
+            server_config["type"] = ToolsetType.MCP.value
+            server_config.setdefault("enabled", True)
+
+        toolsets_dict.update(mcp_config)
 
         toolsets.extend(load_toolsets_from_config(toolsets_dict, strict_check))
 

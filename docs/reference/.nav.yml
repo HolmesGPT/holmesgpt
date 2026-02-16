@@ -2,6 +2,7 @@ nav:
   - Environment Variables: environment-variables.md
   - Helm Configuration: helm-configuration.md
   - Kubernetes Permissions: kubernetes-permissions.md
+  - Microsoft Teams Bot Permissions: teams-permissions.md
   - HTTP API: http-api.md
   - Slash Commands: slash-commands.md
   - Troubleshooting: troubleshooting.md

@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
 from requests.exceptions import SSLError  # type: ignore
 
-from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
+from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS, MAX_GRAPH_POINTS_HARD_LIMIT
 from holmes.common.openshift import load_openshift_token
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -31,6 +31,7 @@ from holmes.core.tools import (
 )
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.core.tools_utils.tool_context_window_limiter import get_pct_token_count
+from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.logging_utils.logging_api import (
@@ -463,23 +464,31 @@ def adjust_step_for_max_points(
     """
     Adjusts the step parameter to ensure the number of data points doesn't exceed max_points.
 
+    The default max_points is MAX_GRAPH_POINTS (env var, default 500). The LLM can override
+    this to request higher resolution (up to 2x the default) for simple low-cardinality
+    queries, or lower resolution for overview graphs. Token-based truncation provides
+    an additional safety net for responses that are too large.
+
     Args:
         start_timestamp: RFC3339 formatted start time
         end_timestamp: RFC3339 formatted end time
         step: The requested step duration in seconds (None for auto-calculation)
-        max_points_override: Optional override for max points (must be <= MAX_GRAPH_POINTS)
+        max_points_override: Optional override for max points. Can exceed MAX_GRAPH_POINTS
+            up to 2x the default to allow higher resolution for low-cardinality queries.
 
     Returns:
         Adjusted step value in seconds that ensures points <= max_points
     """
+    hard_limit = MAX_GRAPH_POINTS_HARD_LIMIT
+
     # Use override if provided and valid, otherwise use default
     max_points = MAX_GRAPH_POINTS
     if max_points_override is not None:
-        if max_points_override > MAX_GRAPH_POINTS:
+        if max_points_override > hard_limit:
             logging.warning(
-                f"max_points override ({max_points_override}) exceeds system limit ({MAX_GRAPH_POINTS}), using {MAX_GRAPH_POINTS}"
+                f"max_points override ({max_points_override}) exceeds hard limit ({hard_limit}), using {hard_limit}"
             )
-            max_points = MAX_GRAPH_POINTS
+            max_points = hard_limit
         elif max_points_override < 1:
             logging.warning(
                 f"max_points override ({max_points_override}) is invalid, using default {MAX_GRAPH_POINTS}"
@@ -494,12 +503,11 @@ def adjust_step_for_max_points(
 
     time_range_seconds = (end_dt - start_dt).total_seconds()
 
-    # If no step provided, calculate a reasonable default
-    # Aim for ~60 data points across the time range (1 per minute for hourly, etc)
+    # If no step provided, calculate default targeting max_points data points
     if step is None:
-        step = max(1, time_range_seconds / 60)
+        step = max(1, time_range_seconds / max_points)
         logging.debug(
-            f"No step provided, defaulting to {step}s for {time_range_seconds}s range"
+            f"No step provided, defaulting to {step}s for {time_range_seconds}s range (targeting {max_points} points)"
         )
 
     current_points = time_range_seconds / step
@@ -1542,7 +1550,11 @@ class ExecuteRangeQuery(BasePrometheusTool):
                     required=False,
                 ),
                 "step": ToolParameter(
-                    description="Query resolution step width in duration format or float number of seconds",
+                    description=(
+                        "Query resolution step width in duration format or float number of seconds. "
+                        "Smaller step = higher resolution but more data points. "
+                        "If not provided, automatically calculated from the time range and max_points."
+                    ),
                     type="number",
                     required=False,
                 ),
@@ -1562,9 +1574,10 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 ),
                 "max_points": ToolParameter(
                     description=(
-                        f"Maximum number of data points to return. Default: {int(MAX_GRAPH_POINTS)}. "
-                        f"Can be reduced to get fewer data points (e.g., 50 for simpler graphs). "
-                        f"Cannot exceed system limit of {int(MAX_GRAPH_POINTS)}. "
+                        f"Maximum number of data points per series. Default: {int(MAX_GRAPH_POINTS)}. "
+                        f"Only increase above default for queries returning few time series (1-3 series). "
+                        f"Decrease for high-cardinality queries (e.g., 50) to avoid hitting maximum number of data points. "
+                        f"Maximum: {int(MAX_GRAPH_POINTS_HARD_LIMIT)}. "
                         f"If your query would return more points than this limit, the step will be automatically adjusted."
                     ),
                     type="number",
@@ -1794,7 +1807,16 @@ class PrometheusToolset(Toolset):
         template_file_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "prometheus_instructions.jinja2")
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+        tool_names = [t.name for t in self.tools]
+        self.llm_instructions = load_and_render_prompt(
+            prompt=f"file://{template_file_path}",
+            context={
+                "tool_names": tool_names,
+                "config": self.config,
+                "default_max_points": int(MAX_GRAPH_POINTS),
+                "hard_max_points": int(MAX_GRAPH_POINTS_HARD_LIMIT),
+            },
+        )
 
     def determine_prometheus_class(
         self, config: dict[str, Any]

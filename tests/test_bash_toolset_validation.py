@@ -4,8 +4,11 @@ Unit tests for the bash toolset validation module.
 Tests prefix-based command validation, subshell detection, and allow/deny list handling.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 
+from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset, RunBashCommand
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,
@@ -16,11 +19,10 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     EXTENDED_ALLOW_LIST,
 )
 from holmes.plugins.toolsets.bash.validation import (
-    CompoundStatementError,
     DenyReason,
     ValidationStatus,
+    check_blocked_in_raw_command,
     check_hardcoded_blocks,
-    detect_subshells,
     get_effective_lists,
     match_prefix,
     match_prefix_for_deny,
@@ -126,78 +128,70 @@ class TestParseCommandSegments:
 
     def test_simple_command(self):
         """Test parsing a simple command."""
-        segments = parse_command_segments("kubectl get pods")
+        segments, has_compound = parse_command_segments("kubectl get pods")
         assert segments == ["kubectl get pods"]
+        assert not has_compound
 
     def test_piped_command(self):
         """Test parsing a piped command."""
-        segments = parse_command_segments("kubectl get pods | grep error")
+        segments, has_compound = parse_command_segments("kubectl get pods | grep error")
         assert segments == ["kubectl get pods", "grep error"]
+        assert not has_compound
 
     def test_multiple_pipes(self):
         """Test parsing multiple pipes."""
-        segments = parse_command_segments("kubectl get pods | grep error | head -10")
+        segments, has_compound = parse_command_segments("kubectl get pods | grep error | head -10")
         assert segments == ["kubectl get pods", "grep error", "head -10"]
+        assert not has_compound
 
     def test_and_operator(self):
         """Test parsing && operator."""
-        segments = parse_command_segments("mkdir test && cd test")
+        segments, has_compound = parse_command_segments("mkdir test && cd test")
         assert segments == ["mkdir test", "cd test"]
+        assert not has_compound
 
     def test_or_operator(self):
         """Test parsing || operator."""
-        segments = parse_command_segments("test -f file.txt || touch file.txt")
+        segments, has_compound = parse_command_segments("test -f file.txt || touch file.txt")
         assert segments == ["test -f file.txt", "touch file.txt"]
+        assert not has_compound
 
     def test_semicolon_operator(self):
         """Test parsing ; operator."""
-        segments = parse_command_segments("echo hello; echo world")
+        segments, has_compound = parse_command_segments("echo hello; echo world")
         assert segments == ["echo hello", "echo world"]
+        assert not has_compound
 
     def test_background_operator(self):
         """Test parsing & operator."""
-        segments = parse_command_segments("sleep 10 & echo done")
+        segments, has_compound = parse_command_segments("sleep 10 & echo done")
         assert segments == ["sleep 10", "echo done"]
+        assert not has_compound
 
-    def test_invalid_pipe_syntax_rejected(self):
-        """Test that invalid pipe syntax (empty segments) is rejected."""
-        # Invalid bash: pipe with no left side
-        with pytest.raises(CompoundStatementError):
+    def test_invalid_pipe_syntax_raises(self):
+        """Test that invalid pipe syntax raises a parsing error."""
+        import bashlex
+
+        with pytest.raises(bashlex.errors.ParsingError):
             parse_command_segments("  |  kubectl get pods  |  ")
 
+    def test_for_loop_extracts_inner_segments(self):
+        """For loop returns inner command segments with compound flag."""
+        segments, has_compound = parse_command_segments('for i in 1 2 3; do echo "$i"; done')
+        assert has_compound
+        assert len(segments) > 0
+        assert any("echo" in s for s in segments)
 
-class TestDetectSubshells:
-    """Tests for subshell detection."""
+    def test_if_statement_extracts_inner_segments(self):
+        """If statement returns inner command segments with compound flag."""
+        segments, has_compound = parse_command_segments("if [ -f file ]; then cat file; fi")
+        assert has_compound
+        assert len(segments) > 0
 
-    def test_no_subshell(self):
-        """Test that commands without subshells pass."""
-        assert not detect_subshells("kubectl get pods")
-        assert not detect_subshells("echo hello world")
-        assert not detect_subshells("ls -la /var/log")
-
-    def test_dollar_paren_subshell(self):
-        """Test detection of $() subshells."""
-        assert detect_subshells("echo $(whoami)")
-        assert detect_subshells("kubectl get pods -n $(kubectl config current-context)")
-
-    def test_backtick_subshell(self):
-        """Test detection of backtick subshells."""
-        assert detect_subshells("echo `whoami`")
-        assert detect_subshells("kubectl get pods -n `kubectl config current-context`")
-
-    def test_process_substitution_input(self):
-        """Test detection of <() process substitution."""
-        assert detect_subshells("diff <(cat file1) <(cat file2)")
-
-    def test_process_substitution_output(self):
-        """Test detection of >() process substitution."""
-        assert detect_subshells("tee >(cat > file)")
-
-    def test_env_vars_allowed(self):
-        """Test that environment variables are allowed."""
-        assert not detect_subshells("echo $HOME")
-        assert not detect_subshells("ls ${HOME}/projects")
-        assert not detect_subshells("echo $USER at $HOSTNAME")
+    def test_case_statement_raises(self):
+        """Case statement (unsupported by bashlex) raises NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            parse_command_segments("case $x in 1) echo one;; 2) echo two;; esac")
 
 
 class TestCheckHardcodedBlocks:
@@ -233,6 +227,46 @@ class TestCheckHardcodedBlocks:
         # But these SHOULD be blocked - 'su' is the actual command
         assert check_hardcoded_blocks("su") == "su"
         assert check_hardcoded_blocks("su -") == "su"
+
+
+class TestCheckBlockedInRawCommand:
+    """Tests for blocked pattern detection in raw (unparsed) commands."""
+
+    def test_sudo_in_compound_detected(self):
+        """Test that sudo inside a compound command is detected."""
+        assert check_blocked_in_raw_command("for i in 1 2; do sudo echo $i; done", HARDCODED_BLOCKS) == "sudo"
+
+    def test_su_in_compound_detected(self):
+        """Test that su inside a compound command is detected."""
+        assert check_blocked_in_raw_command("if true; then su - root; fi", HARDCODED_BLOCKS) == "su"
+
+    def test_sudo_in_subshell_detected(self):
+        """Test that sudo inside a subshell is detected."""
+        assert check_blocked_in_raw_command("echo $(sudo whoami)", HARDCODED_BLOCKS) == "sudo"
+
+    def test_normal_compound_not_blocked(self):
+        """Test that normal compound commands are not blocked."""
+        assert check_blocked_in_raw_command("for i in 1 2 3; do echo $i; done", HARDCODED_BLOCKS) is None
+
+    def test_no_false_positives_from_substring(self):
+        """Test that words containing 'su' as substring are NOT blocked."""
+        assert check_blocked_in_raw_command("for f in issue result; do echo $f; done", HARDCODED_BLOCKS) is None
+        assert check_blocked_in_raw_command("echo sum", HARDCODED_BLOCKS) is None
+
+    def test_case_insensitive(self):
+        """Test that blocking is case-insensitive."""
+        assert check_blocked_in_raw_command("for i in 1; do SUDO echo $i; done", HARDCODED_BLOCKS) == "sudo"
+
+    def test_deny_list_pattern_detected(self):
+        """Test that deny list patterns are detected in raw commands."""
+        deny_list = ["kubectl get secret", "rm"]
+        assert check_blocked_in_raw_command("case $x in 1) kubectl get secret;; esac", deny_list) == "kubectl get secret"
+        assert check_blocked_in_raw_command("case $x in 1) rm -rf /tmp;; esac", deny_list) == "rm"
+
+    def test_deny_list_no_false_positives(self):
+        """Test that deny list scanning doesn't have false positives from substrings."""
+        deny_list = ["rm"]
+        assert check_blocked_in_raw_command("case $x in 1) echo format;; esac", deny_list) is None
 
 
 class TestGetEffectiveLists:
@@ -415,18 +449,31 @@ class TestValidateCommand:
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
 
-    def test_subshell_detection(self):
-        """Test that subshells are blocked."""
+    def test_subshell_all_allowed_is_allowed(self):
+        """Subshell where all inner commands are in the allow list is allowed."""
         config = BashExecutorConfig(allow=["echo"])
         allow_list, deny_list = get_effective_lists(config)
+        # kubectl get is in CORE_ALLOW_LIST, echo is in allow - all segments allowed
         result = validate_command(
             "echo $(kubectl get secret)",
             ["echo"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_subshell_inner_not_allowed_requires_approval(self):
+        """Subshell with inner commands not in allow list requires approval."""
+        config = BashExecutorConfig(allow=["echo"], builtin_allowlist="none")
+        allow_list, deny_list = get_effective_lists(config)
+        # Only echo is allowed, curl is not
+        result = validate_command(
+            "echo $(curl http://example.com)",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
 
     def test_prefix_count_does_not_need_to_match_segment_count(self):
         """Test that prefix count doesn't need to match segment count."""
@@ -602,10 +649,10 @@ class TestUserConfiguredDenyList:
 
 
 class TestCompoundStatements:
-    """Tests for compound statement detection and rejection.
+    """Tests for compound statement handling.
 
-    Only simple one-liner commands are supported. Compound statements like
-    for loops, while loops, if statements, etc. are NOT supported.
+    Compound statements (for, while, if, case) require user approval.
+    Inner command segments are still validated against deny/allow lists.
     """
 
     # ==================== SUPPORTED: Simple one-liner commands ====================
@@ -706,104 +753,124 @@ class TestCompoundStatements:
         )
         assert result.status == ValidationStatus.ALLOWED
 
-    # ==================== NOT SUPPORTED: Compound statements ====================
+    # ==================== REQUIRES APPROVAL: Compound statements ====================
 
-    def test_for_loop_rejected(self):
-        """For loop is NOT supported."""
+    def test_for_loop_requires_approval(self):
+        """For loop requires user approval even when all prefixes are allowed."""
         config = BashExecutorConfig(allow=["for", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             'for i in 1 2 3 4 5; do echo "Iteration: $i"; done',
-            ["for"],
+            ["echo"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
-    def test_for_loop_with_command_rejected(self):
-        """For loop iterating over command output is NOT supported."""
+    def test_for_loop_with_command_requires_approval(self):
+        """For loop iterating over command output requires user approval even when prefixes are allowed."""
         config = BashExecutorConfig(allow=["for", "kubectl"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "for pod in pod1 pod2; do kubectl logs $pod; done",
-            ["for"],
+            ["kubectl logs"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
-    def test_while_loop_rejected(self):
-        """While loop is NOT supported."""
+    def test_while_loop_requires_approval(self):
+        """While loop requires user approval (sleep not in allow list)."""
         config = BashExecutorConfig(allow=["while", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "while true; do echo 'running'; sleep 1; done",
-            ["while"],
+            ["echo"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
-    def test_until_loop_rejected(self):
-        """Until loop is NOT supported."""
+    def test_until_loop_requires_approval(self):
+        """Until loop requires user approval (false not in allow list)."""
         config = BashExecutorConfig(allow=["until", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "until false; do echo 'running'; done",
-            ["until"],
+            ["echo"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
-    def test_if_statement_rejected(self):
-        """If statement is NOT supported."""
+    def test_if_statement_requires_approval(self):
+        """If statement requires user approval ([ not in allow list)."""
         config = BashExecutorConfig(allow=["if", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "if [ -f /tmp/test ]; then echo 'exists'; fi",
-            ["if"],
+            ["echo"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
-    def test_if_else_statement_rejected(self):
-        """If-else statement is NOT supported."""
+    def test_if_else_statement_requires_approval(self):
+        """If-else statement requires user approval ([ not in allow list)."""
         config = BashExecutorConfig(allow=["if", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "if [ -f /tmp/test ]; then echo 'yes'; else echo 'no'; fi",
-            ["if"],
+            ["echo"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
-    def test_case_statement_rejected(self):
-        """Case statement is NOT supported."""
+    def test_case_statement_requires_approval(self):
+        """Case statement requires user approval."""
         config = BashExecutorConfig(allow=["case", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "case $x in 1) echo one;; 2) echo two;; esac",
-            ["case"],
+            ["echo"],
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.COMPOUND_STATEMENT
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Command contains complex syntax which requires approval."
+        assert result.prefixes_needing_approval == []
 
-    # ==================== NOT SUPPORTED: Subshells ====================
+    # ==================== Subshells: validated via segment checking ====================
 
-    def test_command_substitution_dollar_paren_rejected(self):
-        """Command substitution $() is NOT supported."""
+    def test_command_substitution_dollar_paren_all_allowed(self):
+        """Command substitution $() with all inner commands allowed is allowed."""
         config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        # Both echo and whoami are in CORE_ALLOW_LIST
+        result = validate_command(
+            "echo $(whoami)",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_command_substitution_dollar_paren_inner_not_allowed(self):
+        """Command substitution $() with inner command not allowed requires approval."""
+        config = BashExecutorConfig(allow=["echo"], builtin_allowlist="none")
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "echo $(whoami)",
@@ -811,12 +878,25 @@ class TestCompoundStatements:
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert "Segment(s) not in allow list: 'whoami'" in result.message
 
-    def test_command_substitution_backticks_rejected(self):
-        """Command substitution with backticks is NOT supported."""
+    def test_command_substitution_backticks_all_allowed(self):
+        """Command substitution with backticks with all commands allowed is allowed."""
         config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        # Both echo and whoami are in CORE_ALLOW_LIST
+        result = validate_command(
+            "echo `whoami`",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_command_substitution_backticks_inner_not_allowed(self):
+        """Command substitution with backticks with inner not allowed requires approval."""
+        config = BashExecutorConfig(allow=["echo"], builtin_allowlist="none")
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
             "echo `whoami`",
@@ -824,11 +904,11 @@ class TestCompoundStatements:
             allow_list,
             deny_list,
         )
-        assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert "Segment(s) not in allow list: 'whoami'" in result.message
 
-    def test_process_substitution_rejected(self):
-        """Process substitution <() and >() is NOT supported."""
+    def test_process_substitution_all_allowed(self):
+        """Process substitution with all inner commands allowed is allowed."""
         config = BashExecutorConfig(allow=["diff", "cat"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
@@ -837,22 +917,203 @@ class TestCompoundStatements:
             allow_list,
             deny_list,
         )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_process_substitution_inner_not_allowed(self):
+        """Process substitution with inner commands not in allow list requires approval."""
+        config = BashExecutorConfig(allow=["diff"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "diff <(cat file1) <(cat file2)",
+            ["diff"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert "Segment(s) not in allow list: 'cat file1', 'cat file2'" in result.message
+
+    # ==================== STILL BLOCKED: Hardcoded blocks inside scripts ====================
+
+    def test_subshell_with_sudo_still_denied(self):
+        """Subshell containing sudo is still blocked."""
+        config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "echo $(sudo whoami)",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
         assert result.status == ValidationStatus.DENIED
-        assert result.deny_reason == DenyReason.SUBSHELL_DETECTED
+        assert result.deny_reason == DenyReason.HARDCODED_BLOCK
 
-    # ==================== Error detection via parse_command_segments ====================
+    def test_compound_with_sudo_still_denied(self):
+        """Compound statement containing sudo is still blocked."""
+        config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "for i in 1 2 3; do sudo echo $i; done",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.HARDCODED_BLOCK
 
-    def test_parse_command_segments_raises_on_for_loop(self):
-        """parse_command_segments raises CompoundStatementError for for loops."""
-        with pytest.raises(CompoundStatementError):
-            parse_command_segments('for i in 1 2 3; do echo "$i"; done')
+    def test_compound_with_su_still_denied(self):
+        """Compound statement containing su is still blocked."""
+        config = BashExecutorConfig(allow=["su"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "if true; then su - root; fi",
+            ["su"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.HARDCODED_BLOCK
 
-    def test_parse_command_segments_raises_on_while_loop(self):
-        """parse_command_segments raises CompoundStatementError for while loops."""
-        with pytest.raises(CompoundStatementError):
-            parse_command_segments("while true; do sleep 1; done")
+    # ==================== STILL BLOCKED: Deny-listed commands inside compound statements ====================
 
-    def test_parse_command_segments_raises_on_if_statement(self):
-        """parse_command_segments raises CompoundStatementError for if statements."""
-        with pytest.raises(CompoundStatementError):
-            parse_command_segments("if [ -f file ]; then cat file; fi")
+    def test_compound_with_deny_listed_command_still_denied(self):
+        """Compound statement with a deny-listed command should be denied."""
+        config = BashExecutorConfig(allow=["kubectl get"], deny=["kubectl get secret"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "for ns in ns1 ns2; do kubectl get secret -n $ns; done",
+            ["kubectl get secret"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    def test_subshell_with_deny_listed_command_still_denied(self):
+        """Subshell with a deny-listed inner command should be denied."""
+        config = BashExecutorConfig(allow=["echo"], deny=["rm"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "echo $(rm -rf /tmp)",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    # ==================== Unparseable commands: raw string safety checks ====================
+
+    def test_case_with_deny_listed_command_denied(self):
+        """Case statement (unparseable) with deny-listed command is denied via raw string scan."""
+        config = BashExecutorConfig(allow=["echo"], deny=["kubectl get secret"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "case $x in 1) kubectl get secret;; 2) echo two;; esac",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    def test_case_with_sudo_denied(self):
+        """Case statement (unparseable) with sudo is denied via raw string scan."""
+        config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "case $x in 1) sudo echo one;; esac",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.HARDCODED_BLOCK
+
+    def test_unparseable_command_requires_approval(self):
+        """Unparseable command with no blocked patterns requires approval."""
+        config = BashExecutorConfig(allow=["echo"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "case $x in 1) echo one;; 2) echo two;; esac",
+            ["echo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Command contains complex syntax which requires approval."
+
+
+# ==================== Integration: requires_approval prefixes_to_save ====================
+
+
+class TestRequiresApprovalPrefixesToSave:
+    """Test that requires_approval passes correct prefixes_to_save to ApprovalRequirement.
+
+    Only unapproved-segment approvals should save prefixes. Compound and unparseable
+    command approvals are one-time only — they must not save prefixes to the allow list.
+    """
+
+    @pytest.fixture
+    def tool(self):
+        toolset = BashExecutorToolset()
+        toolset.config = BashExecutorConfig(builtin_allowlist="none", allow=["echo"])
+        return toolset.tools[0]
+
+    @pytest.fixture
+    def context(self):
+        ctx = MagicMock()
+        ctx.session_approved_prefixes = []
+        return ctx
+
+    def test_compound_command_saves_no_prefixes(self, tool, context):
+        """Compound commands (for/while/if) should not save any prefixes on approval."""
+        params = {
+            "command": 'for i in 1 2 3; do echo "hello"; done',
+            "suggested_prefixes": ["echo"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == []
+
+    def test_unparseable_command_saves_no_prefixes(self, tool, context):
+        """Unparseable commands (case statements) should not save any prefixes on approval."""
+        params = {
+            "command": "case $x in 1) echo one;; 2) echo two;; esac",
+            "suggested_prefixes": ["echo"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == []
+
+    def test_unapproved_segment_saves_prefixes(self, tool, context):
+        """Unapproved segments should save their prefixes for future auto-approval."""
+        params = {
+            "command": "mycustomtool --flag",
+            "suggested_prefixes": ["mycustomtool"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == ["mycustomtool"]
+
+    def test_piped_command_with_unapproved_segment_saves_only_unapproved(self, tool, context):
+        """Piped command where one segment is unapproved saves only the unapproved prefix."""
+        params = {
+            "command": "echo hello | mycustomtool --process",
+            "suggested_prefixes": ["echo", "mycustomtool"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == ["mycustomtool"]
+
+    def test_allowed_command_no_approval_needed(self, tool, context):
+        """Fully allowed commands should not require approval."""
+        params = {
+            "command": "echo hello",
+            "suggested_prefixes": ["echo"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is None
