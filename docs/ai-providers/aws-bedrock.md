@@ -185,10 +185,10 @@ To list models your account can access (replacing `us-east-1` with the relevant 
 aws bedrock list-foundation-models --region=us-east-1 | grep modelId
 ```
 
-**Important**: Different models are available in different regions. For example, Claude Opus is only available in us-west-2.
+**Important**: Different models are available in different regions. Use [cross-region inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html) (e.g., `us.`, `eu.`) to route requests across available regions automatically.
 
 ### Model Name Examples
-Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `us.anthropic.claude-opus-4-6-v1` or `us.anthropic.claude-opus-4-6-v1`
+Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `us.anthropic.claude-opus-4-6-v1` or `us.anthropic.claude-sonnet-4-5-20250929-v1:0`
 
 ## Setting Extra Headers
 You can enable various beta features in AWS Bedrock by setting custom headers. 

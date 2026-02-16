@@ -215,8 +215,8 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 
 **Documentation Examples**:
 - **ALWAYS use Anthropic Claude models** in code examples and documentation:
-  - Recommended: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101`
-  - Use the latest Claude 4.5 family models (Sonnet or Opus)
+  - Recommended: `anthropic/claude-opus-4-6` or `anthropic/claude-sonnet-4-5-20250929`
+  - Use the latest Claude models (Opus 4.6 preferred)
 - Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
 - Do NOT use GPT-4o or Gemini models in documentation examples
 
