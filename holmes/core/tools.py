@@ -287,8 +287,8 @@ class Tool(ABC, BaseModel):
                 logger.info(
                     f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
                 )
-                # Override suggested_prefixes with filtered list (for bash toolset)
-                if approval_check.prefixes_to_save:
+                # Bash toolset: override suggested_prefixes with filtered list
+                if approval_check.prefixes_to_save is not None:
                     params["suggested_prefixes"] = approval_check.prefixes_to_save
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.APPROVAL_REQUIRED,
