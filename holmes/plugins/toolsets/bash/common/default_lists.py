@@ -1,18 +1,26 @@
 """
 Default allow/deny lists for bash toolset.
 
-These lists are used when `include_default_allow_deny_list: true` is set in config.
-Typically enabled for server/in-cluster deployments.
+Two tiers of default allow lists:
+- CORE_ALLOW_LIST: Safe everywhere (CLI and containers). Includes kubectl read-only
+  commands, JSON processing, text filtering, and system info. Does NOT include
+  commands that can read arbitrary files from the local filesystem.
+- EXTENDED_ALLOW_LIST: Adds filesystem access commands (cat, find, ls, etc.) that are
+  safe in containerized environments with minimal filesystems, but could expose
+  sensitive files on local machines (~/.ssh, ~/.aws, etc.).
 
-For local CLI usage, these lists are empty by default - users build their
-trusted command set over time via approval prompts.
+Controlled by `builtin_allowlist` config field:
+- "core" (CLI default): Uses CORE_ALLOW_LIST
+- "extended" (Helm default): Uses EXTENDED_ALLOW_LIST
+- "none": Empty allow list, user manages their own
 """
 
 from typing import List
 
-# Default allow list - safe read-only commands
-DEFAULT_ALLOW_LIST: List[str] = [
-    # Kubernetes read-only commands
+# Core allow list - safe everywhere (CLI and containerized)
+# These commands are read-only and don't access the local filesystem
+CORE_ALLOW_LIST: List[str] = [
+    # Kubernetes read-only commands (RBAC-limited regardless of environment)
     "kubectl get",
     "kubectl describe",
     "kubectl logs",
@@ -26,12 +34,9 @@ DEFAULT_ALLOW_LIST: List[str] = [
     "kubectl auth can-i",
     "kubectl diff",
     "kubectl events",
-    # Kube-lineage
-    "kube-lineage",
     # JSON processing
     "jq",
-    # Text processing
-    "cat",
+    # Text filtering (operates on stdin/piped data)
     "grep",
     "head",
     "tail",
@@ -40,9 +45,25 @@ DEFAULT_ALLOW_LIST: List[str] = [
     "wc",
     "cut",
     "tr",
+    # Process/system info (benign)
+    "id",
+    "whoami",
+    "hostname",
+    "uname",
+    "date",
+    "which",
+    "type",
+]
+
+# Extended allow list - adds filesystem access commands
+# Safe in containerized environments with minimal filesystems, but can expose
+# sensitive files on local machines (~/.ssh, ~/.aws, /etc/shadow, etc.)
+EXTENDED_ALLOW_LIST: List[str] = CORE_ALLOW_LIST + [
+    # File reading
+    "cat",
     "echo",
     "base64",
-    # File system inspection
+    # Filesystem traversal
     "ls",
     "find",
     "stat",
@@ -56,14 +77,6 @@ DEFAULT_ALLOW_LIST: List[str] = [
     "gzip -l",
     "zcat",
     "zgrep",
-    # Process/system info
-    "id",
-    "whoami",
-    "hostname",
-    "uname",
-    "date",
-    "which",
-    "type",
 ]
 
 # Default deny list - commands that should require explicit approval

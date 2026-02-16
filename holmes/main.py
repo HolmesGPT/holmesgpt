@@ -37,6 +37,7 @@ from holmes.core.prompt import (
 )
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tools import pretty_print_toolset_status
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import run_interactive_loop
 from holmes.plugins.destinations import DestinationType
@@ -288,13 +289,6 @@ def ask(
     tracer = TracingFactory.create_tracer(trace, project="HolmesGPT-CLI")
     tracer.start_experiment()
 
-    ai = config.create_console_toolcalling_llm(
-        dal=None,  # type: ignore
-        refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
-        tracer=tracer,
-        model_name=model,
-    )
-
     if prompt_file and prompt:
         raise typer.BadParameter(
             "You cannot provide both a prompt argument and a prompt file. Please use one or the other."
@@ -332,73 +326,82 @@ def ask(
             PromptComponent.TODOWRITE_REMINDER: False,
         }
 
-    if interactive:
-        run_interactive_loop(
-            ai,
-            console,
-            prompt,
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(
+            dal=None,  # type: ignore
+            refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
+            tracer=tracer,
+            model_name=model,
+            tool_results_dir=tool_results_dir,
+        )
+
+        if interactive:
+            run_interactive_loop(
+                ai,
+                console,
+                prompt,
+                include_file,
+                show_tool_output,
+                tracer,
+                config.get_runbook_catalog(),
+                system_prompt_additions,
+                json_output_file=json_output_file,
+                bash_always_deny=bash_always_deny,
+                bash_always_allow=bash_always_allow,
+                prompt_component_overrides=prompt_component_overrides,
+            )
+            return
+
+        if include_file:
+            for file_path in include_file:
+                console.print(
+                    f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+                )
+
+        messages = build_initial_ask_messages(
+            prompt,  # type: ignore
             include_file,
-            show_tool_output,
-            tracer,
+            ai.tool_executor,
             config.get_runbook_catalog(),
             system_prompt_additions,
-            json_output_file=json_output_file,
-            bash_always_deny=bash_always_deny,
-            bash_always_allow=bash_always_allow,
             prompt_component_overrides=prompt_component_overrides,
         )
-        return
 
-    if include_file:
-        for file_path in include_file:
-            console.print(
-                f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+        with tracer.start_trace(
+            f'holmes ask "{prompt}"', span_type=SpanType.TASK
+        ) as trace_span:
+            trace_span.log(input=prompt, metadata={"type": "user_question"})
+            response = ai.call(messages, trace_span=trace_span)
+            trace_span.log(
+                output=response.result,
             )
+            trace_url = tracer.get_trace_url()
 
-    messages = build_initial_ask_messages(
-        prompt,  # type: ignore
-        include_file,
-        ai.tool_executor,
-        config.get_runbook_catalog(),
-        system_prompt_additions,
-        prompt_component_overrides=prompt_component_overrides,
-    )
+        messages = response.messages  # type: ignore # Update messages with the full history
 
-    with tracer.start_trace(
-        f'holmes ask "{prompt}"', span_type=SpanType.TASK
-    ) as trace_span:
-        trace_span.log(input=prompt, metadata={"type": "user_question"})
-        response = ai.call(messages, trace_span=trace_span)
-        trace_span.log(
-            output=response.result,
+        if json_output_file:
+            write_json_file(json_output_file, response.model_dump())
+
+        issue = Issue(
+            id=str(uuid.uuid4()),
+            name=prompt,  # type: ignore
+            source_type="holmes-ask",
+            raw={"prompt": prompt, "full_conversation": messages},
+            source_instance_id=socket.gethostname(),
         )
-        trace_url = tracer.get_trace_url()
+        handle_result(
+            response,
+            console,
+            destination,  # type: ignore
+            config,
+            issue,
+            show_tool_output,
+            False,  # type: ignore
+            log_costs,
+        )
 
-    messages = response.messages  # type: ignore # Update messages with the full history
-
-    if json_output_file:
-        write_json_file(json_output_file, response.model_dump())
-
-    issue = Issue(
-        id=str(uuid.uuid4()),
-        name=prompt,  # type: ignore
-        source_type="holmes-ask",
-        raw={"prompt": prompt, "full_conversation": messages},
-        source_instance_id=socket.gethostname(),
-    )
-    handle_result(
-        response,
-        console,
-        destination,  # type: ignore
-        config,
-        issue,
-        show_tool_output,
-        False,  # type: ignore
-        log_costs,
-    )
-
-    if trace_url:
-        console.print(f"🔍 View trace: {trace_url}")
+        if trace_url:
+            console.print(f"🔍 View trace: {trace_url}")
 
 
 @investigate_app.command()

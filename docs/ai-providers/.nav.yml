@@ -6,6 +6,7 @@ nav:
   - Gemini: gemini.md
   - Google Vertex AI: google-vertex-ai.md
   - Ollama: ollama.md
+  - OpenRouter: openrouter.md
   - OpenAI: openai.md
   - OpenAI-Compatible: openai-compatible.md
   - Other: other.md

@@ -19,8 +19,9 @@ from holmes.plugins.toolsets.bash.common.config import (
     BashExecutorConfig,
 )
 from holmes.plugins.toolsets.bash.common.default_lists import (
-    DEFAULT_ALLOW_LIST,
+    CORE_ALLOW_LIST,
     DEFAULT_DENY_LIST,
+    EXTENDED_ALLOW_LIST,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,19 +61,25 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     """
     Get the effective allow and deny lists based on configuration.
 
+    builtin_allowlist controls which builtin list is merged with user-provided entries:
+    - "core": kubectl read-only, jq, grep, text processing, system info
+    - "extended": core + filesystem commands (cat, find, ls, base64)
+    - "none": only user-provided allow/deny entries
+
     Returns copies to prevent mutation of the shared config.
 
     Returns:
         Tuple of (allow_list, deny_list) - always returns copies, never references
     """
-    if config.include_default_allow_deny_list:
-        # Merge user lists with defaults (creates new lists), sorted for deterministic output
-        allow_list = sorted(set(DEFAULT_ALLOW_LIST + config.allow))
-        deny_list = sorted(set(DEFAULT_DENY_LIST + config.deny))
+    if config.builtin_allowlist == "extended":
+        builtin = EXTENDED_ALLOW_LIST
+    elif config.builtin_allowlist == "core":
+        builtin = CORE_ALLOW_LIST
     else:
-        # Return sorted copies for deterministic output
-        allow_list = sorted(config.allow)
-        deny_list = sorted(config.deny)
+        builtin = []
+
+    allow_list = sorted(set(builtin + config.allow))
+    deny_list = sorted(set(DEFAULT_DENY_LIST + config.deny))
 
     return allow_list, deny_list
 

@@ -53,12 +53,15 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
 
     if is_oom:
         hint = (
-            f"\n\n[OOM] Command was killed due to memory limits (current limit: {TOOL_MEMORY_LIMIT_MB} MB). "
-            f"Try querying the data differently to reduce memory usage - add filters to narrow the results, "
+            f"[OOM] Command was killed due to memory limits (current limit: {TOOL_MEMORY_LIMIT_MB} MB). "
+            f"Note to humans: this is OK, Holmes will retry with filters to reduce memory usage.\n"
+            f"Note to agent: Try querying the data differently to reduce memory usage - add filters to narrow the results, "
             f"use smaller time ranges, or try alternative tools that may be more memory-efficient. "
             f"If you cannot succeed with a modified query, you may recommend the user increase the limit "
             f"by setting the TOOL_MEMORY_LIMIT_MB environment variable (Tool memory limit, MB)."
         )
-        return output + hint
+        if output:
+            return hint + "\n\n" + output
+        return hint
 
     return output
