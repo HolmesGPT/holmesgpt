@@ -127,7 +127,7 @@ Override the default LLM model for testing.
 
 **Example:**
 ```bash
-export MODEL="anthropic/claude-opus-4-6"
+export MODEL="anthropic/claude-sonnet-4-20250514"
 ```
 
 ### CLASSIFIER_MODEL

@@ -1,4 +1,4 @@
-#model: "anthropic/claude-opus-4-6"
+#model: "gpt-4.1"
 #api_key: "..."
 
 #model: "azure/model-deployment-name"
@@ -7,7 +7,7 @@
 # Fast Model Summarization
 # Optional fast model for summarizing large tool outputs before sending to main LLM
 # Helps reduce context window usage, improve performance, and reduce costs
-#fast_model: "anthropic/claude-haiku-4-5-20251001"
+#fast_model: "gpt-4o-mini"
 
 # try adding your own tools here!
 # e.g. query company-specific data, fetch logs from your existing observability tools, etc

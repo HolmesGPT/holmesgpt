@@ -16,7 +16,7 @@ Try running an existing eval to understand how the system works. We'll use [eval
 
 ```bash
 # Run eval #80 with Claude Sonnet 4.5 (this specific eval passes reliably with Sonnet 4.5)
-RUN_LIVE=true MODEL=anthropic/claude-opus-4-6 \
+RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
 
@@ -29,7 +29,7 @@ RUN_LIVE=true MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
 
 # Test multiple models at once to compare performance
-RUN_LIVE=true MODEL=gpt-4o,gpt-4.1,anthropic/claude-opus-4-6 \
+RUN_LIVE=true MODEL=gpt-4o,gpt-4.1,anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
 ```
@@ -71,7 +71,7 @@ RUN_LIVE=true MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "99_your_test" -v
 
 # With Claude Sonnet 4.5 (must set CLASSIFIER_MODEL since Anthropic models can't be used as classifiers)
-RUN_LIVE=true MODEL=anthropic/claude-opus-4-6 \
+RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "99_your_test" -v
 ```

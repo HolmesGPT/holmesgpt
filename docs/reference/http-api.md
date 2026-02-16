@@ -13,11 +13,11 @@ When using the API with a Helm deployment, the `model` parameter must reference 
 modelList:
   fast-model:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
-    model: anthropic/claude-opus-4-6
+    model: anthropic/claude-sonnet-4-5-20250929
     temperature: 0
   accurate-model:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
-    model: anthropic/claude-opus-4-6
+    model: anthropic/claude-opus-4-5-20251101
     temperature: 0
 ```
 
@@ -34,7 +34,7 @@ curl -X POST http://localhost:8080/api/chat \
 # This will fail - don't use the direct model identifier
 curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"ask": "list pods", "model": "anthropic/claude-opus-4-6"}'
+  -d '{"ask": "list pods", "model": "anthropic/claude-sonnet-4-5-20250929"}'
 ```
 
 For complete setup instructions with `modelList` configuration, see the [Kubernetes Installation Guide](../installation/kubernetes-installation.md).
@@ -173,7 +173,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "ask": "What is in this image?",
-    "model": "anthropic/claude-opus-4-6",
+    "model": "anthropic/claude-sonnet-4-5-20250929",
     "images": [
       "https://example.com/screenshot.png"
     ]
@@ -187,7 +187,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "ask": "Analyze this diagram",
-    "model": "anthropic/claude-opus-4-6",
+    "model": "anthropic/claude-sonnet-4-5-20250929",
     "images": [
       "data:image/png;base64,iVBORw0KGgoAAAANS..."
     ]
@@ -201,7 +201,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "ask": "Compare these images",
-    "model": "anthropic/claude-opus-4-6",
+    "model": "anthropic/claude-opus-4-5-20251101",
     "images": [
       "https://example.com/before.png",
       {
@@ -258,7 +258,7 @@ curl -X POST http://<HOLMES-URL>/api/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "anthropic/claude-opus-4-6"
+    "model": "anthropic/claude-sonnet-4-5-20250929"
   }'
 ```
 
@@ -305,7 +305,7 @@ curl -N -X POST http://<HOLMES-URL>/api/stream/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "anthropic/claude-opus-4-6"
+    "model": "anthropic/claude-sonnet-4-5-20250929"
   }'
 ```
 
@@ -402,7 +402,7 @@ curl http://<HOLMES-URL>/api/model
 **Example** Response
 ```json
 {
-  "model_name": ["anthropic/claude-opus-4-6", "anthropic/claude-opus-4-6", "robusta"]
+  "model_name": ["anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-opus-4-5-20251101", "robusta"]
 }
 ```
 

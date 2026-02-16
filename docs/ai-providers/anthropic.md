@@ -12,7 +12,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
     ```bash
     export ANTHROPIC_API_KEY="your-anthropic-api-key"
-    holmes ask "what pods are failing?" --model="anthropic/claude-opus-4-6"
+    holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5"
     ```
 
     **Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
@@ -20,7 +20,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
     You can also pass the API key directly as a command-line parameter:
 
     ```bash
-    holmes ask "what pods are failing?" --model="anthropic/claude-opus-4-6" --api-key="your-api-key"
+    holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5" --api-key="your-api-key"
     ```
 
 === "Holmes Helm Chart"
@@ -44,21 +44,22 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
     # Configure at least one model using modelList
     modelList:
-      claude-opus-46:
+      claude-sonnet-4:
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: anthropic/claude-opus-4-6
+        model: claude-sonnet-4-20250514
         temperature: 1
         thinking:
-          type: adaptive
+          budget_tokens: 10000
+          type: enabled
 
-      claude-opus-46-alt:
+      claude-opus-4:
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: anthropic/claude-opus-4-6
+        model: anthropic/claude-opus-4-1-20250805
         temperature: 1
 
     # Optional: Set default model (use modelList key name)
     config:
-      model: "claude-opus-46"  # This refers to the key name in modelList above
+      model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -83,21 +84,22 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
       # Configure at least one model using modelList
       modelList:
-        claude-opus-46:
+        claude-sonnet-4:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: anthropic/claude-opus-4-6
+          model: claude-sonnet-4-20250514
           temperature: 1
           thinking:
-            type: adaptive
+            budget_tokens: 10000
+            type: enabled
 
-        claude-opus-46-alt:
+        claude-opus-4:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: anthropic/claude-opus-4-6
+          model: anthropic/claude-opus-4-1-20250805
           temperature: 1
 
       # Optional: Set default model (use modelList key name)
       config:
-        model: "claude-opus-46"  # This refers to the key name in modelList above
+        model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 ## Prompt Caching

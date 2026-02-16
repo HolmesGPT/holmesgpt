@@ -26,8 +26,8 @@ print("🚀 Initializing HolmesGPT...")
 # Create configuration
 print("Creating configuration...")
 config = Config(
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
-    model="anthropic/claude-opus-4-6",
+    api_key=os.getenv("OPENAI_API_KEY"),
+    model="gpt-4.1",
     max_steps=10
 )
 print(f"✅ Configuration created with model: {config.model}")
@@ -76,14 +76,14 @@ def main():
     print("🚀 Starting HolmesGPT Python SDK Example")
     print("=" * 60)
 
-    # Set API key (you can also set ANTHROPIC_API_KEY environment variable)
-    api_key = os.getenv("ANTHROPIC_API_KEY", "your-api-key-here")
+    # Set API key (you can also set OPENAI_API_KEY environment variable)
+    api_key = os.getenv("OPENAI_API_KEY", "your-api-key-here")
 
     print("Step 1: Creating configuration...")
     # Create configuration
     config = Config(
         api_key=api_key,
-        model="anthropic/claude-opus-4-6",
+        model="gpt-4.1",
         max_steps=10
     )
     print(f"✅ Configuration created with model: {config.model}")
@@ -165,7 +165,7 @@ Save this as `holmesgpt_tool_details_example.py` and run:
 
 ```bash
 # Make sure your API key is set
-export ANTHROPIC_API_KEY="your-actual-api-key"
+export OPENAI_API_KEY="your-actual-api-key"
 
 # Run the example
 python holmesgpt_tool_details_example.py
@@ -202,8 +202,8 @@ def main():
 
     # Create configuration
     config = Config(
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-        model="anthropic/claude-opus-4-6",
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4.1",
         max_steps=10
     )
 
@@ -279,7 +279,7 @@ from holmes.config import Config
 # Basic configuration example
 config = Config(
     api_key="your-api-key",
-    model="anthropic/claude-opus-4-6",
+    model="gpt-4.1",  # or "anthropic/claude-sonnet-4-20250514", etc.
     max_steps=10
 )
 
@@ -299,7 +299,7 @@ from holmes.config import Config
 config = Config(
     # LLM settings
     api_key="your-api-key",
-    model="anthropic/claude-opus-4-6",
+    model="gpt-4.1",
     max_steps=10,
 
     # Custom toolsets
@@ -344,8 +344,8 @@ Instead of passing `api_key` to the Config constructor, you can set these enviro
 
 ```bash
 # AI Provider (choose one)
-export ANTHROPIC_API_KEY="your-anthropic-key"
 export OPENAI_API_KEY="your-openai-key"
+export ANTHROPIC_API_KEY="your-anthropic-key"
 export GOOGLE_API_KEY="your-google-key"
 
 # Optional: Custom configuration
@@ -359,7 +359,7 @@ export HOLMES_LOG_LEVEL="INFO"
 **Usage with environment variables:**
 ```python
 import os
-os.environ["ANTHROPIC_API_KEY"] = "your-api-key"
+os.environ["OPENAI_API_KEY"] = "your-api-key"
 
 config = Config()  # Will auto-detect API key from environment
 ```

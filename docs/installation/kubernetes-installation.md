@@ -67,7 +67,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
         modelList:
           claude-sonnet:
             api_key: "{{ env.ANTHROPIC_API_KEY }}"
-            model: anthropic/claude-opus-4-6
+            model: anthropic/claude-sonnet-4-20250514
             temperature: 0
         ```
 
@@ -119,7 +119,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
             temperature: 0
           claude-sonnet:
             api_key: "{{ env.ANTHROPIC_API_KEY }}"
-            model: anthropic/claude-opus-4-6
+            model: anthropic/claude-sonnet-4-20250514
             temperature: 0
           gpt-5:
             api_key: "{{ env.OPENAI_API_KEY }}"
@@ -148,7 +148,7 @@ kubectl port-forward svc/holmesgpt-holmes 8080:80
 # Test with a basic question using modelList model name
 curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"ask": "list pods in namespace default?", "model": "claude-sonnet"}'
+  -d '{"ask": "list pods in namespace default?", "model": "gpt-4o-mini"}'
 
 # Using a different model from your modelList
 curl -X POST http://localhost:8080/api/chat \

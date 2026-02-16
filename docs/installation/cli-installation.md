@@ -88,7 +88,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
 
 !!! tip "Which Model to Use"
-We highly recommend using Claude Opus 4.6 as it gives the best results by far. It is available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
+We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
 === "Anthropic Claude"
 
@@ -104,7 +104,7 @@ We highly recommend using Claude Opus 4.6 as it gives the best results by far. I
 
     3. **Ask your first question**:
         ```bash
-        holmes ask "what is wrong with the user-profile-import pod?" --model="anthropic/claude-opus-4-6"
+        holmes ask "what is wrong with the user-profile-import pod?" --model="anthropic/claude-sonnet-4-5-20250929"
         ```
 
     **Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
@@ -172,8 +172,8 @@ We highly recommend using Claude Opus 4.6 as it gives the best results by far. I
 
     4. **Ask your first question**:
         ```bash
-        # Recommended: Use Claude Opus 4.6 for best results
-        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/us.anthropic.claude-opus-4-6-v1"
+        # Recommended: Use Sonnet 4.0 or Sonnet 4.5 for best results
+        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
 
         # Or use another model
         holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/<your-model-name>"
@@ -254,14 +254,15 @@ You can define multiple models in a YAML file and reference them by name in the 
 
 ```yaml
 # model_list.yaml
-opus:
+sonnet:
     aws_access_key_id: "your-access-key"
     aws_region_name: us-east-1
     aws_secret_access_key: "your-secret-key"
-    model: bedrock/us.anthropic.claude-opus-4-6-v1
+    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
     temperature: 1
     thinking:
-        type: adaptive
+        budget_tokens: 10000
+        type: enabled
 
 azure-5:
     api_base: https://your-resource.openai.azure.com
@@ -280,7 +281,7 @@ export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
 **3. Use models by name:**
 
 ```bash
-holmes ask "what pods are failing?" --model=opus --no-interactive
+holmes ask "what pods are failing?" --model=sonnet --no-interactive
 holmes ask "analyze deployment" --model=azure-5 --no-interactive
 ```
 

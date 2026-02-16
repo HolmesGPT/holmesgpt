@@ -14,14 +14,14 @@ Configure transformer behavior globally in your HolmesGPT configuration:
 
 ```bash
 # CLI flags
-holmes ask "what pods are unhealthy?" --fast-model anthropic/claude-haiku-4-5-20251001
+holmes ask "what pods are unhealthy?" --fast-model gpt-4o-mini
 
 # Environment variables
-export FAST_MODEL="anthropic/claude-haiku-4-5-20251001"
+export FAST_MODEL="gpt-4o-mini"
 
 # Or via config file
 # ~/.holmes/config.yaml:
-# fast_model: anthropic/claude-haiku-4-5-20251001
+# fast_model: gpt-4o-mini
 ```
 
 | Parameter | Description | Default |
@@ -202,7 +202,7 @@ Log analysis (2024-01-15 10:30-10:35):
 ### Configuration
 
 1. **Set appropriate thresholds** - avoid summarizing small outputs
-2. **Use fast models** - anthropic/claude-haiku-4-5-20251001 for cost/speed
+2. **Use fast models** - gpt-4o-mini, claude-haiku for cost/speed
 3. **Customize prompts** - tailor to specific tool output types
 4. **Test thoroughly** - ensure key information isn't lost
 

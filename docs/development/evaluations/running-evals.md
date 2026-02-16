@@ -31,7 +31,7 @@ Try running a single eval to understand how the system works. We'll use [eval 80
 
 ```bash
 # Run eval #80 with Claude Sonnet 4.5 (this specific eval passes reliably with Sonnet 4.5)
-RUN_LIVE=true MODEL=anthropic/claude-opus-4-6 \
+RUN_LIVE=true MODEL=anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
 
@@ -44,7 +44,7 @@ RUN_LIVE=true MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
 
 # Test multiple models at once to compare performance
-RUN_LIVE=true MODEL=gpt-4o,gpt-4.1,anthropic/claude-opus-4-6 \
+RUN_LIVE=true MODEL=gpt-4o,gpt-4.1,anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4.1 \
   poetry run pytest tests/llm/test_ask_holmes.py -k "80_pvc_storage_class_mismatch"
 ```
@@ -60,7 +60,7 @@ Once you're comfortable running individual evals, you can run the full benchmark
 ./run_benchmarks_local.py
 
 # Test specific models
-./run_benchmarks_local.py --models gpt-4o,anthropic/claude-opus-4-6
+./run_benchmarks_local.py --models gpt-4o,anthropic/claude-sonnet-4-20250514
 
 # Run with custom markers and iterations
 ./run_benchmarks_local.py --models gpt-4o --markers "easy and kubernetes" --iterations 3
@@ -127,7 +127,7 @@ RUN_LIVE=true MODEL=gpt-4.1 poetry run pytest -m 'llm and easy'
 
 # Test with Claude
 # Note: CLASSIFIER_MODEL must be set to OpenAI or Azure as Anthropic models are not currently supported for classification
-RUN_LIVE=true MODEL=anthropic/claude-opus-4-6 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest -m 'llm and easy'
+RUN_LIVE=true MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest -m 'llm and easy'
 
 # Test with Azure OpenAI
 # Set required Azure environment variables for your deployment
@@ -150,12 +150,12 @@ HolmesGPT supports running evaluations across multiple models simultaneously to 
 ```bash
 # Test multiple models in a single run
 # Models are specified as comma-separated list
-RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-opus-4-6 \
+RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4o \
   poetry run pytest -m 'llm and easy' --no-cov
 # Run with multiple iterations for statistically significant results
 RUN_LIVE=true ITERATIONS=10 \
-  MODEL=gpt-4o,anthropic/claude-opus-4-6 \
+  MODEL=gpt-4o,anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4o \
   poetry run pytest -m 'llm and easy' -n 10
 
@@ -237,7 +237,7 @@ RUN_LIVE=true pytest -k "test" --only-setup
 ```bash
 # Compare multiple models simultaneously - RECOMMENDED approach
 RUN_LIVE=true ITERATIONS=10 \
-  MODEL=gpt-4.1,anthropic/claude-opus-4-6 \
+  MODEL=gpt-4.1,anthropic/claude-sonnet-4-20250514 \
   CLASSIFIER_MODEL=gpt-4.1 \
   poetry run pytest -m 'llm and easy' -n 10
 
@@ -260,7 +260,7 @@ For cases where you need separate experiments or different configurations per mo
 RUN_LIVE=true ITERATIONS=10 EXPERIMENT_ID=baseline_gpt4.1 MODEL=gpt-4.1 pytest -n 10 tests/llm/
 
 # 2. Compare with Claude (using GPT-4 as classifier since Anthropic models can't classify)
-RUN_LIVE=true ITERATIONS=10 EXPERIMENT_ID=claude4 MODEL=anthropic/claude-opus-4-6 CLASSIFIER_MODEL=gpt-4.1 pytest -n 10 tests/llm/
+RUN_LIVE=true ITERATIONS=10 EXPERIMENT_ID=claude4 MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 pytest -n 10 tests/llm/
 ```
 
 ### Braintrust Integration
@@ -273,5 +273,5 @@ export BRAINTRUST_API_KEY=your-key
 export BRAINTRUST_ORG=your-org
 
 # Then run any evaluation command - results will be tracked automatically
-RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-opus-4-6 pytest -m 'llm and easy'
+RUN_LIVE=true MODEL=gpt-4o,anthropic/claude-sonnet-4-20250514 pytest -m 'llm and easy'
 ```
