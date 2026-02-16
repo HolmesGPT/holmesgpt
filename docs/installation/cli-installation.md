@@ -125,7 +125,11 @@ We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results 
 
     3. **Ask your first question**:
         ```bash
+        # Uses gpt-4.1 by default (fairly fast, decent results)
         holmes ask "what is wrong with the user-profile-import pod?"
+
+        # Or specify a different model
+        holmes ask "what is wrong with the user-profile-import pod?" --model="gpt-5"
         ```
 
     See [OpenAI Configuration](../ai-providers/openai.md) for more details.

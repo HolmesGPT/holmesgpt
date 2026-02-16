@@ -46,16 +46,10 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
     export GRAFANA_TOKEN="your-grafana-api-token"
     ```
 
-    **Add to config (`~/.holmes/config.yaml`):**
-
-    ```yaml
-    custom_toolsets: ["toolsets.yaml"]
-    ```
-
     **Run HolmesGPT:**
 
     ```bash
-    holmes ask "show me dashboards related to CPU usage"
+    holmes ask "show me dashboards related to CPU usage" --custom-toolsets=toolsets.yaml
     ```
 
     After making changes to your toolsets file, run:
@@ -143,16 +137,10 @@ This example creates a toolset with advanced diagnostic tools for Kubernetes clu
               kubectl describe resourcequota -n {{ namespace }}
     ```
 
-    **Add to config (`~/.holmes/config.yaml`):**
-
-    ```yaml
-    custom_toolsets: ["toolsets.yaml"]
-    ```
-
     **Run HolmesGPT:**
 
     ```bash
-    holmes ask "check for any resource pressure in the cluster"
+    holmes ask "check for any resource pressure in the cluster" --custom-toolsets=toolsets.yaml
     ```
 
     After making changes to your toolsets file, run:
@@ -246,16 +234,10 @@ This example shows how to create a toolset for fetching information from GitHub 
     export GITHUB_TOKEN="your-github-personal-access-token"
     ```
 
-    **Add to config (`~/.holmes/config.yaml`):**
-
-    ```yaml
-    custom_toolsets: ["toolsets.yaml"]
-    ```
-
     **Run HolmesGPT:**
 
     ```bash
-    holmes ask "check recent commits in robusta-dev/robusta repository"
+    holmes ask "check recent commits in robusta-dev/robusta repository" --custom-toolsets=toolsets.yaml
     ```
 
     After making changes to your toolsets file, run:
