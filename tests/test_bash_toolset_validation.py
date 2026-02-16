@@ -4,8 +4,11 @@ Unit tests for the bash toolset validation module.
 Tests prefix-based command validation, subshell detection, and allow/deny list handling.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 
+from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset, RunBashCommand
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,
@@ -1038,3 +1041,79 @@ class TestCompoundStatements:
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         assert result.message == "Command contains complex syntax which requires approval."
+
+
+# ==================== Integration: requires_approval prefixes_to_save ====================
+
+
+class TestRequiresApprovalPrefixesToSave:
+    """Test that requires_approval passes correct prefixes_to_save to ApprovalRequirement.
+
+    Only unapproved-segment approvals should save prefixes. Compound and unparseable
+    command approvals are one-time only — they must not save prefixes to the allow list.
+    """
+
+    @pytest.fixture
+    def tool(self):
+        toolset = BashExecutorToolset()
+        toolset.config = BashExecutorConfig(builtin_allowlist="none", allow=["echo"])
+        return toolset.tools[0]
+
+    @pytest.fixture
+    def context(self):
+        ctx = MagicMock()
+        ctx.session_approved_prefixes = []
+        return ctx
+
+    def test_compound_command_saves_no_prefixes(self, tool, context):
+        """Compound commands (for/while/if) should not save any prefixes on approval."""
+        params = {
+            "command": 'for i in 1 2 3; do echo "hello"; done',
+            "suggested_prefixes": ["echo"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == []
+
+    def test_unparseable_command_saves_no_prefixes(self, tool, context):
+        """Unparseable commands (case statements) should not save any prefixes on approval."""
+        params = {
+            "command": "case $x in 1) echo one;; 2) echo two;; esac",
+            "suggested_prefixes": ["echo"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == []
+
+    def test_unapproved_segment_saves_prefixes(self, tool, context):
+        """Unapproved segments should save their prefixes for future auto-approval."""
+        params = {
+            "command": "mycustomtool --flag",
+            "suggested_prefixes": ["mycustomtool"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == ["mycustomtool"]
+
+    def test_piped_command_with_unapproved_segment_saves_only_unapproved(self, tool, context):
+        """Piped command where one segment is unapproved saves only the unapproved prefix."""
+        params = {
+            "command": "echo hello | mycustomtool --process",
+            "suggested_prefixes": ["echo", "mycustomtool"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == ["mycustomtool"]
+
+    def test_allowed_command_no_approval_needed(self, tool, context):
+        """Fully allowed commands should not require approval."""
+        params = {
+            "command": "echo hello",
+            "suggested_prefixes": ["echo"],
+        }
+        result = tool.requires_approval(params, context)
+        assert result is None
