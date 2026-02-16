@@ -28,6 +28,12 @@ You are using Coralogix Prometheus.
 * Be extremely, extremely cautious when answering based on get_label_values because the existence of a label value says NOTHING about the metric value itself (is it high, low, or perhaps the label exists in Prometheus but its an older series not present right now)
 * DO NOT give answers about metrics based on what 'is typically the case' or 'common knowledge' - if you can't see the actual metric value, you MUST NEVER EVER answer about it - just tell the user your limitations due to the size of the data
 
+## Query Resolution & Data Points
+* Range queries return up to {{ default_max_points }} data points per series by default. You can control this with the `max_points` parameter.
+* When investigating spikes, anomalies, or short-lived events, increase `max_points` up to the maximum ({{ hard_max_points }}) — spikes can completely disappear at lower resolution.
+* Only increase `max_points` above default for low-cardinality queries (1-3 time series). For queries returning many series, keep the default or lower it.
+* If you need even higher resolution than the maximum allows, narrow the time range instead. For example, zoom into a 30-minute window around the spike rather than querying a full 24-hour range.
+
 ## Alert Investigation & Query Execution
 * When investigating a Prometheus alert, ALWAYS call list_prometheus_rules to get the alert definition
 * Use Prometheus to query metrics from the alert promql
