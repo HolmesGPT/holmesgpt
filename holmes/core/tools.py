@@ -166,7 +166,9 @@ class ToolsetType(str, Enum):
 
 class ToolParameter(BaseModel):
     description: Optional[str] = None
-    type: str = "string"
+    # JSON Schema allows type to be a string or array of strings for union types
+    # e.g., "string" or ["string", "null"] for nullable types
+    type: Union[str, List[str]] = "string"
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
