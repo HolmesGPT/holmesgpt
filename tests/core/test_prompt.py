@@ -11,22 +11,21 @@ from holmes.config import Config
 from holmes.core.conversations import (
     build_chat_messages,
     build_issue_chat_messages,
-    build_workload_health_chat_messages,
 )
 from holmes.core.investigation import get_investigation_context
 from holmes.core.models import (
     InvestigateRequest,
     IssueChatRequest,
     IssueInvestigationResult,
-    WorkloadHealthChatRequest,
-    WorkloadHealthInvestigationResult,
 )
 from holmes.core.prompt import (
+    PromptComponent,
     append_all_files_to_user_prompt,
     append_file_to_user_prompt,
     build_initial_ask_messages,
     generate_user_prompt,
     get_tasks_management_system_reminder,
+    is_component_enabled,
 )
 from holmes.utils.global_instructions import generate_runbooks_args
 
@@ -83,7 +82,6 @@ def mock_dal():
     dal.get_global_instructions_for_account = Mock(return_value=None)
     dal.get_resource_instructions = Mock(return_value=None)
     dal.get_issue_data = Mock(return_value=None)
-    dal.get_workload_issues = Mock(return_value=[])
     return dal
 
 
@@ -164,22 +162,6 @@ def create_issue_chat_request(user_ask: str, issue_type: str = "prometheus"):
     )
 
 
-def create_workload_health_chat_request(user_ask: str, resource: Optional[dict] = None):
-    """Create a WorkloadHealthChatRequest for testing."""
-    if resource is None:
-        resource = {"kind": "Deployment", "name": "my-app"}
-
-    return WorkloadHealthChatRequest(
-        ask=user_ask,
-        conversation_history=None,
-        workload_health_result=WorkloadHealthInvestigationResult(
-            analysis="Workload is healthy",
-            tools=[],
-        ),
-        resource=resource,
-    )
-
-
 def assert_user_prompt_contains_timestamp(user_prompt: str):
     """Assert that user prompt contains the UTC timestamp in seconds."""
     timestamp_pattern = r"The current UTC timestamp in seconds is (\d+)\."
@@ -248,7 +230,6 @@ class TestBuildInitialAskMessages:
     )
     def test_ask_command_user_prompt(
         self,
-        console,
         mock_tool_executor,
         tmp_path,
         user_prompt,
@@ -259,7 +240,6 @@ class TestBuildInitialAskMessages:
         test_files = create_test_files(file_paths, tmp_path)
 
         messages = build_initial_ask_messages(
-            console,
             user_prompt,
             test_files,
             mock_tool_executor,
@@ -286,12 +266,11 @@ class TestBuildInitialAskMessages:
                 assert "<attached-file" in user_content
 
     def test_build_initial_ask_messages_with_system_prompt_additions(
-        self, console, mock_tool_executor
+        self, mock_tool_executor
     ):
         """Test message building with system prompt additions."""
         system_additions = "Additional system instructions here."
         messages = build_initial_ask_messages(
-            console,
             "Test prompt",
             None,
             mock_tool_executor,
@@ -409,55 +388,6 @@ class TestServerFlows:
             expected_global_instructions=extract_instructions(global_instructions),
         )
 
-    def test_workload_health_chat_user_prompt(self, mock_ai, mock_config):
-        """Test user prompt in /api/workload_health_chat flow."""
-        user_ask = "Why is my pod unhealthy?"
-        workload_health_chat_request = create_workload_health_chat_request(user_ask)
-
-        messages = build_workload_health_chat_messages(
-            workload_health_chat_request=workload_health_chat_request,
-            ai=mock_ai,
-            config=mock_config,
-            global_instructions=None,
-            runbooks=None,
-        )
-
-        user_content = get_user_message_from_messages(messages)
-        validate_user_prompt(user_content, user_ask)
-
-    @pytest.mark.parametrize(
-        "user_ask,global_instructions,issue_instructions",
-        [
-            ("Check health", None, None),
-            (
-                "Check health with instructions",
-                DummyInstructions(["Verify replicas"]),
-                ["Check pod status"],
-            ),
-        ],
-    )
-    def test_workload_health_check_user_prompt(
-        self,
-        user_ask,
-        global_instructions,
-        issue_instructions,
-    ):
-        """Test user prompt in /api/workload_health_check flow."""
-        runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=None,
-            global_instructions=global_instructions,
-            issue_instructions=issue_instructions,
-        )
-
-        final_prompt = generate_user_prompt(user_ask, runbooks_ctx)
-
-        validate_user_prompt(
-            final_prompt,
-            user_ask,
-            expected_global_instructions=extract_instructions(global_instructions),
-            expected_issue_instructions=issue_instructions,
-        )
-
 
 class TestInvestigationFlow:
     """Test user prompt validation for investigation flow."""
@@ -476,7 +406,7 @@ class TestInvestigationFlow:
             prompt_template="builtin://generic_investigation.jinja2",
         )
 
-        _, _, user_prompt, _, _, _ = get_investigation_context(
+        _, _, user_prompt, _, _ = get_investigation_context(
             investigate_request, mock_dal, mock_config
         )
 
@@ -553,7 +483,7 @@ def test_append_file_to_user_prompt(tmp_path):
     assert "</attached-file>" in result
 
 
-def test_append_all_files_to_user_prompt(console, tmp_path):
+def test_append_all_files_to_user_prompt(tmp_path):
     """Test appending multiple files to user prompt."""
     # Create multiple test files
     file1 = tmp_path / "file1.txt"
@@ -563,7 +493,7 @@ def test_append_all_files_to_user_prompt(console, tmp_path):
     file2.write_text("Content 2")
 
     prompt = "Original prompt"
-    result = append_all_files_to_user_prompt(console, prompt, [file1, file2])
+    result = append_all_files_to_user_prompt(prompt, [file1, file2])
 
     assert "Original prompt" in result
     assert "Content 1" in result
@@ -575,13 +505,63 @@ def test_append_all_files_to_user_prompt(console, tmp_path):
     assert result.count("</attached-file>") == 2
 
 
-def test_append_all_files_to_user_prompt_no_files(console):
+def test_append_all_files_to_user_prompt_no_files():
     """Test appending files when no files are provided."""
     prompt = "Original prompt"
-    result = append_all_files_to_user_prompt(console, prompt, None)
+    result = append_all_files_to_user_prompt(prompt, None)
 
     assert result == "Original prompt"
 
     # Also test with empty list
-    result = append_all_files_to_user_prompt(console, prompt, [])
+    result = append_all_files_to_user_prompt(prompt, [])
     assert result == "Original prompt"
+
+
+class TestIsComponentEnabled:
+    """Test is_component_enabled function with overrides."""
+
+    def test_no_overrides_returns_env_var_result(self, monkeypatch):
+        """Without overrides, should return is_prompt_allowed_by_env result."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+
+    def test_override_can_disable_component(self, monkeypatch):
+        """API override can disable a component that env var allows."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+    def test_override_cannot_enable_env_disabled_component(self, monkeypatch):
+        """API override cannot enable a component that env var disabled."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "none")
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+    def test_override_true_keeps_enabled(self, monkeypatch):
+        """API override with True keeps component enabled."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is True
+        )
+
+    def test_env_var_selective_enable_with_override(self, monkeypatch):
+        """When env var selectively enables, override can still disable."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions,intro")
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+        overrides = {PromptComponent.AI_SAFETY: True}
+        assert is_component_enabled(PromptComponent.AI_SAFETY, overrides) is False

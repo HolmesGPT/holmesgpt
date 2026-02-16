@@ -16,7 +16,7 @@ It operates in read-only mode by default to ensure safety while investigating pr
 
     For CLI usage, you need to deploy the MariaDB MCP server first, then configure Holmes to connect to it. Below is an example on how to deploy it in your cluster.
 
-    ### Step 1: Deploy the MariaDB MCP Server
+    **Step 1: Deploy the MariaDB MCP Server**
 
     Create a file named `mariadb-mcp-deployment.yaml`:
 
@@ -126,7 +126,7 @@ It operates in read-only mode by default to ensure safety while investigating pr
     kubectl apply -f mariadb-mcp-deployment.yaml
     ```
 
-    ### Step 2: Update Database Credentials
+    **Step 2: Update Database Credentials**
 
     Update the secret with your actual MariaDB credentials:
 
@@ -138,7 +138,7 @@ It operates in read-only mode by default to ensure safety while investigating pr
       -n holmes-mcp
     ```
 
-    ### Step 3: Configure Holmes CLI
+    **Step 3: Configure Holmes CLI**
 
     Add the MCP server configuration to **~/.holmes/config.yaml**:
 
@@ -184,7 +184,7 @@ It operates in read-only mode by default to ensure safety while investigating pr
              - Check connection usage: Use SHOW STATUS LIKE 'Threads_connected'
     ```
 
-    ### Step 4: Port Forwarding (Optional for Local Testing)
+    **Step 4: Port Forwarding (Optional for Local Testing)**
 
     If running Holmes CLI locally and need to access the MCP server:
 

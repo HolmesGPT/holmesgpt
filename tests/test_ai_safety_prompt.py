@@ -12,9 +12,7 @@ class TestAISafetyPromptInclusion:
         "template_path",
         [
             "builtin://generic_ask.jinja2",
-            "builtin://generic_ask_conversation.jinja2",
             "builtin://generic_ask_for_issue_conversation.jinja2",
-            "builtin://kubernetes_workload_ask.jinja2",
             "builtin://generic_investigation.jinja2",
         ],
     )
@@ -28,6 +26,7 @@ class TestAISafetyPromptInclusion:
             "investigation": "test investigation",  # for issue conversation template
             "tools_called_for_investigation": [],  # for issue conversation template
             "sections": {},  # for investigation template output format
+            "ai_safety_enabled": True,  # Required for conditional AI safety section
         }
 
         rendered = load_and_render_prompt(template_path, context)

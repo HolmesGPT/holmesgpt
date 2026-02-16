@@ -3,7 +3,7 @@ import os
 from typing import Any, ClassVar, List, Optional, Tuple, Type
 from urllib.parse import urljoin
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from requests import RequestException  # type: ignore
 
 from holmes.core.tools import (
@@ -23,15 +23,14 @@ from holmes.plugins.toolsets.rabbitmq.api import (
     make_request,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
-from holmes.utils.pydantic_utils import build_config_example
+from holmes.utils.pydantic_utils import ToolsetConfig, build_config_example
 
 
-class RabbitMQConfig(BaseModel):
+class RabbitMQConfig(ToolsetConfig):
     clusters: List[RabbitMQClusterConfig] = Field(
+        title="Clusters",
         description="List of RabbitMQ clusters to connect to",
-        examples=[
-            [build_config_example(RabbitMQClusterConfig)]
-        ],
+        examples=[[build_config_example(RabbitMQClusterConfig)]],
     )
 
 
@@ -77,7 +76,7 @@ class ListConfiguredClusters(BaseRabbitMQTool):
         available_clusters = [
             {
                 "cluster_id": c.id,
-                "management_url": c.management_url,
+                "api_url": c.api_url,
                 "connection_status": c.connection_status,
             }
             for c in self.toolset.config.clusters
@@ -168,13 +167,13 @@ class RabbitMQToolset(Toolset):
             if not env_url:
                 return (
                     False,
-                    "RabbitMQ toolset is misconfigured. 'management_url' is required.",
+                    "RabbitMQ toolset is misconfigured. 'api_url' is required.",
                 )
             config = {
                 "clusters": [
                     {
                         "id": "rabbitmq",
-                        "management_url": env_url,
+                        "api_url": env_url,
                         "username": env_user,
                         "password": env_pass,
                     }
@@ -192,7 +191,7 @@ class RabbitMQToolset(Toolset):
     def _check_clusters_config(self, config: RabbitMQConfig) -> Tuple[bool, str]:
         errors = []
         for cluster_config in config.clusters:
-            url = urljoin(cluster_config.management_url, "api/overview")
+            url = urljoin(cluster_config.api_url, "api/overview")
 
             try:
                 data = make_request(

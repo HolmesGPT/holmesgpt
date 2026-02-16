@@ -17,6 +17,8 @@ tags:
   - logs
   - datadog
   - hard
+#  - benchmark
+# we need the datadog api key for it to work as a benchmark
 
 before_test: |
   # Note: We're not deploying any actual pod - just sending logs to Datadog

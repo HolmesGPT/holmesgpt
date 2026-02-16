@@ -29,7 +29,7 @@ def check_environment_variables():
 
 def query_spans_aggregate(api_key, app_key):
     """Query Datadog Spans Analytics API for checkout performance data."""
-    datadog_api_url = os.environ.get("DATADOG_API_URL", "https://api.datadoghq.eu")
+    datadog_api_url = os.environ.get("DATADOG_API_URL", "https://api.us5.datadoghq.com")
 
     # Prepare the aggregate query - wrap in data/attributes structure
     query_payload = {

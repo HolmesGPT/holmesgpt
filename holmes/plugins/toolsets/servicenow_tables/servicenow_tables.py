@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Dict, Optional, Tuple, Type, cast
 from urllib.parse import urljoin
 
 import requests  # type: ignore
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -16,30 +16,44 @@ from holmes.core.tools import (
     Toolset,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
-class ServiceNowTablesConfig(BaseModel):
+class ServiceNowTablesConfig(ToolsetConfig):
     """Configuration for ServiceNow Tables API access.
 
     Example configuration:
     ```yaml
     api_key: "now_1234567890abcdef"
-    instance_url: "https://your-instance.service-now.com"
+    api_url: "https://your-instance.service-now.com"
     ```
     """
 
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "instance_url": "api_url",
+    }
+
     api_key: str = Field(
+        title="API Key",
         description="ServiceNow API key for authentication",
         examples=["now_1234567890abcdef"],
     )
-    instance_url: str = Field(
+    api_url: str = Field(
+        title="API URL",
         description="ServiceNow instance base URL",
         examples=["https://your-instance.service-now.com"],
     )
     api_key_header: str = Field(
         default="x-sn-apikey",
+        title="API Key Header",
         description="HTTP header name to use for passing the API key",
         examples=["x-sn-apikey"],
+    )
+    health_check_table: str = Field(
+        default="sys_user",
+        title="Health check table",
+        description="Table queried on startup to verify connectivity and permissions. Change this if your API key doesn't have access to the default table.",
+        examples=["sys_user", "incident", "sys_db_object"],
     )
 
 
@@ -69,43 +83,42 @@ class ServiceNowTablesToolset(Toolset):
             # Validate the config using Pydantic - this will raise if required fields are missing
             self.config = ServiceNowTablesConfig(**config)
 
-            # Perform health check
-            return self._perform_health_check()
+            return self._perform_health_check(table_name=self.config.health_check_table)
 
         except Exception as e:
             return False, f"Failed to validate ServiceNow configuration: {str(e)}"
 
-    def _perform_health_check(self) -> Tuple[bool, str]:
+    def _perform_health_check(self, table_name) -> Tuple[bool, str]:
         """Perform a health check by making a minimal API call."""
         try:
             # Query sys_db_object table with minimal data
-            data, headers = self._make_api_request(
-                endpoint="api/now/v2/table/sys_db_object",
-                query_params={"sysparm_limit": 1, "sysparm_fields": "sys_id"},
+            _, _ = self._make_api_request(
+                endpoint=f"api/now/v2/table/{table_name}",
+                query_params={"sysparm_limit": 1},
                 timeout=10,
             )
-            return True, "ServiceNow configuration is valid and API is accessible."
+            return True, f"ServiceNow configuration is valid and API is accessible. (checked table: {table_name})"
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 return (
                     False,
-                    "ServiceNow authentication failed. Please check your API key.",
+                    f"ServiceNow authentication failed. Please check your API key. Full error: {e.response.status_code} - {e.response.text}",
                 )
             elif e.response.status_code == 403:
                 return (
                     False,
-                    "ServiceNow access denied. Please ensure your user has Table API access.",
+                    f"ServiceNow access denied. Please ensure your user has Table API access. Full error: {e.response.status_code} - {e.response.text}",
                 )
             else:
                 return (
                     False,
                     f"ServiceNow API returned error: {e.response.status_code} - {e.response.text}",
                 )
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
             return (
                 False,
-                f"Failed to connect to ServiceNow instance at {self.config.instance_url if self.config else 'unknown'}",
+                f"Failed to connect to ServiceNow instance at {self.config.api_url if self.config else 'unknown'}.  Full error: {str(e)}",
             )
         except requests.exceptions.Timeout:
             return False, "ServiceNow health check timed out"
@@ -139,7 +152,7 @@ class ServiceNowTablesToolset(Toolset):
             requests.exceptions.RequestException: For other request errors
         """
         url = urljoin(
-            self.servicenow_config.instance_url.rstrip("/") + "/", endpoint.lstrip("/")
+            self.servicenow_config.api_url.rstrip("/") + "/", endpoint.lstrip("/")
         )
 
         headers = {
