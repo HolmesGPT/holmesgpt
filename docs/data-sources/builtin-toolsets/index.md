@@ -22,6 +22,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-elasticsearch:{ .lg .middle } **Elasticsearch / OpenSearch**](elasticsearch.md)
 -   [:material-google-cloud:{ .lg .middle } **GCP (MCP)**](gcp.md)
 -   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)
+-   [:simple-grafana:{ .lg .middle } **Grafana (MCP)**](grafana-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)

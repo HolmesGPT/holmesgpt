@@ -36,6 +36,34 @@ def suppress_migration_warnings():
     logger.setLevel(original_level)
 
 
+class TestToolParameter:
+    """Tests for the ToolParameter model."""
+
+    def test_type_accepts_string(self) -> None:
+        """Test that ToolParameter.type accepts a string value."""
+        param = ToolParameter(type="string")
+        assert param.type == "string"
+
+    def test_type_accepts_list_for_nullable(self) -> None:
+        """Test that ToolParameter.type accepts a list for nullable types.
+
+        This is the fix for issue #1459: MCP tools may define nullable types
+        as ['string', 'null'] per JSON Schema spec.
+        """
+        param = ToolParameter(type=["string", "null"])
+        assert param.type == ["string", "null"]
+
+    def test_type_accepts_list_for_union_types(self) -> None:
+        """Test that ToolParameter.type accepts a list for union types."""
+        param = ToolParameter(type=["string", "integer"])
+        assert param.type == ["string", "integer"]
+
+    def test_default_type_is_string(self) -> None:
+        """Test that the default type is 'string'."""
+        param = ToolParameter()
+        assert param.type == "string"
+
+
 def npx_not_available() -> tuple[bool, str]:
     """
     Check if npx command is available in the system.
@@ -102,6 +130,49 @@ class TestMCPGeneral:
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
         assert tool.description == "desc"
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_nullable_type_schema_parses_correctly(self) -> None:
+        """Test that nullable types (e.g., ['string', 'null']) are parsed correctly.
+
+        Fixes issue #1459: MCP Tool Validation Error when type is a list like
+        ['string', 'null'] instead of just 'string'.
+        """
+        mcp_tool = Tool(
+            name="test_nullable",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {
+                        "type": ["string", "null"],
+                        "description": "Optional description field",
+                    },
+                    "count": {"type": ["integer", "null"]},
+                },
+                "required": ["name"],
+            },
+            description="Test tool with nullable types",
+            annotations=None,
+        )
+
+        expected_schema = {
+            "name": ToolParameter(type="string", required=True),
+            "description": ToolParameter(
+                type=["string", "null"],
+                required=False,
+                description="Optional description field",
+            ),
+            "count": ToolParameter(type=["integer", "null"], required=False),
+        }
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+        assert tool.parameters == expected_schema
 
     def test_unreachable_server_returns_error(self, suppress_migration_warnings):
         mcp_toolset = RemoteMCPToolset(
