@@ -753,7 +753,7 @@ class TestCompoundStatements:
     # ==================== REQUIRES APPROVAL: Compound statements ====================
 
     def test_for_loop_requires_approval(self):
-        """For loop requires user approval."""
+        """For loop requires user approval even when all prefixes are allowed."""
         config = BashExecutorConfig(allow=["for", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
@@ -763,10 +763,11 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.prefixes_needing_approval == ["echo"]
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
     def test_for_loop_with_command_requires_approval(self):
-        """For loop iterating over command output requires user approval."""
+        """For loop iterating over command output requires user approval even when prefixes are allowed."""
         config = BashExecutorConfig(allow=["for", "kubectl"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
@@ -776,10 +777,11 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.prefixes_needing_approval == ["kubectl logs"]
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
     def test_while_loop_requires_approval(self):
-        """While loop requires user approval."""
+        """While loop requires user approval (sleep not in allow list)."""
         config = BashExecutorConfig(allow=["while", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
@@ -789,10 +791,11 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.prefixes_needing_approval == ["echo"]
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
     def test_until_loop_requires_approval(self):
-        """Until loop requires user approval."""
+        """Until loop requires user approval (false not in allow list)."""
         config = BashExecutorConfig(allow=["until", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
@@ -802,10 +805,11 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.prefixes_needing_approval == ["echo"]
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
     def test_if_statement_requires_approval(self):
-        """If statement requires user approval."""
+        """If statement requires user approval ([ not in allow list)."""
         config = BashExecutorConfig(allow=["if", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
@@ -815,10 +819,11 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.prefixes_needing_approval == ["echo"]
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
     def test_if_else_statement_requires_approval(self):
-        """If-else statement requires user approval."""
+        """If-else statement requires user approval ([ not in allow list)."""
         config = BashExecutorConfig(allow=["if", "echo"])
         allow_list, deny_list = get_effective_lists(config)
         result = validate_command(
@@ -828,7 +833,8 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.prefixes_needing_approval == ["echo"]
+        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.prefixes_needing_approval == []
 
     def test_case_statement_requires_approval(self):
         """Case statement requires user approval."""
@@ -841,6 +847,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Command contains complex syntax which requires approval."
         assert result.prefixes_needing_approval == ["echo"]
 
     # ==================== Subshells: validated via segment checking ====================
@@ -869,6 +876,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert "Segment(s) not in allow list: 'whoami'" in result.message
 
     def test_command_substitution_backticks_all_allowed(self):
         """Command substitution with backticks with all commands allowed is allowed."""
@@ -894,6 +902,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert "Segment(s) not in allow list: 'whoami'" in result.message
 
     def test_process_substitution_all_allowed(self):
         """Process substitution with all inner commands allowed is allowed."""
@@ -918,6 +927,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert "Segment(s) not in allow list: 'cat file1', 'cat file2'" in result.message
 
     # ==================== STILL BLOCKED: Hardcoded blocks inside scripts ====================
 
@@ -1027,3 +1037,4 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.message == "Command contains complex syntax which requires approval."
