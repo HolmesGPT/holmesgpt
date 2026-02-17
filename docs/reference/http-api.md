@@ -258,9 +258,11 @@ curl -X POST http://<HOLMES-URL>/api/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "anthropic/claude-sonnet-4-5-20250929"
+    "model": "claude-sonnet"
   }'
 ```
+
+> **Note:** The `model` value must be a key name from your `modelList` configuration, not a direct model identifier.
 
 **Example** Response
 ```json
@@ -305,7 +307,7 @@ curl -N -X POST http://<HOLMES-URL>/api/stream/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "anthropic/claude-sonnet-4-5-20250929"
+    "model": "claude-sonnet"
   }'
 ```
 
