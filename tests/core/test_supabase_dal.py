@@ -72,43 +72,40 @@ class TestGetResourceRecommendation:
     def _setup_mock_query_chain(
         self, mock_dal, scan_meta_data, scan_results_data, sort_by=None
     ):
-        """Set up the mock query chain for table().select().eq()...execute()."""
+        """Set up the mock query chain for table().select().eq()...execute().
+
+        The new implementation uses:
+        - Meta query: select().eq(account_id).eq(latest).in_(cluster_id) or without in_
+        - Results query: select().eq(account_id).or_(...).eq/like/order/limit
+        """
         # Mock the scan metadata query
-        meta_query = Mock()
         meta_execute_result = Mock()
         meta_execute_result.data = scan_meta_data
-        meta_query.execute.return_value = meta_execute_result
 
-        # Build the chain for metadata table
+        # Build the chain for metadata table with flexible chaining
+        meta_chain = Mock()
+        meta_chain.eq.return_value = meta_chain
+        meta_chain.in_.return_value = meta_chain
+        meta_chain.execute.return_value = meta_execute_result
+
         meta_table = Mock()
-        meta_table.select.return_value.eq.return_value.eq.return_value.eq.return_value = meta_query
+        meta_table.select.return_value = meta_chain
 
         # Mock the scan results query
-        results_query = Mock()
         results_execute_result = Mock()
         results_execute_result.data = scan_results_data
-        results_query.execute.return_value = results_execute_result
 
-        # Build the chain for results table with optional filters
+        # Build the chain for results table with flexible chaining
+        results_chain = Mock()
+        results_chain.eq.return_value = results_chain
+        results_chain.or_.return_value = results_chain
+        results_chain.like.return_value = results_chain
+        results_chain.order.return_value = results_chain
+        results_chain.limit.return_value = results_chain
+        results_chain.execute.return_value = results_execute_result
+
         results_table = Mock()
-        results_select = Mock()
-        results_eq1 = Mock()
-        results_eq2 = Mock()
-        results_eq3 = Mock()
-
-        # Set up basic query chain
-        results_table.select.return_value = results_select
-        results_select.eq.return_value = results_eq1
-        results_eq1.eq.return_value = results_eq2
-        results_eq2.eq.return_value = results_eq3
-
-        # The results_eq3 object will be used for optional filters
-        # It should return itself for chaining
-        results_eq3.eq.return_value = results_eq3
-        results_eq3.like.return_value = results_eq3
-        results_eq3.order.return_value = results_eq3
-        results_eq3.limit.return_value = results_eq3
-        results_eq3.execute.return_value = results_execute_result
+        results_table.select.return_value = results_chain
 
         # Mock table() to return appropriate mock based on table name
         def table_side_effect(table_name):
@@ -120,11 +117,11 @@ class TestGetResourceRecommendation:
 
         mock_dal.client.table.side_effect = table_side_effect
 
-        return meta_query, results_query
+        return meta_chain, results_chain
 
     def test_basic_functionality_default_params(self, mock_dal):
         """Test basic functionality with default parameters."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="app-1",
@@ -170,7 +167,7 @@ class TestGetResourceRecommendation:
 
     def test_limit_parameter(self, mock_dal):
         """Test that limit parameter correctly limits results."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name=f"app-{i}",
@@ -199,7 +196,7 @@ class TestGetResourceRecommendation:
 
     def test_sort_by_memory_total(self, mock_dal):
         """Test sorting by memory_total."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="low-memory",
@@ -246,7 +243,7 @@ class TestGetResourceRecommendation:
 
     def test_sort_by_priority(self, mock_dal):
         """Test sorting by priority field."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="low-priority",
@@ -302,7 +299,7 @@ class TestGetResourceRecommendation:
 
     def test_filter_by_namespace(self, mock_dal):
         """Test filtering by namespace."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="app-prod",
@@ -331,7 +328,7 @@ class TestGetResourceRecommendation:
 
     def test_filter_by_name_pattern(self, mock_dal):
         """Test filtering by name pattern."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="frontend-app",
@@ -360,7 +357,7 @@ class TestGetResourceRecommendation:
 
     def test_filter_by_kind(self, mock_dal):
         """Test filtering by kind."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="my-statefulset",
@@ -389,7 +386,7 @@ class TestGetResourceRecommendation:
 
     def test_filter_by_container(self, mock_dal):
         """Test filtering by container name."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="my-app",
@@ -429,7 +426,7 @@ class TestGetResourceRecommendation:
 
     def test_no_scan_results(self, mock_dal):
         """Test when scan metadata exists but no results."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = []  # Empty results
 
         self._setup_mock_query_chain(mock_dal, scan_meta_data, scan_results_data)
@@ -450,7 +447,7 @@ class TestGetResourceRecommendation:
 
     def test_multiple_filters_combined(self, mock_dal):
         """Test combining multiple filters."""
-        scan_meta_data = [{"scan_id": "scan-123"}]
+        scan_meta_data = [{"cluster_id": "test-cluster", "scan_id": "scan-123"}]
         scan_results_data = [
             self._create_mock_scan_result(
                 name="prod-frontend",
