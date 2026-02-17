@@ -1,9 +1,11 @@
 """Pydantic models for operator CRD objects."""
 
 from enum import Enum
-from typing import List, Optional
+from typing import Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, Field
+
+ConditionTypeT = TypeVar("ConditionTypeT", bound=str)
 
 
 class CheckPhase(str, Enum):
@@ -46,6 +48,20 @@ class ConditionStatus(str, Enum):
     UNKNOWN = "Unknown"
 
 
+class ScheduledHealthCheckConditionType(str, Enum):
+    """ScheduledHealthCheck condition types."""
+
+    SCHEDULE_REGISTERED = "ScheduleRegistered"
+    EXECUTION_FAILED = "ExecutionFailed"
+
+
+class HealthCheckConditionType(str, Enum):
+    """HealthCheck condition types."""
+
+    COMPLETE = "Complete"
+    FAILED = "Failed"
+
+
 class DestinationConfig(BaseModel):
     """Destination configuration for alerts."""
 
@@ -72,10 +88,10 @@ class NotificationStatus(BaseModel):
     error: Optional[str] = None
 
 
-class HealthCheckCondition(BaseModel):
+class HealthCheckCondition(BaseModel, Generic[ConditionTypeT]):
     """Kubernetes condition."""
 
-    type: str
+    type: ConditionTypeT
     status: ConditionStatus
     lastTransitionTime: Optional[str] = None
     reason: Optional[str] = None

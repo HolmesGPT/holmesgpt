@@ -110,7 +110,7 @@ class TestHealthCheckCreate:
             "query": "Check if my-app pod is healthy",
             "timeout": 30,
             "mode": "monitor",
-            "destinations": [{"type": "slack", "channel": "#alerts"}],
+            "destinations": [{"type": "slack", "config": {"channel": "#alerts"}}],
         }
         name = "test-check-1"
         namespace = "default"

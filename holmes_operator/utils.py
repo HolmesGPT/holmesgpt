@@ -87,8 +87,8 @@ async def update_healthcheck_status(
         logger.debug(
             f"Updated HealthCheck status: {namespace}/{name}",
             extra={
-                "name": name,
-                "namespace": namespace,
+                "check_name": name,
+                "check_namespace": namespace,
                 "phase": phase,
                 "result": result,
             },
@@ -98,7 +98,7 @@ async def update_healthcheck_status(
         logger.error(
             f"Failed to update HealthCheck status: {namespace}/{name}",
             exc_info=True,
-            extra={"name": name, "namespace": namespace, "error": str(e)},
+            extra={"check_name": name, "check_namespace": namespace, "error": str(e)},
         )
         raise
 
@@ -157,8 +157,8 @@ async def add_healthcheck_condition(
         logger.debug(
             f"Added condition to HealthCheck: {namespace}/{name}",
             extra={
-                "name": name,
-                "namespace": namespace,
+                "check_name": name,
+                "check_namespace": namespace,
                 "condition_type": condition.type,
                 "status": condition.status.value,
             },
@@ -169,8 +169,8 @@ async def add_healthcheck_condition(
             f"Failed to add condition to HealthCheck: {namespace}/{name}",
             exc_info=True,
             extra={
-                "name": name,
-                "namespace": namespace,
+                "check_name": name,
+                "check_namespace": namespace,
                 "condition_type": condition.type,
                 "error": str(e),
             },
