@@ -59,7 +59,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
        ```bash
        git clone https://github.com/HolmesGPT/holmesgpt.git
        cd holmesgpt
-       poetry install
+       poetry install --no-root
        ```
 
     3. Verify installation:
