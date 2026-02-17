@@ -21,6 +21,8 @@ NAMESPACE = "namespace"
 WORKLOAD = "workload"
 DEFAULT_LIMIT_CHANGE_ROWS = 100
 MAX_LIMIT_CHANGE_ROWS = 200
+DEFAULT_LIMIT_KRR_ROWS = 10
+MAX_LIMIT_KRR_ROWS = 1000
 
 
 class FetchRobustaFinding(Tool):
@@ -99,7 +101,7 @@ class FetchResourceRecommendation(Tool):
             ),
             parameters={
                 "limit": ToolParameter(
-                    description="Maximum number of recommendations to return (default: 10, max: 100).",
+                    description=f"Maximum number of recommendations to return (default: {DEFAULT_LIMIT_KRR_ROWS}, max: {MAX_LIMIT_KRR_ROWS}).",
                     type="integer",
                     required=False,
                 ),
@@ -170,8 +172,11 @@ class FetchResourceRecommendation(Tool):
 
     def _fetch_recommendations(self, params: Dict) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
-            # Set default values
-            limit = min(params.get("limit", 10) or 10, 100)
+            # Set default values and enforce max limit
+            limit = min(
+                params.get("limit") or DEFAULT_LIMIT_KRR_ROWS,
+                MAX_LIMIT_KRR_ROWS,
+            )
             sort_by = params.get("sort_by") or "cpu_total"
 
             # Determine cluster scope

@@ -306,73 +306,74 @@ class SupabaseDal:
         if clusters is None:
             target_clusters = [self.cluster]
         elif clusters == ["*"]:
-            # Query all clusters - get distinct cluster_ids from scans_meta
-            all_clusters_response = (
-                self.client.table(SCANS_META_TABLE)
-                .select("cluster_id")
-                .eq("account_id", self.account_id)
-                .eq("latest", True)
-                .execute()
-            )
-            target_clusters = list(
-                set(row["cluster_id"] for row in all_clusters_response.data)
-            )
-            if not target_clusters:
-                logging.warning("No clusters found with KRR scan data")
-                return None
+            target_clusters = None  # Will query all via single request
         else:
             target_clusters = clusters
 
-        all_results: List[Dict] = []
+        # Step 1: Fetch scan metadata for all target clusters in one query
+        meta_query = (
+            self.client.table(SCANS_META_TABLE)
+            .select("cluster_id, scan_id")
+            .eq("account_id", self.account_id)
+            .eq("latest", True)
+        )
+        if target_clusters is not None:
+            meta_query = meta_query.in_("cluster_id", target_clusters)
 
-        for cluster_id in target_clusters:
-            scans_meta_response = (
-                self.client.table(SCANS_META_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .eq("cluster_id", cluster_id)
-                .eq("latest", True)
-                .execute()
-            )
-            if not len(scans_meta_response.data):
-                logging.debug(f"No scan metadata found for cluster {cluster_id}")
-                continue
+        scans_meta_response = meta_query.execute()
 
-            scan_id = scans_meta_response.data[0]["scan_id"]
-
-            query = (
-                self.client.table(SCANS_RESULTS_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .eq("cluster_id", cluster_id)
-                .eq("scan_id", scan_id)
-            )
-
-            if namespace:
-                query = query.eq("namespace", namespace)
-            if name_pattern:
-                query = query.like("name", name_pattern)
-            if kind:
-                query = query.eq("kind", kind)
-            if container:
-                query = query.eq("container", container)
-
-            # For multi-cluster queries, we fetch all and sort later
-            # For single cluster with priority sort, use DB ordering
-            if len(target_clusters) == 1 and sort_by == "priority":
-                query = query.order("priority", desc=True).limit(limit)
-
-            scans_results_response = query.execute()
-            all_results.extend(scans_results_response.data)
-
-        if not all_results:
+        if not scans_meta_response.data:
+            logging.warning("No scan metadata found for KRR")
             return None
 
-        if len(all_results) <= 1:
-            return all_results
+        # Build cluster_id -> scan_id mapping
+        cluster_scan_pairs: List[Tuple[str, str]] = [
+            (row["cluster_id"], row["scan_id"]) for row in scans_meta_response.data
+        ]
 
-        # If single cluster with priority sorting, already ordered and limited
-        if len(target_clusters) == 1 and sort_by == "priority":
+        if not cluster_scan_pairs:
+            return None
+
+        # Step 2: Fetch results using OR filter for (cluster_id, scan_id) pairs
+        # PostgREST syntax: or=(and(cluster_id.eq.X,scan_id.eq.Y),and(...))
+        or_conditions = ",".join(
+            f"and(cluster_id.eq.{cluster_id},scan_id.eq.{scan_id})"
+            for cluster_id, scan_id in cluster_scan_pairs
+        )
+
+        query = (
+            self.client.table(SCANS_RESULTS_TABLE)
+            .select("*")
+            .eq("account_id", self.account_id)
+            .or_(or_conditions)
+        )
+
+        if namespace:
+            query = query.eq("namespace", namespace)
+        if name_pattern:
+            query = query.like("name", name_pattern)
+        if kind:
+            query = query.eq("kind", kind)
+        if container:
+            query = query.eq("container", container)
+
+        # For priority sorting, we can use DB ordering and limit
+        if sort_by == "priority":
+            query = query.order("priority", desc=True).limit(limit)
+            results_response = query.execute()
+            return results_response.data if results_response.data else None
+
+        # For other sort modes, fetch up to limit per cluster then sort in Python
+        # Apply a reasonable limit to prevent unbounded fetches
+        query = query.limit(limit * len(cluster_scan_pairs))
+        results_response = query.execute()
+
+        if not results_response.data:
+            return None
+
+        all_results = results_response.data
+
+        if len(all_results) <= 1:
             return all_results
 
         # Sort by calculated savings (descending)
@@ -415,19 +416,7 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        # Determine which clusters to query
-        if clusters is None:
-            target_clusters = [self.cluster]
-        elif clusters == ["*"]:
-            # Will query without cluster filter to get all clusters
-            target_clusters = ["*"]
-        else:
-            target_clusters = clusters
-
-        all_results: List[Dict] = []
-
         try:
-            # Build base query
             base_select = (
                 "id",
                 "title",
@@ -440,67 +429,52 @@ class SupabaseDal:
                 "cluster",
             )
 
-            if target_clusters == ["*"]:
-                # Query all clusters at once (no cluster filter)
+            # Build the list of clusters to query (single query using IN filter)
+            if clusters == ["*"]:
+                # Query all clusters - if include_external, no cluster filter needed
+                # Otherwise exclude "external"
                 query = (
                     self.client.table(ISSUES_TABLE)
                     .select(*base_select)
                     .eq("account_id", self.account_id)
-                    .neq("cluster", "external")  # Exclude external, handled separately
                     .gte("creation_date", start_datetime)
                     .lte("creation_date", end_datetime)
                     .eq("finding_type", finding_type.value)
                 )
-                if workload:
-                    query = query.eq("subject_name", workload)
-                if ns:
-                    query = query.eq("subject_namespace", ns)
-
-                res = query.limit(limit).execute()
-                all_results.extend(res.data)
+                if not include_external:
+                    query = query.neq("cluster", "external")
             else:
-                # Query specific clusters
-                for cluster_id in target_clusters:
-                    query = (
-                        self.client.table(ISSUES_TABLE)
-                        .select(*base_select)
-                        .eq("account_id", self.account_id)
-                        .eq("cluster", cluster_id)
-                        .gte("creation_date", start_datetime)
-                        .lte("creation_date", end_datetime)
-                        .eq("finding_type", finding_type.value)
-                    )
-                    if workload:
-                        query = query.eq("subject_name", workload)
-                    if ns:
-                        query = query.eq("subject_namespace", ns)
+                # Build cluster list for IN filter
+                target_clusters = clusters if clusters else [self.cluster]
+                if include_external:
+                    target_clusters = target_clusters + ["external"]
 
-                    res = query.limit(limit).execute()
-                    all_results.extend(res.data)
-
-            # Include external changes if requested
-            if include_external:
-                external_query = (
+                query = (
                     self.client.table(ISSUES_TABLE)
                     .select(*base_select)
                     .eq("account_id", self.account_id)
-                    .eq("cluster", "external")
+                    .in_("cluster", target_clusters)
                     .gte("creation_date", start_datetime)
                     .lte("creation_date", end_datetime)
                     .eq("finding_type", finding_type.value)
                 )
-                # Note: workload/ns filters not applied to external as they don't have k8s context
-                external_res = external_query.limit(limit).execute()
-                all_results.extend(external_res.data)
 
-            if not all_results:
+            # Apply workload/namespace filters (only affect non-external results,
+            # but external rows won't match these anyway as they lack k8s context)
+            if workload:
+                query = query.eq("subject_name", workload)
+            if ns:
+                query = query.eq("subject_namespace", ns)
+
+            # Order by starts_at descending and apply limit in DB
+            query = query.order("starts_at", desc=True).limit(limit)
+
+            res = query.execute()
+
+            if not res.data:
                 return None
 
-            # Sort by creation date (starts_at) descending and limit
-            all_results.sort(
-                key=lambda x: x.get("starts_at") or "", reverse=True
-            )
-            return all_results[:limit]
+            return res.data
 
         except Exception:
             logging.exception("Supabase error while retrieving change data")
