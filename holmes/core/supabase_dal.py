@@ -45,6 +45,10 @@ from holmes.utils.krr_utils import calculate_krr_savings
 
 SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 3600))
 
+# Maximum total rows to fetch from KRR scans, regardless of number of clusters
+# This prevents unbounded fetches when querying many clusters
+MAX_KRR_TOTAL_FETCH_ROWS = 2000
+
 ISSUES_TABLE = "Issues"
 GROUPED_ISSUES_TABLE = "GroupedIssues"
 EVIDENCE_TABLE = "Evidence"
@@ -364,8 +368,9 @@ class SupabaseDal:
             return results_response.data if results_response.data else None
 
         # For other sort modes, fetch up to limit per cluster then sort in Python
-        # Apply a reasonable limit to prevent unbounded fetches
-        query = query.limit(limit * len(cluster_scan_pairs))
+        # Cap total fetch to prevent unbounded queries with many clusters
+        total_fetch = min(limit * len(cluster_scan_pairs), MAX_KRR_TOTAL_FETCH_ROWS)
+        query = query.limit(total_fetch)
         results_response = query.execute()
 
         if not results_response.data:
