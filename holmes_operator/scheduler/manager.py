@@ -134,9 +134,6 @@ class SchedulerManager:
         key = f"{namespace}/{name}"
         logger.info(f"Updating schedule for {key}")
 
-        # Remove old job if exists
-        await self.remove_schedule(name, namespace)
-
         # Add new job
         return await self.add_schedule(name, namespace, cron_expr, spec, scheduled_uid)
 
@@ -214,79 +211,3 @@ class SchedulerManager:
             except Exception as e:
                 # Individual schedule failures are logged but don't fail startup
                 logger.error(f"Failed to load schedule {namespace}/{name}: {e}")
-
-    async def _check_and_catchup(
-        self,
-        name: str,
-        namespace: str,
-        cron_expr: str,
-        spec: ScheduledHealthCheckSpec,
-        scheduled_uid: str,
-    ):
-        """
-        Check if a scheduled execution was missed and execute immediately if so.
-
-        Args:
-            name: ScheduledHealthCheck name
-            namespace: ScheduledHealthCheck namespace
-            cron_expr: Cron expression
-            spec: ScheduledHealthCheck spec
-            scheduled_uid: UID of the ScheduledHealthCheck resource
-        """
-        try:
-            # Get current resource to check lastScheduleTime
-            resource = await asyncio.to_thread(
-                self.k8s_api.get_namespaced_custom_object,
-                group="holmesgpt.dev",
-                version="v1alpha1",
-                namespace=namespace,
-                plural="scheduledhealthchecks",
-                name=name,
-            )
-
-            status = resource.get("status", {})
-            last_schedule_time_str = status.get("lastScheduleTime")
-
-            # Calculate when the check should have run last
-            trigger = CronTrigger.from_crontab(cron_expr)
-            now = datetime.now(timezone.utc)
-
-            # If there's a lastScheduleTime, use it as the reference point
-            # Otherwise, check if it should fire now
-            if last_schedule_time_str:
-                last_schedule_time = datetime.fromisoformat(
-                    last_schedule_time_str.replace("Z", "+00:00")
-                )
-                # Check if there should have been an execution between lastScheduleTime and now
-                previous_fire = trigger.get_next_fire_time(last_schedule_time, now)
-            else:
-                # First run - execute immediately
-                logger.info(
-                    f"First run detected for {namespace}/{name}, executing immediately"
-                )
-                await execute_scheduled_check(
-                    name=name,
-                    namespace=namespace,
-                    spec=spec,
-                    scheduled_uid=scheduled_uid,
-                    k8s_api=self.k8s_api,
-                )
-                return
-
-            # If there's a scheduled time that we missed, execute immediately
-            if previous_fire and previous_fire < now:
-                logger.info(
-                    f"Missed execution detected for {namespace}/{name}: "
-                    f"should have run at {previous_fire}, executing catchup now"
-                )
-                # Execute immediately (catchup)
-                await execute_scheduled_check(
-                    name=name,
-                    namespace=namespace,
-                    spec=spec,
-                    scheduled_uid=scheduled_uid,
-                    k8s_api=self.k8s_api,
-                )
-
-        except Exception as e:
-            logger.error(f"Error during catchup check for {namespace}/{name}: {e}")
