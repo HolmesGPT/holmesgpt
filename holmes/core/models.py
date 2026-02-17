@@ -230,6 +230,7 @@ class IssueChatRequest(ChatRequestBaseModel):
     investigation_result: IssueInvestigationResult
     issue_type: str
 
+
 class ChatRequest(ChatRequestBaseModel):
     ask: str
     images: Optional[List[Union[str, Dict[str, Any]]]] = Field(
@@ -246,6 +247,10 @@ class ChatRequest(ChatRequestBaseModel):
     response_format: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional JSON schema for structured output. Format: {'type': 'json_schema', 'json_schema': {'name': 'ResultName', 'strict': true, 'schema': {...}}}",
+    )
+    behavior_controls: Optional[Dict[str, bool]] = Field(
+        default=None,
+        description="Override prompt components (e.g., {'todowrite_instructions': false}). Env var ENABLED_PROMPTS takes precedence.",
     )
 
 

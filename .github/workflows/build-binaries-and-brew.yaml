@@ -8,10 +8,24 @@ jobs:
   build:
     strategy:
       matrix:
-        # We build on an older Ubuntu as pyinstaller binaries are forward-compatible not backwards-compatible
-        # See https://pyinstaller.org/en/stable/usage.html?highlight=glibc#making-gnu-linux-apps-forward-compatible:~:text=The%20solution%20is%20to%20always%20build%20your%20app%20on%20the%20oldest%20version%20of%20GNU/Linux%20you%20mean%20to%20support.%20It%20should%20continue%20to%20work%20with%20the%20libc%20found%20on%20newer%20versions.
-        # TODO: for similar reasons, we may want to build on older Windows/MacOS versions as well
-        os: [ubuntu-22.04, windows-latest, macos-latest]
+        include:
+          # Linux AMD64 - build on older Ubuntu for forward compatibility
+          # See https://pyinstaller.org/en/stable/usage.html?highlight=glibc#making-gnu-linux-apps-forward-compatible
+          - os: ubuntu-22.04
+            platform: linux
+            arch: amd64
+          # macOS AMD64 (Intel) - macos-13 is the last Intel-based runner
+          - os: macos-13
+            platform: darwin
+            arch: amd64
+          # macOS ARM64 (Apple Silicon) - macos-14+ runs on M1/M2
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          # Windows AMD64
+          - os: windows-latest
+            platform: windows
+            arch: amd64
 
     runs-on: ${{ matrix.os }}
 
@@ -23,16 +37,16 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install dependencies
-      if: matrix.os != 'windows-latest'
+    - name: Install dependencies (Unix)
+      if: matrix.platform != 'windows'
       run: |
         python -m pip install --upgrade pip setuptools pyinstaller
         curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
         poetry config virtualenvs.create false
         poetry install --no-root
 
-    - name: Install dependencies
-      if: matrix.os == 'windows-latest'
+    - name: Install dependencies (Windows)
+      if: matrix.platform == 'windows'
       run: |
         python -m pip install --upgrade pip setuptools pyinstaller
         curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
@@ -40,29 +54,29 @@ jobs:
         C:\Users\runneradmin\AppData\Roaming\Python\Scripts\poetry install --no-root
 
     - name: Install dependencies (Linux)
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.platform == 'linux'
       run: |
         sudo apt-get install -y binutils
 
     - name: Update package version (Linux)
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.platform == 'linux'
       run: sed -i 's/__version__ = .*/__version__ = "${{ github.ref_name }}"/g' holmes/__init__.py
 
     # mac has BSD style sed command where you specify -i '' and not just -i
     - name: Update package version (macOS)
-      if: matrix.os == 'macos-latest'
+      if: matrix.platform == 'darwin'
       run: sed -i '' 's/__version__ = .*/__version__ = "${{ github.ref_name }}"/g' holmes/__init__.py
 
     # windows has no sed, so we use powershell
     - name: Update package version (Windows)
-      if: matrix.os == 'windows-latest'
+      if: matrix.platform == 'windows'
       run: |
         $filePath = 'holmes/__init__.py'
         (Get-Content $filePath) -replace '__version__ = .+', '__version__ = "${{ github.ref_name }}"' | Set-Content $filePath
       shell: pwsh
 
     - name: Install unixODBC (macOS)
-      if: matrix.os == 'macos-latest'
+      if: matrix.platform == 'darwin'
       run: brew install unixodbc
 
     # if you change something here, you must also change it in .github/workflows/build-and-test.yaml
@@ -90,19 +104,19 @@ jobs:
         ls dist
 
     - name: Zip the application (Unix and Mac)
-      if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-22.04'
+      if: matrix.platform != 'windows'
       run: |
         cd dist
-        zip -r holmes-${{ matrix.os }}-${{ github.ref_name }}.zip holmes
-        mv holmes-${{ matrix.os }}-${{ github.ref_name }}.zip ../
+        zip -r holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip holmes
+        mv holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip ../
         cd ..
 
     - name: Zip the application (Windows)
-      if: matrix.os == 'windows-latest'
+      if: matrix.platform == 'windows'
       run: |
         Set-Location -Path dist
-        Compress-Archive -Path holmes -DestinationPath holmes-${{ matrix.os }}-${{ github.ref_name }}.zip -Force
-        Move-Item -Path holmes-${{ matrix.os }}-${{ github.ref_name }}.zip -Destination ..\
+        Compress-Archive -Path holmes -DestinationPath holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip -Force
+        Move-Item -Path holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip -Destination ..\
         Set-Location -Path ..
 
     - name: Upload Release Asset
@@ -111,15 +125,15 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./holmes-${{ matrix.os }}-${{ github.ref_name }}.zip
-        asset_name: holmes-${{ matrix.os }}-${{ github.ref_name }}.zip
+        asset_path: ./holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip
+        asset_name: holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip
         asset_content_type: application/octet-stream
 
     - name: Upload build as artifact
       uses: actions/upload-artifact@v4
       with:
-        name: holmes-${{ matrix.os }}-${{ github.ref_name }}
-        path: ./holmes-${{ matrix.os }}-${{ github.ref_name }}.zip
+        name: holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}
+        path: ./holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip
 
   check-latest:
     needs: build
@@ -134,23 +148,41 @@ jobs:
           repository: ${{ github.repository }}
           excludes: prerelease, draft
 
-  # Define MacOS hash job
-  mac-hash:
+  # Define macOS ARM64 hash job (Apple Silicon)
+  mac-arm64-hash:
     needs: check-latest
     runs-on: ubuntu-latest
     if: needs.check-latest.outputs.IS_LATEST
     outputs:
-      MAC_BUILD_HASH: ${{ steps.calc-hash.outputs.MAC_BUILD_HASH }}
+      MAC_ARM64_BUILD_HASH: ${{ steps.calc-hash.outputs.MAC_ARM64_BUILD_HASH }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v2
-      - name: Download MacOS artifact
+      - name: Download macOS ARM64 artifact
         uses: actions/download-artifact@v4
         with:
-          name: holmes-macos-latest-${{ github.ref_name }}
+          name: holmes-darwin-arm64-${{ github.ref_name }}
       - name: Calculate hash
         id: calc-hash
-        run: echo "::set-output name=MAC_BUILD_HASH::$(sha256sum holmes-macos-latest-${{ github.ref_name }}.zip | awk '{print $1}')"
+        run: echo "MAC_ARM64_BUILD_HASH=$(sha256sum holmes-darwin-arm64-${{ github.ref_name }}.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+  # Define macOS AMD64 hash job (Intel)
+  mac-amd64-hash:
+    needs: check-latest
+    runs-on: ubuntu-latest
+    if: needs.check-latest.outputs.IS_LATEST
+    outputs:
+      MAC_AMD64_BUILD_HASH: ${{ steps.calc-hash.outputs.MAC_AMD64_BUILD_HASH }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+      - name: Download macOS AMD64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: holmes-darwin-amd64-${{ github.ref_name }}
+      - name: Calculate hash
+        id: calc-hash
+        run: echo "MAC_AMD64_BUILD_HASH=$(sha256sum holmes-darwin-amd64-${{ github.ref_name }}.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
 
   # Define Linux hash job
   linux-hash:
@@ -165,14 +197,14 @@ jobs:
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
-          name: holmes-ubuntu-22.04-${{ github.ref_name }}
+          name: holmes-linux-amd64-${{ github.ref_name }}
       - name: Calculate hash
         id: calc-hash
-        run: echo "::set-output name=LINUX_BUILD_HASH::$(sha256sum holmes-ubuntu-22.04-${{ github.ref_name }}.zip | awk '{print $1}')"
+        run: echo "LINUX_BUILD_HASH=$(sha256sum holmes-linux-amd64-${{ github.ref_name }}.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
 
-  # TODO: update homebrew formula
+  # Update Homebrew formula with new binary URLs and hashes
   update-formula:
-    needs: [mac-hash, linux-hash]
+    needs: [mac-arm64-hash, mac-amd64-hash, linux-hash]
     runs-on: ubuntu-latest
     if: ${{ !github.event.release.prerelease }}
     steps:
@@ -182,17 +214,66 @@ jobs:
           repository: robusta-dev/homebrew-holmesgpt
           token: ${{ secrets.MULTIREPO_GITHUB_TOKEN }}
       - name: Update holmesgpt.rb formula
+        env:
+          MAC_ARM64_BUILD_HASH: ${{ needs.mac-arm64-hash.outputs.MAC_ARM64_BUILD_HASH }}
+          MAC_AMD64_BUILD_HASH: ${{ needs.mac-amd64-hash.outputs.MAC_AMD64_BUILD_HASH }}
+          LINUX_BUILD_HASH: ${{ needs.linux-hash.outputs.LINUX_BUILD_HASH }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          MAC_BUILD_HASH=${{ needs.mac-hash.outputs.MAC_BUILD_HASH }}
-          LINUX_BUILD_HASH=${{ needs.linux-hash.outputs.LINUX_BUILD_HASH }}
-          TAG_NAME=${{ github.ref_name }}
-          awk 'NR==6{$0="        url \"https://github.com/HolmesGPT/holmesgpt/releases/download/'"$TAG_NAME"'/holmes-macos-latest-'"$TAG_NAME"'.zip\""}1' ./Formula/holmesgpt.rb > temp && mv temp ./Formula/holmesgpt.rb
-          awk 'NR==7{$0="        sha256 \"'$MAC_BUILD_HASH'\""}1' ./Formula/holmesgpt.rb > temp && mv temp ./Formula/holmesgpt.rb
-          awk 'NR==9{$0="        url \"https://github.com/HolmesGPT/holmesgpt/releases/download/'"$TAG_NAME"'/holmes-ubuntu-22.04-'"$TAG_NAME"'.zip\""}1' ./Formula/holmesgpt.rb > temp && mv temp ./Formula/holmesgpt.rb
-          awk 'NR==10{$0="        sha256 \"'$LINUX_BUILD_HASH'\""}1' ./Formula/holmesgpt.rb > temp && mv temp ./Formula/holmesgpt.rb
+          # Update URLs and hashes using Python for reliability
+          python3 << 'PYTHON_SCRIPT'
+          import os
+          import re
+
+          mac_arm64_hash = os.environ['MAC_ARM64_BUILD_HASH']
+          mac_amd64_hash = os.environ['MAC_AMD64_BUILD_HASH']
+          linux_hash = os.environ['LINUX_BUILD_HASH']
+          tag = os.environ['TAG_NAME']
+
+          with open('./Formula/holmesgpt.rb', 'r') as f:
+              content = f.read()
+
+          # Update macOS URL (handles both old and new naming)
+          content = re.sub(
+              r'(on_macos do\s+)url "[^"]+"',
+              rf'\1url "https://github.com/HolmesGPT/holmesgpt/releases/download/{tag}/holmes-darwin-arm64-{tag}.zip"',
+              content,
+              flags=re.DOTALL
+          )
+
+          # Update macOS sha256
+          content = re.sub(
+              r'(on_macos do\s+url "[^"]+"\s+)sha256 "[^"]+"',
+              rf'\1sha256 "{mac_arm64_hash}"',
+              content,
+              flags=re.DOTALL
+          )
+
+          # Update Linux URL (handles both old and new naming)
+          content = re.sub(
+              r'(on_linux do\s+)url "[^"]+"',
+              rf'\1url "https://github.com/HolmesGPT/holmesgpt/releases/download/{tag}/holmes-linux-amd64-{tag}.zip"',
+              content,
+              flags=re.DOTALL
+          )
+
+          # Update Linux sha256
+          content = re.sub(
+              r'(on_linux do\s+url "[^"]+"\s+)sha256 "[^"]+"',
+              rf'\1sha256 "{linux_hash}"',
+              content,
+              flags=re.DOTALL
+          )
+
+          with open('./Formula/holmesgpt.rb', 'w') as f:
+              f.write(content)
+
+          print("Updated formula:")
+          print(content)
+          PYTHON_SCRIPT
       - name: Commit and push changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git commit -am "Update formula for release ${TAG_NAME}"
+          git commit -am "Update formula for release ${{ github.ref_name }}"
           git push

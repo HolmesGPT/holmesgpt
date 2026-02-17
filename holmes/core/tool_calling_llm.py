@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import textwrap
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import sentry_sdk
@@ -33,7 +34,6 @@ from holmes.core.models import (
     ToolCallResult,
 )
 from holmes.core.prompt import generate_user_prompt
-from holmes.core.runbooks import RunbookManager
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
     StructuredToolResult,
@@ -239,12 +239,18 @@ class ToolCallingLLM:
     llm: LLM
 
     def __init__(
-        self, tool_executor: ToolExecutor, max_steps: int, llm: LLM, tracer=None
+        self,
+        tool_executor: ToolExecutor,
+        max_steps: int,
+        llm: LLM,
+        tool_results_dir: Optional[Path],
+        tracer=None,
     ):
         self.tool_executor = tool_executor
         self.max_steps = max_steps
         self.tracer = tracer
         self.llm = llm
+        self.tool_results_dir = tool_results_dir
         self.approval_callback: Optional[
             Callable[[StructuredToolResult], tuple[bool, Optional[str]]]
         ] = None
@@ -256,6 +262,16 @@ class ToolCallingLLM:
         For interactive loop, reset runbooks in use
         """
         self._runbook_in_use = False
+
+    def _has_bash_for_file_access(self) -> bool:
+        """Check if bash toolset is available for reading saved tool result files."""
+        for toolset in self.tool_executor.enabled_toolsets:
+            if toolset.name == "bash":
+                config = toolset.config
+                if config and hasattr(config, "include_default_allow_deny_list"):
+                    return config.include_default_allow_deny_list
+                return False
+        return False
 
     def process_tool_decisions(
         self,
@@ -477,7 +493,18 @@ class ToolCallingLLM:
                         "The Azure model you chose is not supported. Model version 1106 and higher required."
                     )
                 else:
+                    logging.error(
+                        f"LLM BadRequestError on model={self.llm.model} (iteration {i}): {e}",
+                        exc_info=True,
+                    )
                     raise
+            except Exception as e:
+                logging.error(
+                    f"LLM call failed on model={self.llm.model} (iteration {i}): "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                raise
 
             response = full_response.choices[0]  # type: ignore
 
@@ -806,7 +833,11 @@ class ToolCallingLLM:
                 )
 
             original_token_count = prevent_overly_big_tool_response(
-                tool_call_result=tool_call_result, llm=self.llm
+                tool_call_result=tool_call_result,
+                llm=self.llm,
+                tool_results_dir=self.tool_results_dir
+                if self.tool_results_dir and self._has_bash_for_file_access()
+                else None,
             )
 
             ToolCallingLLM._log_tool_call_result(
@@ -827,9 +858,7 @@ class ToolCallingLLM:
             tool_name=tool_call_result.tool_name,
             tool_call_id=tool_call_result.tool_call_id,
         )
-        approval = tool.requires_approval(
-            tool_call_result.result.params or {}, context
-        )
+        approval = tool.requires_approval(tool_call_result.result.params or {}, context)
         return not approval or not approval.needs_approval
 
     def _handle_tool_call_approval(
@@ -857,9 +886,7 @@ class ToolCallingLLM:
 
         # Re-check if approval is still needed (prefix may have been approved by another tool call)
         if self._is_tool_call_already_approved(tool_call_result):
-            logging.info(
-                f"Approval no longer needed for {tool_call_result.tool_name}"
-            )
+            logging.info(f"Approval no longer needed for {tool_call_result.tool_name}")
             with trace_span.start_span(type="tool") as tool_span:
                 tool_call_result.result = self._directly_invoke_tool_call(
                     tool_name=tool_call_result.tool_name,
@@ -985,7 +1012,18 @@ class ToolCallingLLM:
                         "The Azure model you chose is not supported. Model version 1106 and higher required."
                     ) from e
                 else:
+                    logging.error(
+                        f"LLM BadRequestError on model={self.llm.model} (streaming iteration {i}): {e}",
+                        exc_info=True,
+                    )
                     raise
+            except Exception as e:
+                logging.error(
+                    f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                raise
 
             response_message = full_response.choices[0].message  # type: ignore
             if response_message and response_format:
@@ -1180,19 +1218,17 @@ class IssueInvestigator(ToolCallingLLM):
     Thin wrapper around ToolCallingLLM which:
     1) Provides a default prompt for RCA
     2) Accepts Issue objects
-    3) Looks up and attaches runbooks
     """
 
     def __init__(
         self,
         tool_executor: ToolExecutor,
-        runbook_manager: RunbookManager,
         max_steps: int,
         llm: LLM,
+        tool_results_dir: Optional[Path],
         cluster_name: Optional[str],
     ):
-        super().__init__(tool_executor, max_steps, llm)
-        self.runbook_manager = runbook_manager
+        super().__init__(tool_executor, max_steps, llm, tool_results_dir)
         self.cluster_name = cluster_name
 
     def investigate(
@@ -1206,8 +1242,6 @@ class IssueInvestigator(ToolCallingLLM):
         runbooks: Optional[RunbookCatalog] = None,
         request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
-        issue_runbooks = self.runbook_manager.get_instructions_for_issue(issue)
-
         request_structured_output_from_llm = True
         response_format = None
 
@@ -1234,15 +1268,6 @@ class IssueInvestigator(ToolCallingLLM):
         else:
             logging.info("Structured output is disabled for this request")
 
-        if console and runbooks:
-            console.print(
-                f"[bold]Analyzing with {len(issue_runbooks)} runbooks: {issue_runbooks}[/bold]"
-            )
-        elif console:
-            console.print(
-                "[bold]No runbooks found for this issue. Using default behaviour. (Add runbooks to guide the investigation.)[/bold]"
-            )
-
         system_prompt = load_and_render_prompt(
             prompt,
             {
@@ -1261,7 +1286,6 @@ class IssueInvestigator(ToolCallingLLM):
         runbooks_ctx = generate_runbooks_args(
             runbook_catalog=runbooks,
             global_instructions=global_instructions,
-            issue_instructions=issue_runbooks,
         )
         user_prompt = generate_user_prompt(
             base_user,
@@ -1280,5 +1304,4 @@ class IssueInvestigator(ToolCallingLLM):
             trace_span=trace_span,
             request_context=request_context,
         )
-        res.instructions = issue_runbooks
         return res

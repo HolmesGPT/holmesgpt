@@ -6,7 +6,7 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: http://localhost:3110
+      api_url: http://localhost:3110
       api_key: ""  # No auth needed for local Loki
       labels:
         pod: pod_name  # Match the label used by Promtail

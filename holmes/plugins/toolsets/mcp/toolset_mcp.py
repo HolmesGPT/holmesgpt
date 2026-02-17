@@ -28,6 +28,24 @@ from holmes.core.tools import (
 )
 from holmes.utils.pydantic_utils import ToolsetConfig
 
+logger = logging.getLogger(__name__)
+
+
+def _extract_root_error_message(exc: Exception) -> str:
+    """Extract the actual error message from an ExceptionGroup.
+
+    When the MCP library's internal asyncio.TaskGroup encounters errors (e.g. auth
+    failures, connection refused), the real exception gets wrapped in an
+    ExceptionGroup with the unhelpful message "unhandled errors in a TaskGroup
+    (1 sub-exception)".  This function unwraps the group to surface the actual
+    root-cause error so that users see, for example, "401 Unauthorized" instead.
+    """
+    current: BaseException = exc
+    while hasattr(current, "exceptions") and current.exceptions:
+        current = current.exceptions[0]
+    return str(current)
+
+
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
@@ -118,6 +136,11 @@ class MCPConfig(ToolsetConfig):
             }
         ],
     )
+    icon_url: str = Field(
+        default="https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png",
+        description="Icon URL for this MCP server, displayed in the UI for tool calls.",
+        examples=["https://cdn.simpleicons.org/github/181717"],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.url)
@@ -146,6 +169,11 @@ class StdioMCPConfig(ToolsetConfig):
         title="Environment Variables",
         description="Environment variables to set for the MCP server process.",
         examples=[{"GITHUB_PERSONAL_ACCESS_TOKEN": "{{ env.GITHUB_TOKEN }}"}],
+    )
+    icon_url: str = Field(
+        default="https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png",
+        description="Icon URL for this MCP server, displayed in the UI for tool calls.",
+        examples=["https://cdn.simpleicons.org/github/181717"],
     )
 
     def get_lock_string(self) -> str:
@@ -221,9 +249,10 @@ class RemoteMCPTool(Tool):
             with lock:
                 return asyncio.run(self._invoke_async(params, context.request_context))
         except Exception as e:
+            error_detail = _extract_root_error_message(e)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=str(e.args),
+                error=error_detail,
                 params=params,
                 invocation=f"MCPtool {self.name} with params {params}",
             )
@@ -312,7 +341,6 @@ class RemoteMCPToolset(Toolset):
         StdioMCPConfig,
     ]
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
-    icon_url: str = "https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png"
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
 
     def _render_headers(
@@ -410,6 +438,9 @@ class RemoteMCPToolset(Toolset):
         self.prerequisites = [
             CallablePrerequisite(callable=self.prerequisites_callable)
         ]
+        # Set icon from config if specified
+        if self.icon_url is None and self.config:
+            self.icon_url = self.config.get("icon_url")
 
     @model_validator(mode="before")
     @classmethod
@@ -479,9 +510,11 @@ class RemoteMCPToolset(Toolset):
 
             return (True, "")
         except Exception as e:
+            error_detail = _extract_root_error_message(e)
             return (
                 False,
-                f"Failed to load mcp server {self.name}: {str(e)}",
+                f"Failed to load mcp server {self.name}: {error_detail}"
+                ". If the server is still starting up, Holmes will retry automatically",
             )
 
     async def _get_server_tools(self):

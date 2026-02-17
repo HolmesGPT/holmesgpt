@@ -13,6 +13,7 @@ data:
         "description" "AWS API MCP Server - comprehensive AWS service access. Allow executing any AWS CLI commands."
         "config" (dict
           "url" (printf "http://%s-aws-mcp-server.%s.svc.cluster.local:8000" .Release.Name (.Values.mcpAddons.aws.config.namespace | default .Release.Namespace))
+          "icon_url" "https://cdn.simpleicons.org/amazonwebservices/232F3E"
         )
         "llm_instructions" (include "holmes.awsMcp.llmInstructions" . | trim)
       )
@@ -25,6 +26,7 @@ data:
         "config" (dict
           "url" (printf "http://%s-azure-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name (.Values.mcpAddons.azure.config.namespace | default .Release.Namespace))
           "mode" "streamable-http"
+          "icon_url" "https://cdn.simpleicons.org/microsoftazure/0078D4"
         )
         "llm_instructions" (include "holmes.azureMcp.llmInstructions" . | trim)
       )
@@ -38,6 +40,7 @@ data:
           "url" (printf "http://%s-mariadb-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name (.Values.mcpAddons.mariadb.config.namespace | default .Release.Namespace))
           "mode" "streamable-http"
           "headers" (dict "Content-Type" "application/json")
+          "icon_url" "https://cdn.simpleicons.org/mariadb/003545"
         )
         "llm_instructions" (include "holmes.mariadbMcp.llmInstructions" . | trim)
       )
@@ -52,6 +55,7 @@ data:
         "config" (dict
           "url" (printf "http://%s-gcp-mcp-server.%s.svc.cluster.local:%d/sse" .Release.Name (.Values.mcpAddons.gcp.config.namespace | default .Release.Namespace) (int .Values.mcpAddons.gcp.gcloud.port))
           "mode" "sse"
+          "icon_url" "https://cdn.simpleicons.org/googlecloud/4285F4"
         )
         "llm_instructions" (include "holmes.gcpMcp.gcloud.llmInstructions" . | trim)
       ))
@@ -63,6 +67,7 @@ data:
         "config" (dict
           "url" (printf "http://%s-gcp-mcp-server.%s.svc.cluster.local:%d/sse" .Release.Name (.Values.mcpAddons.gcp.config.namespace | default .Release.Namespace) (int .Values.mcpAddons.gcp.observability.port))
           "mode" "sse"
+          "icon_url" "https://cdn.simpleicons.org/googlecloud/4285F4"
         )
         "llm_instructions" (include "holmes.gcpMcp.observability.llmInstructions" . | trim)
       ))
@@ -74,6 +79,7 @@ data:
         "config" (dict
           "url" (printf "http://%s-gcp-mcp-server.%s.svc.cluster.local:%d/sse" .Release.Name (.Values.mcpAddons.gcp.config.namespace | default .Release.Namespace) (int .Values.mcpAddons.gcp.storage.port))
           "mode" "sse"
+          "icon_url" "https://cdn.simpleicons.org/googlecloud/4285F4"
         )
         "llm_instructions" (include "holmes.gcpMcp.storage.llmInstructions" . | trim)
       ))
@@ -87,6 +93,7 @@ data:
         "config" (dict
           "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
           "mode" "sse"
+          "icon_url" "https://cdn.simpleicons.org/github/181717"
         )
         "llm_instructions" (include "holmes.githubMcp.llmInstructions" . | trim)
       )

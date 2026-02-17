@@ -51,11 +51,16 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
             toolset.installation_instructions = instructions
         db_toolsets.append(
             ToolsetDBModel(
-                **toolset.model_dump(exclude_none=True),
                 toolset_name=toolset.name,
                 cluster_id=config.cluster_name,
                 account_id=dal.account_id,
                 updated_at=updated_at,
+                icon_url=toolset.icon_url,
+                status=toolset.status.value if toolset.status else None,
+                error=toolset.error,
+                description=toolset.description,
+                docs_url=toolset.docs_url,
+                installation_instructions=toolset.installation_instructions,
             ).model_dump()
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)

@@ -1,0 +1,27 @@
+You have access to a generic HTTP tool for making requests to whitelisted API endpoints.
+
+Only use the {{ tool_names[0] if tool_names else "http" }} tool when:
+1. No dedicated toolset exists for the API you need to access
+2. The endpoint is configured in the HTTP toolset whitelist
+
+The tool supports:
+- JSON response filtering with `jq` expressions and `max_depth`
+- Requests are restricted to whitelisted hosts, paths, and HTTP methods
+
+{% if config and config.endpoints %}
+**Whitelisted endpoints** (requests to other URLs will be rejected):
+{% for endpoint in config.endpoints %}
+- Hosts: {{ endpoint.hosts | join(', ') }}
+  {%- if endpoint.paths and endpoint.paths != ['*'] %}
+  Paths: {{ endpoint.paths | join(', ') }}
+  {%- endif %}
+  Methods: {{ endpoint.get_methods() | join(', ') }}
+{% endfor %}
+
+IMPORTANT: You can ONLY call URLs matching these host/path/method combinations.
+If you try to access other URLs, the tool will return an error.
+{% endif %}
+
+{% if tool_names | list | length > 0 %}
+Available HTTP tools: {{ ", ".join(tool_names) }}
+{% endif %}
