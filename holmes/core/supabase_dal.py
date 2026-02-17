@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -45,7 +44,6 @@ from holmes.utils.global_instructions import Instructions
 from holmes.utils.krr_utils import calculate_krr_savings
 
 SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 3600))
-QUERY_TIMEOUT_SECONDS = int(os.getenv("QUERY_TIMEOUT_SECONDS", 20))
 
 ISSUES_TABLE = "Issues"
 GROUPED_ISSUES_TABLE = "GroupedIssues"
@@ -111,39 +109,6 @@ class SupabaseDnsException(Exception):
             f"curl -I {url}\n"
         )
         super().__init__(message)
-
-
-class QueryTimeoutError(Exception):
-    """Raised when a database query exceeds the timeout threshold."""
-
-    def __init__(self, timeout_seconds: int, query_description: str = "query"):
-        message = f"Query timed out after {timeout_seconds} seconds: {query_description}"
-        super().__init__(message)
-        self.timeout_seconds = timeout_seconds
-        self.query_description = query_description
-
-
-def execute_with_timeout(query, timeout_seconds: int = QUERY_TIMEOUT_SECONDS, description: str = "query"):
-    """
-    Execute a Supabase query with a timeout.
-
-    Args:
-        query: The Supabase query builder object (must have .execute() method)
-        timeout_seconds: Maximum time to wait for the query to complete
-        description: Description of the query for error messages
-
-    Returns:
-        The query result
-
-    Raises:
-        QueryTimeoutError: If the query exceeds the timeout
-    """
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(query.execute)
-        try:
-            return future.result(timeout=timeout_seconds)
-        except FuturesTimeoutError:
-            raise QueryTimeoutError(timeout_seconds, description)
 
 
 class SupabaseDal:
@@ -355,10 +320,7 @@ class SupabaseDal:
         if target_clusters is not None:
             meta_query = meta_query.in_("cluster_id", target_clusters)
 
-        scans_meta_response = execute_with_timeout(
-            meta_query,
-            description="KRR scan metadata query",
-        )
+        scans_meta_response = meta_query.execute()
 
         if not scans_meta_response.data:
             logging.warning("No scan metadata found for KRR")
@@ -398,19 +360,13 @@ class SupabaseDal:
         # For priority sorting, we can use DB ordering and limit
         if sort_by == "priority":
             query = query.order("priority", desc=True).limit(limit)
-            results_response = execute_with_timeout(
-                query,
-                description="KRR scan results query (priority sort)",
-            )
+            results_response = query.execute()
             return results_response.data if results_response.data else None
 
         # For other sort modes, fetch up to limit per cluster then sort in Python
         # Apply a reasonable limit to prevent unbounded fetches
         query = query.limit(limit * len(cluster_scan_pairs))
-        results_response = execute_with_timeout(
-            query,
-            description="KRR scan results query",
-        )
+        results_response = query.execute()
 
         if not results_response.data:
             return None
@@ -513,19 +469,13 @@ class SupabaseDal:
             # Order by starts_at descending and apply limit in DB
             query = query.order("starts_at", desc=True).limit(limit)
 
-            res = execute_with_timeout(
-                query,
-                description=f"Issues metadata query (finding_type={finding_type.value})",
-            )
+            res = query.execute()
 
             if not res.data:
                 return None
 
             return res.data
 
-        except QueryTimeoutError:
-            logging.exception("Query timeout while retrieving change data")
-            raise
         except Exception:
             logging.exception("Supabase error while retrieving change data")
             return None
