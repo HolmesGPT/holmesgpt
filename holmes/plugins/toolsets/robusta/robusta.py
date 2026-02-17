@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Dict, List, Optional
 
-from holmes.core.supabase_dal import FindingType, SupabaseDal
+from holmes.core.supabase_dal import FindingType, QueryTimeoutError, SupabaseDal
 from holmes.core.tools import (
     StaticPrerequisite,
     StructuredToolResult,
@@ -213,6 +213,18 @@ class FetchResourceRecommendation(Tool):
                     data=f"Could not find any recommendations with filters: {params}",
                     params=params,
                 )
+        except QueryTimeoutError as e:
+            msg = (
+                f"Query timed out after {e.timeout_seconds} seconds while fetching recommendations. "
+                f"Try narrowing your search with more specific filters (namespace, kind, name_pattern) "
+                f"or reduce the limit. Params: {params}"
+            )
+            logging.warning(msg)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=msg,
+                params=params,
+            )
         except Exception as e:
             msg = f"There was an error while fetching top recommendations for {params}. {str(e)}"
             logging.exception(msg)
@@ -357,6 +369,18 @@ class FetchConfigurationChangesMetadata(Tool):
                     data=f"{self.name} found no data. {params}",
                     params=params,
                 )
+        except QueryTimeoutError as e:
+            msg = (
+                f"Query timed out after {e.timeout_seconds} seconds while fetching configuration changes. "
+                f"Try narrowing your search with a shorter time range, specific namespace, or workload filter. "
+                f"Params: {params}"
+            )
+            logging.warning(msg)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=msg,
+                params=params,
+            )
         except Exception as e:
             msg = f"There was an internal error while fetching changes for {params}. {str(e)}"
             logging.exception(msg)
@@ -478,6 +502,18 @@ class FetchResourceIssuesMetadata(Tool):
                     data=f"{self.name} found no data. {params}",
                     params=params,
                 )
+        except QueryTimeoutError as e:
+            msg = (
+                f"Query timed out after {e.timeout_seconds} seconds while fetching resource issues. "
+                f"Try narrowing your search with a shorter time range, specific namespace, or workload filter. "
+                f"Params: {params}"
+            )
+            logging.warning(msg)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=msg,
+                params=params,
+            )
         except Exception as e:
             msg = f"There was an internal error while fetching issues for {params}. {str(e)}"
             logging.exception(msg)
