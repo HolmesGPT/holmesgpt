@@ -13,6 +13,7 @@ from uuid import uuid4
 import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
+from dateutil import parser as dateutil_parser
 from postgrest._sync import request_builder as supabase_request_builder
 from postgrest._sync.request_builder import SyncQueryRequestBuilder
 from postgrest.base_request_builder import QueryArgs
@@ -504,7 +505,9 @@ class SupabaseDal:
         # build issue investigation dates
         started_at = issue_data.get("starts_at")
         if started_at:
-            dt = datetime.fromisoformat(started_at)
+            # Use dateutil.parser for flexible datetime parsing
+            # This handles various formats like '2026-01-22 00:00:00' or '2026-01-22T00:00:00Z'
+            dt = dateutil_parser.parse(started_at)
 
             # Calculate timestamps
             start_timestamp = dt - timedelta(minutes=10)

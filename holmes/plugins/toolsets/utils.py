@@ -29,17 +29,39 @@ def is_rfc3339(timestamp_str: str) -> bool:
         return False
 
 
-def to_unix(timestamp_str: str) -> int:
+def parse_datetime(
+    timestamp_str: str, default_tz: datetime.timezone = datetime.timezone.utc
+) -> datetime.datetime:
+    """
+    Parse a datetime string flexibly, handling various formats.
+
+    This is a strict improvement over datetime.fromisoformat() - it accepts
+    all formats that fromisoformat() accepts, plus additional formats like:
+    - '2026-01-22 00:00:00' (space instead of 'T')
+    - '2026-01-22T00:00:00Z' (with Z suffix)
+    - '2026-01-22T00:00:00.123456Z' (with microseconds)
+    - '2026-01-22T00:00:00+00:00' (with timezone offset)
+
+    Args:
+        timestamp_str: The datetime string to parse
+        default_tz: Timezone to use if none is present in the string (default: UTC)
+
+    Returns:
+        A datetime object, with timezone set to default_tz if not present in string
+    """
     dt = parser.parse(timestamp_str)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
+        dt = dt.replace(tzinfo=default_tz)
+    return dt
+
+
+def to_unix(timestamp_str: str) -> int:
+    dt = parse_datetime(timestamp_str)
     return int(dt.timestamp())
 
 
 def to_unix_ms(timestamp_str: str) -> int:
-    dt = parser.parse(timestamp_str)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    dt = parse_datetime(timestamp_str)
     return int(dt.timestamp() * 1000)
 
 

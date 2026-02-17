@@ -16,7 +16,7 @@ from holmes.core.tools import (
     Toolset,
 )
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
-from holmes.plugins.toolsets.utils import get_param_or_raise
+from holmes.plugins.toolsets.utils import get_param_or_raise, parse_datetime
 
 # Default values for log fetching
 DEFAULT_LOG_LIMIT = 100
@@ -314,11 +314,11 @@ def process_time_parameters(
     processed_end_time = None
     if end_time:
         try:
-            # Check if it's already in RFC3339 format
+            # Validate that it's a parseable datetime format
             processed_end_time = end_time
-            datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+            parse_datetime(end_time)
         except (ValueError, TypeError):
-            # If not a valid RFC3339, log the error and use current time
+            # If not a valid datetime format, log the error and use current time
             logging.warning(f"Invalid end_time format: {end_time}, using current time")
             processed_end_time = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     else:
@@ -340,9 +340,7 @@ def process_time_parameters(
 
                 # Parse end_time
                 if processed_end_time:
-                    end_datetime = datetime.fromisoformat(
-                        processed_end_time.replace("Z", "+00:00")
-                    )
+                    end_datetime = parse_datetime(processed_end_time)
                 else:
                     end_datetime = now
 
@@ -350,18 +348,16 @@ def process_time_parameters(
                 start_datetime = end_datetime - timedelta(seconds=seconds_before)
                 processed_start_time = start_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
             else:
-                # Assume it's RFC3339
+                # Validate that it's a parseable datetime format
                 processed_start_time = start_time
-                datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                parse_datetime(start_time)
         except (ValueError, TypeError):
             # If not a valid format, use default
             logging.warning(
                 f"Invalid start_time format: {start_time}, using default time span"
             )
             if processed_end_time:
-                end_datetime = datetime.fromisoformat(
-                    processed_end_time.replace("Z", "+00:00")
-                )
+                end_datetime = parse_datetime(processed_end_time)
             else:
                 end_datetime = now
 
@@ -370,9 +366,7 @@ def process_time_parameters(
     else:
         # Default to default_span_seconds before end_time
         if processed_end_time:
-            end_datetime = datetime.fromisoformat(
-                processed_end_time.replace("Z", "+00:00")
-            )
+            end_datetime = parse_datetime(processed_end_time)
         else:
             end_datetime = now
 

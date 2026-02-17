@@ -21,7 +21,7 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
     LoggingCapability,
     PodLoggingTool,
 )
-from holmes.plugins.toolsets.utils import process_timestamps_to_int, to_unix_ms
+from holmes.plugins.toolsets.utils import parse_datetime, process_timestamps_to_int, to_unix_ms
 
 # match ISO 8601 format (YYYY-MM-DDTHH:MM:SS[.fffffffff]Z) or (YYYY-MM-DDTHH:MM:SS[.fffffffff]+/-XX:XX)
 timestamp_pattern = re.compile(
@@ -409,7 +409,7 @@ def format_relative_time(timestamp_str: str, current_time: datetime) -> str:
             return f"{days} day{'s' if days != 1 else ''} before end time"
 
         # Parse the timestamp
-        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        timestamp = parse_datetime(timestamp_str)
 
         # Calculate the difference
         diff = current_time - timestamp
@@ -495,9 +495,7 @@ def add_metadata(
             relative_parts.append(f"Started: {start_relative}")
             try:
                 if not params.start_time.startswith("-"):
-                    start_dt = datetime.fromisoformat(
-                        params.start_time.replace("Z", "+00:00")
-                    )
+                    start_dt = parse_datetime(params.start_time)
             except Exception:
                 pass
 
@@ -505,7 +503,7 @@ def add_metadata(
             end_relative = format_relative_time(params.end_time, current_time)
             relative_parts.append(f"Ended: {end_relative}")
             try:
-                end_dt = datetime.fromisoformat(params.end_time.replace("Z", "+00:00"))
+                end_dt = parse_datetime(params.end_time)
             except Exception:
                 pass
         else:
