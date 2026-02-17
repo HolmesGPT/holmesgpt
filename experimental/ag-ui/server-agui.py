@@ -1,6 +1,5 @@
 # ruff: noqa: E402
 import os
-from typing import Any
 
 from holmes.utils.cert_utils import add_custom_certificate
 
@@ -16,28 +15,99 @@ import json
 import logging
 import time
 import uuid
+from typing import Any
+
 import uvicorn
 import colorlog
 
-# OTEL tracing imports
+# OTEL tracing imports (optional - gracefully degrade if not available)
 import sys
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
-from opentelemetry import trace
-from holmes.core.tracing import TracingFactory
-from experimental.otel.tracing import get_tracer, set_span_error
-from experimental.otel import attributes as otel_attr
-from experimental.otel.metrics import (
-    init_otel_metrics,
-    record_token_usage,
-    record_operation_duration,
-    record_tool_duration,
-    increment_iterations,
-    increment_tool_calls,
-    increment_errors,
-)
+
+try:
+    from opentelemetry import trace
+    from holmes.core.tracing import TracingFactory
+    from experimental.otel.tracing import get_tracer, set_span_error
+    from experimental.otel import attributes as otel_attr
+    from experimental.otel.metrics import (
+        init_otel_metrics,
+        record_token_usage,
+        record_operation_duration,
+        record_tool_duration,
+        increment_iterations,
+        increment_tool_calls,
+        increment_errors,
+    )
+
+    _otel_available = True
+except ImportError:
+    _otel_available = False
+    TracingFactory = None  # type: ignore
+    get_tracer = None  # type: ignore
+
+    def init_otel_metrics():  # type: ignore
+        return False
+
+    def record_token_usage(**kwargs):  # type: ignore
+        pass
+
+    def record_operation_duration(**kwargs):  # type: ignore
+        pass
+
+    def record_tool_duration(**kwargs):  # type: ignore
+        pass
+
+    def increment_iterations(**kwargs):  # type: ignore
+        pass
+
+    def increment_tool_calls(**kwargs):  # type: ignore
+        pass
+
+    def increment_errors(**kwargs):  # type: ignore
+        pass
+
+    # No-op stubs so event_generator code doesn't need conditionals everywhere
+    class _NoopSpan:
+        def set_attribute(self, *args, **kwargs):
+            pass
+
+        def end(self):
+            pass
+
+        def start_span(self, *args, **kwargs):
+            return _NoopSpan()
+
+    class _NoopTracer:
+        def start_span(self, *args, **kwargs):
+            return _NoopSpan()
+
+    class _OtelAttrStub:
+        """Provides attribute constants as empty strings when OTEL is unavailable."""
+
+        def __getattr__(self, name):
+            return ""
+
+        @staticmethod
+        def truncate(value):
+            if value is None:
+                return ""
+            return str(value)[:8192]
+
+    otel_attr = _OtelAttrStub()  # type: ignore
+
+    class _TraceStub:
+        @staticmethod
+        def set_span_in_context(span):
+            return None
+
+    trace = _TraceStub()  # type: ignore
+
+    def set_span_error(span, error):  # type: ignore
+        pass
+
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,15 +165,20 @@ def init_logging():
 init_logging()
 
 # Initialize OTEL tracer if enabled (using unified TracingFactory)
-otel_initialized = TracingFactory.init_otel()
-if otel_initialized:
-    logging.info("OTEL tracing enabled for AG-UI endpoint")
-tracer = get_tracer("holmesgpt.agui")
+_otel_enabled = False
+if _otel_available and os.environ.get("OTEL_ENABLED", "").lower() == "true":
+    otel_initialized = TracingFactory.init_otel()
+    if otel_initialized:
+        logging.info("OTEL tracing enabled for AG-UI endpoint")
+        _otel_enabled = True
+    tracer = get_tracer("holmesgpt.agui")
 
-# Initialize OTEL metrics if enabled
-metrics_initialized = init_otel_metrics()
-if metrics_initialized:
-    logging.info("OTEL metrics enabled for AG-UI endpoint")
+    # Initialize OTEL metrics if enabled
+    metrics_initialized = init_otel_metrics()
+    if metrics_initialized:
+        logging.info("OTEL metrics enabled for AG-UI endpoint")
+else:
+    tracer = _NoopTracer()  # type: ignore
 
 config = Config.load_from_env()
 dal = config.dal
@@ -577,8 +652,8 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             operation_duration = time.time() - operation_start_time
 
             # Set final attributes on root span with accumulated metrics
-            root_span.set_attribute(otel_attr.METRIC_AGENT_TOOL_CALLS, tool_call_count)
-            root_span.set_attribute(otel_attr.METRIC_AGENT_ITERATIONS, iteration_count)
+            root_span.set_attribute(otel_attr.TOOL_CALL_COUNT, tool_call_count)
+            root_span.set_attribute(otel_attr.AGENT_ITERATION, iteration_count)
             root_span.set_attribute(otel_attr.INPUT_TOKENS, total_input_tokens)
             root_span.set_attribute(otel_attr.OUTPUT_TOKENS, total_output_tokens)
             root_span.set_attribute(

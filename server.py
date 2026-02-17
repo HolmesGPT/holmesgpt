@@ -46,6 +46,8 @@ from holmes.core.models import (
     ChatRequest,
     ChatResponse,
     FollowUpAction,
+    InvestigateRequest,
+    IssueChatRequest,
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import ToolsetStatusEnum, ToolsetType
@@ -62,7 +64,12 @@ from holmes.utils.stream import stream_chat_formatter, stream_investigate_format
 
 
 def init_otel():
-    """Initialize OTEL tracing and metrics for production observability if enabled."""
+    """Initialize OTEL tracing and metrics for production observability if enabled.
+
+    Metrics are initialized here alongside tracing. The HTTP middleware (below)
+    handles per-request span creation; metrics recording happens in the AG-UI
+    endpoint and tool execution paths.
+    """
     if os.environ.get("OTEL_ENABLED", "").lower() == "true":
         # Initialize tracing
         tracing_ok = TracingFactory.init_otel()
@@ -273,6 +280,7 @@ app = FastAPI()
 
 # OTEL tracing middleware - creates root spans for API requests
 if otel_enabled:
+    _otel_tracer = TracingFactory.create_tracer("otel")
 
     @app.middleware("http")
     async def otel_tracing_middleware(request: Request, call_next):
@@ -281,7 +289,7 @@ if otel_enabled:
         if request.url.path in ("/healthz", "/readyz", "/docs", "/openapi.json"):
             return await call_next(request)
 
-        tracer = TracingFactory.create_tracer("otel")
+        tracer = _otel_tracer
         span_name = f"{request.method} {request.url.path}"
 
         with tracer.start_trace(span_name, SpanType.TASK) as span:
@@ -295,7 +303,7 @@ if otel_enabled:
             try:
                 response = await call_next(request)
                 span.set_attributes(
-                    span_attributes={"http.status_code": str(response.status_code)}
+                    span_attributes={"http.status_code": response.status_code}
                 )
                 return response
             except Exception as e:

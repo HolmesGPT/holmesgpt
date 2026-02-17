@@ -1112,6 +1112,8 @@ class ToolCallingLLM:
                         will_retry=True,
                     )
                     yield build_stream_event_error_handling(is_start=False)
+                    # Close the parse_response span before retrying
+                    yield build_stream_event_parse_response(is_start=False)
                     # disable structured output going forward and and retry
                     sentry_helper.capture_structured_output_incorrect_tool_call()
                     response_format = None

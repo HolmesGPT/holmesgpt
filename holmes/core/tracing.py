@@ -8,7 +8,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from opentelemetry import trace as otel_trace
+try:
+    from opentelemetry import trace as otel_trace
+
+    OTEL_API_AVAILABLE = True
+except ImportError:
+    OTEL_API_AVAILABLE = False
+    otel_trace = None  # type: ignore
 
 BRAINTRUST_API_KEY = os.environ.get("BRAINTRUST_API_KEY")
 BRAINTRUST_ORG = os.environ.get("BRAINTRUST_ORG", "robustadev")
@@ -301,19 +307,20 @@ SPAN_TYPE_TO_OTEL = {
 class OTELSpan:
     """Wrapper around OTEL Span that implements Braintrust-compatible interface."""
 
-    def __init__(self, span: otel_trace.Span, tracer: "OTELTracer"):
+    def __init__(self, span, tracer: "OTELTracer"):
         self._span = span
         self._tracer = tracer
-        self._context = otel_trace.set_span_in_context(span)
+        self._context = otel_trace.set_span_in_context(span) if otel_trace else None
 
     def start_span(
         self, name: Optional[str] = None, span_type: Optional[SpanType] = None, **kwargs
     ) -> "OTELSpan":
         """Create a child span."""
         otel_name = self._tracer._get_otel_span_name(name or "", span_type)
-        child_span = self._tracer._native_tracer.start_span(
-            otel_name, context=self._context
-        )
+        native_tracer = self._tracer._native_tracer
+        if native_tracer is None:
+            raise RuntimeError("OTELTracer not initialized; cannot create child span")
+        child_span = native_tracer.start_span(otel_name, context=self._context)
         return OTELSpan(child_span, self._tracer)
 
     def log(
@@ -324,10 +331,11 @@ class OTELSpan:
         **kwargs,
     ) -> None:
         """Log data to span as attributes (Braintrust compatibility)."""
+        _truncate = truncate if truncate is not None else lambda s: str(s)[:8192]
         if input is not None:
-            self._span.set_attribute("gen_ai.prompt", truncate(str(input)))
+            self._span.set_attribute("gen_ai.prompt", _truncate(str(input)))
         if output is not None:
-            self._span.set_attribute("gen_ai.completion", truncate(str(output)))
+            self._span.set_attribute("gen_ai.completion", _truncate(str(output)))
         if metadata:
             for key, value in metadata.items():
                 self._span.set_attribute(f"metadata.{key}", str(value))
@@ -343,7 +351,12 @@ class OTELSpan:
             self._span.set_attribute("span.name", name)
         if span_attributes:
             for key, value in span_attributes.items():
-                self._span.set_attribute(key, str(value) if value is not None else "")
+                if value is None:
+                    self._span.set_attribute(key, "")
+                elif isinstance(value, (str, int, float, bool)):
+                    self._span.set_attribute(key, value)
+                else:
+                    self._span.set_attribute(key, str(value))
 
     def end(self) -> None:
         """End the span."""
@@ -354,7 +367,12 @@ class OTELSpan:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if exc_val:
-            set_span_error(self._span, exc_val)
+            if set_span_error is not None:
+                set_span_error(self._span, exc_val)
+            elif OTEL_API_AVAILABLE:
+                from opentelemetry.trace import Status, StatusCode
+
+                self._span.set_status(Status(StatusCode.ERROR, str(exc_val)))
         self.end()
 
 
@@ -364,11 +382,17 @@ class OTELTracer:
     def __init__(self, service_name: str = "holmesgpt"):
         self._service_name = service_name
         self._initialized = False
-        self._native_tracer: Optional[otel_trace.Tracer] = None
+        self._native_tracer: Optional[Any] = None
 
     def _ensure_initialized(self) -> None:
         """Lazy initialization of OTEL tracer."""
         if not self._initialized:
+            if not OTEL_EXPERIMENTAL_AVAILABLE:
+                logging.warning(
+                    "OTEL experimental modules not available; OTELTracer will be non-functional"
+                )
+                self._initialized = True
+                return
             init_otel_tracer()
             self._native_tracer = get_tracer(self._service_name)
             self._initialized = True
@@ -529,6 +553,11 @@ class TracingFactory:
         """
         if TracingFactory._otel_initialized:
             return True
+        if not OTEL_EXPERIMENTAL_AVAILABLE:
+            logging.warning(
+                "OTEL experimental modules not available; skipping OTEL initialization"
+            )
+            return False
         try:
             result = init_otel_tracer()
             TracingFactory._otel_initialized = result

@@ -11,10 +11,7 @@ import os
 from typing import Optional
 from urllib.parse import urlparse
 
-import boto3
 import requests
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
 from opentelemetry import trace
 from opentelemetry.context import Context
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -22,6 +19,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
+    SpanExporter,
     SpanExportResult,
     SpanProcessor,
 )
@@ -77,7 +75,7 @@ class LoggingSpanProcessor(SpanProcessor):
         return self._wrapped.force_flush(timeout_millis)
 
 
-class LoggingSpanExporter:
+class LoggingSpanExporter(SpanExporter):
     """Wrapper around SpanExporter that logs export results."""
 
     def __init__(self, wrapped_exporter: OTLPSpanExporter):
@@ -193,13 +191,16 @@ def _extract_region_from_endpoint(endpoint: str) -> str:
 class AWSSigV4Session(requests.Session):
     """A requests Session that signs all requests with AWS SigV4."""
 
-    def __init__(self, boto_session: boto3.Session, region: str, service: str):
+    def __init__(self, boto_session, region: str, service: str):
         super().__init__()
         self._boto_session = boto_session
         self._region = region
         self._service = service
 
     def request(self, method, url, **kwargs):
+        from botocore.auth import SigV4Auth
+        from botocore.awsrequest import AWSRequest
+
         # Get fresh credentials (handles refresh for assumed roles)
         credentials = self._boto_session.get_credentials()
         if not credentials:
@@ -267,7 +268,8 @@ class AWSSigV4Session(requests.Session):
         kwargs["data"] = data
 
         # Use parent's request method to actually send
-        return super().request(method, url, **kwargs, **send_kwargs)
+        merged = {**kwargs, **send_kwargs}
+        return super().request(method, url, **merged)
 
 
 def _create_osis_session(endpoint: str) -> Optional[requests.Session]:
@@ -277,6 +279,8 @@ def _create_osis_session(endpoint: str) -> Optional[requests.Session]:
     This allows OSIS to use different credentials than other AWS services.
     """
     try:
+        import boto3
+
         otel_profile = _get_otel_aws_profile()
         otel_region = _get_otel_aws_region() or _extract_region_from_endpoint(endpoint)
         otel_service = _get_otel_aws_service()

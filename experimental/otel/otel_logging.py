@@ -138,7 +138,7 @@ def log_llm_call(
     if finish_reason:
         msg_parts.append(f"finish={finish_reason}")
 
-    if cost_usd:
+    if cost_usd is not None:
         msg_parts.append(f"cost=${cost_usd:.6f}")
 
     logger.info(" ".join(msg_parts))
