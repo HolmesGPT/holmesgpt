@@ -660,7 +660,9 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
             description=(
                 "List Prometheus rules (api/v1/rules). Returns rule names, expressions, and annotations. "
                 "Use filtering parameters to reduce response size. "
-                "Without filters, returns ALL rules which may be very large."
+                "Without filters, returns ALL rules which may be very large. "
+                "The returned JSON has the structure {groups: [{name, file, rules: [{name, query, state, labels, annotations, ...}]}]}. "
+                "When using jq, note the root object is 'data' already extracted, so use '.groups[]' not '.data.groups[]'."
             ),
             parameters=self.extend_parameters(
                 {
