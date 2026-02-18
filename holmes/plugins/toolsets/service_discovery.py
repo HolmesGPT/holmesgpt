@@ -1,36 +1,54 @@
 import logging
 import os
+import threading
 from typing import List, Optional
-
-from kubernetes import client  # type: ignore
-from kubernetes import config  # type: ignore
-from kubernetes.client import V1ServiceList  # type: ignore
-from kubernetes.client.models.v1_service import V1Service  # type: ignore
 
 CLUSTER_DOMAIN = os.environ.get("CLUSTER_DOMAIN", "cluster.local")
 
-try:
-    if os.getenv("KUBERNETES_SERVICE_HOST"):
-        config.load_incluster_config()
-    else:
-        config.load_kube_config()
-except config.config_exception.ConfigException as e:
-    logging.warning(f"Running without kube-config! e={e}")
+# Lazy-load kubernetes config to avoid the heavy import cost (~seconds) at
+# module level.  The kubernetes package pulls in dozens of sub-modules and
+# load_incluster_config / load_kube_config perform file I/O.  Deferring this
+# to first use keeps the server startup fast so health probes are not blocked.
+_kube_config_loaded = False
+_kube_config_lock = threading.Lock()
+
+
+def _ensure_kube_config():
+    global _kube_config_loaded
+    if _kube_config_loaded:
+        return
+    with _kube_config_lock:
+        if _kube_config_loaded:
+            return
+        from kubernetes import config  # type: ignore
+
+        try:
+            if os.getenv("KUBERNETES_SERVICE_HOST"):
+                config.load_incluster_config()
+            else:
+                config.load_kube_config()
+        except config.config_exception.ConfigException as e:
+            logging.warning(f"Running without kube-config! e={e}")
+        _kube_config_loaded = True
 
 
 def find_service_url(label_selector):
     """
     Get the url of an in-cluster service with a specific label
     """
+    _ensure_kube_config()
+
+    from kubernetes import client  # type: ignore
+
     # we do it this way because there is a weird issue with hikaru's ServiceList.listServiceForAllNamespaces()
     try:
         v1 = client.CoreV1Api()
-        svc_list: V1ServiceList = v1.list_service_for_all_namespaces(  # type: ignore
+        svc_list = v1.list_service_for_all_namespaces(
             label_selector=label_selector
         )
         if not svc_list.items:
             return None
-        svc: V1Service = svc_list.items[0]  # type: ignore
+        svc = svc_list.items[0]
         name = svc.metadata.name
         namespace = svc.metadata.namespace
         port = svc.spec.ports[0].port
