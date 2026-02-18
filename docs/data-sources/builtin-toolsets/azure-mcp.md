@@ -441,8 +441,11 @@ The Azure MCP server requires appropriate Azure RBAC roles to investigate resour
 For Workload Identity setup with appropriate roles, use the helper script:
 
 ```bash
-curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/azure/setup-workload-identity.sh
-bash setup-workload-identity.sh
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/azure/setup-azure-identity.sh
+bash setup-azure-identity.sh --auth-method workload-identity \
+  --resource-group YOUR_RESOURCE_GROUP \
+  --aks-cluster YOUR_AKS_CLUSTER \
+  --all-subscriptions
 ```
 
 This script will:
