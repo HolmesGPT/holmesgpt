@@ -57,25 +57,25 @@ The implementation follows OpenTelemetry Gen AI semantic conventions for standar
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OTEL_ENABLED` | Enable OTEL tracing (`true`/`false`) | `false` |
+| `OTEL_SDK_DISABLED` | Disable OTEL SDK (`true`/`false`). Set to `false` to enable. | `true` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL | Required |
-| `OTEL_AWS_PROFILE` | AWS profile for OSIS authentication | None |
-| `OTEL_AWS_REGION` | AWS region for OSIS (auto-detected from endpoint) | Auto |
-| `OTEL_METRICS_ENABLED` | Enable OTEL metrics | `true` |
-| `OTEL_DEBUG` | Enable debug logging for span lifecycle | `false` |
+| `OTEL_METRICS_EXPORTER` | Set to `none` to disable metrics export | (default exporter) |
+| `OTEL_LOG_LEVEL` | Set to `debug` for span lifecycle logging | `info` |
+| `HOLMES_AWS_OSIS_PROFILE` | AWS profile for OSIS authentication | None |
+| `HOLMES_AWS_OSIS_REGION` | AWS region for OSIS (auto-detected from endpoint) | Auto |
 
 ### Example Configuration
 
 ```bash
 # Basic OTEL setup
-export OTEL_ENABLED=true
+export OTEL_SDK_DISABLED=false
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://your-collector:4318/v1/traces
 
-# AWS OSIS (OpenSearch Ingestion Service)
-export OTEL_ENABLED=true
+# AWS OSIS (OpenSearch Ingestion Service - https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ingestion.html)
+export OTEL_SDK_DISABLED=false
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://pipeline-id.us-east-1.osis.amazonaws.com/otel-trace/v1/traces
-export OTEL_AWS_PROFILE=your-aws-profile
-export OTEL_AWS_REGION=us-east-1
+export HOLMES_AWS_OSIS_PROFILE=your-aws-profile
+export HOLMES_AWS_OSIS_REGION=us-east-1
 ```
 
 ## Span Hierarchy
@@ -84,12 +84,12 @@ The tracing implementation creates a hierarchical span structure following Gen A
 
 ```
 invoke_agent HolmesGPT                    # Root span for agent invocation
-├── chat gpt-4                            # LLM iteration 1
+├── chat anthropic/claude-sonnet-4-5-20250929                            # LLM iteration 1
 │   ├── execute_tool kubectl_get          # Tool execution
 │   └── execute_tool prometheus_query     # Tool execution
-├── chat gpt-4                            # LLM iteration 2
+├── chat anthropic/claude-sonnet-4-5-20250929                            # LLM iteration 2
 │   └── execute_tool kubectl_describe     # Tool execution
-└── chat gpt-4                            # Final LLM iteration (answer)
+└── chat anthropic/claude-sonnet-4-5-20250929                            # Final LLM iteration (answer)
 ```
 
 ### Span Naming Convention
@@ -99,7 +99,7 @@ Following Gen AI semantic conventions:
 | Span Type | Name Format | Example |
 |-----------|-------------|---------|
 | Agent invocation | `invoke_agent {agent_name}` | `invoke_agent HolmesGPT` |
-| LLM chat/completion | `chat {model}` | `chat gpt-4` |
+| LLM chat/completion | `chat {model}` | `chat anthropic/claude-sonnet-4-5-20250929` |
 | Tool execution | `execute_tool {tool_name}` | `execute_tool kubectl_get` |
 
 ## Attributes
@@ -154,10 +154,10 @@ The following metrics are exported following Gen AI conventions:
 
 ### Server Mode (server.py)
 
-OTEL is automatically enabled when `OTEL_ENABLED=true`:
+OTEL is automatically enabled when `OTEL_SDK_DISABLED=false`:
 
 ```bash
-OTEL_ENABLED=true \
+OTEL_SDK_DISABLED=false \
 OTEL_EXPORTER_OTLP_ENDPOINT=https://collector:4318/v1/traces \
 python server.py
 ```
@@ -170,7 +170,7 @@ The server creates:
 ### AG-UI Mode (server-agui.py)
 
 ```bash
-OTEL_ENABLED=true \
+OTEL_SDK_DISABLED=false \
 OTEL_EXPORTER_OTLP_ENDPOINT=https://collector:4318/v1/traces \
 python experimental/ag-ui/server-agui.py
 ```
@@ -228,8 +228,8 @@ For AWS OSIS, the implementation:
 
 ```bash
 # Use different AWS profiles for Bedrock and OSIS
-export AWS_PROFILE=bedrock-profile        # For LLM calls
-export OTEL_AWS_PROFILE=osis-profile      # For OTEL export
+export AWS_PROFILE=bedrock-profile              # For LLM calls
+export HOLMES_AWS_OSIS_PROFILE=osis-profile     # For OTEL export
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://pipeline.us-east-1.osis.amazonaws.com/...
 ```
 
@@ -257,13 +257,13 @@ poetry run python experimental/otel/test_otel.py
 
 ### Common Issues
 
-**"OTEL tracing requested but OTEL_ENABLED not set to 'true'"**
+**"OTEL tracing requested but OTEL_SDK_DISABLED is not set to 'false'"**
 
-Set `OTEL_ENABLED=true` in your environment.
+Set `OTEL_SDK_DISABLED=false` in your environment.
 
 **"Failed to create OSIS session"**
 
-Check your AWS credentials and ensure `OTEL_AWS_PROFILE` points to a valid profile with OSIS permissions.
+Check your AWS credentials and ensure `HOLMES_AWS_OSIS_PROFILE` points to a valid profile with OSIS permissions.
 
 **"payload too large" errors**
 

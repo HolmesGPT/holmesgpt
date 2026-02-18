@@ -103,8 +103,13 @@ class LoggingSpanExporter(SpanExporter):
 
 
 def _get_otel_enabled() -> bool:
-    """Read OTEL_ENABLED at call time, not import time."""
-    return os.environ.get("OTEL_ENABLED", "false").lower() == "true"
+    """Check if OTEL is enabled per OTEL spec (OTEL_SDK_DISABLED).
+
+    Per spec, OTEL_SDK_DISABLED=true means the SDK is disabled.
+    HolmesGPT defaults to disabled (OTEL_SDK_DISABLED=true) for opt-in behavior.
+    Set OTEL_SDK_DISABLED=false to enable tracing.
+    """
+    return os.environ.get("OTEL_SDK_DISABLED", "true").lower() != "true"
 
 
 def _get_otel_service_name() -> str:
@@ -117,21 +122,21 @@ def _get_otel_endpoint() -> str:
     return os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
 
-def _get_otel_aws_profile() -> Optional[str]:
-    """Read OTEL_AWS_PROFILE at call time.
+def _get_aws_osis_profile() -> Optional[str]:
+    """Read HOLMES_AWS_OSIS_PROFILE at call time.
 
     If set, uses this AWS profile for OSIS authentication instead of the default.
     This allows using different credentials for OSIS vs other AWS services (e.g., Bedrock).
     """
-    return os.environ.get("OTEL_AWS_PROFILE")
+    return os.environ.get("HOLMES_AWS_OSIS_PROFILE")
 
 
-def _get_otel_aws_region() -> Optional[str]:
-    """Read OTEL_AWS_REGION at call time.
+def _get_aws_osis_region() -> Optional[str]:
+    """Read HOLMES_AWS_OSIS_REGION at call time.
 
     If not set, tries to extract region from the OSIS endpoint URL.
     """
-    return os.environ.get("OTEL_AWS_REGION")
+    return os.environ.get("HOLMES_AWS_OSIS_REGION")
 
 
 def _get_otel_aws_service() -> str:
@@ -146,7 +151,7 @@ def needs_aws_auth(endpoint: str) -> bool:
     """Determine if an endpoint requires AWS SigV4 authentication.
 
     Returns True if:
-    - OTEL_AWS_PROFILE is set (explicit AWS auth requested)
+    - HOLMES_AWS_OSIS_PROFILE is set (explicit AWS auth requested)
     - Endpoint URL contains '.osis.' (AWS OpenSearch Ingestion Service)
     - Endpoint URL contains '.es.' (AWS OpenSearch/Elasticsearch Service)
 
@@ -159,7 +164,7 @@ def needs_aws_auth(endpoint: str) -> bool:
     Returns:
         True if AWS authentication is needed
     """
-    if _get_otel_aws_profile():
+    if _get_aws_osis_profile():
         return True
     if ".osis." in endpoint or ".es." in endpoint:
         return True
@@ -275,14 +280,14 @@ class AWSSigV4Session(requests.Session):
 def _create_osis_session(endpoint: str) -> Optional[requests.Session]:
     """Create a requests session with AWS SigV4 auth for OSIS.
 
-    Uses OTEL_AWS_PROFILE if set, otherwise uses default credentials.
+    Uses HOLMES_AWS_OSIS_PROFILE if set, otherwise uses default credentials.
     This allows OSIS to use different credentials than other AWS services.
     """
     try:
         import boto3
 
-        otel_profile = _get_otel_aws_profile()
-        otel_region = _get_otel_aws_region() or _extract_region_from_endpoint(endpoint)
+        otel_profile = _get_aws_osis_profile()
+        otel_region = _get_aws_osis_region() or _extract_region_from_endpoint(endpoint)
         otel_service = _get_otel_aws_service()
 
         # Create boto3 session with specific profile or default
@@ -366,11 +371,11 @@ def init_otel_tracer() -> bool:
 
     # Debug output to see what's happening
     logging.debug(
-        f"[OTEL] OTEL_ENABLED={otel_enabled}, OTEL_EXPORTER_OTLP_ENDPOINT={otel_endpoint}"
+        f"[OTEL] OTEL_SDK_DISABLED={os.environ.get('OTEL_SDK_DISABLED', 'true')}, OTEL_EXPORTER_OTLP_ENDPOINT={otel_endpoint}"
     )
 
     if not otel_enabled:
-        logging.info("OTEL tracing disabled (OTEL_ENABLED=false)")
+        logging.info("OTEL tracing disabled (OTEL_SDK_DISABLED=true or not set)")
         _initialized = True
         return False
 

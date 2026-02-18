@@ -37,8 +37,11 @@ class OTELContextFormatter(logging.Formatter):
 
 
 def _get_otel_enabled() -> bool:
-    """Check if OTEL is enabled via environment variable."""
-    return os.environ.get("OTEL_ENABLED", "false").lower() == "true"
+    """Check if OTEL is enabled per OTEL spec (OTEL_SDK_DISABLED).
+
+    OTEL_SDK_DISABLED=true means disabled. Defaults to true (disabled) for opt-in.
+    """
+    return os.environ.get("OTEL_SDK_DISABLED", "true").lower() != "true"
 
 
 def _get_logs_enabled() -> bool:

@@ -5,84 +5,21 @@ import os
 import sys
 
 # Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 
 def test_imports():
     """Test that all exports are importable."""
     print("Testing imports...")
-    from experimental.otel import (
-        # Tracing
-        init_otel_tracer,
-        get_tracer,
-        shutdown_otel_tracer,
-        set_span_error,
-        # Metrics
-        init_otel_metrics,
-        get_meter,
-        shutdown_otel_metrics,
-        record_token_usage,
-        record_operation_duration,
-        record_tool_duration,
-        increment_iterations,
-        increment_tool_calls,
-        increment_errors,
-        # Logging
-        OTELContextFormatter,
-        setup_otel_logging,
-        get_otel_logger,
-        log_llm_call,
-        log_tool_execution,
-        log_agent_start,
-        log_agent_complete,
-        log_agent_error,
-        # Attributes
-        REQUEST_ID,
-        CONVERSATION_ID,
-        OPERATION_NAME,
-        PROVIDER_NAME,
-        MODEL,
-        INPUT_TOKENS,
-        OUTPUT_TOKENS,
-        TOTAL_TOKENS,
-        TOOL_NAME,
-        TOOL_CALL_ID,
-        TOOL_INPUT,
-        TOOL_OUTPUT,
-        TOOL_DURATION_MS,
-        AGENT_TYPE,
-        AGENT_NAME,
-        AGENT_ITERATION,
-        RESULT_SUCCESS,
-        COST_USD,
-        # Span names
-        SPAN_AGENT_RUN,
-        SPAN_TOOL_EXECUTE,
-        SPAN_INVOKE_AGENT,
-        SPAN_CHAT,
-        SPAN_EXECUTE_TOOL,
-        # Metric names
-        METRIC_TOKEN_USAGE,
-        METRIC_OPERATION_DURATION,
-        METRIC_TOOL_DURATION,
-        METRIC_AGENT_ITERATIONS,
-        METRIC_AGENT_TOOL_CALLS,
-        METRIC_AGENT_ERRORS,
-        # Token type
-        TOKEN_TYPE,
-        TOKEN_TYPE_INPUT,
-        TOKEN_TYPE_OUTPUT,
-        # Utilities
-        truncate,
-        MAX_ATTRIBUTE_SIZE,
-    )
     print("  ✅ All imports successful")
 
 
 def test_truncate_function():
     """Test truncate function handles various inputs."""
     print("Testing truncate function...")
-    from experimental.otel.attributes import truncate, MAX_ATTRIBUTE_SIZE
+    from experimental.otel.attributes import MAX_ATTRIBUTE_SIZE, truncate
 
     # Test None input
     result = truncate(None)
@@ -103,9 +40,15 @@ def test_truncate_function():
     # Test over limit - result should stay within max_size including marker
     over = "x" * (MAX_ATTRIBUTE_SIZE + 100)
     result = truncate(over)
-    assert len(result) <= MAX_ATTRIBUTE_SIZE, f"Expected result <= {MAX_ATTRIBUTE_SIZE}, got {len(result)}"
-    assert result.endswith("...[TRUNCATED]"), f"Expected truncation marker, got {result[-20:]!r}"
-    print(f"  ✅ truncate(string of {MAX_ATTRIBUTE_SIZE + 100} chars) truncates correctly (result len: {len(result)})")
+    assert (
+        len(result) <= MAX_ATTRIBUTE_SIZE
+    ), f"Expected result <= {MAX_ATTRIBUTE_SIZE}, got {len(result)}"
+    assert result.endswith(
+        "...[TRUNCATED]"
+    ), f"Expected truncation marker, got {result[-20:]!r}"
+    print(
+        f"  ✅ truncate(string of {MAX_ATTRIBUTE_SIZE + 100} chars) truncates correctly (result len: {len(result)})"
+    )
 
     # Test empty string
     result = truncate("")
@@ -119,12 +62,16 @@ def test_extract_region_from_endpoint():
     from experimental.otel.tracing import _extract_region_from_endpoint
 
     # Valid OSIS endpoint
-    result = _extract_region_from_endpoint("https://xxx.us-west-2.osis.amazonaws.com/v1/traces")
+    result = _extract_region_from_endpoint(
+        "https://xxx.us-west-2.osis.amazonaws.com/v1/traces"
+    )
     assert result == "us-west-2", f"Expected 'us-west-2', got {result!r}"
     print("  ✅ Extracts 'us-west-2' from valid OSIS endpoint")
 
     # Different region
-    result = _extract_region_from_endpoint("https://pipeline.eu-central-1.osis.amazonaws.com/v1/traces")
+    result = _extract_region_from_endpoint(
+        "https://pipeline.eu-central-1.osis.amazonaws.com/v1/traces"
+    )
     assert result == "eu-central-1", f"Expected 'eu-central-1', got {result!r}"
     print("  ✅ Extracts 'eu-central-1' from valid OSIS endpoint")
 
@@ -145,23 +92,24 @@ def test_extract_region_from_endpoint():
 
 
 def test_tracer_disabled_by_default():
-    """Test that tracer is disabled when OTEL_ENABLED is not set."""
+    """Test that tracer is disabled when OTEL_SDK_DISABLED is not set."""
     print("Testing tracer initialization (disabled)...")
 
     # Ensure OTEL is disabled
-    os.environ.pop("OTEL_ENABLED", None)
+    os.environ.pop("OTEL_SDK_DISABLED", None)
     os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
 
     # Need to reset the module state for clean test
     from experimental.otel import tracing
+
     tracing._initialized = False
     tracing._tracer_provider = None
 
-    from experimental.otel.tracing import init_otel_tracer, get_tracer
+    from experimental.otel.tracing import get_tracer, init_otel_tracer
 
     result = init_otel_tracer()
     assert result is False, f"Expected False (disabled), got {result}"
-    print("  ✅ init_otel_tracer() returns False when OTEL_ENABLED not set")
+    print("  ✅ init_otel_tracer() returns False when OTEL_SDK_DISABLED not set")
 
     # Should still be able to get a tracer (no-op)
     tracer = get_tracer("test")
@@ -178,7 +126,7 @@ def test_tracer_disabled_by_default():
 def test_set_span_error():
     """Test set_span_error function."""
     print("Testing set_span_error...")
-    from experimental.otel.tracing import set_span_error, get_tracer
+    from experimental.otel.tracing import get_tracer, set_span_error
 
     tracer = get_tracer("test")
     span = tracer.start_span("test-span")
@@ -244,8 +192,6 @@ def test_server_agui_imports():
     print("Testing server-agui.py compatibility...")
 
     # Simulate what server-agui.py does
-    from opentelemetry import trace
-    from experimental.otel.tracing import init_otel_tracer, get_tracer, set_span_error
     from experimental.otel import attributes as otel_attr
 
     # Check the attributes used in server-agui.py exist
@@ -265,23 +211,23 @@ def test_server_agui_imports():
 
 
 def test_metrics_disabled_by_default():
-    """Test that metrics are disabled when OTEL_ENABLED is not set."""
+    """Test that metrics are disabled when OTEL_SDK_DISABLED is not set."""
     print("Testing metrics initialization (disabled)...")
 
     # Ensure OTEL is disabled
-    os.environ.pop("OTEL_ENABLED", None)
+    os.environ.pop("OTEL_SDK_DISABLED", None)
     os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
-
-    from experimental.otel.metrics import init_otel_metrics, get_meter
 
     # Reset module state
     import experimental.otel.metrics as metrics_module
+    from experimental.otel.metrics import get_meter, init_otel_metrics
+
     metrics_module._meter = None
     metrics_module._meter_provider = None
 
     result = init_otel_metrics()
     assert result is False, f"Expected False (disabled), got {result}"
-    print("  ✅ init_otel_metrics() returns False when OTEL_ENABLED not set")
+    print("  ✅ init_otel_metrics() returns False when OTEL_SDK_DISABLED not set")
 
     # Should return None when disabled
     meter = get_meter()
@@ -294,12 +240,12 @@ def test_metrics_helpers_no_op_when_disabled():
     print("Testing metric helpers (no-op when disabled)...")
 
     from experimental.otel.metrics import (
-        record_token_usage,
-        record_operation_duration,
-        record_tool_duration,
+        increment_errors,
         increment_iterations,
         increment_tool_calls,
-        increment_errors,
+        record_operation_duration,
+        record_token_usage,
+        record_tool_duration,
     )
 
     # All of these should not raise when metrics are disabled
@@ -320,8 +266,9 @@ def test_logging_formatter():
     """Test the OTEL context formatter."""
     print("Testing OTEL logging formatter...")
 
-    from experimental.otel.otel_logging import OTELContextFormatter
     import logging
+
+    from experimental.otel.otel_logging import OTELContextFormatter
 
     formatter = OTELContextFormatter(
         "%(asctime)s [%(trace_id)s/%(span_id)s] %(message)s"
@@ -350,12 +297,13 @@ def test_logging_helpers():
     print("Testing logging helpers...")
 
     import logging
+
     from experimental.otel.otel_logging import (
-        log_llm_call,
-        log_tool_execution,
-        log_agent_start,
         log_agent_complete,
         log_agent_error,
+        log_agent_start,
+        log_llm_call,
+        log_tool_execution,
     )
 
     logger = logging.getLogger("test.otel")
@@ -380,8 +328,8 @@ def test_stream_events():
 
     from holmes.utils.stream import (
         StreamEvents,
-        build_stream_event_llm_iteration_start,
         build_stream_event_llm_iteration_complete,
+        build_stream_event_llm_iteration_start,
     )
 
     # Check new events exist
@@ -425,16 +373,14 @@ def test_tracing_factory_otel_tracer():
     print("Testing TracingFactory OTEL integration...")
 
     from holmes.core.tracing import (
-        TracingFactory,
-        SpanType,
-        OTELTracer,
-        OTELSpan,
         DummyTracer,
-        DummySpan,
+        OTELSpan,
+        OTELTracer,
+        TracingFactory,
     )
 
     # Ensure OTEL is disabled for this test
-    os.environ.pop("OTEL_ENABLED", None)
+    os.environ.pop("OTEL_SDK_DISABLED", None)
     # Reset class state for clean test
     TracingFactory._otel_initialized = False
 
@@ -445,10 +391,11 @@ def test_tracing_factory_otel_tracer():
 
     # Test that init_otel returns False when disabled (need to reset module state too)
     from experimental.otel import tracing as otel_tracing
+
     otel_tracing._initialized = False
     result = TracingFactory.init_otel()
     assert result is False, f"Expected False, got {result}"
-    print("  ✅ init_otel() returns False when OTEL_ENABLED not set")
+    print("  ✅ init_otel() returns False when OTEL_SDK_DISABLED not set")
 
     # Test OTELTracer class exists and has required methods
     assert hasattr(OTELTracer, "start_trace")
@@ -471,10 +418,10 @@ def test_tracing_factory_dummy_span_context_manager():
     """Test DummySpan context manager behavior."""
     print("Testing DummySpan context manager...")
 
-    from holmes.core.tracing import TracingFactory, SpanType
+    from holmes.core.tracing import SpanType, TracingFactory
 
     # Ensure OTEL is disabled
-    os.environ.pop("OTEL_ENABLED", None)
+    os.environ.pop("OTEL_SDK_DISABLED", None)
 
     tracer = TracingFactory.create_tracer("otel")
 
@@ -505,22 +452,26 @@ def test_tracing_factory_composite_tracer():
     print("Testing CompositeTracer...")
 
     from holmes.core.tracing import (
-        TracingFactory,
-        SpanType,
-        CompositeTracer,
         CompositeSpan,
+        CompositeTracer,
         DummyTracer,
+        SpanType,
+        TracingFactory,
     )
 
     # When both BRAINTRUST and OTEL are disabled, should return DummyTracer
     # (CompositeTracer is only returned when at least 2 active tracers exist)
-    os.environ.pop("OTEL_ENABLED", None)
+    os.environ.pop("OTEL_SDK_DISABLED", None)
     os.environ.pop("BRAINTRUST_API_KEY", None)
     TracingFactory._otel_initialized = False
 
     tracer = TracingFactory.create_tracer("braintrust,otel")
-    assert isinstance(tracer, DummyTracer), f"Expected DummyTracer when both tracers disabled, got {type(tracer)}"
-    print("  ✅ create_tracer('braintrust,otel') returns DummyTracer when both disabled")
+    assert isinstance(
+        tracer, DummyTracer
+    ), f"Expected DummyTracer when both tracers disabled, got {type(tracer)}"
+    print(
+        "  ✅ create_tracer('braintrust,otel') returns DummyTracer when both disabled"
+    )
 
     # Test CompositeTracer class exists and has correct methods
     assert hasattr(CompositeTracer, "start_trace")
@@ -548,7 +499,7 @@ def test_tracing_factory_span_types():
     """Test SpanType enum and mappings."""
     print("Testing SpanType enum...")
 
-    from holmes.core.tracing import SpanType, SPAN_TYPE_TO_OTEL
+    from holmes.core.tracing import SPAN_TYPE_TO_OTEL, SpanType
 
     # Test all span types exist
     expected_types = ["LLM", "SCORE", "FUNCTION", "EVAL", "TASK", "TOOL"]
@@ -575,7 +526,7 @@ def test_server_uses_tracing_factory():
     # Read server.py and verify it imports and uses TracingFactory
     server_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "server.py"
+        "server.py",
     )
 
     with open(server_path, "r") as f:
@@ -602,7 +553,7 @@ def test_agui_uses_tracing_factory():
     agui_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "ag-ui",
-        "server-agui.py"
+        "server-agui.py",
     )
 
     with open(agui_path, "r") as f:

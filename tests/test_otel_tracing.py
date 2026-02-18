@@ -13,12 +13,10 @@ from holmes.core.tracing import (
     CompositeSpan,
     DummySpan,
     DummyTracer,
-    OTELSpan,
     OTELTracer,
     SpanType,
     TracingFactory,
 )
-
 
 # ============ DummySpan Tests ============
 
@@ -92,8 +90,8 @@ class TestTracingFactory:
 
     @patch.dict(os.environ, {}, clear=False)
     def test_returns_dummy_tracer_when_otel_not_enabled(self):
-        # Ensure OTEL_ENABLED is not set
-        os.environ.pop("OTEL_ENABLED", None)
+        # Ensure OTEL_SDK_DISABLED is not set (defaults to disabled)
+        os.environ.pop("OTEL_SDK_DISABLED", None)
         tracer = TracingFactory.create_tracer("otel")
         assert isinstance(tracer, DummyTracer)
 
@@ -268,7 +266,10 @@ class TestAWSAuthHelpers:
     def test_needs_aws_auth_osis_endpoint(self):
         from experimental.otel.tracing import needs_aws_auth
 
-        assert needs_aws_auth("https://pipeline.us-east-1.osis.amazonaws.com/v1/traces") is True
+        assert (
+            needs_aws_auth("https://pipeline.us-east-1.osis.amazonaws.com/v1/traces")
+            is True
+        )
 
     def test_needs_aws_auth_es_endpoint(self):
         from experimental.otel.tracing import needs_aws_auth
@@ -278,9 +279,11 @@ class TestAWSAuthHelpers:
     def test_needs_aws_auth_standard_endpoint(self):
         from experimental.otel.tracing import needs_aws_auth
 
-        assert needs_aws_auth("https://otel-collector.example.com:4318/v1/traces") is False
+        assert (
+            needs_aws_auth("https://otel-collector.example.com:4318/v1/traces") is False
+        )
 
-    @patch.dict(os.environ, {"OTEL_AWS_PROFILE": "my-profile"}, clear=False)
+    @patch.dict(os.environ, {"HOLMES_AWS_OSIS_PROFILE": "my-profile"}, clear=False)
     def test_needs_aws_auth_with_profile_set(self):
         from experimental.otel.tracing import needs_aws_auth
 
@@ -297,7 +300,9 @@ class TestAWSAuthHelpers:
     def test_region_extraction_fallback_for_non_osis(self):
         from experimental.otel.tracing import _extract_region_from_endpoint
 
-        region = _extract_region_from_endpoint("https://otel-collector.example.com:4318")
+        region = _extract_region_from_endpoint(
+            "https://otel-collector.example.com:4318"
+        )
         assert region == "us-east-1"
 
     def test_region_extraction_fallback_for_invalid_url(self):
@@ -323,9 +328,15 @@ class TestMetricsNoop:
         )
 
         # These should all complete without error even when metrics are not initialized
-        record_token_usage(tokens=100, token_type="input", model="test", operation_name="chat")
+        record_token_usage(
+            tokens=100, token_type="input", model="test", operation_name="chat"
+        )
         record_operation_duration(
-            duration_seconds=1.5, operation_name="test", model="test", agent_name="test", success=True
+            duration_seconds=1.5,
+            operation_name="test",
+            model="test",
+            agent_name="test",
+            success=True,
         )
         record_tool_duration(duration_seconds=0.5, tool_name="test", success=True)
         increment_iterations(count=1, model="test", agent_name="test")

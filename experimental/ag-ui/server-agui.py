@@ -166,7 +166,7 @@ init_logging()
 
 # Initialize OTEL tracer if enabled (using unified TracingFactory)
 _otel_enabled = False
-if _otel_available and os.environ.get("OTEL_ENABLED", "").lower() == "true":
+if _otel_available and os.environ.get("OTEL_SDK_DISABLED", "true").lower() != "true":
     otel_initialized = TracingFactory.init_otel()
     if otel_initialized:
         logging.info("OTEL tracing enabled for AG-UI endpoint")

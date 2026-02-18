@@ -589,9 +589,9 @@ class TracingFactory:
             return BraintrustTracer(project=project)
 
         elif trace_type_lower == "otel":
-            if not os.environ.get("OTEL_ENABLED", "").lower() == "true":
+            if os.environ.get("OTEL_SDK_DISABLED", "true").lower() == "true":
                 logging.warning(
-                    "OTEL tracing requested but OTEL_ENABLED not set to 'true'"
+                    "OTEL tracing requested but OTEL_SDK_DISABLED is not set to 'false'"
                 )
                 return DummyTracer()
             return OTELTracer()
@@ -606,7 +606,7 @@ class TracingFactory:
         Args:
             trace_type: Type of tracing. Can be:
                 - 'braintrust': For evaluations and experiments
-                - 'otel': For production observability (requires OTEL_ENABLED=true)
+                - 'otel': For production observability (requires OTEL_SDK_DISABLED=false)
                 - 'braintrust,otel': For dual tracing (both systems)
                 - None: Returns DummyTracer
             project: Project name for Braintrust tracing

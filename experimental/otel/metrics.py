@@ -29,13 +29,19 @@ _error_counter = None
 
 
 def _get_otel_enabled() -> bool:
-    """Check if OTEL is enabled via environment variable."""
-    return os.environ.get("OTEL_ENABLED", "false").lower() == "true"
+    """Check if OTEL is enabled per OTEL spec (OTEL_SDK_DISABLED).
+
+    OTEL_SDK_DISABLED=true means disabled. Defaults to true (disabled) for opt-in.
+    """
+    return os.environ.get("OTEL_SDK_DISABLED", "true").lower() != "true"
 
 
 def _get_metrics_enabled() -> bool:
-    """Check if OTEL metrics are enabled."""
-    return os.environ.get("OTEL_METRICS_ENABLED", "true").lower() == "true"
+    """Check if OTEL metrics are enabled.
+
+    Per OTEL spec, set OTEL_METRICS_EXPORTER=none to disable metrics.
+    """
+    return os.environ.get("OTEL_METRICS_EXPORTER", "").lower() != "none"
 
 
 def _get_otel_endpoint() -> Optional[str]:

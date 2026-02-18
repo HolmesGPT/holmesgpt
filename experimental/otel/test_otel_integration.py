@@ -3,10 +3,10 @@
 
 Usage:
     # Set up environment variables for OSIS (required)
-    export OTEL_ENABLED=true
+    export OTEL_SDK_DISABLED=false
     export OTEL_EXPORTER_OTLP_ENDPOINT=https://your-osis-pipeline.region.osis.amazonaws.com/path/v1/traces
-    export OTEL_AWS_PROFILE=your-aws-profile  # optional, for OSIS auth
-    export OTEL_AWS_REGION=us-east-1          # optional, extracted from endpoint if not set
+    export HOLMES_AWS_OSIS_PROFILE=your-aws-profile  # optional, for OSIS auth
+    export HOLMES_AWS_OSIS_REGION=us-east-1          # optional, extracted from endpoint if not set
 
     # Set up environment variables for OpenSearch verification (optional)
     export OPENSEARCH_ENDPOINT=https://your-opensearch-cluster.region.on.aws
@@ -17,10 +17,10 @@ Usage:
     poetry run python experimental/otel/test_otel_integration.py
 
 Environment Variables:
-    OTEL_ENABLED              - Must be 'true' to enable tracing (required)
+    OTEL_SDK_DISABLED         - Must be 'false' to enable tracing (required)
     OTEL_EXPORTER_OTLP_ENDPOINT - OSIS pipeline endpoint URL (required)
-    OTEL_AWS_PROFILE          - AWS profile for OSIS authentication (optional)
-    OTEL_AWS_REGION           - AWS region for OSIS (optional, auto-detected from endpoint)
+    HOLMES_AWS_OSIS_PROFILE   - AWS profile for OSIS authentication (optional)
+    HOLMES_AWS_OSIS_REGION    - AWS region for OSIS (optional, auto-detected from endpoint)
     OTEL_SERVICE_NAME         - Service name for traces (default: holmesgpt)
     OPENSEARCH_ENDPOINT       - OpenSearch cluster URL for verification (optional)
     OPENSEARCH_USERNAME       - OpenSearch username (optional)
@@ -54,13 +54,13 @@ def check_environment():
     print("=" * 60)
 
     required = {
-        "OTEL_ENABLED": os.environ.get("OTEL_ENABLED"),
+        "OTEL_SDK_DISABLED": os.environ.get("OTEL_SDK_DISABLED"),
         "OTEL_EXPORTER_OTLP_ENDPOINT": os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
     }
 
     optional = {
-        "OTEL_AWS_PROFILE": os.environ.get("OTEL_AWS_PROFILE"),
-        "OTEL_AWS_REGION": os.environ.get("OTEL_AWS_REGION"),
+        "HOLMES_AWS_OSIS_PROFILE": os.environ.get("HOLMES_AWS_OSIS_PROFILE"),
+        "HOLMES_AWS_OSIS_REGION": os.environ.get("HOLMES_AWS_OSIS_REGION"),
         "OTEL_SERVICE_NAME": os.environ.get("OTEL_SERVICE_NAME", "holmesgpt"),
         "AWS_PROFILE": os.environ.get("AWS_PROFILE"),
         "AWS_REGION": os.environ.get("AWS_REGION"),
@@ -91,11 +91,13 @@ def check_environment():
     if not all_set:
         print("\n❌ Missing required environment variables!")
         print("\nSet them with:")
-        print("  export OTEL_ENABLED=true")
+        print("  export OTEL_SDK_DISABLED=false")
         print(
             "  export OTEL_EXPORTER_OTLP_ENDPOINT=https://your-osis-endpoint/v1/traces"
         )
-        print("  export OTEL_AWS_PROFILE=your-profile  # optional, for OSIS auth")
+        print(
+            "  export HOLMES_AWS_OSIS_PROFILE=your-profile  # optional, for OSIS auth"
+        )
         return False
 
     print("\n✅ Environment configured correctly")
@@ -138,9 +140,10 @@ def test_create_and_export_spans():
     print("Test: Create and Export Spans")
     print("=" * 60)
 
+    from opentelemetry import trace
+
     from experimental.otel import attributes as otel_attr
     from experimental.otel.tracing import get_tracer, set_span_error
-    from opentelemetry import trace
 
     tracer = get_tracer("holmesgpt.integration_test")
 
@@ -497,7 +500,9 @@ def main():
                     "\n⚠️ OpenSearch verification inconclusive (may need more time to index)"
                 )
         else:
-            print("\n⏭️ Skipping OpenSearch verification (OPENSEARCH_* env vars not set)")
+            print(
+                "\n⏭️ Skipping OpenSearch verification (OPENSEARCH_* env vars not set)"
+            )
 
     print("\n" + "=" * 60)
     print("Summary")

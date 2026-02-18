@@ -70,7 +70,7 @@ def init_otel():
     handles per-request span creation; metrics recording happens in the AG-UI
     endpoint and tool execution paths.
     """
-    if os.environ.get("OTEL_ENABLED", "").lower() == "true":
+    if os.environ.get("OTEL_SDK_DISABLED", "true").lower() != "true":
         # Initialize tracing
         tracing_ok = TracingFactory.init_otel()
         if tracing_ok:
