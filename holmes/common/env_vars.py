@@ -92,7 +92,8 @@ BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
 LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
 
 
-MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 100))
+MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
+MAX_GRAPH_POINTS_HARD_LIMIT = float(os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 2))
 
 # Limit each tool response to N% of the total context window.
 # Number between 0 and 100
@@ -153,6 +154,9 @@ ROBUSTA_UI_DOMAIN = os.environ.get(
 TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
     os.environ.get("TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS", 300)
 )
+# Backoff schedule (seconds) for retrying failed MCP servers before falling
+# back to TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS.
+MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
 
 # Filesystem storage for large tool results
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(

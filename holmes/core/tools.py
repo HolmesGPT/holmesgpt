@@ -166,7 +166,9 @@ class ToolsetType(str, Enum):
 
 class ToolParameter(BaseModel):
     description: Optional[str] = None
-    type: str = "string"
+    # JSON Schema allows type to be a string or array of strings for union types
+    # e.g., "string" or ["string", "null"] for nullable types
+    type: Union[str, List[str]] = "string"
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
@@ -285,8 +287,8 @@ class Tool(ABC, BaseModel):
                 logger.info(
                     f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
                 )
-                # Override suggested_prefixes with filtered list (for bash toolset)
-                if approval_check.prefixes_to_save:
+                # Bash toolset: override suggested_prefixes with filtered list
+                if approval_check.prefixes_to_save is not None:
                     params["suggested_prefixes"] = approval_check.prefixes_to_save
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.APPROVAL_REQUIRED,

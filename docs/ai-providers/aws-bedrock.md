@@ -66,13 +66,6 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
     # Configure at least one model using modelList
     modelList:
-      bedrock-claude-35-sonnet:
-        aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-        aws_region_name: us-east-1
-        model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
-        temperature: 1
-
       bedrock-claude-sonnet-4:
         aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
         aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
@@ -99,7 +92,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
     # Optional: Set default model (use modelList key name)
     config:
-      model: "bedrock-claude-35-sonnet"  # This refers to the key name in modelList above
+      model: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -130,13 +123,6 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
       # Configure at least one model using modelList
       modelList:
-        bedrock-claude-35-sonnet:
-          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-          aws_region_name: us-east-1
-          model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
-          temperature: 1
-
         bedrock-claude-sonnet-4:
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
@@ -163,7 +149,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
       # Optional: Set default model (use modelList key name)
       config:
-        model: "bedrock-claude-35-sonnet"  # This refers to the key name in modelList above
+        model: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 ### Using Claude Sonnet with 1M Context Window

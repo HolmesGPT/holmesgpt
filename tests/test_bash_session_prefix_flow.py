@@ -596,7 +596,7 @@ class TestCrossConversationIsolation:
         shared_config = BashExecutorConfig(
             allow=["kubectl get"],  # Only kubectl get is in allow list
             deny=[],
-            include_default_allow_deny_list=False,
+            builtin_allowlist="none",
         )
 
         # ===== CONVERSATION A =====
