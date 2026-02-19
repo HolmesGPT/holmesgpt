@@ -1,5 +1,5 @@
 user_prompt:
-- "Find all namespaces that start with 'app-217' and tell me how many ConfigMaps are in each one. Give me the exact count per namespace."
+- "Find all namespaces that start with 'app-217' and tell me how many ConfigMaps are in each one. Give me the exact count per namespace and the total across all of them."
 
 expected_output:
   - The answer must state that app-217-payments has exactly 38 ConfigMaps
@@ -7,6 +7,7 @@ expected_output:
   - The answer must state that app-217-shipping has exactly 149 ConfigMaps
   - The answer must state that app-217-analytics has exactly 202 ConfigMaps
   - The answer must state that app-217-notifications has exactly 165 ConfigMaps
+  - The answer must state that the total across all namespaces is exactly 644 ConfigMaps
 
 tags:
   - kubernetes
