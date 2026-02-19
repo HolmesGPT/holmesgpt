@@ -56,7 +56,39 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          poetry run pytest -m "not llm" -n auto --no-cov --tb=short -rF
+          # Minimal console output, full details saved to JSON
+          poetry run pytest -m "not llm" \
+            --cov-report= \
+            -p no:sugar \
+            -q --no-header \
+            -o log_cli=false \
+            --tb=short \
+            -W ignore \
+            --json-report --json-report-file=test-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-py${{ matrix.python-version }}
+          path: test-results.json
+
+      - name: Show test summary
+        if: always()
+        run: |
+          python3 -c "
+          import json
+          with open('test-results.json') as f:
+              data = json.load(f)
+          passed = [t['nodeid'] for t in data.get('tests', []) if t['outcome'] == 'passed']
+          failed = [t['nodeid'] for t in data.get('tests', []) if t['outcome'] == 'failed']
+          skipped = [t['nodeid'] for t in data.get('tests', []) if t['outcome'] == 'skipped']
+          print(f'Tests: {len(passed)} passed, {len(failed)} failed, {len(skipped)} skipped')
+          if failed:
+              print('Failed tests:')
+              for t in failed[:10]:
+                  print(f'  - {t}')
+          "
 
       - name: Test the binary
         shell: bash
