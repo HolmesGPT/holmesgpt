@@ -1,5 +1,7 @@
-import os
 import json
+import os
+import platform
+import tempfile
 from typing import Optional
 
 # Recommended models for different providers
@@ -51,7 +53,15 @@ EXTRA_HEADERS = os.environ.get("EXTRA_HEADERS", "")
 THINKING = os.environ.get("THINKING", "")
 REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "").strip().lower()
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.00000001"))
-TOOL_MEMORY_LIMIT_MB = int(os.environ.get("TOOL_MEMORY_LIMIT_MB", 800))
+
+# Set default memory limit based on CPU architecture
+# ARM architectures typically need more memory
+_default_memory_limit = (
+    1500 if platform.machine().lower() in ("arm64", "aarch64", "arm") else 800
+)
+TOOL_MEMORY_LIMIT_MB = int(
+    os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
+)
 
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)
@@ -81,10 +91,9 @@ BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
 
 LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
 
-# For CLI only, enable user approval for potentially sensitive commands that would otherwise be rejected
-ENABLE_CLI_TOOL_APPROVAL = load_bool("ENABLE_CLI_TOOL_APPROVAL", True)
 
-MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 100))
+MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
+MAX_GRAPH_POINTS_HARD_LIMIT = float(os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 2))
 
 # Limit each tool response to N% of the total context window.
 # Number between 0 and 100
@@ -120,3 +129,36 @@ ENABLE_CONNECTION_KEEPALIVE = load_bool("ENABLE_CONNECTION_KEEPALIVE", False)
 KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))
 KEEPALIVE_INTVL = int(os.environ.get("KEEPALIVE_INTVL", 2))
 KEEPALIVE_CNT = int(os.environ.get("KEEPALIVE_CNT", 5))
+
+# Controls whether scheduled prompts executor runs at startup (defaults to on)
+ENABLED_SCHEDULED_PROMPTS = load_bool("ENABLED_SCHEDULED_PROMPTS", True)
+# Polling interval in seconds for accounts with active scheduled prompts (defaults to 60 seconds)
+SCHEDULED_PROMPTS_ACTIVE_POLL_INTERVAL_SECONDS = int(
+    os.environ.get("SCHEDULED_PROMPTS_ACTIVE_POLL_INTERVAL_SECONDS", 60)
+)
+# Polling interval in seconds for accounts without scheduled prompts (defaults to 15 minutes)
+SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
+    os.environ.get("SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS", 900)
+)
+# Heartbeat interval in seconds for updating scheduled prompt run status during execution
+SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
+    os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
+)
+# for embedds
+ROBUSTA_UI_DOMAIN = os.environ.get(
+    "ROBUSTA_UI_DOMAIN",
+    "https://platform.robusta.dev",
+)
+# Periodic refresh interval for toolset status in server mode (in seconds)
+# Set to 0 to disable periodic refresh
+TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
+    os.environ.get("TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS", 300)
+)
+# Backoff schedule (seconds) for retrying failed MCP servers before falling
+# back to TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS.
+MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
+
+# Filesystem storage for large tool results
+HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
+    "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
+)

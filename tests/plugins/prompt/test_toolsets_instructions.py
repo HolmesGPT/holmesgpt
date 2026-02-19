@@ -1,13 +1,14 @@
 from typing import Dict
-from holmes.plugins.prompts import load_and_render_prompt
+
 from holmes.core.tools import (
     StaticPrerequisite,
     StructuredToolResult,
-    Tool,
     StructuredToolResultStatus,
+    Tool,
     ToolInvokeContext,
     Toolset,
 )
+from holmes.plugins.prompts import load_and_render_prompt
 
 template = "builtin://_toolsets_instructions.jinja2"
 
@@ -34,9 +35,6 @@ class MockToolset(Toolset):
         super().__init__(**config)
         if self.enabled:
             self.check_prerequisites()
-
-    def get_example_config(self):
-        return {}
 
 
 def test_renders_single_toolset_with_instructions():

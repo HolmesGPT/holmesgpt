@@ -1,10 +1,10 @@
-import logging
-from typing import Any, Dict, Optional, Tuple
 import json
+import logging
 import re
 from contextlib import suppress
-from holmes.common.env_vars import load_bool
+from typing import Any, Dict, Optional, Tuple
 
+from holmes.common.env_vars import load_bool
 
 REQUEST_STRUCTURED_OUTPUT_FROM_LLM = load_bool(
     "REQUEST_STRUCTURED_OUTPUT_FROM_LLM", True
@@ -49,7 +49,7 @@ def get_output_format_for_investigation(
         "json_schema": {
             "name": "InvestigationResult",
             "schema": schema,
-            "strict": False,
+            "strict": False,  # TODO: remove explicit False - let ensure_strict_response_format handle it
         },
     }
 

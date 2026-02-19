@@ -1,4 +1,5 @@
 from typing import Dict, List
+
 from pydantic import Field
 
 from holmes.core.tools import Tool, Toolset
@@ -38,9 +39,6 @@ class BadToolset(Toolset):
     """
 
     tools: List[BadTool] = Field(default_factory=list)  # type: ignore
-
-    def get_example_config(self) -> Dict:
-        return {}
 
 
 BadTool.model_rebuild()

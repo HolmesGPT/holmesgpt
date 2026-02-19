@@ -808,7 +808,7 @@ class TestRunInteractiveLoop(unittest.TestCase):
                 console=self.mock_console,
                 initial_user_input=None,
                 include_files=None,
-                                show_tool_output=False,
+                show_tool_output=False,
                 check_version=False,
                 feedback_callback=None,  # No callback
             )

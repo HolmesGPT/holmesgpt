@@ -14,6 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+# Benchmark type definitions
+BENCHMARK_TYPES = {
+    "fast-benchmark": "regression or benchmark",
+    "full-benchmark": "easy or medium or hard or regression or benchmark",
+}
+
 
 class BenchmarkRunner:
     """Manages local benchmark execution for HolmesGPT evaluations."""
@@ -27,6 +33,7 @@ class BenchmarkRunner:
         parallel_workers: Optional[str] = "auto",
         strict_setup: bool = True,
         no_braintrust: bool = False,
+        benchmark_type: Optional[str] = None,
     ):
         self.models = models
         self.markers = markers
@@ -35,6 +42,7 @@ class BenchmarkRunner:
         self.parallel_workers = parallel_workers
         self.strict_setup = strict_setup
         self.no_braintrust = no_braintrust
+        self.benchmark_type = benchmark_type
         self.experiment_id = os.environ.get(
             "EXPERIMENT_ID",
             f"local-benchmark-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
@@ -45,6 +53,8 @@ class BenchmarkRunner:
         print("=" * 50)
         print("🧪 Running Local Benchmarks")
         print("=" * 50)
+        if self.benchmark_type:
+            print(f"Benchmark:    {self.benchmark_type}")
         print(f"Models:       {', '.join(self.models)}")
         print(f"Markers:      llm and ({self.markers})")
         print(f"Iterations:   {self.iterations}")
@@ -183,8 +193,8 @@ class BenchmarkRunner:
         result = subprocess.run(cmd)
         return result.returncode
 
-    def generate_report(self) -> None:
-        """Generate benchmark reports from test results."""
+    def generate_report(self) -> Optional[Path]:
+        """Generate benchmark reports from test results. Returns the generated file path or None."""
         print()
         print("=" * 50)
         print("Generating benchmark report...")
@@ -194,15 +204,18 @@ class BenchmarkRunner:
             print(
                 "⚠️  Report generation script not found: tests/generate_eval_report.py"
             )
-            return
+            return None
 
         # Create output directories
         docs_dir = Path("docs/development/evaluations")
         history_dir = docs_dir / "history"
         history_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate latest results
-        latest_output = docs_dir / "latest-results.md"
+        # Generate directly to history folder (⚡ in title distinguishes fast benchmarks)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        history_output = history_dir / f"results_{timestamp}.md"
+
+        # Build command to generate report directly to history folder
         cmd = [
             "poetry",
             "run",
@@ -211,32 +224,56 @@ class BenchmarkRunner:
             "--json-file",
             "eval_results.json",
             "--output-file",
-            str(latest_output),
+            str(history_output),
             "--models",
             ",".join(self.models),
         ]
 
+        # Add benchmark type if specified
+        if self.benchmark_type:
+            cmd.extend(["--benchmark-type", self.benchmark_type])
+
+        # Set up environment with PYTHONPATH to ensure tests module is importable
+        env = os.environ.copy()
+        project_root = str(Path.cwd())
+        env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
+
         try:
-            subprocess.run(cmd, check=True)
-            print(f"✅ Report generated: {latest_output}")
+            subprocess.run(cmd, check=True, env=env)
+            print(f"✅ Report generated: {history_output}")
 
-            # Generate historical copy
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            history_output = history_dir / f"results_{timestamp}.md"
+            # Create redirect page for latest-results.md pointing to the history file
+            latest_output = docs_dir / "latest-results.md"
+            history_relative = (
+                f"../history/{history_output.name.replace('.md', '/')}".rstrip("/")
+                + "/"
+            )
+            redirect_content = f"""# Latest Results
 
-            cmd[-2] = str(history_output)  # Update output file
-            subprocess.run(cmd, check=True)
-            print(f"📁 Saved historical copy: {history_output}")
+Redirecting to the latest benchmark results...
+
+<script>
+window.location.href = "{history_relative}";
+</script>
+
+If you are not redirected automatically, [click here]({history_relative}).
+"""
+            latest_output.write_text(redirect_content)
+            print(f"📋 Updated redirect: {latest_output} -> {history_relative}")
+            return history_output
 
         except subprocess.CalledProcessError as e:
             print(f"❌ Report generation failed: {e}")
+            return None
 
-    def show_summary(self) -> None:
+    def show_summary(self, report_file: Optional[Path] = None) -> None:
         """Display test execution summary and next steps."""
         print()
         print("=" * 50)
         print("Test Execution Summary")
         print("=" * 50)
+        if self.benchmark_type:
+            print(f"Benchmark: {self.benchmark_type}")
         print(f"Models: {', '.join(self.models)}")
         print(f"Markers: llm and ({self.markers})")
         print(f"Iterations: {self.iterations}")
@@ -255,22 +292,23 @@ class BenchmarkRunner:
         print("Generated files:")
 
         files_to_check = [
-            ("eval_results.json", "JSON results"),
-            ("evals_report.md", "Evaluation report"),
-            ("docs/development/evaluations/latest-results.md", "Latest results"),
+            Path("eval_results.json"),
+            Path("docs/development/evaluations/latest-results.md"),
         ]
+        if report_file:
+            files_to_check.append(report_file)
 
-        for filename, description in files_to_check:
-            path = Path(filename)
+        for path in files_to_check:
             if path.exists():
                 line_count = sum(1 for _ in path.open())
-                print(f"  ✓ {filename} ({line_count} lines)")
+                print(f"  ✓ {path} ({line_count} lines)")
 
         print()
         print("=" * 50)
         print("✅ Benchmark run complete!")
         print()
         print("To commit results (like CI/CD would on main):")
+        print("  git add docs/development/evaluations/history/")
         print("  git add docs/development/evaluations/latest-results.md")
         print("  git commit -m 'Update benchmark results [skip ci]'")
         print("=" * 50)
@@ -280,8 +318,8 @@ class BenchmarkRunner:
         self.check_environment()
         self.setup_environment()
         exit_code = self.run_tests()
-        self.generate_report()
-        self.show_summary()
+        report_file = self.generate_report()
+        self.show_summary(report_file)
         return exit_code
 
 
@@ -291,15 +329,19 @@ def parse_args():
         description="Run HolmesGPT evaluation benchmarks locally",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Benchmark Types:
+  fast-benchmark  - Quick regression tests (markers: regression or benchmark)
+  full-benchmark  - Comprehensive tests (markers: easy or medium or hard or regression or benchmark)
+
 Examples:
-  %(prog)s                                    # Use all defaults
-  %(prog)s --models gpt-4o                    # Test only gpt-4o
-  %(prog)s --models gpt-4o,claude-3-5-sonnet --markers easy --iterations 3
-  %(prog)s --filter 01_how_many_pods          # Run specific test
-  %(prog)s --parallel 6                       # Run with 6 parallel workers
-  %(prog)s --parallel 1                       # Run sequentially (no parallelism)
-  %(prog)s --no-strict-setup                  # Disable strict setup mode
-  %(prog)s --no-braintrust                    # Run without Braintrust (for development only)
+  %(prog)s --models gpt-4o                              # Test gpt-4o with fast-benchmark (default)
+  %(prog)s --models gpt-4o,claude-sonnet                # Test multiple models
+  %(prog)s --models gpt-4o --benchmark-type full        # Full comprehensive benchmark
+  %(prog)s --models gpt-4o --markers easy --iterations 3  # Custom markers
+  %(prog)s --models gpt-4o --filter 01_how_many_pods    # Run specific test
+  %(prog)s --models gpt-4o --parallel 6                 # Run with 6 parallel workers
+  %(prog)s --models gpt-4o --no-strict-setup            # Disable strict setup mode
+  %(prog)s --models gpt-4o --no-braintrust              # Run without Braintrust
 
 Environment variables:
   OPENAI_API_KEY, ANTHROPIC_API_KEY    - LLM API keys
@@ -313,15 +355,23 @@ Environment variables:
     parser.add_argument(
         "--models",
         type=str,
-        default="gpt-5.1,gpt-5,sonnet-4.5,haiku-4.5,deepseek-3.1",
-        help="Comma-separated list of models to test (default: %(default)s)",
+        required=True,
+        help="Comma-separated list of models to test (required)",
+    )
+
+    parser.add_argument(
+        "--benchmark-type",
+        type=str,
+        choices=list(BENCHMARK_TYPES.keys()),
+        default=None,
+        help="Type of benchmark to run (default: fast-benchmark). Cannot be combined with --markers.",
     )
 
     parser.add_argument(
         "--markers",
         type=str,
-        default="regression or benchmark",
-        help="Pytest markers for test selection (combined with 'llm') (default: %(default)s)",
+        default=None,
+        help="Custom pytest markers for test selection (combined with 'llm'). Cannot be combined with --benchmark-type.",
     )
 
     parser.add_argument(
@@ -366,20 +416,42 @@ def main():
     """Main entry point."""
     args = parse_args()
 
+    # Validate that --benchmark-type and --markers are not both provided
+    if args.markers is not None and args.benchmark_type is not None:
+        print("❌ ERROR: Cannot combine --benchmark-type with --markers")
+        print("   Use either --benchmark-type OR --markers, not both.")
+        sys.exit(1)
+
+    # Determine markers and benchmark_type
+    if args.markers is not None:
+        # Custom markers provided - no benchmark type
+        markers = args.markers
+        benchmark_type = None
+    elif args.benchmark_type is not None:
+        # Explicit benchmark type
+        benchmark_type = args.benchmark_type
+        markers = BENCHMARK_TYPES[benchmark_type]
+    else:
+        # Default: fast-benchmark
+        benchmark_type = "fast-benchmark"
+        markers = BENCHMARK_TYPES[benchmark_type]
+
     # Parse models from comma-separated string
     models = [m.strip() for m in args.models.split(",") if m.strip()]
 
     runner = BenchmarkRunner(
         models=models,
-        markers=args.markers,
+        markers=markers,
         iterations=args.iterations,
         filter_tests=args.filter_tests,
         parallel_workers=args.parallel_workers,
         strict_setup=args.strict_setup,
         no_braintrust=args.no_braintrust,
+        benchmark_type=benchmark_type,
     )
 
-    exit_code = runner.run()
+    # Ignore the exit code from tests to match bash script behavior
+    runner.run()
 
     # Exit with 0 even if tests failed (matching bash script behavior)
     sys.exit(0)

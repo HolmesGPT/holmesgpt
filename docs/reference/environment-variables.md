@@ -6,6 +6,7 @@ This page documents all environment variables that can be used to configure Holm
 
 ### OpenAI
 - `OPENAI_API_KEY` - API key for OpenAI models
+- `OPENAI_API_BASE` - Custom base URL for OpenAI-compatible APIs (e.g., LiteLLM proxy, local inference servers). See [OpenAI-Compatible](../ai-providers/openai-compatible.md) for details.
 
 ### Anthropic
 - `ANTHROPIC_API_KEY` - API key for Anthropic Claude models
@@ -158,37 +159,6 @@ Custom experiment name for tracking test runs in Braintrust.
 Controls message building flow in ask_holmes tests:
 - `cli` (default) - Uses CLI-style message building
 - `server` - Uses server-style message building with ChatRequest
-
-## Usage Examples
-
-### Basic Setup
-```bash
-# Set up OpenAI
-export OPENAI_API_KEY="sk-..."
-export HOLMES_LOG_LEVEL="INFO"
-
-# Run HolmesGPT
-holmes ask "what pods are failing?"
-```
-
-### Gemini Configuration
-```bash
-# Configure for Gemini models
-export GEMINI_API_KEY="your-key"
-export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
-
-holmes ask "analyze cluster health" --model="gemini/gemini-1.5-pro"
-```
-
-### Testing with Strict Tool Calling
-```bash
-# Enable strict tool calling for additional models
-export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4.1,openai/*,custom/model-*"
-export RUN_LIVE=true
-export MODEL="custom/model-v2"
-
-poetry run pytest tests/llm/ -n 6
-```
 
 ## See Also
 

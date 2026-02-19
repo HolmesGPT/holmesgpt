@@ -7,9 +7,9 @@ import pytest
 from pydantic import BaseModel
 
 from holmes.core.tools import ToolsetStatusEnum
-from tests.conftest import create_mock_tool_invoke_context
-from holmes.plugins.toolsets.internet.internet import InternetToolset, html_to_markdown
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.plugins.toolsets.internet.internet import InternetToolset, html_to_markdown
+from tests.conftest import create_mock_tool_invoke_context
 
 THIS_DIR = os.path.dirname(__file__)
 FIXTURES_DIR = os.path.join(THIS_DIR, "fixtures", "test_internet")
@@ -120,6 +120,8 @@ def test_fetch_webpage(responses):
         body=EXPECTED_TEST_RESULT,
     )
     toolset = InternetToolset()
+    success, error = toolset.prerequisites_callable({})
+    assert success, f"Setup failed: {error}"
     toolset.status = ToolsetStatusEnum.ENABLED
     tool_executor = ToolExecutor(toolsets=[toolset])
     fetch_webpage_tool = tool_executor.get_tool_by_name("fetch_webpage")

@@ -48,7 +48,7 @@ before_test: |
   echo "Verifying CPU metrics are available in Prometheus..."
 
   # Run the kubectl/curl command and capture both output and exit code
-  METRICS_OUTPUT=$(kubectl run -n app-159 metric-check-$RANDOM --rm -i --restart=Never --image=curlimages/curl -- \
+  METRICS_OUTPUT=$(kubectl run -n app-159 metric-check-$RANDOM --rm -i --restart=Never --image=curlimages/curl:8.8.0 -- \
     -s -G "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/query" \
     --data-urlencode "query=sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"app-159\"}[2m]))" 2>&1)
 

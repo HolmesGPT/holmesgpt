@@ -1,7 +1,180 @@
 /**
- * Shared helper functions for eval workflow PR comments.
- * Used by multiple steps in .github/workflows/eval-regression.yaml
+ * Eval comment helpers for GitHub workflow PR comments.
+ *
+ * SECURITY NOTE: This file is loaded from a TRUSTED checkout of the base branch
+ * (master), NOT from the PR branch. The workflow checks out to sibling directories:
+ *   - PR code: ./code/
+ *   - Trusted helpers: ./.trusted/
+ *
+ * Since they're siblings, neither can overwrite the other.
+ * The workflow loads: require('./.trusted/.github/scripts/eval-comment-helpers.js')
+ *
+ * DO NOT change the workflow to load from ./code/ path!
  */
+
+// Identifier for the persistent automated eval comment (hidden HTML comment)
+const AUTO_EVAL_COMMENT_IDENTIFIER = '<!-- holmes-auto-eval-results -->';
+
+// Marker to delimit end of history run content (avoids issues with nested <details> tags)
+const HISTORY_RUN_END_MARKER = '<!-- END_HISTORY_RUN -->';
+
+/**
+ * Parse run history from an existing comment body
+ * @param {string} body - Existing comment body
+ * @returns {Array<{summary: string, content: string}>} Array of previous runs
+ */
+function parseRunHistory(body) {
+  const runs = [];
+
+  // Match collapsed previous runs using our unique end marker to handle nested <details> tags
+  // The marker ensures we capture the full content even if it contains its own <details> sections
+  const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g;
+  let match;
+  while ((match = historyRegex.exec(body)) !== null) {
+    runs.push({
+      summary: match[1].trim(),
+      content: match[2].trim()
+    });
+  }
+
+  return runs;
+}
+
+/**
+ * Extract the current (uncollapsed) run content from comment body
+ * With the new structure, history is at the top, so current run comes after the "---" separator
+ * Only extracts completed runs (not in-progress) to avoid saving incomplete results
+ * @param {string} body - Existing comment body
+ * @returns {{summary: string, content: string}|null} Current run info or null if not a completed run
+ */
+function extractCurrentRun(body) {
+  // Remove the identifier comment
+  let cleanBody = body.replace(AUTO_EVAL_COMMENT_IDENTIFIER, '').trim();
+
+  // Skip past the "Previous Runs" section if present (new structure has history at top)
+  const previousRunsHeader = '## 📂 Previous Runs';
+  if (cleanBody.startsWith(previousRunsHeader)) {
+    // Find the separator that ends the history section
+    const separatorIndex = cleanBody.indexOf('\n---\n');
+    if (separatorIndex !== -1) {
+      cleanBody = cleanBody.substring(separatorIndex + 5).trim(); // Skip past "---\n"
+    }
+  }
+
+  // Find the header line (## ✅ Results... or ## ⏳ HolmesGPT evals running...)
+  const headerMatch = cleanBody.match(/^(## [^\n]+)/);
+  if (!headerMatch) return null;
+
+  const header = headerMatch[1];
+
+  // Only save completed runs to history (not in-progress runs)
+  // Completed runs have "Results" in the title
+  if (!header.includes('Results')) {
+    return null;
+  }
+
+  // Find where footer starts - look for any footer section (Legend, Re-run, or Valid markers)
+  const footerMarkers = [
+    '<details>\n<summary>📖 <b>Legend</b>',
+    '<details>\n<summary>🔄 <b>Re-run evals manually</b>',
+    '<details>\n<summary>🏷️ <b>Valid markers</b>',
+    '\n---\n**Commands:**'
+  ];
+
+  // Find the earliest footer marker
+  let endPos = cleanBody.length;
+  for (const marker of footerMarkers) {
+    const pos = cleanBody.indexOf(marker);
+    if (pos !== -1 && pos < endPos) {
+      endPos = pos;
+    }
+  }
+
+  // Extract trigger info for the summary (search in the current run section)
+  const currentSection = cleanBody.substring(0, endPos);
+  const triggerMatch = currentSection.match(/Automatically triggered by ([^\n]+)/);
+  const trigger = triggerMatch ? triggerMatch[1] : '';
+
+  // Extract workflow run URL for linking
+  const runUrlMatch = currentSection.match(/\[View workflow logs\]\(([^)]+)\)/);
+  const runUrl = runUrlMatch ? runUrlMatch[1] : '';
+
+  // Build a descriptive summary with trigger info
+  let summary = 'Previous Run';
+  if (trigger) {
+    // Extract commit and branch info from trigger like "commit abc1234 on branch `feature`"
+    const commitMatch = trigger.match(/commit ([a-f0-9]+)/);
+    const commit = commitMatch ? commitMatch[1] : '';
+    summary = commit ? `Run @ ${commit}` : `Run: ${trigger.substring(0, 50)}`;
+  }
+  if (runUrl) {
+    // Extract run ID from URL for reference
+    const runIdMatch = runUrl.match(/runs\/(\d+)/);
+    if (runIdMatch) {
+      summary += ` (#${runIdMatch[1]})`;
+    }
+  }
+
+  // Build content for when this run becomes collapsed
+  const content = cleanBody.substring(0, endPos).trim();
+
+  return {
+    summary: summary,
+    content: content
+  };
+}
+
+// GitHub comment body size limit (64KB), with buffer for safety
+const MAX_COMMENT_SIZE = 60000;
+
+/**
+ * Build comment body with run history support for automated runs
+ * Previous runs appear at the top in a collapsible section, followed by current run
+ * Automatically truncates history if approaching GitHub's 64KB comment limit
+ * @param {string} currentContent - Current run's full content (before footer)
+ * @param {Array<{summary: string, content: string}>} previousRuns - Previous runs to collapse
+ * @param {string} footer - Footer content (legend, rerun instructions)
+ * @param {number} maxHistory - Maximum number of historical runs to keep (default 5)
+ * @returns {string} Complete comment body with identifier
+ */
+function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHistory = 5) {
+  let body = AUTO_EVAL_COMMENT_IDENTIFIER + '\n';
+
+  // Build previous runs section first (at top)
+  const runsToShow = previousRuns.slice(0, maxHistory);
+  let historySection = '';
+  let addedCount = 0;
+
+  if (runsToShow.length > 0) {
+    historySection = '## 📂 Previous Runs\n\n';
+
+    for (const run of runsToShow) {
+      // Use END_HISTORY_RUN marker to properly delimit content (handles nested <details> tags in reports)
+      const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
+
+      // Check if adding this entry would exceed the limit
+      const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length;
+      if (projectedSize > MAX_COMMENT_SIZE) {
+        // Add truncation notice instead
+        const remaining = runsToShow.length - addedCount;
+        historySection += `<details>\n<summary>⚠️ ${remaining} older run${remaining > 1 ? 's' : ''} truncated</summary>\n\n_Older runs were omitted to stay under GitHub's 64KB comment size limit._\n</details>\n\n`;
+        break;
+      }
+
+      historySection += historyEntry;
+      addedCount++;
+    }
+
+    historySection += '---\n\n';
+  }
+
+  // Assemble: identifier + history + current + footer
+  body += historySection;
+  body += currentContent;
+  body += footer;
+
+  return body;
+}
 
 /**
  * Build params object from raw step outputs
@@ -122,10 +295,10 @@ function buildRerunFooter(p, context, options = {}) {
   // Format markers as comma-separated code-styled names
   const markersFormatted = formatAsCodes(p.validMarkers);
 
-  // gh CLI command to run workflow from PR branch
+  // gh CLI command to run workflow from PR branch (include empty filter= for easy copy-paste)
   const ghCommand = p.displayBranch
-    ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression`
-    : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression`;
+    ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=`
+    : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`;
 
   let footer = '';
 
@@ -161,20 +334,25 @@ function buildRerunFooter(p, context, options = {}) {
     '| `filter` | Pytest -k filter (use `/list` to see valid eval names) |\n' +
     '| `iterations` | Number of runs, max 10 |\n' +
     '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
-    '**Quick re-run:** Use `/last` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
+    '**Quick re-run:** Use `/rerun` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
     '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
     markersFormatted +
     '\n</details>\n' +
-    '\n---\n**Commands:** `/eval` · `/last` · `/list`\n';
+    '\n---\n**Commands:** `/eval` · `/rerun` · `/list`\n\n' +
+    '**CLI:** `' + ghCommand + '`\n';
 
   return footer;
 }
 
 module.exports = {
+  AUTO_EVAL_COMMENT_IDENTIFIER,
   buildParams,
   renderProgress,
   renderParamsTable,
   buildBody,
-  buildRerunFooter
+  buildRerunFooter,
+  parseRunHistory,
+  extractCurrentRun,
+  buildAutoCommentWithHistory
 };

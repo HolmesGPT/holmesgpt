@@ -1,7 +1,6 @@
 import logging
 import os
 from typing import Any, Dict
-
 from uuid import uuid4
 
 from holmes.core.todo_tasks_formatter import format_tasks
@@ -143,9 +142,6 @@ class CoreInvestigationToolset(Toolset):
             tags=[ToolsetTag.CORE],
             is_default=True,
         )
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
 
     def _reload_instructions(self):
         template_file_path = os.path.abspath(

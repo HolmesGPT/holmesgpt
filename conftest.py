@@ -1,11 +1,14 @@
-import os
 import logging
-from tests.llm.conftest import show_llm_summary_report
-from holmes.core.tracing import readable_timestamp, get_active_branch_name
-from tests.llm.utils.braintrust import get_braintrust_url
+import os
+import re
 from unittest.mock import MagicMock, patch
+
 import pytest
 import responses as responses_
+
+from holmes.core.tracing import get_active_branch_name, readable_timestamp
+from tests.llm.conftest import show_llm_summary_report
+from tests.llm.utils.braintrust import get_braintrust_url
 
 
 def pytest_addoption(parser):
@@ -83,10 +86,42 @@ def pytest_addoption(parser):
         default="",
         help="Comma-separated list of test IDs that are allowed to have setup failures even with --strict-setup-mode",
     )
+    parser.addoption(
+        "--additional-system-prompt-url",
+        action="store",
+        default=None,
+        help="URL returning the additional system prompt text or JSON (expects 'additional_system_prompt' field)",
+    )
 
 
 def pytest_configure(config):
     """Configure pytest settings"""
+    # Disable SSL verification if SSL_VERIFY env var is set to false/0
+    # This is useful for running tests in environments with TLS interception proxies
+    ssl_verify_env = os.environ.get("SSL_VERIFY", "true").lower()
+    if ssl_verify_env in ("false", "0", "no"):
+        try:
+            import litellm
+
+            litellm.ssl_verify = False
+        except ImportError:
+            pass
+
+        # Also patch OpenAI client to use verify=False for httpx
+        try:
+            import httpx
+            import openai
+
+            _original_openai_init = openai.OpenAI.__init__
+
+            def _patched_openai_init(self, *args, **kwargs):
+                if "http_client" not in kwargs:
+                    kwargs["http_client"] = httpx.Client(verify=False)
+                return _original_openai_init(self, *args, **kwargs)
+
+            openai.OpenAI.__init__ = _patched_openai_init
+        except ImportError:
+            pass
     # Configure worker-specific log files for xdist compatibility
     # worker_id = getattr(config, "workerinput", {}).get("workerid", "master")
     # if worker_id != "master":
@@ -225,7 +260,21 @@ def responses():
         rsps.add_passthru("https://api.ap1.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.com")
         rsps.add_passthru("https://app.datadoghq.eu")
-        rsps.add_passthru("https://ng-api-http.eu2.coralogix.com")
+        # Allow all Coralogix API calls (query and ingestion endpoints, all regions)
+        rsps.add_passthru(re.compile(r"https://.*\.coralogix\.com"))
+        rsps.add_passthru(re.compile(r"https://.*\.coralogix\.us"))
+        rsps.add_passthru(re.compile(r"https://.*\.coralogix\.in"))
+
+        # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
+        rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
+        rsps.add_passthru(re.compile(r"https://.*\.elastic-cloud\.com"))  # Azure-hosted
+        rsps.add_passthru(
+            re.compile(r"https://.*\.es\.amazonaws\.com")
+        )  # AWS OpenSearch
+
+        # Allow Confluence/Atlassian Cloud API calls
+        rsps.add_passthru(re.compile(r"https://.*\.atlassian\.net"))
+        rsps.add_passthru("https://api.atlassian.com")  # Atlassian Cloud API gateway
 
         # Allow
         rsps.add_passthru("https://google.com")

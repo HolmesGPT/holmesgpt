@@ -20,9 +20,9 @@ A [Grafana service account token](https://grafana.com/docs/grafana/latest/admini
         enabled: true
         config:
           api_key: <your grafana service account token>
-          url: <your grafana url>  # e.g. https://acme-corp.grafana.net or http://localhost:3000
+          api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net or http://localhost:3000
           # Optional: Additional headers for all requests
-          # headers:
+          # additional_headers:
           #   X-Custom-Header: "custom-value"
     ```
 
@@ -43,9 +43,9 @@ A [Grafana service account token](https://grafana.com/docs/grafana/latest/admini
           enabled: true
           config:
             api_key: <your grafana API key>
-            url: <your grafana url>  # e.g. https://acme-corp.grafana.net
+            api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
             # Optional: Additional headers for all requests
-            # headers:
+            # additional_headers:
             #   X-Custom-Header: "custom-value"
     ```
 
@@ -57,6 +57,36 @@ A [Grafana service account token](https://grafana.com/docs/grafana/latest/admini
 | grafana_get_dashboard_by_uid | Retrieve complete dashboard JSON including all panels and queries |
 | grafana_get_home_dashboard | Get the home dashboard configuration |
 | grafana_get_dashboard_tags | List all tags used across dashboards for categorization |
+
+## Advanced Configuration
+
+### SSL Verification
+
+For self-signed certificates, you can disable SSL verification:
+
+```yaml
+toolsets:
+  grafana/dashboards:
+    enabled: true
+    config:
+      api_url: https://grafana.internal
+      api_key: <your api key>
+      verify_ssl: false  # Disable SSL verification (default: true)
+```
+
+### External URL
+
+If HolmesGPT accesses Grafana through an internal URL but you want clickable links in results to use a different URL:
+
+```yaml
+toolsets:
+  grafana/dashboards:
+    enabled: true
+    config:
+      api_url: http://grafana.internal:3000  # Internal URL for API calls
+      external_url: https://grafana.example.com  # URL for links in results
+      api_key: <your api key>
+```
 
 ## How it Works
 

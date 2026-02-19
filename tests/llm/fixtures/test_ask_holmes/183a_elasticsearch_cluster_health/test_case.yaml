@@ -1,0 +1,56 @@
+# Test: Elasticsearch Cluster Health Diagnosis
+# Tests that Holmes can query Elasticsearch cluster health and report actual status
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster (e.g., https://cluster.es.cloud.io:443)
+# - ELASTICSEARCH_API_KEY: API key for authentication
+#
+# Note: This test uses include_tool_calls because the expected values (cluster name, status, node count)
+# are generic enough that an LLM could hallucinate plausible values. Verifying the tool call
+# ensures Holmes actually queried the cluster rather than guessing.
+
+user_prompt: "What is the health status of the Elasticsearch cluster? Tell me the cluster name, health status, and number of nodes."
+
+expected_output:
+  - "Must call elasticsearch_cluster_health or elasticsearch_cat tool to query the cluster"
+  - "Must report the cluster status (green, yellow, or red)"
+  - "Must include the number of nodes in the response"
+  - "Must mention a cluster name in the response"
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+
+# Setup timeout in seconds (fast - just verifies connection)
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+
+  # Verify Elasticsearch is reachable
+  echo "⏳ Verifying Elasticsearch connectivity..."
+
+  # Test connection to cluster health endpoint
+  HEALTH_RESPONSE=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cluster/health" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
+
+  if echo "$HEALTH_RESPONSE" | grep -q '"cluster_name"'; then
+    CLUSTER_NAME=$(echo "$HEALTH_RESPONSE" | grep -o '"cluster_name":"[^"]*"' | cut -d'"' -f4)
+    CLUSTER_STATUS=$(echo "$HEALTH_RESPONSE" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+    echo "✅ Connected to Elasticsearch cluster: $CLUSTER_NAME (status: $CLUSTER_STATUS)"
+  else
+    echo "❌ Failed to connect to Elasticsearch cluster"
+    echo "Response: $HEALTH_RESPONSE"
+    exit 1
+  fi
+
+  echo "✅ Elasticsearch cluster is accessible and ready for testing"
+
+after_test: |
+  echo "No cleanup needed for cluster health test"

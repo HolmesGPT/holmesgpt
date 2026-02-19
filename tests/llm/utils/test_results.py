@@ -16,7 +16,9 @@ class TestResult:
     error_message: Optional[str] = None
     user_prompt: Optional[str] = None
     execution_time: Optional[float] = None
-    holmes_duration: Optional[float] = None  # Pure agent execution time (excludes setup/teardown)
+    holmes_duration: Optional[float] = (
+        None  # Pure agent execution time (excludes setup/teardown)
+    )
     num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
     tool_call_count: Optional[int] = None  # Total number of tool calls
     expected_correctness_score: float = 1.0
@@ -88,7 +90,7 @@ class TestStatus:
         if self.failed_due_to_throttling:
             return ":no_entry_sign:"
         elif self.is_skipped:
-            return ":minus:"
+            return ":heavy_minus_sign:"
         elif self.is_setup_failure:
             return ":construction:"
         elif self.is_mock_failure:

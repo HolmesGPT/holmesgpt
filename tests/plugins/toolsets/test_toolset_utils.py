@@ -1,5 +1,7 @@
 import pytest
 from dateutil import parser  # type: ignore
+from freezegun import freeze_time
+
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -16,7 +18,6 @@ from holmes.plugins.toolsets.utils import (
     to_unix_ms,
     toolset_name_for_one_liner,
 )
-from freezegun import freeze_time
 
 
 @freeze_time("2020-09-14T13:50:40Z")
@@ -163,9 +164,6 @@ class DummyNonLoggingToolset(Toolset):
         pod_name = params.get("pod_name", "unknown-pod")
         return f"Fetching logs for pod {pod_name} in namespace {namespace}"
 
-    def get_example_config(self):
-        return {}
-
 
 class DummyLoggingToolset(BasePodLoggingToolset):
     def __init__(self, name, enabled: bool = True):
@@ -179,9 +177,6 @@ class DummyLoggingToolset(BasePodLoggingToolset):
 
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
         return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
-
-    def get_example_config(self):
-        return {}
 
 
 @pytest.mark.parametrize(

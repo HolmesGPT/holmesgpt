@@ -1,5 +1,5 @@
-from typing import Optional
 import os
+from typing import Optional
 
 # NOTE: This one will be mounted if openshift is enabled in values.yaml
 TOKEN_LOCATION = os.environ.get(

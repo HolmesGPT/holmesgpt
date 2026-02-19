@@ -1,8 +1,8 @@
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.plugins.toolsets.grafana.toolset_grafana import (
+    GetDashboardByUID,
     GrafanaDashboardConfig,
     GrafanaToolset,
-    GetDashboardByUID,
 )
 from holmes.plugins.toolsets.json_filter_mixin import _truncate_to_depth
 

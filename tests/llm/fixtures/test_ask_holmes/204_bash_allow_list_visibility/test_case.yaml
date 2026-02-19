@@ -1,0 +1,10 @@
+user_prompt: "What bash commands are pre-approved in the allow list? List them."
+expected_output:
+  - Must mention holmesgpt-unique-test-cmd-7x9k2
+  - Must mention another-special-prefix-m3n8p
+description: |
+  Tests that the LLM can see custom prefixes in the bash toolset allow list.
+  This verifies that _reload_llm_instructions correctly passes the effective
+  allow list to the template, making it visible in the LLM's system prompt.
+tags:
+  - question-answer

@@ -7,7 +7,6 @@ import pytest
 from confluent_kafka.admin import NewTopic
 
 from holmes.core.tools import ToolsetStatusEnum
-from tests.conftest import create_mock_tool_invoke_context
 from holmes.plugins.toolsets.kafka import (
     DescribeConsumerGroup,
     DescribeTopic,
@@ -16,6 +15,7 @@ from holmes.plugins.toolsets.kafka import (
     ListKafkaConsumers,
     ListTopics,
 )
+from tests.conftest import create_mock_tool_invoke_context
 from tests.utils.kafka import wait_for_kafka_ready
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -28,10 +28,10 @@ if not os.environ.get("KAFKA_BOOTSTRAP_SERVER"):
     pytestmark = pytest.mark.skip(reason="KAFKA_BOOTSTRAP_SERVER must be set")
 
 kafka_config = {
-    "kafka_clusters": [
+    "clusters": [
         {
             "name": "kafka",
-            "kafka_broker": KAFKA_BOOTSTRAP_SERVER,
+            "broker": KAFKA_BOOTSTRAP_SERVER,
         }
     ]
 }

@@ -1,7 +1,8 @@
+import pytest
+
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 from tests.plugins.toolsets.grafana.conftest import check_service_running
-import pytest
 
 skip_reason = check_service_running("Grafana", 9000)
 if skip_reason:
@@ -38,7 +39,7 @@ def test_mimir_direct_toolset_health_check():
     toolset = PrometheusToolset()
     toolset.config = {
         "prometheus_url": "http://localhost:9009/prometheus",
-        "headers": {"X-Scope-OrgID": "DEMO"},
+        "additional_headers": {"X-Scope-OrgID": "DEMO"},
     }
     toolset.check_prerequisites()
 

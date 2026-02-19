@@ -1,0 +1,5 @@
+toolsets:
+  kubevela/core:
+    enabled: true
+  kubernetes/core:
+    enabled: true

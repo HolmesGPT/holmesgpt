@@ -3,7 +3,8 @@ import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Optional, List, Tuple, Set
+from typing import List, Optional, Set, Tuple
+
 from pydantic import BaseModel
 
 from holmes.common.env_vars import KUBERNETES_LOGS_TIMEOUT_SECONDS
@@ -14,15 +15,13 @@ from holmes.core.tools import (
     ToolsetTag,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
+    DEFAULT_TIME_SPAN_SECONDS,
     BasePodLoggingToolset,
     FetchPodLogsParams,
     LoggingCapability,
-    LoggingConfig,
     PodLoggingTool,
-    DEFAULT_TIME_SPAN_SECONDS,
 )
 from holmes.plugins.toolsets.utils import process_timestamps_to_int, to_unix_ms
-
 
 # match ISO 8601 format (YYYY-MM-DDTHH:MM:SS[.fffffffff]Z) or (YYYY-MM-DDTHH:MM:SS[.fffffffff]+/-XX:XX)
 timestamp_pattern = re.compile(
@@ -95,9 +94,6 @@ class KubernetesLogsToolset(BasePodLoggingToolset):
             return False, "kubectl command not found"
         except Exception as e:
             return False, f"kubectl health check error: {str(e)}"
-
-    def get_example_config(self):
-        return LoggingConfig().model_dump()
 
     def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
         try:

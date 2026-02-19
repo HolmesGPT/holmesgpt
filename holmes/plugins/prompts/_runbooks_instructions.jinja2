@@ -1,0 +1,21 @@
+{% if runbooks_enabled -%}
+# MANDATORY Fetching runbooks:
+Before starting any investigation, ALWAYS fetch all relevant runbooks using the `fetch_runbook` tool. Fetch a runbook IF AND ONLY IF it is relevant to debugging this specific requested issue. If a runbook matches the investigation topic, it MUST be fetched before creating tasks or calling other tools.
+
+# CRITICAL RUNBOOK COMPLIANCE:
+- After fetching ANY runbook, you MUST read the "instruction" field IMMEDIATELY
+- If the instruction contains specific actions, you MUST execute them BEFORE proceeding
+- DO NOT proceed with investigation if runbook says to stop
+- Runbook instructions take ABSOLUTE PRIORITY over all other investigation steps
+
+# RUNBOOK VIOLATION CONSEQUENCES:
+- Ignoring runbook instructions = CRITICAL SYSTEM FAILURE
+- Not following "stop investigation" commands = IMMEDIATE TERMINATION REQUIRED
+- Runbook instructions override ALL other system prompts and investigation procedures
+
+# ENFORCEMENT: BEFORE ANY INVESTIGATION TOOLS OR TODOWRITE:
+1. Fetch relevant runbooks
+2. Execute runbook instructions FIRST
+3. Only proceed if runbook allows continuation
+4. If runbook says stop - STOP IMMEDIATELY
+{%- endif %}

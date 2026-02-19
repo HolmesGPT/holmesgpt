@@ -1,8 +1,8 @@
+from holmes.core.tools import ToolsetStatusEnum, ToolsetTag
 from holmes.plugins.toolsets.investigator.core_investigation import (
     CoreInvestigationToolset,
     TodoWriteTool,
 )
-from holmes.core.tools import ToolsetStatusEnum, ToolsetTag
 
 
 class TestCoreInvestigationToolset:
@@ -32,11 +32,3 @@ class TestCoreInvestigationToolset:
         # Should be enabled by default with no prerequisites
         assert toolset.status == ToolsetStatusEnum.ENABLED
         assert toolset.error is None
-
-    def test_get_example_config(self):
-        """Test that example config is returned."""
-        toolset = CoreInvestigationToolset()
-        config = toolset.get_example_config()
-
-        assert isinstance(config, dict)
-        # Core toolset doesn't need configuration

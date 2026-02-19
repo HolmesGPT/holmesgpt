@@ -4,7 +4,6 @@ import logging
 import os
 from typing import Dict, List, Optional, Tuple
 
-from tests.llm.utils.test_results import TestStatus
 from tests.llm.utils.braintrust import get_braintrust_url
 from tests.llm.utils.braintrust_history import (
     BRAINTRUST_ORG,
@@ -15,6 +14,7 @@ from tests.llm.utils.braintrust_history import (
     compare_with_historical,
     get_historical_metrics,
 )
+from tests.llm.utils.test_results import TestStatus
 
 
 def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
@@ -38,7 +38,9 @@ def _format_time_with_comparison(
         return "—"
     base = f"{exec_time:.1f}s"
     if comparison and comparison.duration_diff_pct is not None:
-        return base + _format_diff_indicator(comparison.duration_diff_pct, comparison.sample_count)
+        return base + _format_diff_indicator(
+            comparison.duration_diff_pct, comparison.sample_count
+        )
     return base
 
 
@@ -51,7 +53,9 @@ def _format_cost_with_comparison(
         return "—"
     base = f"${cost:.4f}"
     if comparison and comparison.cost_diff_pct is not None:
-        return base + _format_diff_indicator(comparison.cost_diff_pct, comparison.sample_count)
+        return base + _format_diff_indicator(
+            comparison.cost_diff_pct, comparison.sample_count
+        )
     return base
 
 
@@ -74,7 +78,9 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
     if details.status:
         lines.append(f"**Status:** {details.status}\n")
     else:
-        lines.append(f"**Status:** Success - {details.metrics_count} test/model combinations loaded\n")
+        lines.append(
+            f"**Status:** Success - {details.metrics_count} test/model combinations loaded\n"
+        )
 
     # Experiments used
     if details.experiments:
@@ -110,7 +116,7 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
 def handle_github_output(sorted_results: List[dict]) -> None:
     """Generate and write GitHub Actions report files."""
     # Generate markdown report
-    markdown, _, total_regressions = generate_markdown_report(sorted_results)
+    markdown, _, total_regressions = generate_markdown_report(sorted_results, False)
 
     # Always write markdown report
     with open("evals_report.md", "w", encoding="utf-8") as file:
@@ -123,7 +129,7 @@ def handle_github_output(sorted_results: List[dict]) -> None:
 
 def generate_markdown_report(
     sorted_results: List[dict],
-    include_historical: bool = True,
+    include_historical: bool,
 ) -> Tuple[str, List[dict], int]:
     """Generate markdown report from sorted test results.
 
@@ -150,7 +156,9 @@ def generate_markdown_report(
             historical, historical_details = get_historical_metrics(limit=30)
             if historical:
                 comparison_map = compare_with_historical(sorted_results, historical)
-                logging.info(f"Loaded historical data for {len(historical)} test/model combinations")
+                logging.info(
+                    f"Loaded historical data for {len(historical)} test/model combinations"
+                )
         except Exception as e:
             historical_details = HistoricalComparisonDetails(status=f"API error: {e}")
             logging.warning(f"Failed to fetch historical metrics: {e}")
@@ -169,13 +177,6 @@ def generate_markdown_report(
     investigate_mock_failures = 0
     investigate_skipped = 0
     investigate_setup_failures = 0
-
-    workload_health_total = 0
-    workload_health_passed = 0
-    workload_health_regressions = 0
-    workload_health_mock_failures = 0
-    workload_health_skipped = 0
-    workload_health_setup_failures = 0
 
     for result in sorted_results:
         status = TestStatus(result)
@@ -204,18 +205,6 @@ def generate_markdown_report(
                 investigate_regressions += 1
             elif status.is_mock_failure:
                 investigate_mock_failures += 1
-        elif result["test_type"] == "workload_health":
-            workload_health_total += 1
-            if status.is_skipped:
-                workload_health_skipped += 1
-            elif status.is_setup_failure:
-                workload_health_setup_failures += 1
-            elif status.passed:
-                workload_health_passed += 1
-            elif status.is_regression:
-                workload_health_regressions += 1
-            elif status.is_mock_failure:
-                workload_health_mock_failures += 1
 
     # Generate summary lines
     if ask_holmes_total > 0:
@@ -235,15 +224,6 @@ def generate_markdown_report(
             markdown += f", {investigate_setup_failures} setup failures"
         if investigate_mock_failures > 0:
             markdown += f", {investigate_mock_failures} mock failures"
-        markdown += "\n"
-    if workload_health_total > 0:
-        markdown += f"- workload_health: {workload_health_passed}/{workload_health_total} test cases were successful, {workload_health_regressions} regressions"
-        if workload_health_skipped > 0:
-            markdown += f", {workload_health_skipped} skipped"
-        if workload_health_setup_failures > 0:
-            markdown += f", {workload_health_setup_failures} setup failures"
-        if workload_health_mock_failures > 0:
-            markdown += f", {workload_health_mock_failures} mock failures"
         markdown += "\n"
 
     # Generate detailed table
@@ -320,7 +300,9 @@ def generate_markdown_report(
     if historical and comparison_map:
         markdown += "\n_Time/Cost columns show % change vs historical average (↑slower/costlier, ↓faster/cheaper). Changes under 10% shown as ±0%._\n"
     elif historical_details and historical_details.status:
-        markdown += f"\n_Historical comparison unavailable: {historical_details.status}_\n"
+        markdown += (
+            f"\n_Historical comparison unavailable: {historical_details.status}_\n"
+        )
 
     # Add collapsible details section for historical comparison transparency
     if historical_details:
@@ -329,5 +311,5 @@ def generate_markdown_report(
     return (
         markdown,
         sorted_results,
-        ask_holmes_regressions + investigate_regressions + workload_health_regressions,
+        ask_holmes_regressions + investigate_regressions,
     )

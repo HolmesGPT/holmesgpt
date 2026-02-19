@@ -1,46 +1,16 @@
-from unittest.mock import MagicMock, patch
-from urllib.parse import unquote, parse_qs, urlparse
-import json
 import base64
+import json
+from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, unquote, urlparse
+
 import pytest
 
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.plugins.toolsets.grafana.common import (
-    GrafanaTempoConfig,
-    GrafanaConfig,
-)
-from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaDashboardConfig
-from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
-    GrafanaTempoToolset,
-    FetchTracesSimpleComparison,
-    SearchTracesByQuery,
-    SearchTracesByTags,
-    QueryTraceById,
-    SearchTagNames,
-    SearchTagValues,
-    QueryMetricsInstant,
-    QueryMetricsRange,
-)
-from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import (
-    GrafanaLokiToolset,
-    LokiQuery,
-)
-from holmes.plugins.toolsets.grafana.toolset_grafana import (
-    GrafanaToolset,
-    SearchDashboards,
-    GetDashboardByUID,
-    GetHomeDashboard,
-    GetDashboardTags,
-)
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
     CoralogixToolset,
     ExecuteDataPrimeQuery,
 )
 from holmes.plugins.toolsets.coralogix.utils import CoralogixConfig
-from holmes.plugins.toolsets.newrelic.newrelic import (
-    NewRelicToolset,
-    ExecuteNRQLQuery,
-)
 from holmes.plugins.toolsets.datadog.datadog_models import (
     DatadogGeneralConfig,
     DatadogMetricsConfig,
@@ -62,6 +32,37 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     AggregateSpans,
     DatadogTracesToolset,
     GetSpans,
+)
+from holmes.plugins.toolsets.grafana.common import (
+    GrafanaConfig,
+    GrafanaTempoConfig,
+)
+from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import (
+    GrafanaLokiToolset,
+    LokiQuery,
+)
+from holmes.plugins.toolsets.grafana.toolset_grafana import (
+    GetDashboardByUID,
+    GetDashboardTags,
+    GetHomeDashboard,
+    GrafanaDashboardConfig,
+    GrafanaToolset,
+    SearchDashboards,
+)
+from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
+    FetchTracesSimpleComparison,
+    GrafanaTempoToolset,
+    QueryMetricsInstant,
+    QueryMetricsRange,
+    QueryTraceById,
+    SearchTagNames,
+    SearchTagValues,
+    SearchTracesByQuery,
+    SearchTracesByTags,
+)
+from holmes.plugins.toolsets.newrelic.newrelic import (
+    ExecuteNRQLQuery,
+    NewRelicToolset,
 )
 from tests.conftest import create_mock_tool_invoke_context
 
@@ -506,9 +507,9 @@ class TestDashboardURLs:
 
 
 class TestCoralogixURLs:
-    TEAM_HOSTNAME = "my-team"
+    TEAM_SLUG = "my-team"
     DOMAIN = "eu2.coralogix.com"
-    BASE_URL = f"https://{TEAM_HOSTNAME}.{DOMAIN}"
+    BASE_URL = f"https://{TEAM_SLUG}.{DOMAIN}"
 
     @staticmethod
     def extract_query_from_url(url: str) -> str:
@@ -533,7 +534,7 @@ class TestCoralogixURLs:
     def config(self):
         return CoralogixConfig(
             api_key="test-key",
-            team_hostname=self.TEAM_HOSTNAME,
+            team_slug=self.TEAM_SLUG,
             domain=self.DOMAIN,
         )
 
@@ -667,16 +668,16 @@ class TestNewRelicURLs:
     @pytest.fixture
     def toolset_us(self):
         toolset = NewRelicToolset()
-        toolset.nr_api_key = "test-key"
-        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.api_key = "test-key"
+        toolset.account_id = self.ACCOUNT_ID
         toolset.is_eu_datacenter = False
         return toolset
 
     @pytest.fixture
     def toolset_eu(self):
         toolset = NewRelicToolset()
-        toolset.nr_api_key = "test-key"
-        toolset.nr_account_id = self.ACCOUNT_ID
+        toolset.api_key = "test-key"
+        toolset.account_id = self.ACCOUNT_ID
         toolset.is_eu_datacenter = True
         return toolset
 
@@ -792,9 +793,9 @@ class TestDatadogMetricsURLs:
     @pytest.fixture
     def config(self):
         return DatadogMetricsConfig(
-            dd_api_key="test-key",
-            dd_app_key="test-app-key",
-            site_api_url=self.BASE_URL,
+            api_key="test-key",
+            app_key="test-app-key",
+            api_url=self.BASE_URL,
         )
 
     @pytest.fixture
@@ -894,9 +895,9 @@ class TestDatadogTracesURLs:
     @pytest.fixture
     def config(self):
         return DatadogTracesConfig(
-            dd_api_key="test-key",
-            dd_app_key="test-app-key",
-            site_api_url=self.BASE_URL,
+            api_key="test-key",
+            app_key="test-app-key",
+            api_url=self.BASE_URL,
         )
 
     @pytest.fixture
@@ -964,9 +965,9 @@ class TestDatadogGeneralURLs:
     @pytest.fixture
     def config(self):
         return DatadogGeneralConfig(
-            dd_api_key="test-key",
-            dd_app_key="test-app-key",
-            site_api_url=self.BASE_URL,
+            api_key="test-key",
+            app_key="test-app-key",
+            api_url=self.BASE_URL,
         )
 
     @pytest.fixture

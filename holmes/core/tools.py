@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import logging
 import os
@@ -13,11 +14,13 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Optional,
     OrderedDict,
     Tuple,
+    Type,
     Union,
 )
 
@@ -27,8 +30,8 @@ from pydantic import (
     ConfigDict,
     Field,
     FilePath,
-    model_validator,
     PrivateAttr,
+    model_validator,
 )
 from rich.console import Console
 from rich.table import Table
@@ -36,13 +39,14 @@ from rich.table import Table
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.core.transformers import (
-    registry,
-    TransformerError,
     Transformer,
+    TransformerError,
+    registry,
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
-from holmes.utils.memory_limit import get_ulimit_prefix, check_oom_and_append_hint
+from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
+from holmes.utils.pydantic_utils import build_config_example
 
 if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
@@ -88,22 +92,43 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
 
-    def get_stringified_data(self) -> str:
+    def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
+        """Serialize the data field to a string.
+
+        Args:
+            compact: If True, produce minified JSON (saves tokens).
+                     If False, produce pretty-printed JSON (readable for grep/head/tail).
+
+        Returns:
+            A tuple of (stringified_data, is_json).
+        """
         if self.data is None:
-            return ""
+            return "", False
 
         if isinstance(self.data, str):
-            return self.data
-        else:
-            try:
-                if isinstance(self.data, BaseModel):
-                    return self.data.model_dump_json()
+            return self.data, False
+
+        try:
+            if isinstance(self.data, BaseModel):
+                return self.data.model_dump_json(indent=None if compact else 2), True
+            else:
+                if compact:
+                    return json.dumps(self.data, separators=(",", ":"), ensure_ascii=False), True
                 else:
-                    return json.dumps(
-                        self.data, separators=(",", ":"), ensure_ascii=False
-                    )
-            except Exception:
-                return str(self.data)
+                    return json.dumps(self.data, indent=2, ensure_ascii=False), True
+        except Exception:
+            return str(self.data), False
+
+    def get_stringified_data(self) -> str:
+        text, _ = self.stringify_data(compact=True)
+        return text
+
+
+class ApprovalRequirement(BaseModel):
+    needs_approval: bool
+    reason: str = ""
+    # Prefixes to save when user approves (for bash toolset)
+    prefixes_to_save: Optional[List[str]] = None
 
 
 def sanitize(param):
@@ -118,23 +143,6 @@ def sanitize(param):
 
 def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
-
-
-def format_tool_output(tool_result: Union[str, StructuredToolResult]) -> str:
-    if isinstance(tool_result, StructuredToolResult):
-        if tool_result.data and isinstance(tool_result.data, str):
-            # Display logs and other string outputs in a way that is readable to humans.
-            # To do this, we extract them from the result and print them as-is below.
-            # The metadata is printed on a single line to
-            data = tool_result.data
-            tool_result.data = "The raw tool data is printed below this JSON"
-            result_str = tool_result.model_dump_json(indent=2, exclude_none=True)
-            result_str += f"\n{data}"
-            return result_str
-        else:
-            return tool_result.model_dump_json(indent=2)
-    else:
-        return tool_result
 
 
 class ToolsetStatusEnum(str, Enum):
@@ -153,11 +161,14 @@ class ToolsetType(str, Enum):
     BUILTIN = "built-in"
     CUSTOMIZED = "custom"
     MCP = "mcp"
+    HTTP = "http"
 
 
 class ToolParameter(BaseModel):
     description: Optional[str] = None
-    type: str = "string"
+    # JSON Schema allows type to be a string or array of strings for union types
+    # e.g., "string" or ["string", "null"] for nullable types
+    type: Union[str, List[str]] = "string"
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
@@ -173,6 +184,25 @@ class ToolInvokeContext(BaseModel):
     max_token_count: int
     tool_call_id: str
     tool_name: str
+    session_approved_prefixes: List[
+        str
+    ] = []  # Bash prefixes approved during this session
+    request_context: Optional[Dict[str, Any]] = None
+
+    def model_dump(self, **kwargs):
+        """Override to exclude sensitive context from serialization"""
+        data = super().model_dump(**kwargs)
+        if data.get("request_context"):
+            # Sanitize: show keys but not values
+            data["request_context"] = {
+                k: "***REDACTED***" for k in data["request_context"].keys()
+            }
+        return data
+
+    def __str__(self):
+        """Override to prevent accidental context leakage in logs"""
+        context_keys = list((self.request_context or {}).keys())
+        return f"ToolInvokeContext(tool_number={self.tool_number}, user_approved={self.user_approved}, context_keys={context_keys})"
 
 
 class Tool(ABC, BaseModel):
@@ -182,12 +212,15 @@ class Tool(ABC, BaseModel):
     user_description: Optional[str] = (
         None  # templated string to show to the user describing this tool invocation (not seen by llm)
     )
-    additional_instructions: Optional[str] = None
     icon_url: Optional[str] = Field(
         default=None,
         description="The URL of the icon for the tool, if None will get toolset icon",
     )
     transformers: Optional[List[Transformer]] = None
+    restricted: bool = Field(
+        default=False,
+        description="If True, tool requires runbook authorization or restricted_tools=true to use",
+    )
 
     # Private attribute to store initialized transformer instances for performance
     _transformer_instances: Optional[List["BaseTransformer"]] = PrivateAttr(
@@ -247,11 +280,27 @@ class Tool(ABC, BaseModel):
         logger.info(
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
+
+        if not context.user_approved:
+            approval_check = self._get_approval_requirement(params, context)
+            if approval_check and approval_check.needs_approval:
+                logger.info(
+                    f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
+                )
+                # Bash toolset: override suggested_prefixes with filtered list
+                if approval_check.prefixes_to_save is not None:
+                    params["suggested_prefixes"] = approval_check.prefixes_to_save
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                    error=approval_check.reason,
+                    params=params,
+                    invocation=self.get_parameterized_one_liner(params),
+                )
+
         start_time = time.time()
         result = self._invoke(params=params, context=context)
         result.icon_url = self.icon_url
 
-        # Apply transformers to the result
         transformed_result = self._apply_transformers(result)
         elapsed = time.time() - start_time
         output_str = (
@@ -265,6 +314,45 @@ class Tool(ABC, BaseModel):
             f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
+
+    def _is_restricted(self) -> bool:
+        if self.restricted:
+            return True
+
+        toolset = getattr(self, "toolset", None)
+        if toolset:
+            for pattern in getattr(toolset, "restricted_tools", []):
+                if fnmatch.fnmatch(self.name, pattern):
+                    return True
+
+        return False
+
+    def _get_approval_requirement(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        toolset_approval = self._check_approval_config()
+        if toolset_approval and toolset_approval.needs_approval:
+            return toolset_approval
+        return self.requires_approval(params, context)
+
+    def _check_approval_config(self) -> Optional[ApprovalRequirement]:
+        toolset = getattr(self, "toolset", None)
+        if not toolset:
+            return None
+
+        for pattern in getattr(toolset, "approval_required_tools", []):
+            if fnmatch.fnmatch(self.name, pattern):
+                return ApprovalRequirement(
+                    needs_approval=True,
+                    reason=f"Tool '{self.name}' matches approval pattern '{pattern}'",
+                )
+        return None
+
+    def requires_approval(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        """Override to implement tool-specific approval logic."""
+        return None
 
     def _apply_transformers(self, result: StructuredToolResult) -> StructuredToolResult:
         """
@@ -426,14 +514,6 @@ class YAMLTool(Tool, BaseModel):
         else:
             raw_output, return_code, invocation = self.__invoke_script(params)  # type: ignore
 
-        if self.additional_instructions and return_code == 0:
-            logger.info(
-                f"Applying additional instructions: {self.additional_instructions}"
-            )
-            output_with_instructions = self.__apply_additional_instructions(raw_output)
-        else:
-            output_with_instructions = raw_output
-
         error = (
             None
             if return_code == 0
@@ -445,28 +525,10 @@ class YAMLTool(Tool, BaseModel):
             status=status,
             error=error,
             return_code=return_code,
-            data=output_with_instructions,
+            data=raw_output,
             params=params,
             invocation=invocation,
         )
-
-    def __apply_additional_instructions(self, raw_output: str) -> str:
-        try:
-            result = subprocess.run(
-                self.additional_instructions,  # type: ignore
-                input=raw_output,
-                shell=True,
-                text=True,
-                capture_output=True,
-                check=True,
-            )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            logger.error(
-                f"Failed to apply additional instructions: {self.additional_instructions}. "
-                f"Error: {e.stderr}"
-            )
-            return f"Error applying additional instructions: {e.stderr}"
 
     def __invoke_command(self, params) -> Tuple[str, int, str]:
         context = self._build_context(params)
@@ -542,6 +604,7 @@ class ToolsetEnvironmentPrerequisite(BaseModel):
 class Toolset(BaseModel):
     model_config = ConfigDict(extra="forbid")
     experimental: bool = False
+    config_classes: ClassVar[List[Type[BaseModel]]] = []
 
     enabled: bool = False
     name: str
@@ -549,7 +612,6 @@ class Toolset(BaseModel):
     docs_url: Optional[str] = None
     icon_url: Optional[str] = None
     installation_instructions: Optional[str] = None
-    additional_instructions: Optional[str] = ""
     prerequisites: List[
         Union[
             StaticPrerequisite,
@@ -566,6 +628,15 @@ class Toolset(BaseModel):
     is_default: bool = False
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
+
+    restricted_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
+    )
+    approval_required_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
+    )
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
@@ -590,7 +661,6 @@ class Toolset(BaseModel):
 
     @model_validator(mode="before")
     def preprocess_tools(cls, values):
-        additional_instructions = values.get("additional_instructions", "")
         transformers = values.get("transformers", None)
         tools_data = values.get("tools", [])
 
@@ -624,8 +694,6 @@ class Toolset(BaseModel):
         tools = []
         for tool in tools_data:
             if isinstance(tool, dict):
-                tool["additional_instructions"] = additional_instructions
-
                 # Convert tool-level transformers to Transformer objects
                 tool_transformers = tool.get("transformers")
                 if tool_transformers:
@@ -664,7 +732,6 @@ class Toolset(BaseModel):
                     override_transformers=tool_transformers,
                 )
             if isinstance(tool, Tool):
-                tool.additional_instructions = additional_instructions
                 # Merge toolset-level transformers with tool-level configs
                 tool.transformers = merge_transformers(  # type: ignore
                     base_transformers=transformers,
@@ -688,7 +755,7 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
-    def check_prerequisites(self):
+    def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
 
         # Sort prerequisites by type to fail fast on missing env vars before
@@ -745,7 +812,7 @@ class Toolset(BaseModel):
 
             elif isinstance(prereq, CallablePrerequisite):
                 try:
-                    (enabled, error_message) = prereq.callable(self.config)
+                    (enabled, error_message) = prereq.callable(self.config or {})
                     if not enabled:
                         self.status = ToolsetStatusEnum.FAILED
                     if error_message:
@@ -758,15 +825,34 @@ class Toolset(BaseModel):
                 self.status == ToolsetStatusEnum.DISABLED
                 or self.status == ToolsetStatusEnum.FAILED
             ):
-                logger.info(f"❌ Toolset {self.name}: {self.error}")
+                if not silent:
+                    logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
                 return
 
-        logger.info(f"✅ Toolset {self.name}")
+        if not silent:
+            logger.info(f"✅ Toolset {self.name}")
 
-    @abstractmethod
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
+    def get_config_example(self) -> Optional[Dict[str, Any]]:
+        """Returns a JSON-serializable example object for the toolset's configuration.
+
+        Returns the example of the first config class (if any), otherwise returns None.
+        """
+        if self.config_classes:
+            return build_config_example(self.config_classes[0])
+        return None
+
+    def get_config_schema(self) -> Optional[Dict[str, Any]]:
+        """Returns JSON Schema for the toolset's configuration.
+
+        Returns a dict of { config_class_name: model_json_schema } (if any), otherwise returns None.
+        """
+        if self.config_classes:
+            return {
+                config_cls.__name__: config_cls.model_json_schema()
+                for config_cls in self.config_classes
+            }
+        return None
 
     def _load_llm_instructions(self, jinja_template: str):
         tool_names = [t.name for t in self.tools]
@@ -794,9 +880,6 @@ class YAMLToolset(Toolset):
         if self.llm_instructions:
             self._load_llm_instructions(self.llm_instructions)
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
-
 
 class ToolsetYamlFromConfig(Toolset):
     """
@@ -811,7 +894,6 @@ class ToolsetYamlFromConfig(Toolset):
     # YamlToolset is loaded from a YAML file specified by the user and should be enabled by default
     # Built-in toolsets are exception and should be disabled by default when loaded
     enabled: bool = True
-    additional_instructions: Optional[str] = None
     prerequisites: List[
         Union[
             StaticPrerequisite,
@@ -827,8 +909,8 @@ class ToolsetYamlFromConfig(Toolset):
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
 
-    def get_example_config(self) -> Dict[str, Any]:
-        return {}
+    restricted_tools: List[str] = Field(default_factory=list)
+    approval_required_tools: List[str] = Field(default_factory=list)
 
 
 class ToolsetDBModel(BaseModel):

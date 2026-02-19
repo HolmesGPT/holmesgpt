@@ -1,9 +1,9 @@
 import os
+
+from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets import load_toolsets_from_file
-from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
-from holmes.plugins.toolsets.opensearch.opensearch_logs import OpenSearchLogsToolset
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 KUBERNETES_YAML_TOOLSET_PATH = os.path.join(
@@ -29,17 +29,6 @@ def test_kubernetes_yaml_toolset():
 
 def test_kubernetes_python_toolset():
     toolset = KubernetesLogsToolset()
-    toolset.enabled = True
-    toolset.status = ToolsetStatusEnum.ENABLED
-    prompt = load_and_render_prompt(
-        "builtin://_fetch_logs.jinja2", {"toolsets": [toolset]}
-    )
-    print(f"** PROMPT:\n{prompt}")
-    assert "Use the tool `fetch_pod_logs` to access an application's logs" in prompt
-
-
-def test_opensearch_toolset():
-    toolset = OpenSearchLogsToolset()
     toolset.enabled = True
     toolset.status = ToolsetStatusEnum.ENABLED
     prompt = load_and_render_prompt(

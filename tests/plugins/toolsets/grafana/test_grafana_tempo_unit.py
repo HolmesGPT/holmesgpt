@@ -1,15 +1,14 @@
 from unittest.mock import MagicMock, patch
 
-
 from holmes.core.tools import (
     StructuredToolResultStatus,
 )
-from tests.conftest import create_mock_tool_invoke_context
 from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     FetchTracesSimpleComparison,
     GrafanaTempoToolset,
 )
+from tests.conftest import create_mock_tool_invoke_context
 
 
 def test_fetch_traces_simple_comparison_has_prompt():

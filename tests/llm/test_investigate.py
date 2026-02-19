@@ -1,42 +1,44 @@
 # type: ignore
 import os
 import time
+from contextlib import ExitStack
+from os import path
 from pathlib import Path
 from typing import Optional
+from unittest.mock import patch
 
 import pytest
 
-from holmes.core.investigation_structured_output import DEFAULT_SECTIONS
-from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.core.tool_calling_llm import IssueInvestigator
-from holmes.core.tracing import TracingFactory, SpanType
 from holmes.config import Config
 from holmes.core.investigation import investigate_issues
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
+from holmes.core.investigation_structured_output import DEFAULT_SECTIONS
 from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.tool_calling_llm import IssueInvestigator
+from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.core.tracing import SpanType, TracingFactory
+from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import (
     evaluate_correctness,
     evaluate_sections,
 )
-from tests.llm.utils.commands import set_test_env_vars
+from tests.llm.utils.commands import apply_env_config, set_test_env_vars
+from tests.llm.utils.env_config import EnvConfig, get_env_configs
+from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.mock_dal import MockSupabaseDal
 from tests.llm.utils.mock_toolset import MockToolsetManager, check_for_mock_errors
+from tests.llm.utils.property_manager import (
+    handle_test_error,
+    set_initial_properties,
+    set_trace_properties,
+    update_test_results,
+)
+from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.test_case_utils import (
     InvestigateTestCase,
     check_and_skip_test,
     get_models,
 )
-from tests.llm.utils.retry_handler import retry_on_throttle
-from tests.llm.utils.property_manager import (
-    set_initial_properties,
-    set_trace_properties,
-    update_test_results,
-    handle_test_error,
-)
-from os import path
-from unittest.mock import patch
-
-from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.braintrust import log_to_braintrust
 
 TEST_CASES_FOLDER = Path(
     path.abspath(path.join(path.dirname(__file__), "fixtures", "test_investigate"))
@@ -70,10 +72,11 @@ class MockConfig(Config):
         dal: Optional[SupabaseDal] = None,
         model: Optional[str] = None,
         tracer=None,
+        tool_results_dir=None,
     ) -> IssueInvestigator:
         # Use our tracer instead of the passed one
         return super().create_issue_investigator(
-            dal=dal, model=model, tracer=self._tracer
+            dal=dal, model=model, tracer=self._tracer, tool_results_dir=tool_results_dir
         )
 
 
@@ -81,10 +84,17 @@ def get_investigate_test_cases():
     return get_test_cases(TEST_CASES_FOLDER)
 
 
+def _get_env_config_ids():
+    """Generate ids for env_config parameterization."""
+    return [ec.name for ec in get_env_configs()]
+
+
 @pytest.mark.llm
+@pytest.mark.parametrize("env_config", get_env_configs(), ids=_get_env_config_ids())
 @pytest.mark.parametrize("model", get_models())
 @pytest.mark.parametrize("test_case", get_investigate_test_cases())
 def test_investigate(
+    env_config: EnvConfig,
     model: str,
     test_case: InvestigateTestCase,
     caplog,
@@ -93,12 +103,12 @@ def test_investigate(
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
-    set_initial_properties(request, test_case, model)
+    set_initial_properties(request, test_case, model, env_config)
 
     tracer = TracingFactory.create_tracer("braintrust")
     config = MockConfig(test_case, tracer, mock_generation_config)
     config.model = model
-    metadata = {"model": model}
+    metadata = {"model": model, "env_config": env_config.name}
     tracer.start_experiment(additional_metadata=metadata)
 
     mock_dal = MockSupabaseDal(
@@ -124,12 +134,17 @@ def test_investigate(
             os.environ, {"HOLMES_STRUCTURED_OUTPUT_CONVERSION_FEATURE_FLAG": "False"}
         ):
             with tracer.start_trace(
-                name=f"{test_case.id}[{model}]", span_type=SpanType.EVAL
+                name=f"{test_case.id}[{model}][{env_config.name}]",
+                span_type=SpanType.EVAL,
             ) as eval_span:
                 set_trace_properties(request, eval_span)
                 check_and_skip_test(test_case, request, shared_test_infrastructure)
 
-                with set_test_env_vars(test_case):
+                with ExitStack() as stack:
+                    stack.enter_context(apply_env_config(env_config))
+                    stack.enter_context(set_test_env_vars(test_case))
+                    tool_results_dir = stack.enter_context(tool_result_storage())
+
                     with eval_span.start_span(
                         "Caching tools executor for create_issue_investigator",
                         type=SpanType.TASK.value,
@@ -151,16 +166,23 @@ def test_investigate(
                             retry_enabled=retry_enabled,
                             test_id=test_case.id,
                             model=model,
+                            tool_results_dir=tool_results_dir,
                         )
                         holmes_duration = time.time() - start_time
                     # Log duration directly to eval_span
                     eval_span.log(metadata={"holmes_duration": holmes_duration})
                     # Store metrics in user_properties for GitHub report
-                    request.node.user_properties.append(("holmes_duration", holmes_duration))
+                    request.node.user_properties.append(
+                        ("holmes_duration", holmes_duration)
+                    )
                     if result and result.num_llm_calls is not None:
-                        request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
+                        request.node.user_properties.append(
+                            ("num_llm_calls", result.num_llm_calls)
+                        )
                     if result and result.tool_calls is not None:
-                        request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
+                        request.node.user_properties.append(
+                            ("tool_call_count", len(result.tool_calls))
+                        )
 
                 # Check for any mock errors that occurred during tool execution
                 # This will raise an exception if any mock data errors happened

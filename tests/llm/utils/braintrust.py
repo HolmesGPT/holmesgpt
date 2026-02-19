@@ -1,23 +1,22 @@
 # TODO: we can remove most of this now and just use tracing.py
-import braintrust
-from braintrust import Dataset, Experiment, ReadonlyExperiment, Span
 import logging
 import os
 from typing import Any, List, Optional, Union
 
+import braintrust
+from braintrust import Dataset, Experiment, ReadonlyExperiment, Span
 from pydantic import BaseModel
 
 from holmes.core.llm import TokenCountMetadata
-from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore
 from holmes.core.tracing import (
-    DummySpan,
     BRAINTRUST_API_KEY,
-    BRAINTRUST_PROJECT,
     BRAINTRUST_ORG,
-    get_machine_state_tags,
+    BRAINTRUST_PROJECT,
+    DummySpan,
     get_experiment_name,
+    get_machine_state_tags,
 )
-
+from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore
 
 braintrust_enabled = False
 if BRAINTRUST_API_KEY:
@@ -242,7 +241,12 @@ def log_to_braintrust(
             and result.messages
             and len(result.messages) > 0
         ):
-            prompt = result.messages[0]["content"]
+            # Find the first message with role "system"
+            system_msg = next(
+                (m for m in result.messages if m.get("role") == "system"),
+                None
+            )
+            prompt = system_msg["content"] if system_msg else "<NO SYSTEM PROMPT FOUND>"
         elif result and hasattr(result, "prompt"):
             prompt = result.prompt
 

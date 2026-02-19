@@ -23,6 +23,25 @@ before_test: |
   kubectl apply -f prometheus-config.yaml -n app-124
   kubectl apply -f ../../shared/prometheus.yaml -n app-124
   kubectl apply -f holmes-all-in-one-fast.yaml -n app-124
+
+  echo "⏳ Waiting for prometheus pod to be ready..."
+  PROM_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-124 --timeout=5s 2>/dev/null; then
+      echo "✅ Prometheus pod is ready!"
+      PROM_READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/60: Prometheus not ready yet..."
+    sleep 1
+  done
+  if [ "$PROM_READY" = false ]; then
+    echo "❌ Prometheus failed to become ready"
+    kubectl get pods -n app-124 -l app=prometheus
+    kubectl logs -n app-124 -l app=prometheus --tail=20
+    exit 1
+  fi
+
   ./run-holmes-check-curl-jq.sh
   echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
   kubectl delete job k6-coupon-split -n app-124 --ignore-not-found=true

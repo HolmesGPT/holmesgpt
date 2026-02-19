@@ -42,6 +42,7 @@ def execute_loki_query(
     start: Union[int, str],
     end: Union[int, str],
     limit: int,
+    verify_ssl: bool = True,
 ) -> List[Dict]:
     params = {"query": query, "limit": limit, "start": start, "end": end}
     try:
@@ -50,6 +51,7 @@ def execute_loki_query(
             url,
             headers=build_headers(api_key=api_key, additional_headers=headers),
             params=params,  # type: ignore
+            verify=verify_ssl,
         )
         response.raise_for_status()
 
@@ -74,6 +76,7 @@ def query_loki_logs_by_label(
     label: str,
     namespace_search_key: str = "namespace",
     limit: int = 200,
+    verify_ssl: bool = True,
 ) -> List[Dict]:
     query = f'{{{namespace_search_key}="{namespace}", {label}="{label_value}"}}'
     if filter:
@@ -86,4 +89,5 @@ def query_loki_logs_by_label(
         start=start,
         end=end,
         limit=limit,
+        verify_ssl=verify_ssl,
     )

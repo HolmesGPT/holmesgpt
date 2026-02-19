@@ -13,7 +13,6 @@ from holmes.plugins.toolsets.grafana.common import (
     get_base_url,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +56,7 @@ class GrafanaTempoAPI:
         """
         self.config = config
         self.base_url = get_base_url(config)
-        self.headers = build_headers(config.api_key, config.headers)
+        self.headers = build_headers(config.api_key, config.additional_headers)
 
     def _make_request(
         self,
@@ -104,6 +103,7 @@ class GrafanaTempoAPI:
                 headers=self.headers,
                 params=params,
                 timeout=timeout,
+                verify=self.config.verify_ssl,
             )
             response.raise_for_status()
             return response.json()
@@ -145,6 +145,7 @@ class GrafanaTempoAPI:
                 url,
                 headers=self.headers,
                 timeout=30,
+                verify=self.config.verify_ssl,
             )
 
             # Just check status code, don't try to parse JSON

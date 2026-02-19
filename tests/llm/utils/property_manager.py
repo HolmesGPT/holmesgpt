@@ -1,14 +1,27 @@
-from typing import List, Any, Union, Optional, Dict
-from tests.llm.utils.test_case_utils import Evaluation, HolmesTestCase  # type: ignore[attr-defined]
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+from tests.llm.utils.test_case_utils import (  # type: ignore[attr-defined]
+    Evaluation,
+    HolmesTestCase,
+)
+
+if TYPE_CHECKING:
+    from tests.llm.utils.env_config import EnvConfig
 
 
-def set_initial_properties(request, test_case: HolmesTestCase, model: str) -> None:
+def set_initial_properties(
+    request,
+    test_case: HolmesTestCase,
+    model: str,
+    env_config: Optional["EnvConfig"] = None,
+) -> None:
     """Set initial properties at the beginning of a test so they're available even if test fails early.
 
     Args:
         request: The pytest request object
         test_case: The test case being executed
         model: The model being used for this test run
+        env_config: Optional environment configuration being used for this test run
     """
     expected = test_case.expected_output
     if not isinstance(expected, list):
@@ -48,6 +61,10 @@ def set_initial_properties(request, test_case: HolmesTestCase, model: str) -> No
     request.node.user_properties.append(("clean_test_case_id", test_case.id))
     # Add tags for tag-based performance analysis
     request.node.user_properties.append(("tags", test_case.tags or []))
+
+    # Add env_config tracking
+    config_name = env_config.name if env_config else "default"
+    request.node.user_properties.append(("env_config", config_name))
 
 
 def set_trace_properties(request, eval_span) -> None:
@@ -303,3 +320,18 @@ def handle_test_error(
         request.node.user_properties.append(("mock_error_message", str(error)))
         # Update the actual output to indicate mock data failure
         update_property(request, "actual", f"Mock data error: {str(error)}")
+        return  # Don't check for other error types
+
+    # Check if this is a ToolsetPrerequisiteError (toolset infrastructure not available)
+    is_toolset_prereq_error = any(
+        "ToolsetPrerequisiteError" in cls.__name__ for cls in type(error).__mro__
+    )
+
+    if is_toolset_prereq_error:
+        # Mark as setup failure - toolset infrastructure wasn't ready
+        request.node.user_properties.append(("is_setup_failure", True))
+        request.node.user_properties.append(
+            ("setup_failure_reason", f"Toolset prerequisite failed: {str(error)}")
+        )
+        # Update the actual output to indicate setup failure
+        update_property(request, "actual", f"Setup failure: {str(error)}")

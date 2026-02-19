@@ -70,7 +70,7 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
         enabled: true
         config:
           api_key: <your grafana service account token>
-          url: <your grafana url> # e.g. https://acme-corp.grafana.net
+          api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
           grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
@@ -91,7 +91,7 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
           enabled: true
           config:
             api_key: <your grafana API key>
-            url: <your grafana url> # e.g. https://acme-corp.grafana.net
+            api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
             grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
@@ -110,8 +110,8 @@ The toolset can directly connect to a Tempo instance without proxying through a 
       grafana/tempo:
         enabled: true
         config:
-          url: http://tempo.monitoring
-          headers:
+          api_url: http://tempo.monitoring
+          additional_headers:
             X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
     ```
 
@@ -125,10 +125,58 @@ The toolset can directly connect to a Tempo instance without proxying through a 
         grafana/tempo:
           enabled: true
           config:
-            url: http://tempo.monitoring
-            headers:
+            api_url: http://tempo.monitoring
+            additional_headers:
               X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
     ```
+
+## Advanced Configuration
+
+### SSL Verification
+
+For self-signed certificates, you can disable SSL verification:
+
+```yaml
+toolsets:
+  grafana/tempo:
+    enabled: true
+    config:
+      api_url: https://tempo.internal
+      verify_ssl: false  # Disable SSL verification (default: true)
+```
+
+### External URL
+
+If HolmesGPT accesses Tempo through an internal URL but you want clickable links in results to use a different URL:
+
+```yaml
+toolsets:
+  grafana/tempo:
+    enabled: true
+    config:
+      api_url: http://tempo.internal:3100  # Internal URL for API calls
+      external_url: https://tempo.example.com  # URL for links in results
+      grafana_datasource_uid: <tempo datasource uid>
+```
+
+### Custom Label Mappings
+
+Tempo uses resource attributes to identify Kubernetes resources. If your setup uses different attribute names, you can customize the mappings:
+
+```yaml
+toolsets:
+  grafana/tempo:
+    enabled: true
+    config:
+      api_url: https://grafana.example.com
+      grafana_datasource_uid: <tempo datasource uid>
+      labels:
+        pod: "k8s.pod.name"           # default
+        namespace: "k8s.namespace.name"  # default
+        deployment: "k8s.deployment.name"  # default
+        node: "k8s.node.name"         # default
+        service: "service.name"       # default
+```
 
 ## Example Usage
 

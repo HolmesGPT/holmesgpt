@@ -142,10 +142,10 @@ class TestDatadogGeneralToolset:
         """Test the API GET tool."""
         toolset = DatadogGeneralToolset()
         toolset.dd_config = Mock()
-        toolset.dd_config.site_api_url = "https://api.datadoghq.com"
+        toolset.dd_config.api_url = "https://api.datadoghq.com"
         toolset.dd_config.max_response_size = 10485760
         toolset.dd_config.allow_custom_endpoints = False
-        toolset.dd_config.request_timeout = 60
+        toolset.dd_config.timeout_seconds = 60
 
         get_tool = toolset.tools[0]  # DatadogAPIGet
 
@@ -173,14 +173,3 @@ class TestDatadogGeneralToolset:
 
         assert result.status == StructuredToolResultStatus.ERROR
         assert "blacklisted operation" in result.error
-
-    def test_example_config(self):
-        """Test example configuration generation."""
-        toolset = DatadogGeneralToolset()
-        config = toolset.get_example_config()
-
-        assert "dd_api_key" in config
-        assert "dd_app_key" in config
-        assert "site_api_url" in config
-        assert "max_response_size" in config
-        assert "allow_custom_endpoints" in config

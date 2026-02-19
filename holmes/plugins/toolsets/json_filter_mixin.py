@@ -4,9 +4,18 @@ from typing import Any, Dict, Optional, Tuple
 
 import jq
 
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus, ToolParameter
+from holmes.common.env_vars import load_bool
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolParameter,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _enable_json_filter_params() -> bool:
+    return bool(load_bool("HOLMES_ENABLE_JSON_FILTER_PARAMS", True))
 
 
 def _truncate_to_depth(value: Any, max_depth: Optional[int], current_depth: int = 0):
@@ -61,8 +70,10 @@ class JsonFilterMixin:
     }
 
     @classmethod
-    def extend_parameters(cls, existing: Dict[str, ToolParameter]) -> Dict[str, ToolParameter]:
-        merged = dict(cls.filter_parameters)
+    def extend_parameters(
+        cls, existing: Dict[str, ToolParameter]
+    ) -> Dict[str, ToolParameter]:
+        merged = dict(cls.filter_parameters) if _enable_json_filter_params() else {}
         merged.update(existing)
         return merged
 
@@ -94,7 +105,9 @@ class JsonFilterMixin:
         except Exception:
             return None
 
-    def filter_result(self, result: StructuredToolResult, params: Dict) -> StructuredToolResult:
+    def filter_result(
+        self, result: StructuredToolResult, params: Dict
+    ) -> StructuredToolResult:
         base_result = result if isinstance(result, StructuredToolResult) else None
         if base_result is None:
             base_result = StructuredToolResult(

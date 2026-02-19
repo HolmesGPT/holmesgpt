@@ -1,54 +1,105 @@
 import logging
 import os
 from contextlib import contextmanager
+from typing import Optional
+
 import pytest
+import requests  # type: ignore
 from pytest_shared_session_scope import (
-    shared_session_scope_json,
-    SetupToken,
     CleanupToken,
+    SetupToken,
+    shared_session_scope_json,
 )
 
-from tests.llm.utils.test_results import TestResult
-from tests.llm.utils.classifiers import create_llm_client
 from holmes.common.env_vars import DEFAULT_MODEL
+from tests.llm.utils.braintrust import get_braintrust_url
+from tests.llm.utils.classifiers import create_llm_client
+from tests.llm.utils.env_vars import is_run_live_enabled
 from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
-    MockMode,
     MockGenerationConfig,
+    MockMode,
     report_mock_operations,
 )
-from tests.llm.utils.reporting.terminal_reporter import handle_console_output
-from tests.llm.utils.reporting.github_reporter import handle_github_output
-from tests.llm.utils.braintrust import get_braintrust_url
-from tests.llm.utils.setup_cleanup import (
-    run_all_test_setup,
-    log,
-    extract_llm_test_cases,
-)
 from tests.llm.utils.port_forward import (
-    setup_all_port_forwards,
-    extract_port_forwards_from_test_cases,
-    cleanup_port_forwards_by_config,
     check_port_availability_early,
+    cleanup_port_forwards_by_config,
+    extract_port_forwards_from_test_cases,
+    setup_all_port_forwards,
 )
-from tests.llm.utils.env_vars import is_run_live_enabled
-from tests.llm.utils.test_case_utils import create_eval_llm, _model_list_exists
+from tests.llm.utils.reporting.github_reporter import handle_github_output
+from tests.llm.utils.reporting.terminal_reporter import handle_console_output
+from tests.llm.utils.setup_cleanup import (
+    extract_llm_test_cases,
+    log,
+    run_all_test_setup,
+)
+from tests.llm.utils.test_case_utils import _model_list_exists, create_eval_llm
 from tests.llm.utils.test_env_vars import (
-    MODEL,
-    CLASSIFIER_MODEL,
-    OPENAI_API_KEY,
-    OPENROUTER_API_KEY,
     ANTHROPIC_API_KEY,
-    AZURE_API_KEY,
-    AZURE_API_BASE,
-    OPENROUTER_API_BASE,
     ASK_HOLMES_TEST_TYPE,
+    AZURE_API_BASE,
+    AZURE_API_KEY,
     BRAINTRUST_API_KEY,
+    CLASSIFIER_MODEL,
+    MODEL,
+    OPENAI_API_KEY,
+    OPENROUTER_API_BASE,
+    OPENROUTER_API_KEY,
 )
-
+from tests.llm.utils.test_results import TestResult
 
 # Configuration constants
 DEBUG_SEPARATOR = "=" * 80
-LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate", "test_workload_health"]
+LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate"]
+DEFAULT_SYSTEM_PROMPT_URL = (
+    "https://platform.robusta.dev/api/additional-system-prompt.json"
+)
+
+
+def _fetch_additional_system_prompt(url: str) -> Optional[str]:
+    """Fetch optional additional system prompt from a URL."""
+
+    if not url:
+        return None
+
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+
+    # Parse JSON
+    try:
+        data = response.json()
+    except ValueError as e:
+        raise ValueError(f"Failed to parse JSON from {url}: {e}") from e
+
+    # Validate structure
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Invalid format from {url}. Expected JSON dict, got: {type(data).__name__}"
+        )
+
+    if "additional_system_prompt" not in data:
+        raise ValueError(f"Missing 'additional_system_prompt' field in JSON from {url}")
+
+    prompt = data["additional_system_prompt"]
+    if not isinstance(prompt, str):
+        raise ValueError(
+            f"'additional_system_prompt' field must be a string in JSON from {url}, got: {type(prompt).__name__}"
+        )
+
+    return prompt
+
+
+def _has_frontend_tests(session: pytest.Session) -> bool:
+    """Check collected items to see if any test is tagged as frontend.
+
+    Note: This checks session.items which contains tests that will actually run
+    after pytest's collection and filtering (e.g., -k, -m) is applied.
+    """
+
+    for item in getattr(session, "items", []):
+        if item.get_closest_marker("frontend"):
+            return True
+    return False
 
 
 def is_llm_test(nodeid: str) -> bool:
@@ -57,7 +108,6 @@ def is_llm_test(nodeid: str) -> bool:
         [
             "test_ask_holmes" in nodeid,
             "test_investigate" in nodeid,
-            "test_workload_health" in nodeid,
         ]
     )
 
@@ -94,6 +144,29 @@ def mock_generation_config(request):
     return MockGenerationConfig(generate_mocks, regenerate_all_mocks, mode)
 
 
+@pytest.fixture(scope="session")
+def additional_system_prompt(request) -> Optional[str]:
+    """Optionally load an additional system prompt for evals from a URL."""
+
+    custom_url = request.config.getoption("--additional-system-prompt-url")
+    url = custom_url or DEFAULT_SYSTEM_PROMPT_URL
+    should_fetch = _has_frontend_tests(request.session)
+
+    if not should_fetch:
+        return None
+
+    with force_pytest_output(request):
+        url_type = "custom" if custom_url else "default"
+        print(f"\n📥 Fetching additional system prompt from {url_type} URL: {url}")
+
+    try:
+        return _fetch_additional_system_prompt(url)
+    except Exception as e:  # pragma: no cover - defensive error propagation
+        raise pytest.UsageError(
+            f"Failed to fetch additional system prompt from {url}: {e}"
+        ) from e
+
+
 # Handles before_test and after_test
 # see https://github.com/StefanBRas/pytest-shared-session-scope
 @shared_session_scope_json()
@@ -125,7 +198,9 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         regenerate_all = request.config.getoption("--regenerate-all-mocks")
 
         if regenerate_all:
-            from tests.llm.utils.mock_toolset import clear_all_mocks  # type: ignore[attr-defined]
+            from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
+                clear_all_mocks,
+            )
 
             cleared_directories = clear_all_mocks(request.session)
 
@@ -295,7 +370,9 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         # Run cleanup if --only-cleanup is set OR if (not skipping cleanup AND not --only-setup)
         if test_case_ids and (only_cleanup or (not skip_cleanup and not only_setup)):
             # Reconstruct test cases from IDs
-            from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+            from tests.llm.utils.test_case_utils import (
+                HolmesTestCase,  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+            )
 
             cleanup_test_cases = []
 
@@ -315,8 +392,8 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
 
             if cleanup_test_cases:
                 from tests.llm.utils.setup_cleanup import (
-                    run_all_test_commands,
                     Operation,
+                    run_all_test_commands,
                 )
 
                 # Only run the after_test commands, not port forward cleanup
@@ -352,6 +429,11 @@ def force_pytest_output(request):
 def check_llm_api_with_test_call():
     """Check if LLM API is available by testing ALL models that will be used"""
     import litellm
+
+    # Respect SSL_VERIFY env var for sandbox/proxy environments
+    ssl_verify_env = os.environ.get("SSL_VERIFY", "true").lower()
+    if ssl_verify_env in ("false", "0", "no"):
+        litellm.ssl_verify = False
 
     # Get all models that will be tested
     test_models = MODEL.split(",")
@@ -632,7 +714,8 @@ def llm_availability_check(request):
                 # Check if Braintrust is enabled
                 if BRAINTRUST_API_KEY:
                     print(
-                        f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"  # type: ignore[no-untyped-call]
+                        # type: ignore[no-untyped-call]
+                        f"✓ Braintrust is enabled - traces and results will be available at {get_braintrust_url()}"
                     )
                 else:
                     print(
@@ -746,8 +829,6 @@ def _collect_test_results_from_stats(terminalreporter):
                     test_type = "ask"
                 elif "test_investigate" in nodeid:
                     test_type = "investigate"
-                elif "test_workload_health" in nodeid:
-                    test_type = "workload_health"
                 else:
                     test_type = "unknown"
 
@@ -777,6 +858,7 @@ def _collect_test_results_from_stats(terminalreporter):
                     "braintrust_span_id": None,
                     "braintrust_root_span_id": None,
                     "clean_test_case_id": None,  # Not available for skipped tests
+                    "env_config": "default",  # Not available for skipped tests
                 }
                 continue
             elif when != "call":
@@ -831,8 +913,6 @@ def _collect_test_results_from_stats(terminalreporter):
                 test_type = "ask"
             elif "test_investigate" in nodeid:
                 test_type = "investigate"
-            elif "test_workload_health" in nodeid:
-                test_type = "workload_health"
             else:
                 test_type = "unknown"
 
@@ -882,6 +962,7 @@ def _collect_test_results_from_stats(terminalreporter):
                     "encountered_throttling", False
                 ),  # Any throttling during execution
                 "model": user_props.get("model", "Unknown"),
+                "env_config": user_props.get("env_config", "default"),
                 "clean_test_case_id": user_props.get("clean_test_case_id"),
                 "braintrust_span_id": user_props.get("braintrust_span_id"),
                 "braintrust_root_span_id": user_props.get("braintrust_root_span_id"),
@@ -906,7 +987,7 @@ def _collect_test_results_from_stats(terminalreporter):
     results_with_ids = []
     for result in test_results.values():
         # If we have a clean test case ID from the test, use it
-        # This is set in test_ask_holmes.py, test_investigate.py, and test_workload_health.py
+        # This is set in test_ask_holmes.py and test_investigate.py
         # via: request.node.user_properties.append(("clean_test_case_id", test_case.id))
         # It provides the clean test case ID without model suffixes that pytest adds when
         # parameterizing with multiple models (e.g., "01_how_many_pods" instead of

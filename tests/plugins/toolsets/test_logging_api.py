@@ -5,17 +5,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from holmes.core.llm import DefaultLLM
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     TRUNCATION_PROMPT_PREFIX,
-    PodLoggingTool,
     BasePodLoggingToolset,
     FetchPodLogsParams,
     LoggingCapability,
+    PodLoggingTool,
     truncate_logs,
 )
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-from holmes.core.llm import DefaultLLM
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -195,11 +195,12 @@ class TestTruncateLogs:
     def test_truncate_logs_nominal_scenario(self):
         """Test that truncate_logs correctly truncates logs when they exceed the token limit."""
         # Create a mock LLM that simulates token counting
-
-        model = os.environ.get("MODEL")
-        if not model:
-            pytest.skip("Missing MODEL env var.")
-        llm = DefaultLLM(model=model)
+        # We mock count_tokens to return ~4 tokens per word (rough approximation)
+        mock_llm = MagicMock()
+        mock_llm.count_tokens.side_effect = lambda msgs: MagicMock(
+            total_tokens=len(str(msgs[0].get("content", ""))) // 4
+        )
+        llm = mock_llm
 
         log_message = "ERROR: Database connection failed\n"
         log_data = log_message * 2000  # Long log data

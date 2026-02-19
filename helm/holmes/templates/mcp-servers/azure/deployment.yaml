@@ -1,0 +1,199 @@
+{{- if .Values.mcpAddons.azure.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-azure-mcp-config
+  namespace: {{ .Values.mcpAddons.azure.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-azure-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data:
+  AZURE_TENANT_ID: {{ .Values.mcpAddons.azure.config.tenantId | quote }}
+  AZURE_SUBSCRIPTION_ID: {{ .Values.mcpAddons.azure.config.subscriptionId | quote }}
+  AZ_AUTH_METHOD: {{ .Values.mcpAddons.azure.config.authMethod | default "workload-identity" | quote }}
+  READ_ONLY_MODE: {{ .Values.mcpAddons.azure.config.readOnlyMode | default "true" | quote }}
+---
+{{- if .Values.mcpAddons.azure.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.mcpAddons.azure.serviceAccount.name }}
+  namespace: {{ .Values.mcpAddons.azure.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-azure-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
+    azure.workload.identity/use: "true"
+    {{- end }}
+  {{- if .Values.mcpAddons.azure.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml .Values.mcpAddons.azure.serviceAccount.annotations | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-azure-mcp-server
+  namespace: {{ .Values.mcpAddons.azure.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-azure-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-azure-mcp
+      app.kubernetes.io/name: azure-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-azure-mcp
+        app.kubernetes.io/name: azure-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+        {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+    spec:
+      {{- if or .Values.mcpAddons.azure.serviceAccount.create .Values.mcpAddons.azure.serviceAccount.name }}
+      serviceAccountName: {{ .Values.mcpAddons.azure.serviceAccount.name }}
+      {{- end }}
+      containers:
+      - name: azure-mcp
+        image: {{ .Values.mcpAddons.azure.registry }}/{{ .Values.mcpAddons.azure.image }}
+        imagePullPolicy: {{ .Values.mcpAddons.azure.imagePullPolicy | default "IfNotPresent" }}
+
+        args:
+          - "--transport"
+          - "streamable-http"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "8000"
+          {{- if .Values.mcpAddons.azure.config.readOnlyMode }}
+          - "--readonly"
+          {{- end }}
+          {{- if .Values.mcpAddons.azure.config.enableSecurityPolicy }}
+          - "--enable-security-policy"
+          {{- end }}
+          {{- if .Values.mcpAddons.azure.config.timeout }}
+          - "--timeout"
+          - {{ .Values.mcpAddons.azure.config.timeout | quote }}
+          {{- end }}
+
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+
+        env:
+        - name: AZURE_TENANT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-azure-mcp-config
+              key: AZURE_TENANT_ID
+        - name: AZURE_SUBSCRIPTION_ID
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-azure-mcp-config
+              key: AZURE_SUBSCRIPTION_ID
+        - name: AZ_AUTH_METHOD
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-azure-mcp-config
+              key: AZ_AUTH_METHOD
+        {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
+        - name: AZURE_CLIENT_ID
+          value: {{ .Values.mcpAddons.azure.config.clientId | quote }}
+        {{- end }}
+        {{- if eq .Values.mcpAddons.azure.config.authMethod "service-principal" }}
+        - name: AZURE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mcpAddons.azure.secretName | default "azure-mcp-creds" }}
+              key: AZURE_CLIENT_ID
+        - name: AZURE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mcpAddons.azure.secretName | default "azure-mcp-creds" }}
+              key: AZURE_CLIENT_SECRET
+        {{- end }}
+        {{- if eq .Values.mcpAddons.azure.config.authMethod "managed-identity" }}
+        - name: AZURE_CLIENT_ID
+          value: {{ .Values.mcpAddons.azure.config.clientId | quote }}
+        {{- end }}
+        {{- if .Values.mcpAddons.azure.additionalEnvVars }}
+        {{- toYaml .Values.mcpAddons.azure.additionalEnvVars | nindent 8 }}
+        {{- end }}
+
+        resources:
+          {{- toYaml .Values.mcpAddons.azure.resources | nindent 10 }}
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+      {{- if .Values.mcpAddons.azure.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.azure.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.azure.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.azure.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.azure.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.azure.affinity | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-azure-mcp-server
+  namespace: {{ .Values.mcpAddons.azure.config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-azure-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Release.Name }}-azure-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http
+    protocol: TCP
+{{- end }}
