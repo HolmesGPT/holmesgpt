@@ -9,6 +9,7 @@ from holmes.core.supabase_dal import SupabaseDal
 @dataclass
 class HolmesMetadata:
     is_robusta_ai_enabled: bool
+    supports_additional_system_prompt: bool = True
 
 
 def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
