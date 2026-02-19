@@ -480,35 +480,102 @@ Holmes can automatically discover and switch between subscriptions within the sa
 "Our Azure costs increased 50% last week"
 ```
 
-## Troubleshooting
+## Testing the Connection
+
+After deploying the Azure MCP server, verify it's working:
 
 ```bash
-# Authentication errors - check federated identity credentials (Workload Identity)
-az identity federated-credential list \
-  --identity-name YOUR_IDENTITY_NAME \
-  --resource-group YOUR_RG
+# Check pod status
+kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
 
-# Authentication errors - check secret exists (Service Principal)
-kubectl get secret azure-mcp-creds -n YOUR_NAMESPACE -o yaml
+# Check logs
+kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
 
-# Authentication errors - check service account annotations
-kubectl get sa azure-api-mcp-sa -n YOUR_NAMESPACE -o yaml
+# Health check
+kubectl port-forward -n YOUR_NAMESPACE svc/RELEASE_NAME-azure-mcp-server 8000:8000
+curl http://localhost:8000/health
 
-# Permission denied / AuthorizationFailed - verify RBAC role assignments
+# Ask Holmes
+holmes ask "Can you list all resource groups in my Azure subscription?"
+```
+
+## Troubleshooting
+
+### Authentication Issues
+
+**Problem:** Pod logs show authentication errors
+
+**Solutions:**
+
+1. For Workload Identity: Verify federated identity credentials are configured correctly
+   ```bash
+   az identity federated-credential list \
+     --identity-name YOUR_IDENTITY_NAME \
+     --resource-group YOUR_RG
+   ```
+
+2. For Service Principal: Verify secret exists and contains correct credentials
+   ```bash
+   kubectl get secret azure-mcp-creds -n YOUR_NAMESPACE -o yaml
+   ```
+
+3. Check service account annotations
+   ```bash
+   kubectl get sa azure-api-mcp-sa -n YOUR_NAMESPACE -o yaml
+   ```
+
+### Permission Errors
+
+**Problem:** Holmes reports "AuthorizationFailed" or "Forbidden" errors
+
+**Solution:** Verify RBAC role assignments
+
+```bash
+# Check role assignments for your managed identity or service principal
 az role assignment list --assignee YOUR_CLIENT_ID --output table
+```
 
-# Connection timeouts - verify service is running
-kubectl get svc -n YOUR_NAMESPACE | grep azure-mcp
+### Connection Timeouts
 
-# Connection timeouts - test connectivity from Holmes pod
-kubectl exec -it HOLMES_POD -n YOUR_NAMESPACE -- \
-  curl http://RELEASE_NAME-azure-mcp-server.YOUR_NAMESPACE.svc.cluster.local:8000/health
+**Problem:** Holmes can't connect to the MCP server
 
-# Subscription access issues - list accessible subscriptions
+**Solutions:**
+
+1. Verify the service is running
+   ```bash
+   kubectl get svc -n YOUR_NAMESPACE | grep azure-mcp
+   ```
+
+2. Check network policy isn't blocking traffic
+   ```bash
+   kubectl get networkpolicy -n YOUR_NAMESPACE
+   ```
+
+3. Test connectivity from Holmes pod
+   ```bash
+   kubectl exec -it HOLMES_POD -n YOUR_NAMESPACE -- \
+     curl http://RELEASE_NAME-azure-mcp-server.YOUR_NAMESPACE.svc.cluster.local:8000/health
+   ```
+
+### Subscription Access Issues
+
+**Problem:** Can't query certain subscriptions
+
+**Solution:** Verify your identity has access to all required subscriptions
+
+```bash
+# List accessible subscriptions
 az account list --output table
 
-# Subscription access issues - check role assignments in specific subscription
+# Check role assignments in specific subscription
 az role assignment list \
   --assignee YOUR_CLIENT_ID \
   --subscription SUBSCRIPTION_ID
 ```
+
+## Additional Resources
+
+- [Azure MCP Server GitHub Repository](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/azure)
+- [Workload Identity Setup Guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/azure#workload-identity-setup-for-aks)
+- [Azure CLI Reference](https://learn.microsoft.com/en-us/cli/azure/)
+- [Azure Workload Identity Documentation](https://azure.github.io/azure-workload-identity/docs/)
