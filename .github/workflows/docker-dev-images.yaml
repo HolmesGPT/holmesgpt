@@ -20,6 +20,22 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history so git describe can find the latest release tag
+
+    - name: Compute dev version from git
+      id: dev_version
+      run: |
+        # Produces e.g. "0.5.2-3-ga1b2c3f" (last release tag + commits since + short hash)
+        VERSION=$(git describe --tags --always 2>/dev/null || echo "0.0.0-unknown")
+        # Strip leading 'v' if present (e.g. v0.5.2 -> 0.5.2)
+        VERSION="${VERSION#v}"
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Dev version: ${VERSION}"
+
+    - name: Patch __version__ for dev build
+      run: |
+        sed -i 's/__version__ = .*/__version__ = "${{ steps.dev_version.outputs.version }}"/g' holmes/__init__.py
 
     - name: Check if PR is from fork
       id: fork_check
