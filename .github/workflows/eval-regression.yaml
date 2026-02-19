@@ -48,18 +48,24 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      has_code_changes: ${{ steps.filter.outputs.code }}
+      has_code_changes: ${{ steps.check.outputs.has_code_changes }}
     steps:
-      - uses: dorny/paths-filter@v3
-        id: filter
+      - id: check
+        uses: actions/github-script@v7
         with:
-          filters: |
-            code:
-              - '**'
-              - '!docs/**'
-              - '!**/*.md'
-              - '!mkdocs.yml'
-              - '!.github/**'
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const hasCodeChanges = files.some(f =>
+              !f.filename.startsWith('docs/') &&
+              !f.filename.endsWith('.md') &&
+              f.filename !== 'mkdocs.yml' &&
+              !f.filename.startsWith('.github/')
+            );
+            core.setOutput('has_code_changes', hasCodeChanges.toString());
 
   # Handle /list command - outputs available eval names
   list_evals:
