@@ -13,7 +13,7 @@ This is enough to investigate basic pod issues (CrashLoopBackOff, pending pods, 
 
 ## 1. Connect a Metrics Provider
 
-**Why:** Without metrics, Holmes can see *what* is broken but not *why*. Metrics let Holmes analyze CPU/memory trends, check alerting rules, correlate performance data with incidents, and generate PromQL queries on your behalf.
+**Why:** Kubernetes events and logs help Holmes diagnose many issues, but metrics add a critical dimension - performance trends over time. With metrics, Holmes can spot gradual CPU/memory pressure, check alerting rules, correlate resource usage with incidents, and generate PromQL queries on your behalf.
 
 Connect whichever metrics platform you already use:
 
