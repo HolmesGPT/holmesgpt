@@ -24,6 +24,7 @@ jobs:
               - '!docs/**'
               - '!**/*.md'
               - '!mkdocs.yml'
+              - '!.github/**'
 
   benchmark-pr:
     needs: check-changes

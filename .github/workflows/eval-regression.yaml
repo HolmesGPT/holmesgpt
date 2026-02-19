@@ -59,6 +59,7 @@ jobs:
               - '!docs/**'
               - '!**/*.md'
               - '!mkdocs.yml'
+              - '!.github/**'
 
   # Handle /list command - outputs available eval names
   list_evals:
