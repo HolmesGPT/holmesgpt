@@ -40,17 +40,6 @@ The Azure MCP server provides comprehensive access to Azure services through the
           mode: stdio
           command: "npx"
           args: ["-y", "@azure/mcp@latest", "server", "start"]
-        llm_instructions: |
-          IMPORTANT: When investigating issues related to Azure resources or Kubernetes workloads running on Azure,
-          you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
-
-          **ALWAYS follow this investigation flow:**
-          1. First, gather current state and configuration using Azure CLI commands
-          2. Check Activity Log for recent changes that might have caused the issue
-          3. Collect metrics and logs from Azure Monitor if available
-          4. Analyze all gathered data before providing conclusions
-
-          **Never say "check in Azure portal" or "verify in Azure" - instead, use the MCP server to check it yourself.**
     ```
 
     ??? info "Server modes"

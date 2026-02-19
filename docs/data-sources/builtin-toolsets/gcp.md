@@ -40,27 +40,18 @@ mcp_servers:
       mode: stdio
       command: "npx"
       args: ["-y", "@google-cloud/gcloud-mcp"]
-    llm_instructions: |
-      Use for general GCP resource management and investigation.
-      Query compute instances, networking, IAM, and audit logs.
   gcp_observability:
     description: "GCP Observability - Cloud Logging, Monitoring, Trace, Error Reporting"
     config:
       mode: stdio
       command: "npx"
       args: ["-y", "@google-cloud/observability-mcp"]
-    llm_instructions: |
-      Use for Cloud Logging, Monitoring, Trace, and Error Reporting.
-      Can retrieve historical logs for deleted Kubernetes resources.
   gcp_storage:
     description: "Google Cloud Storage operations"
     config:
       mode: stdio
       command: "npx"
       args: ["-y", "@google-cloud/storage-mcp"]
-    llm_instructions: |
-      Use for investigating Cloud Storage bucket issues,
-      access permissions, and object operations.
 ```
 
 You can use all three servers together or pick only the ones you need.

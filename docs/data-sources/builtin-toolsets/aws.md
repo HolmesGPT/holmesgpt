@@ -220,16 +220,6 @@ Choose your installation method:
             READ_OPERATIONS_ONLY: "true"
             # Uncomment to use a specific AWS profile:
             # AWS_API_MCP_PROFILE_NAME: "your-profile"
-        llm_instructions: |
-          IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
-
-          **ALWAYS follow this investigation flow:**
-          1. First, gather current state and configuration using AWS APIs
-          2. Check CloudTrail for recent changes that might have caused the issue
-          3. Collect metrics and logs from CloudWatch if available
-          4. Analyze all gathered data before providing conclusions
-
-          **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
     ```
 
     **Step 2c: Test it**

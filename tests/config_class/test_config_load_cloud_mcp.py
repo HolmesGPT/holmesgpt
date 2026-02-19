@@ -12,7 +12,7 @@ import yaml
 
 from holmes.core.tools import ToolsetType
 from holmes.plugins.toolsets import load_toolsets_from_config
-from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode, RemoteMCPToolset, StdioMCPConfig
+from holmes.plugins.toolsets.mcp.toolset_mcp import MCPMode, RemoteMCPToolset, StdioMCPConfig
 
 
 def _prepare_mcp_servers(mcp_servers: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -40,7 +40,6 @@ aws_mcp_config_str = """
       env:
         AWS_REGION: "us-east-1"
         READ_OPERATIONS_ONLY: "true"
-    llm_instructions: "Use this server to investigate AWS infrastructure issues."
 """
 
 
@@ -54,7 +53,6 @@ def test_load_aws_mcp_stdio_config():
     assert isinstance(toolset, RemoteMCPToolset)
     assert toolset.name == "aws_api"
     assert toolset.description == "AWS API - execute AWS CLI commands for investigating infrastructure issues"
-    assert toolset.llm_instructions == "Use this server to investigate AWS infrastructure issues."
 
 
 def test_aws_mcp_stdio_config_fields():
@@ -84,7 +82,6 @@ azure_mcp_config_str = """
       mode: stdio
       command: "npx"
       args: ["-y", "@azure/mcp@latest", "server", "start"]
-    llm_instructions: "Use this server to investigate Azure infrastructure issues."
 """
 
 
@@ -134,21 +131,18 @@ gcp_mcp_config_str = """
       mode: stdio
       command: "npx"
       args: ["-y", "@google-cloud/gcloud-mcp"]
-    llm_instructions: "Use for general GCP resource management."
   gcp_observability:
     description: "GCP Observability - Cloud Logging, Monitoring, Trace, Error Reporting"
     config:
       mode: stdio
       command: "npx"
       args: ["-y", "@google-cloud/observability-mcp"]
-    llm_instructions: "Use for Cloud Logging, Monitoring, Trace."
   gcp_storage:
     description: "Google Cloud Storage operations"
     config:
       mode: stdio
       command: "npx"
       args: ["-y", "@google-cloud/storage-mcp"]
-    llm_instructions: "Use for investigating Cloud Storage issues."
 """
 
 
@@ -202,21 +196,18 @@ multi_provider_config_str = """
       env:
         AWS_REGION: "us-east-1"
         READ_OPERATIONS_ONLY: "true"
-    llm_instructions: "Use for investigating AWS infrastructure."
   azure_api:
     description: "Azure API - query Azure resources"
     config:
       mode: stdio
       command: "npx"
       args: ["-y", "@azure/mcp@latest", "server", "start"]
-    llm_instructions: "Use for investigating Azure infrastructure."
   gcp_gcloud:
     description: "Google Cloud management via gcloud CLI"
     config:
       mode: stdio
       command: "npx"
       args: ["-y", "@google-cloud/gcloud-mcp"]
-    llm_instructions: "Use for investigating GCP infrastructure."
 """
 
 
@@ -232,7 +223,6 @@ def test_load_multi_provider_config():
     for toolset in definitions:
         assert isinstance(toolset, RemoteMCPToolset)
         assert toolset.config["mode"] == "stdio"
-        assert toolset.llm_instructions is not None
 
 
 def test_multi_provider_different_commands():
@@ -284,32 +274,3 @@ def test_mcp_stdio_config_with_env_var_substitution():
         os.environ.clear()
         os.environ.update(original_env)
 
-
-# --- Config with multiline llm_instructions ---
-
-config_with_instructions_str = """
-  aws_api:
-    description: "AWS API MCP Server"
-    config:
-      mode: stdio
-      command: "uvx"
-      args: ["awslabs.aws-api-mcp-server@latest"]
-    llm_instructions: |
-      IMPORTANT: When investigating AWS issues, always:
-      1. Gather current resource state
-      2. Check CloudTrail for recent changes
-      3. Collect CloudWatch metrics
-"""
-
-
-def test_mcp_config_preserves_multiline_llm_instructions():
-    """Multi-line llm_instructions are preserved in the loaded config."""
-    mcp_servers = _prepare_mcp_servers(yaml.safe_load(config_with_instructions_str))
-    definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
-
-    assert len(definitions) == 1
-    toolset = definitions[0]
-    assert isinstance(toolset, RemoteMCPToolset)
-    assert "CloudTrail" in toolset.llm_instructions
-    assert "CloudWatch" in toolset.llm_instructions
-    assert "1. Gather current resource state" in toolset.llm_instructions
