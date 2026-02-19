@@ -3,6 +3,10 @@ name: Run eval regression tests
 on:
   pull_request:
     branches: ["*"]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'mkdocs.yml'
   push:
     branches: [master]
   workflow_dispatch:
