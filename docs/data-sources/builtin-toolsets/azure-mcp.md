@@ -425,6 +425,13 @@ curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/ma
 bash setup-workload-identity.sh
 ```
 
+This script will:
+
+1. Create a managed identity
+2. Assign appropriate RBAC roles
+3. Configure federated identity credentials
+4. Output the configuration values for your Helm chart
+
 **Manual Role Assignment:**
 
 ```bash
