@@ -10,9 +10,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 -   [:material-aws:{ .lg .middle } **AWS (MCP)**](aws.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure (MCP)**](azure-mcp.md)
--   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
--   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
--   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
 -   [:material-google-cloud:{ .lg .middle } **GCP (MCP)**](gcp.md)
 
 </div>
@@ -30,6 +27,8 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
 -   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
+-   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
+-   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
 
 </div>
 
@@ -62,6 +61,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 <div class="grid cards" markdown>
 
+-   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
 
