@@ -1,0 +1,53 @@
+user_prompt:
+- "How many ConfigMaps are in namespace app-217-alpha and how many are in app-217-beta? Give me the exact counts."
+
+expected_output:
+  - The answer must state that app-217-alpha has exactly 149 ConfigMaps
+  - The answer must state that app-217-beta has exactly 202 ConfigMaps
+
+tags:
+  - kubernetes
+  - counting
+
+before_test: |
+  echo "Creating namespaces for ConfigMap counting test"
+  kubectl create namespace app-217-alpha || true
+  kubectl create namespace app-217-beta || true
+
+  echo "Creating 148 ConfigMaps in app-217-alpha with random names..."
+  for i in $(seq 1 148); do
+    NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
+    kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-217-alpha &
+  done
+  wait
+  echo "Created 148 ConfigMaps in app-217-alpha (plus default kube-root-ca.crt = 149 total)"
+
+  echo "Creating 201 ConfigMaps in app-217-beta with random names..."
+  for i in $(seq 1 201); do
+    NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
+    kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-217-beta &
+  done
+  wait
+  echo "Created 201 ConfigMaps in app-217-beta (plus default kube-root-ca.crt = 202 total)"
+
+  echo "Verifying counts..."
+  ALPHA_COUNT=$(kubectl get configmaps -n app-217-alpha --no-headers | wc -l)
+  BETA_COUNT=$(kubectl get configmaps -n app-217-beta --no-headers | wc -l)
+  echo "app-217-alpha: $ALPHA_COUNT ConfigMaps"
+  echo "app-217-beta: $BETA_COUNT ConfigMaps"
+
+  if [ "$ALPHA_COUNT" -ne 149 ]; then
+    echo "ERROR: Expected 149 ConfigMaps in app-217-alpha, got $ALPHA_COUNT"
+    exit 1
+  fi
+
+  if [ "$BETA_COUNT" -ne 202 ]; then
+    echo "ERROR: Expected 202 ConfigMaps in app-217-beta, got $BETA_COUNT"
+    exit 1
+  fi
+
+  echo "Test setup complete!"
+
+after_test: |
+  kubectl delete namespace app-217-alpha || true
+  kubectl delete namespace app-217-beta || true
