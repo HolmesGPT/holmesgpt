@@ -3,6 +3,8 @@ name: Docker Build on PR
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '.github/**'
 
 # Cancel in-progress runs for the same PR
 concurrency:

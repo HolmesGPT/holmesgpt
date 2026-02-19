@@ -6,6 +6,8 @@ name: CLI Performance Benchmark
 on:
   pull_request:
     branches: [master]
+    paths-ignore:
+      - '.github/**'
 
 jobs:
   check-changes:
