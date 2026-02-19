@@ -35,7 +35,9 @@ class CheckExecutionRequest(BaseModel):
     )
     timeout: int = 30
     mode: CheckMode = CheckMode.MONITOR
-    destinations: list[dict] = []  # TODO: change to DestinationConfig?
+    destinations: list[dict] = Field(
+        default_factory=list
+    )  # TODO: change to DestinationConfig after deciding on the schema.
     model: Optional[str] = Field(None, description="The model to use for the check.")
 
 
