@@ -145,10 +145,10 @@ kubectl port-forward svc/holmesgpt-holmes 8080:80
 # If you used a different release name or namespace:
 # kubectl port-forward svc/{your-release-name}-holmes 8080:80 -n {your-namespace}
 
-# Test with a basic question using modelList model name
+# Test with a basic question using a model name from your modelList
 curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"ask": "list pods in namespace default?", "model": "gpt-4o-mini"}'
+  -d '{"ask": "list pods in namespace default?", "model": "gpt-4.1"}'
 
 # Using a different model from your modelList
 curl -X POST http://localhost:8080/api/chat \
