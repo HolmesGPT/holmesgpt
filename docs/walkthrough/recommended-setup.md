@@ -2,18 +2,15 @@
 
 After [installing HolmesGPT](../installation/cli-installation.md) and [running your first investigation](index.md), connect your data sources so Holmes can perform deeper investigations.
 
-## What Works Out of the Box
+## How Holmes Works
 
-HolmesGPT automatically enables Kubernetes toolsets when it detects `kubectl` access:
+HolmesGPT is an AI troubleshooting agent that investigates issues by pulling data from your existing observability stack. The more data sources you connect, the more thoroughly Holmes can investigate — correlating metrics with logs, tracing infrastructure changes to application failures, and building a complete picture of what went wrong.
 
-- **Kubernetes Core** - Pod status, events, resource descriptions, YAML definitions
-- **Kubernetes Logs** - Live pod logs from running and recently terminated containers
-
-This is enough to investigate basic pod issues (CrashLoopBackOff, pending pods, OOMKills). But for production troubleshooting, you'll want to connect the data sources below.
+Holmes works across cloud, on-premise, and hybrid environments. If you use Kubernetes, the Kubernetes toolsets are enabled automatically. Everything else — metrics, logs, cloud APIs, databases — is configured through toolsets you enable based on your stack.
 
 ## 1. Connect a Metrics Provider
 
-**Why:** Kubernetes events and logs help Holmes diagnose many issues, but metrics add a critical dimension - performance trends over time. With metrics, Holmes can spot gradual CPU/memory pressure, check alerting rules, correlate resource usage with incidents, and generate PromQL queries on your behalf.
+Metrics give Holmes visibility into performance trends over time — CPU/memory pressure, request latency, error rates, and alerting rules. Without metrics, Holmes can still investigate using logs and infrastructure state, but it won't be able to spot gradual degradation or correlate resource usage with incidents.
 
 Connect whichever metrics platform you already use:
 
@@ -37,7 +34,7 @@ toolsets:
 
 ## 2. Connect Centralized Logging
 
-**Why:** Default Kubernetes logs only cover running pods. When a pod crashes, restarts, or gets evicted, those logs are lost. A centralized logging system gives Holmes access to historical logs, cross-service log correlation, and pattern search across your entire cluster.
+Centralized logging gives Holmes access to historical logs, cross-service log correlation, and full-text search across your environment. This is especially important for investigating issues where logs from the affected service are no longer available — crashed processes, terminated containers, rotated log files, or services running on VMs and bare metal.
 
 | Platform | Setup Guide | Notes |
 |----------|-------------|-------|
@@ -47,7 +44,7 @@ toolsets:
 | **Splunk** | [Setup](../data-sources/builtin-toolsets/splunk-mcp.md) | Via MCP server |
 
 !!! note
-    When you enable Loki, disable the default Kubernetes logs toolset to avoid duplicate results:
+    If you use Kubernetes and enable Loki, disable the default Kubernetes logs toolset to avoid duplicate results:
     ```yaml
     toolsets:
       grafana/loki:
@@ -62,7 +59,7 @@ toolsets:
 
 ## 3. Connect Your Cloud Provider
 
-**Why:** Many production issues originate outside Kubernetes - misconfigured security groups, IAM permission changes, database failovers, load balancer issues, or resource quota limits. Connecting your cloud provider lets Holmes investigate infrastructure-level causes.
+Cloud provider access lets Holmes investigate infrastructure-level causes — misconfigured security groups, IAM permission changes, database failovers, load balancer issues, DNS misconfigurations, or resource quota limits. Many production incidents involve changes at the infrastructure layer that aren't visible from application metrics or logs alone.
 
 | Platform | Setup Guide | Notes |
 |----------|-------------|-------|
@@ -72,7 +69,7 @@ toolsets:
 
 ## 4. Connect Grafana Dashboards (Bonus)
 
-If you use Grafana, connecting the dashboards toolset lets Holmes see what you're already monitoring - it can find relevant dashboards, extract PromQL queries from panels, and use them during investigations.
+If you use Grafana, connecting the dashboards toolset lets Holmes see what you're already monitoring — it can find relevant dashboards, extract PromQL queries from panels, and use them during investigations.
 
 | Platform | Setup Guide |
 |----------|-------------|
@@ -87,7 +84,7 @@ After configuring your data sources, verify everything is connected:
 holmes toolset list
 
 # Test with a real investigation
-holmes ask "what is the health of my cluster?"
+holmes ask "what is the health of my environment?"
 ```
 
 ## Next Steps
