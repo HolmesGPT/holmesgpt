@@ -1,53 +1,63 @@
 user_prompt:
-- "How many ConfigMaps are in namespace app-217-alpha and how many are in app-217-beta? Give me the exact counts."
+- "Find all namespaces that start with 'app-217' and tell me how many ConfigMaps are in each one. Give me the exact count per namespace."
 
 expected_output:
-  - The answer must state that app-217-alpha has exactly 149 ConfigMaps
-  - The answer must state that app-217-beta has exactly 202 ConfigMaps
+  - The answer must state that app-217-payments has exactly 38 ConfigMaps
+  - The answer must state that app-217-inventory has exactly 90 ConfigMaps
+  - The answer must state that app-217-shipping has exactly 149 ConfigMaps
+  - The answer must state that app-217-analytics has exactly 202 ConfigMaps
+  - The answer must state that app-217-notifications has exactly 165 ConfigMaps
 
 tags:
   - kubernetes
   - counting
 
 before_test: |
-  echo "Creating namespaces for ConfigMap counting test"
-  kubectl create namespace app-217-alpha || true
-  kubectl create namespace app-217-beta || true
-
-  echo "Creating 148 ConfigMaps in app-217-alpha with random names..."
-  for i in $(seq 1 148); do
-    NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
-    kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-217-alpha &
+  echo "Creating 5 namespaces for ConfigMap counting test"
+  for NS in payments inventory shipping analytics notifications; do
+    kubectl create namespace "app-217-$NS" || true
   done
-  wait
-  echo "Created 148 ConfigMaps in app-217-alpha (plus default kube-root-ca.crt = 149 total)"
 
-  echo "Creating 201 ConfigMaps in app-217-beta with random names..."
-  for i in $(seq 1 201); do
-    NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
-    kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n app-217-beta &
-  done
-  wait
-  echo "Created 201 ConfigMaps in app-217-beta (plus default kube-root-ca.crt = 202 total)"
+  create_configmaps() {
+    local NS=$1
+    local COUNT=$2
+    echo "Creating $COUNT ConfigMaps in $NS with random names..."
+    for i in $(seq 1 $COUNT); do
+      NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
+      kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n "$NS" &
+    done
+    wait
+    echo "Created $COUNT ConfigMaps in $NS"
+  }
+
+  # Counts chosen so total = count + 1 (kube-root-ca.crt)
+  # Expected totals: 38, 90, 149, 202, 165
+  create_configmaps app-217-payments 37
+  create_configmaps app-217-inventory 89
+  create_configmaps app-217-shipping 148
+  create_configmaps app-217-analytics 201
+  create_configmaps app-217-notifications 164
 
   echo "Verifying counts..."
-  ALPHA_COUNT=$(kubectl get configmaps -n app-217-alpha --no-headers | wc -l)
-  BETA_COUNT=$(kubectl get configmaps -n app-217-beta --no-headers | wc -l)
-  echo "app-217-alpha: $ALPHA_COUNT ConfigMaps"
-  echo "app-217-beta: $BETA_COUNT ConfigMaps"
+  FAIL=false
+  for PAIR in "app-217-payments:38" "app-217-inventory:90" "app-217-shipping:149" "app-217-analytics:202" "app-217-notifications:165"; do
+    NS="${PAIR%%:*}"
+    EXPECTED="${PAIR##*:}"
+    ACTUAL=$(kubectl get configmaps -n "$NS" --no-headers | wc -l)
+    echo "$NS: $ACTUAL ConfigMaps (expected $EXPECTED)"
+    if [ "$ACTUAL" -ne "$EXPECTED" ]; then
+      echo "ERROR: Count mismatch in $NS"
+      FAIL=true
+    fi
+  done
 
-  if [ "$ALPHA_COUNT" -ne 149 ]; then
-    echo "ERROR: Expected 149 ConfigMaps in app-217-alpha, got $ALPHA_COUNT"
-    exit 1
-  fi
-
-  if [ "$BETA_COUNT" -ne 202 ]; then
-    echo "ERROR: Expected 202 ConfigMaps in app-217-beta, got $BETA_COUNT"
+  if [ "$FAIL" = true ]; then
     exit 1
   fi
 
   echo "Test setup complete!"
 
 after_test: |
-  kubectl delete namespace app-217-alpha || true
-  kubectl delete namespace app-217-beta || true
+  for NS in payments inventory shipping analytics notifications; do
+    kubectl delete namespace "app-217-$NS" || true
+  done
