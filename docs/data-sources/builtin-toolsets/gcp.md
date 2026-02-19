@@ -6,8 +6,9 @@ Connect Holmes to Google Cloud Platform for investigating infrastructure issues,
 
 Choose your setup path based on your environment:
 
+- **[Holmes CLI (local)](#holmes-cli-local)** - Runs locally on your machine, no cluster required
 - **[GKE with Workload Identity](#gke-with-workload-identity)** - Recommended for GKE clusters (no key management)
-- **[Service Account Key](#service-account-key)** - Works anywhere (CLI, EKS, AKS, on-premise)
+- **[Service Account Key](#service-account-key)** - Works anywhere (Helm on EKS, AKS, on-premise)
 
 ??? info "How it works"
     The GCP MCP addon consists of three specialized servers:
@@ -15,6 +16,60 @@ Choose your setup path based on your environment:
     - **gcloud MCP**: General GCP management via gcloud CLI commands, supporting multi-project queries
     - **Observability MCP**: Cloud Logging, Monitoring, Trace, and Error Reporting - can retrieve historical logs for deleted Kubernetes resources
     - **Storage MCP**: Cloud Storage operations and management
+
+## Holmes CLI (local)
+
+The official Google Cloud MCP servers run locally on your machine via `npx`. No Kubernetes cluster or service account keys required -- authentication uses your existing `gcloud` credentials.
+
+**Prerequisites:** Node.js must be installed.
+
+**Step 1: Authenticate**
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+```
+
+**Step 2: Add to `~/.holmes/config.yaml`**
+
+```yaml
+mcp_servers:
+  gcp_gcloud:
+    description: "Google Cloud management via gcloud CLI"
+    config:
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/gcloud-mcp"]
+    llm_instructions: |
+      Use for general GCP resource management and investigation.
+      Query compute instances, networking, IAM, and audit logs.
+  gcp_observability:
+    description: "GCP Observability - Cloud Logging, Monitoring, Trace, Error Reporting"
+    config:
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/observability-mcp"]
+    llm_instructions: |
+      Use for Cloud Logging, Monitoring, Trace, and Error Reporting.
+      Can retrieve historical logs for deleted Kubernetes resources.
+  gcp_storage:
+    description: "Google Cloud Storage operations"
+    config:
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/storage-mcp"]
+    llm_instructions: |
+      Use for investigating Cloud Storage bucket issues,
+      access permissions, and object operations.
+```
+
+You can use all three servers together or pick only the ones you need.
+
+**Step 3: Test it**
+
+```bash
+holmes ask "List all GKE clusters in my project"
+```
 
 ## GKE with Workload Identity
 
@@ -151,153 +206,9 @@ If you're not using GKE, or prefer not to use Workload Identity, you can authent
 
 === "Holmes CLI"
 
-    **Step 1: Create GCP Service Account**
+    For CLI usage, see [Holmes CLI (local)](#holmes-cli-local) above -- it runs locally with no cluster required.
 
-    ```bash
-    git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
-    cd holmes-mcp-integrations/servers/gcp
-
-    ./setup-gcp-service-account.sh \
-      --project your-project-id \
-      --k8s-namespace holmes-mcp
-    ```
-
-    The script creates a service account with ~50 read-only IAM roles, generates a key, and creates a Kubernetes secret (`gcp-sa-key`).
-
-    ??? note "Manual Setup"
-        ```bash
-        gcloud iam service-accounts create holmes-gcp-mcp \
-          --display-name="Holmes GCP MCP Service Account"
-
-        PROJECT_ID=your-project
-        SA_EMAIL=holmes-gcp-mcp@${PROJECT_ID}.iam.gserviceaccount.com
-
-        for role in browser compute.viewer container.viewer logging.privateLogViewer monitoring.viewer; do
-          gcloud projects add-iam-policy-binding ${PROJECT_ID} \
-            --member="serviceAccount:${SA_EMAIL}" \
-            --role="roles/${role}"
-        done
-
-        gcloud iam service-accounts keys create key.json --iam-account=${SA_EMAIL}
-        kubectl create secret generic gcp-sa-key --from-file=key.json --namespace=holmes-mcp
-        ```
-
-    **Step 2: Deploy the MCP Servers**
-
-    Create `gcp-mcp-deployment.yaml`:
-
-    ```yaml
-    apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: holmes-mcp
-    ---
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: gcp-mcp-server
-      namespace: holmes-mcp
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: gcp-mcp-server
-      template:
-        metadata:
-          labels:
-            app: gcp-mcp-server
-        spec:
-          containers:
-          - name: gcloud-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/holmesgpt/gcloud-cli-mcp:1.0.7
-            ports:
-            - containerPort: 8000
-            env:
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: "/var/secrets/gcp/key.json"
-            volumeMounts:
-            - name: gcp-key
-              mountPath: /var/secrets/gcp
-              readOnly: true
-          - name: observability-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/holmesgpt/gcloud-observability-mcp:1.0.0
-            ports:
-            - containerPort: 8001
-            env:
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: "/var/secrets/gcp/key.json"
-            volumeMounts:
-            - name: gcp-key
-              mountPath: /var/secrets/gcp
-              readOnly: true
-          - name: storage-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/holmesgpt/gcloud-storage-mcp:1.0.0
-            ports:
-            - containerPort: 8002
-            env:
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: "/var/secrets/gcp/key.json"
-            volumeMounts:
-            - name: gcp-key
-              mountPath: /var/secrets/gcp
-              readOnly: true
-          volumes:
-          - name: gcp-key
-            secret:
-              secretName: gcp-sa-key
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: gcp-mcp-server
-      namespace: holmes-mcp
-    spec:
-      selector:
-        app: gcp-mcp-server
-      ports:
-      - port: 8000
-        targetPort: 8000
-        name: gcloud
-      - port: 8001
-        targetPort: 8001
-        name: observability
-      - port: 8002
-        targetPort: 8002
-        name: storage
-    ```
-
-    ```bash
-    kubectl apply -f gcp-mcp-deployment.yaml
-    ```
-
-    **Step 3: Configure Holmes CLI**
-
-    Add to `~/.holmes/config.yaml`:
-
-    ```yaml
-    mcp_servers:
-      gcp_gcloud:
-        description: "Google Cloud management via gcloud CLI"
-        config:
-          url: "http://gcp-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
-          mode: "sse"
-      gcp_observability:
-        description: "GCP Observability - logs, metrics, traces"
-        config:
-          url: "http://gcp-mcp-server.holmes-mcp.svc.cluster.local:8001/sse"
-          mode: "sse"
-      gcp_storage:
-        description: "Google Cloud Storage operations"
-        config:
-          url: "http://gcp-mcp-server.holmes-mcp.svc.cluster.local:8002/sse"
-          mode: "sse"
-    ```
-
-    **For local testing**, port-forward and use localhost URLs:
-
-    ```bash
-    kubectl port-forward -n holmes-mcp svc/gcp-mcp-server 8000:8000 8001:8001 8002:8002
-    ```
+    If you specifically need to deploy the MCP servers in a cluster and connect Holmes CLI to them, use the Helm chart tabs and configure port-forwarding.
 
 === "Holmes Helm Chart"
 

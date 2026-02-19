@@ -4,203 +4,45 @@ The Azure MCP server provides comprehensive access to Azure services through the
 
 ## Overview
 
-The Azure MCP server is deployed as a separate pod in your cluster when using the Holmes or Robusta Helm charts. For CLI users, you'll need to deploy the MCP server manually and configure Holmes to connect to it.
-
-The server runs in your Kubernetes cluster and can investigate both Azure infrastructure and AKS-hosted workloads. It supports multiple authentication methods including Workload Identity (recommended for AKS), Service Principal, and Managed Identity.
+- **Helm users**: The MCP server pod is deployed automatically when you enable the addon
+- **CLI users**: The MCP server runs locally on your machine as a subprocess -- no Kubernetes cluster required
 
 ## Prerequisites
 
-Before deploying the Azure MCP server, ensure you have:
-
 - An Azure subscription with appropriate permissions
-- For AKS clusters: Workload Identity or Managed Identity configured (recommended)
-- For Service Principal auth: Client ID and Client Secret
-- Azure RBAC roles assigned based on your investigation needs (see IAM Configuration below)
+- For Helm deployments: Workload Identity, Managed Identity, or Service Principal configured
+- For CLI: `az login` and Node.js 20+ installed
 
 ## Configuration
 
 === "Holmes CLI"
 
-    For CLI usage, you need to deploy the Azure MCP server first, then configure Holmes to connect to it.
+    The [official Azure MCP server](https://github.com/Azure/azure-mcp) runs locally on your machine via `npx`. No Kubernetes cluster required.
 
-    **Step 1: Deploy the Azure MCP Server**
+    **Prerequisites:** Node.js 20+ must be installed.
 
-    Create a file named `azure-mcp-deployment.yaml`:
-
-    ```yaml
-    apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: holmes-mcp
-    ---
-    apiVersion: v1
-    kind: ServiceAccount
-    metadata:
-      name: azure-mcp-sa
-      namespace: holmes-mcp
-      labels:
-        azure.workload.identity/use: "true"
-      # For Workload Identity, add annotations:
-      # annotations:
-      #   azure.workload.identity/client-id: "YOUR_CLIENT_ID"
-      #   azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
-    ---
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: azure-mcp-config
-      namespace: holmes-mcp
-    data:
-      AZURE_TENANT_ID: "YOUR_TENANT_ID"
-      AZURE_SUBSCRIPTION_ID: "YOUR_SUBSCRIPTION_ID"
-      AZ_AUTH_METHOD: "workload-identity"  # Options: workload-identity, managed-identity, service-principal
-      READ_ONLY_MODE: "true"
-    ---
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: azure-mcp-server
-      namespace: holmes-mcp
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: azure-mcp-server
-      template:
-        metadata:
-          labels:
-            app: azure-mcp-server
-            azure.workload.identity/use: "true"
-        spec:
-          serviceAccountName: azure-mcp-sa
-          containers:
-          - name: azure-mcp
-            image: me-west1-docker.pkg.dev/robusta-development/development/azure-cli-mcp:1.0.1
-            imagePullPolicy: IfNotPresent
-            args:
-              - "--transport"
-              - "streamable-http"
-              - "--host"
-              - "0.0.0.0"
-              - "--port"
-              - "8000"
-              - "--readonly"
-            ports:
-            - containerPort: 8000
-              name: http
-            env:
-            - name: AZURE_TENANT_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: azure-mcp-config
-                  key: AZURE_TENANT_ID
-            - name: AZURE_SUBSCRIPTION_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: azure-mcp-config
-                  key: AZURE_SUBSCRIPTION_ID
-            - name: AZ_AUTH_METHOD
-              valueFrom:
-                configMapKeyRef:
-                  name: azure-mcp-config
-                  key: AZ_AUTH_METHOD
-            - name: AZURE_CLIENT_ID
-              value: "YOUR_CLIENT_ID"  # For workload identity or managed identity
-            # For service principal authentication, add:
-            # - name: AZURE_CLIENT_SECRET
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: azure-mcp-creds
-            #       key: AZURE_CLIENT_SECRET
-            resources:
-              requests:
-                memory: "256Mi"
-                cpu: "100m"
-              limits:
-                memory: "512Mi"
-            livenessProbe:
-              httpGet:
-                path: /health
-                port: http
-              initialDelaySeconds: 30
-              periodSeconds: 30
-            readinessProbe:
-              httpGet:
-                path: /health
-                port: http
-              initialDelaySeconds: 10
-              periodSeconds: 10
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: azure-mcp-server
-      namespace: holmes-mcp
-    spec:
-      selector:
-        app: azure-mcp-server
-      ports:
-      - port: 8000
-        targetPort: 8000
-        protocol: TCP
-        name: http
-    ```
-
-    Deploy it to your cluster:
+    **Step 1: Authenticate**
 
     ```bash
-    kubectl apply -f azure-mcp-deployment.yaml
+    az login
+    az account show  # verify correct subscription
     ```
 
-    **Step 2: Configure Azure Authentication**
+    **Step 2: Configure Holmes CLI**
 
-    Choose one of these authentication methods:
-
-    **Option A: Workload Identity (Recommended for AKS)**
-
-    Follow the [Workload Identity setup guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/azure#workload-identity-setup-for-aks) to:
-    1. Enable Workload Identity on your AKS cluster
-    2. Create a managed identity with appropriate permissions
-    3. Establish federated identity credentials
-    4. Configure the ServiceAccount annotations
-
-    **Option B: Managed Identity**
-
-    For clusters with node-level managed identity:
-    1. Ensure your AKS nodes have a managed identity assigned
-    2. Update the deployment to use `authMethod: managed-identity`
-    3. Set the AZURE_CLIENT_ID to your managed identity's client ID
-
-    **Option C: Service Principal**
-
-    For service principal authentication:
-    1. Create a service principal and assign appropriate roles
-    2. Create a Kubernetes secret with the credentials:
-
-    ```bash
-    kubectl create secret generic azure-mcp-creds \
-      --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
-      --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
-      -n holmes-mcp
-    ```
-
-    3. Update the deployment to reference the secret (uncomment the secret reference in the YAML above)
-    4. Set `AZ_AUTH_METHOD: "service-principal"` in the ConfigMap
-
-    **Step 3: Configure Holmes CLI**
-
-    Add the MCP server configuration to **~/.holmes/config.yaml**:
+    Add to `~/.holmes/config.yaml`:
 
     ```yaml
     mcp_servers:
       azure_api:
-        description: "Azure API MCP Server - comprehensive Azure service access via Azure CLI"
-        url: "http://azure-mcp-server.holmes-mcp.svc.cluster.local:8000"
+        description: "Azure API - query Azure resources and investigate infrastructure issues"
+        config:
+          mode: stdio
+          command: "npx"
+          args: ["-y", "@azure/mcp@latest", "server", "start"]
         llm_instructions: |
           IMPORTANT: When investigating issues related to Azure resources or Kubernetes workloads running on Azure,
           you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
-
-          ## Investigation Principles
 
           **ALWAYS follow this investigation flow:**
           1. First, gather current state and configuration using Azure CLI commands
@@ -209,21 +51,29 @@ Before deploying the Azure MCP server, ensure you have:
           4. Analyze all gathered data before providing conclusions
 
           **Never say "check in Azure portal" or "verify in Azure" - instead, use the MCP server to check it yourself.**
-
-          See the Azure MCP documentation for comprehensive investigation patterns and common commands.
     ```
 
-    **Step 4: Port Forwarding (Optional for Local Testing)**
+    ??? info "Server modes"
+        The Azure MCP server supports different modes that control how many tools are exposed:
 
-    If running Holmes CLI locally and need to access the MCP server:
+        - **Default (namespace mode)**: one tool per Azure service namespace
+        - **Consolidated mode**: curated tools grouped by user intent
+        - **All mode**: exposes 200+ individual tools
+
+        To use consolidated mode, change the args:
+        ```yaml
+        args: ["-y", "@azure/mcp@latest", "server", "start", "--mode", "consolidated"]
+        ```
+
+        To limit to specific services:
+        ```yaml
+        args: ["-y", "@azure/mcp@latest", "server", "start", "--namespace", "compute", "--namespace", "network"]
+        ```
+
+    **Step 3: Test it**
 
     ```bash
-    kubectl port-forward -n holmes-mcp svc/azure-mcp-server 8000:8000
-    ```
-
-    Then update the URL in config.yaml to:
-    ```yaml
-    url: "http://localhost:8000"
+    holmes ask "List all resource groups in my Azure subscription"
     ```
 
 === "Holmes Helm Chart"
