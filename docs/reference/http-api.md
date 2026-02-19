@@ -131,6 +131,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 **Example without Structured Output:**
 
 ```bash
+<!-- test: status=200, has_fields=analysis|conversation_history, id=chat_basic -->
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -258,9 +259,11 @@ curl -X POST http://<HOLMES-URL>/api/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "anthropic/claude-sonnet-4-5-20250929"
+    "model": "claude-sonnet"
   }'
 ```
+
+> **Note:** The `model` value must be a key name from your `modelList` configuration, not a direct model identifier.
 
 **Example** Response
 ```json
@@ -305,7 +308,7 @@ curl -N -X POST http://<HOLMES-URL>/api/stream/investigate \
     "subject": {"namespace": "default", "pod": "my-pod"},
     "context": {},
     "include_tool_calls": true,
-    "model": "anthropic/claude-sonnet-4-5-20250929"
+    "model": "claude-sonnet"
   }'
 ```
 
@@ -360,6 +363,7 @@ data: {"sections": {"Alert Explanation": ...}}
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=analysis|conversation_history, id=issue_chat_basic -->
 curl -X POST http://<HOLMES-URL>/api/issue_chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -396,6 +400,7 @@ curl -X POST http://<HOLMES-URL>/api/issue_chat \
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=model_name, id=model_list -->
 curl http://<HOLMES-URL>/api/model
 ```
 
