@@ -4,6 +4,7 @@ nav:
   - AWS Bedrock: aws-bedrock.md
   - Azure OpenAI: azure-openai.md
   - Gemini: gemini.md
+  - GitHub Models: github.md
   - Google Vertex AI: google-vertex-ai.md
   - Ollama: ollama.md
   - OpenRouter: openrouter.md
