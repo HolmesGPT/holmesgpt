@@ -1,5 +1,8 @@
 # Azure Kubernetes Service (AKS)
 
+!!! tip "Consider Azure MCP instead"
+    Most users should start with the [Azure MCP](azure-mcp.md) integration, which provides broad access to all Azure APIs including AKS. This standalone toolset is only needed if you require specific AKS CLI commands that aren't available through the MCP server.
+
 By enabling this toolset, HolmesGPT will be able to interact with Azure Kubernetes Service clusters, providing Azure-specific troubleshooting capabilities and cluster management.
 
 ## Prerequisites

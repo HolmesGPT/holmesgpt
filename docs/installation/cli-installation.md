@@ -88,7 +88,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
 
 !!! tip "Which Model to Use"
-We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
+    We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
 === "Anthropic Claude"
 
@@ -237,7 +237,7 @@ We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results 
 
     3. **Ask your first question**:
         ```bash
-        holmes ask "what is wrong with the user-profile-import pod?" --model="ollama/<your-model-name>"
+        holmes ask "what is wrong with the user-profile-import pod?" --model="ollama_chat/<your-model-name>"
         ```
 
         For troubleshooting and advanced options, see [Ollama Configuration](../ai-providers/ollama.md).
