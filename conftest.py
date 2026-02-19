@@ -276,6 +276,9 @@ def responses():
         rsps.add_passthru(re.compile(r"https://.*\.atlassian\.net"))
         rsps.add_passthru("https://api.atlassian.com")  # Atlassian Cloud API gateway
 
+        # Allow OpenRouter API calls
+        rsps.add_passthru("https://openrouter.ai")
+
         # Allow
         rsps.add_passthru("https://google.com")
         rsps.add_passthru("https://burgergooglenetworkspam.co.uk")

@@ -55,6 +55,9 @@ jobs:
 
       - name: Run tests
         shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           # Minimal console output, full details saved to JSON
           poetry run pytest -m "not llm" \
