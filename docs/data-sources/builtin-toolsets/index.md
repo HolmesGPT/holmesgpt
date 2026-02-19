@@ -14,25 +14,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 </div>
 
-### Kubernetes & Containers
-
-<div class="grid cards" markdown>
-
--   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)
--   [:simple-docker:{ .lg .middle } **Docker**](docker.md)
--   [:material-package:{ .lg .middle } **Helm**](helm.md)
--   [:simple-redhatopenshift:{ .lg .middle } **OpenShift**](openshift.md)
--   [:simple-kubernetes:{ .lg .middle } **KubeVela**](kubevela.md)
--   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
--   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
--   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
--   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
--   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
--   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
-
-</div>
-
-### Observability Platforms
+### Observability
 
 <div class="grid cards" markdown>
 
@@ -40,13 +22,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-newrelic:{ .lg .middle } **New Relic**](newrelic.md)
 -   [:material-chart-line:{ .lg .middle } **Coralogix**](coralogix-logs.md)
 -   [:material-robot:{ .lg .middle } **Robusta**](robusta.md)
-
-</div>
-
-### Observability Data
-
-<div class="grid cards" markdown>
-
 -   [:simple-prometheus:{ .lg .middle } **Prometheus**](prometheus.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana (MCP)**](grafana-mcp.md)
@@ -64,15 +39,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
-
-</div>
-
-### Messaging
-
-<div class="grid cards" markdown>
-
--   [:simple-apachekafka:{ .lg .middle } **Kafka**](kafka.md)
--   [:simple-rabbitmq:{ .lg .middle } **RabbitMQ**](rabbitmq.md)
 
 </div>
 
@@ -95,10 +61,30 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 </div>
 
-### Networking & Utilities
+### Kubernetes & Containers
 
 <div class="grid cards" markdown>
 
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)
+-   [:simple-docker:{ .lg .middle } **Docker**](docker.md)
+-   [:material-package:{ .lg .middle } **Helm**](helm.md)
+-   [:simple-redhatopenshift:{ .lg .middle } **OpenShift**](openshift.md)
+-   [:simple-kubernetes:{ .lg .middle } **KubeVela**](kubevela.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
+-   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
+-   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
+-   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
+-   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
+-   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
+
+</div>
+
+### Other
+
+<div class="grid cards" markdown>
+
+-   [:simple-apachekafka:{ .lg .middle } **Kafka**](kafka.md)
+-   [:simple-rabbitmq:{ .lg .middle } **RabbitMQ**](rabbitmq.md)
 -   [:material-console:{ .lg .middle } **Bash**](bash.md)
 -   [:material-network:{ .lg .middle } **Connectivity Check**](connectivity-check.md)
 -   [:material-web:{ .lg .middle } **Internet**](internet.md)
