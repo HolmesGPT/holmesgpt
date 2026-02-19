@@ -3,10 +3,6 @@ name: Run eval regression tests
 on:
   pull_request:
     branches: ["*"]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'mkdocs.yml'
   push:
     branches: [master]
   workflow_dispatch:
@@ -45,6 +41,25 @@ permissions:
   issues: write
 
 jobs:
+  # Detect docs-only PRs to skip expensive eval jobs
+  check-changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      has_code_changes: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!mkdocs.yml'
+
   # Handle /list command - outputs available eval names
   list_evals:
     runs-on: ubuntu-latest
@@ -122,12 +137,17 @@ jobs:
             });
 
   llm_evals:
+    needs: [check-changes]
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'pull_request' ||
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/rerun')))
+      !cancelled() &&
+      needs.check-changes.outputs.has_code_changes != 'false' &&
+      (
+        github.event_name == 'pull_request' ||
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/rerun')))
+      )
 
     # Serialize automated regression runs per PR to avoid race conditions on persistent comment
     # Manual runs (/eval, workflow_dispatch) get unique groups so they can run in parallel

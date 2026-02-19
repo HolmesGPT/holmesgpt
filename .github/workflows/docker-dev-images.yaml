@@ -3,10 +3,6 @@ name: Docker Build on PR
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'mkdocs.yml'
 
 # Cancel in-progress runs for the same PR
 concurrency:
@@ -14,7 +10,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      has_code_changes: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!mkdocs.yml'
+
   build:
+    needs: check-changes
+    if: needs.check-changes.outputs.has_code_changes == 'true'
     runs-on: ubuntu-latest
 
     permissions:

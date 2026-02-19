@@ -6,13 +6,28 @@ name: CLI Performance Benchmark
 on:
   pull_request:
     branches: [master]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'mkdocs.yml'
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      has_code_changes: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!mkdocs.yml'
+
   benchmark-pr:
+    needs: check-changes
+    if: needs.check-changes.outputs.has_code_changes == 'true'
     name: "Benchmark PR"
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -63,6 +78,8 @@ jobs:
           echo "startup_json=$(cat startup.json | jq -c)" >> "$GITHUB_OUTPUT"
 
   benchmark-master:
+    needs: check-changes
+    if: needs.check-changes.outputs.has_code_changes == 'true'
     name: "Benchmark Master"
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -126,7 +143,8 @@ jobs:
   compare:
     name: "Compare & Report"
     runs-on: ubuntu-latest
-    needs: [benchmark-pr, benchmark-master]
+    needs: [check-changes, benchmark-pr, benchmark-master]
+    if: needs.check-changes.outputs.has_code_changes == 'true'
     permissions:
       pull-requests: write
 
