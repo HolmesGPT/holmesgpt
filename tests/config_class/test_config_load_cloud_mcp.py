@@ -1,8 +1,8 @@
 """Tests for loading cloud provider MCP server configurations.
 
-Validates that AWS, Azure, and GCP MCP configs are correctly parsed
-from YAML and produce valid RemoteMCPToolset instances, matching the
-real loading path through ToolsetManager.
+Validates that AWS, Azure, and GCP MCP configs (stdio mode, local execution)
+are correctly parsed from YAML and produce valid RemoteMCPToolset instances,
+matching the real loading path through ToolsetManager.
 """
 
 import os
@@ -12,7 +12,7 @@ import yaml
 
 from holmes.core.tools import ToolsetType
 from holmes.plugins.toolsets import load_toolsets_from_config
-from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode, RemoteMCPToolset
+from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode, RemoteMCPToolset, StdioMCPConfig
 
 
 def _prepare_mcp_servers(mcp_servers: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -28,18 +28,24 @@ def _prepare_mcp_servers(mcp_servers: Dict[str, Dict[str, Any]]) -> Dict[str, Di
     return mcp_servers
 
 
-# --- AWS MCP config (uses legacy top-level url format) ---
+# --- AWS MCP config (stdio via uvx) ---
 
 aws_mcp_config_str = """
   aws_api:
-    url: "http://localhost:8000"
-    description: "AWS API MCP Server - comprehensive AWS service access"
+    description: "AWS API - execute AWS CLI commands for investigating infrastructure issues"
+    config:
+      mode: stdio
+      command: "uvx"
+      args: ["awslabs.aws-api-mcp-server@latest"]
+      env:
+        AWS_REGION: "us-east-1"
+        READ_OPERATIONS_ONLY: "true"
     llm_instructions: "Use this server to investigate AWS infrastructure issues."
 """
 
 
-def test_load_aws_mcp_config():
-    """AWS MCP config with top-level url (legacy format) loads correctly."""
+def test_load_aws_mcp_stdio_config():
+    """AWS MCP config with stdio mode (uvx) loads as RemoteMCPToolset."""
     mcp_servers = _prepare_mcp_servers(yaml.safe_load(aws_mcp_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
@@ -47,22 +53,43 @@ def test_load_aws_mcp_config():
     toolset = definitions[0]
     assert isinstance(toolset, RemoteMCPToolset)
     assert toolset.name == "aws_api"
-    assert toolset.description == "AWS API MCP Server - comprehensive AWS service access"
+    assert toolset.description == "AWS API - execute AWS CLI commands for investigating infrastructure issues"
     assert toolset.llm_instructions == "Use this server to investigate AWS infrastructure issues."
 
 
-# --- Azure MCP config (uses top-level url format) ---
+def test_aws_mcp_stdio_config_fields():
+    """AWS stdio config contains the correct command, args, and env."""
+    mcp_servers = _prepare_mcp_servers(yaml.safe_load(aws_mcp_config_str))
+    definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
+
+    toolset = definitions[0]
+    assert toolset.config["mode"] == "stdio"
+    assert toolset.config["command"] == "uvx"
+    assert toolset.config["args"] == ["awslabs.aws-api-mcp-server@latest"]
+    assert toolset.config["env"]["AWS_REGION"] == "us-east-1"
+    assert toolset.config["env"]["READ_OPERATIONS_ONLY"] == "true"
+    # Verify StdioMCPConfig can parse the config dict
+    parsed = StdioMCPConfig(**toolset.config)
+    assert parsed.mode == MCPMode.STDIO
+    assert parsed.command == "uvx"
+    assert parsed.args == ["awslabs.aws-api-mcp-server@latest"]
+
+
+# --- Azure MCP config (stdio via npx) ---
 
 azure_mcp_config_str = """
   azure_api:
-    url: "http://localhost:8000"
-    description: "Azure API MCP Server - comprehensive Azure service access via Azure CLI"
+    description: "Azure API - query Azure resources and investigate infrastructure issues"
+    config:
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@azure/mcp@latest", "server", "start"]
     llm_instructions: "Use this server to investigate Azure infrastructure issues."
 """
 
 
-def test_load_azure_mcp_config():
-    """Azure MCP config loads correctly."""
+def test_load_azure_mcp_stdio_config():
+    """Azure MCP config with stdio mode (npx) loads correctly."""
     mcp_servers = _prepare_mcp_servers(yaml.safe_load(azure_mcp_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
@@ -70,35 +97,63 @@ def test_load_azure_mcp_config():
     toolset = definitions[0]
     assert isinstance(toolset, RemoteMCPToolset)
     assert toolset.name == "azure_api"
-    assert toolset.description == "Azure API MCP Server - comprehensive Azure service access via Azure CLI"
+    assert toolset.config["mode"] == "stdio"
+    assert toolset.config["command"] == "npx"
+    assert toolset.config["args"] == ["-y", "@azure/mcp@latest", "server", "start"]
+    parsed = StdioMCPConfig(**toolset.config)
+    assert parsed.mode == MCPMode.STDIO
+    assert parsed.command == "npx"
 
 
-# --- GCP MCP config (uses config: section with mode: sse, three servers) ---
+def test_azure_mcp_consolidated_mode():
+    """Azure MCP config with --mode consolidated flag loads correctly."""
+    config_str = """
+      azure_api:
+        description: "Azure API - consolidated mode"
+        config:
+          mode: stdio
+          command: "npx"
+          args: ["-y", "@azure/mcp@latest", "server", "start", "--mode", "consolidated"]
+    """
+    mcp_servers = _prepare_mcp_servers(yaml.safe_load(config_str))
+    definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
+
+    assert len(definitions) == 1
+    toolset = definitions[0]
+    assert isinstance(toolset, RemoteMCPToolset)
+    assert "--mode" in toolset.config["args"]
+    assert "consolidated" in toolset.config["args"]
+
+
+# --- GCP MCP config (stdio via npx, three servers) ---
 
 gcp_mcp_config_str = """
   gcp_gcloud:
     description: "Google Cloud management via gcloud CLI"
     config:
-      url: "http://localhost:8000/sse"
-      mode: "sse"
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/gcloud-mcp"]
     llm_instructions: "Use for general GCP resource management."
   gcp_observability:
-    description: "GCP Observability - logs, metrics, traces"
+    description: "GCP Observability - Cloud Logging, Monitoring, Trace, Error Reporting"
     config:
-      url: "http://localhost:8001/sse"
-      mode: "sse"
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/observability-mcp"]
     llm_instructions: "Use for Cloud Logging, Monitoring, Trace."
   gcp_storage:
     description: "Google Cloud Storage operations"
     config:
-      url: "http://localhost:8002/sse"
-      mode: "sse"
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/storage-mcp"]
     llm_instructions: "Use for investigating Cloud Storage issues."
 """
 
 
 def test_load_gcp_mcp_config_multiple_servers():
-    """GCP MCP config with three separate servers loads correctly."""
+    """GCP MCP config with three separate stdio servers loads correctly."""
     mcp_servers = _prepare_mcp_servers(yaml.safe_load(gcp_mcp_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
@@ -111,51 +166,57 @@ def test_load_gcp_mcp_config_multiple_servers():
         assert isinstance(toolset, RemoteMCPToolset)
 
 
-def test_gcp_mcp_config_sse_mode():
-    """GCP MCP servers are configured with SSE mode.
-
-    Note: _mcp_config is populated lazily during prerequisites_callable
-    (which connects to the actual server). We verify the mode via the raw
-    config dict and by constructing MCPConfig directly.
-    """
+def test_gcp_mcp_config_stdio_mode():
+    """All GCP MCP servers use stdio mode with npx."""
     mcp_servers = _prepare_mcp_servers(yaml.safe_load(gcp_mcp_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
     for toolset in definitions:
         assert isinstance(toolset, RemoteMCPToolset)
-        assert toolset.config["mode"] == "sse"
-        parsed = MCPConfig(**toolset.config)
-        assert parsed.mode == MCPMode.SSE
+        assert toolset.config["mode"] == "stdio"
+        assert toolset.config["command"] == "npx"
+        parsed = StdioMCPConfig(**toolset.config)
+        assert parsed.mode == MCPMode.STDIO
 
 
-def test_gcp_mcp_config_urls():
-    """Each GCP MCP server has a distinct URL with the correct port."""
+def test_gcp_mcp_config_package_names():
+    """Each GCP MCP server references the correct npm package."""
     mcp_servers = _prepare_mcp_servers(yaml.safe_load(gcp_mcp_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
-    url_map = {t.name: t.config["url"] for t in definitions}
-    assert "localhost:8000" in url_map["gcp_gcloud"]
-    assert "localhost:8001" in url_map["gcp_observability"]
-    assert "localhost:8002" in url_map["gcp_storage"]
+    packages = {t.name: t.config["args"][-1] for t in definitions}
+    assert packages["gcp_gcloud"] == "@google-cloud/gcloud-mcp"
+    assert packages["gcp_observability"] == "@google-cloud/observability-mcp"
+    assert packages["gcp_storage"] == "@google-cloud/storage-mcp"
 
 
 # --- Combined multi-provider config ---
 
 multi_provider_config_str = """
   aws_api:
-    url: "http://localhost:8000"
-    description: "AWS API MCP Server"
-    llm_instructions: "Use for AWS infrastructure."
+    description: "AWS API - execute AWS CLI commands"
+    config:
+      mode: stdio
+      command: "uvx"
+      args: ["awslabs.aws-api-mcp-server@latest"]
+      env:
+        AWS_REGION: "us-east-1"
+        READ_OPERATIONS_ONLY: "true"
+    llm_instructions: "Use for investigating AWS infrastructure."
   azure_api:
-    url: "http://localhost:8001"
-    description: "Azure API MCP Server"
-    llm_instructions: "Use for Azure infrastructure."
+    description: "Azure API - query Azure resources"
+    config:
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@azure/mcp@latest", "server", "start"]
+    llm_instructions: "Use for investigating Azure infrastructure."
   gcp_gcloud:
     description: "Google Cloud management via gcloud CLI"
     config:
-      url: "http://localhost:8002/sse"
-      mode: "sse"
-    llm_instructions: "Use for GCP infrastructure."
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/gcloud-mcp"]
+    llm_instructions: "Use for investigating GCP infrastructure."
 """
 
 
@@ -170,35 +231,45 @@ def test_load_multi_provider_config():
 
     for toolset in definitions:
         assert isinstance(toolset, RemoteMCPToolset)
+        assert toolset.config["mode"] == "stdio"
         assert toolset.llm_instructions is not None
 
 
-# --- Config with headers and env var substitution ---
+def test_multi_provider_different_commands():
+    """AWS uses uvx while Azure and GCP use npx."""
+    mcp_servers = _prepare_mcp_servers(yaml.safe_load(multi_provider_config_str))
+    definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
-config_with_headers_str = """
-  cloud_api:
-    description: "Cloud API with auth headers"
+    commands = {t.name: t.config["command"] for t in definitions}
+    assert commands["aws_api"] == "uvx"
+    assert commands["azure_api"] == "npx"
+    assert commands["gcp_gcloud"] == "npx"
+
+
+# --- Config with env var substitution ---
+
+config_with_env_vars_str = """
+  aws_api:
+    description: "AWS API with profile from env"
     config:
-      url: "http://localhost:8000/mcp/messages"
-      mode: "streamable-http"
-      headers:
-        Authorization: "Bearer {{ env.CLOUD_API_KEY }}"
-        X-Custom-Header: "static-value"
+      mode: stdio
+      command: "uvx"
+      args: ["awslabs.aws-api-mcp-server@latest"]
+      env:
+        AWS_REGION: "{{ env.AWS_REGION }}"
+        AWS_API_MCP_PROFILE_NAME: "{{ env.AWS_PROFILE }}"
+        READ_OPERATIONS_ONLY: "true"
 """
 
 
-def test_mcp_config_with_env_var_headers():
-    """MCP config with environment variable substitution in headers.
-
-    Environment variables in headers are resolved during config loading
-    (via replace_env_vars_values), so the resolved values end up in the
-    raw config dict.
-    """
+def test_mcp_stdio_config_with_env_var_substitution():
+    """Environment variables in stdio config env section are resolved."""
     original_env = os.environ.copy()
     try:
-        os.environ["CLOUD_API_KEY"] = "test-secret-key-123"
+        os.environ["AWS_REGION"] = "eu-west-1"
+        os.environ["AWS_PROFILE"] = "production"
 
-        mcp_servers = _prepare_mcp_servers(yaml.safe_load(config_with_headers_str))
+        mcp_servers = _prepare_mcp_servers(yaml.safe_load(config_with_env_vars_str))
         definitions = load_toolsets_from_config(
             toolsets=mcp_servers, strict_check=False
         )
@@ -206,14 +277,9 @@ def test_mcp_config_with_env_var_headers():
         assert len(definitions) == 1
         toolset = definitions[0]
         assert isinstance(toolset, RemoteMCPToolset)
-        assert toolset.config is not None
-        assert toolset.config["mode"] == "streamable-http"
-        assert toolset.config["headers"]["Authorization"] == "Bearer test-secret-key-123"
-        assert toolset.config["headers"]["X-Custom-Header"] == "static-value"
-        # Verify MCPConfig can parse the resolved config
-        parsed = MCPConfig(**toolset.config)
-        assert parsed.mode == MCPMode.STREAMABLE_HTTP
-        assert parsed.headers["Authorization"] == "Bearer test-secret-key-123"
+        assert toolset.config["env"]["AWS_REGION"] == "eu-west-1"
+        assert toolset.config["env"]["AWS_API_MCP_PROFILE_NAME"] == "production"
+        assert toolset.config["env"]["READ_OPERATIONS_ONLY"] == "true"
     finally:
         os.environ.clear()
         os.environ.update(original_env)
@@ -223,8 +289,11 @@ def test_mcp_config_with_env_var_headers():
 
 config_with_instructions_str = """
   aws_api:
-    url: "http://localhost:8000"
     description: "AWS API MCP Server"
+    config:
+      mode: stdio
+      command: "uvx"
+      args: ["awslabs.aws-api-mcp-server@latest"]
     llm_instructions: |
       IMPORTANT: When investigating AWS issues, always:
       1. Gather current resource state

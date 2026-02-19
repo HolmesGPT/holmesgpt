@@ -1,44 +1,54 @@
 # Cloud Provider MCPs (CLI)
 
-Use HolmesGPT CLI with AWS, Azure, and GCP MCP servers to investigate cloud infrastructure issues from your terminal.
+Use HolmesGPT CLI with AWS, Azure, and GCP MCP servers running locally on your machine -- no Kubernetes cluster required.
 
 ## How It Works
 
-Each cloud provider has an MCP server that runs as a pod in a Kubernetes cluster. Holmes CLI connects to these servers over HTTP to query cloud APIs. Even when running Holmes locally, the MCP servers must be deployed to a cluster - they handle authentication via cloud-native mechanisms (IRSA, Workload Identity, etc.).
+Each cloud provider publishes an official MCP server that runs as a local subprocess. Holmes launches these servers automatically via stdio and communicates with them directly. Authentication uses your existing cloud CLI credentials (`aws`, `az`, `gcloud`).
 
 ```
-┌──────────────┐     HTTP      ┌─────────────────────┐      API       ┌───────────┐
-│  Holmes CLI  │ ─────────────>│  MCP Server (K8s)   │ ──────────────>│ Cloud API │
-│  (local)     │  port-forward │  (handles auth)     │  IRSA/WI/SA   │           │
-└──────────────┘               └─────────────────────┘                └───────────┘
+┌──────────────┐     stdio     ┌──────────────────┐      API       ┌───────────┐
+│  Holmes CLI  │ ─────────────>│  MCP Server      │ ──────────────>│ Cloud API │
+│              │  (subprocess) │  (local process)  │  CLI creds    │           │
+└──────────────┘               └──────────────────┘                └───────────┘
 ```
 
 ## Prerequisites
 
 - HolmesGPT CLI installed ([installation guide](../installation/cli-installation.md))
 - An AI provider API key configured ([setup guide](../ai-providers/index.md))
-- `kubectl` access to a Kubernetes cluster
-- Cloud provider CLI (`aws`, `az`, or `gcloud`) for IAM setup
 
 ## AWS
 
-**Step 1: Set up IAM and deploy the MCP server**
+The [official AWS MCP server](https://github.com/awslabs/mcp) runs via `uvx` (requires [uv](https://docs.astral.sh/uv/getting-started/installation/)).
 
-Follow the [AWS (MCP) setup guide](../data-sources/builtin-toolsets/aws.md#single-account-setup) - complete Step 1 (IAM) and the "Holmes CLI" tab of Step 2 (deploy).
-
-**Step 2: Port-forward the MCP server**
+**Step 1: Authenticate**
 
 ```bash
-kubectl port-forward -n holmes-mcp svc/aws-mcp-server 8000:8000
+# Option A: Use an existing AWS profile
+aws sts get-caller-identity --profile your-profile
+
+# Option B: Set credentials directly
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=us-east-1
 ```
 
-**Step 3: Add to `~/.holmes/config.yaml`**
+**Step 2: Add to `~/.holmes/config.yaml`**
 
 ```yaml
 mcp_servers:
   aws_api:
-    description: "AWS API MCP Server"
-    url: "http://localhost:8000"
+    description: "AWS API - execute AWS CLI commands for investigating infrastructure issues"
+    config:
+      mode: stdio
+      command: "uvx"
+      args: ["awslabs.aws-api-mcp-server@latest"]
+      env:
+        AWS_REGION: "us-east-1"
+        READ_OPERATIONS_ONLY: "true"
+        # Uncomment to use a specific profile:
+        # AWS_API_MCP_PROFILE_NAME: "your-profile"
     llm_instructions: |
       Use this server to investigate AWS infrastructure issues.
       Always gather current state, check CloudTrail for recent changes,
@@ -46,7 +56,7 @@ mcp_servers:
       Never tell the user to check the AWS console - query it yourself.
 ```
 
-**Step 4: Test it**
+**Step 3: Test it**
 
 ```bash
 holmes ask "List my EC2 instances and their current status"
@@ -54,31 +64,50 @@ holmes ask "List my EC2 instances and their current status"
 
 ## Azure
 
-**Step 1: Deploy the MCP server and configure authentication**
+The [official Azure MCP server](https://github.com/microsoft/mcp) runs via `npx` (requires Node.js 20+).
 
-Follow the [Azure (MCP) setup guide](../data-sources/builtin-toolsets/azure-mcp.md) - complete the "Holmes CLI" tab under Configuration.
-
-**Step 2: Port-forward the MCP server**
+**Step 1: Authenticate**
 
 ```bash
-kubectl port-forward -n holmes-mcp svc/azure-mcp-server 8000:8000
+az login
+az account show  # verify correct subscription
 ```
 
-**Step 3: Add to `~/.holmes/config.yaml`**
+**Step 2: Add to `~/.holmes/config.yaml`**
 
 ```yaml
 mcp_servers:
   azure_api:
-    description: "Azure API MCP Server"
-    url: "http://localhost:8000"
+    description: "Azure API - query Azure resources and investigate infrastructure issues"
+    config:
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@azure/mcp@latest", "server", "start"]
     llm_instructions: |
       Use this server to investigate Azure infrastructure issues.
-      Always gather current state via Azure CLI commands, check Activity Log
-      for recent changes, and collect Azure Monitor data before providing conclusions.
+      Always gather current state, check Activity Log for recent changes,
+      and collect Azure Monitor data before providing conclusions.
       Never tell the user to check the Azure portal - query it yourself.
 ```
 
-**Step 4: Test it**
+??? info "Server modes"
+    The Azure MCP server supports different modes that control how many tools are exposed:
+
+    - **Default (namespace mode)**: one tool per Azure service namespace
+    - **Consolidated mode** (recommended): curated tools grouped by user intent
+    - **All mode**: exposes 200+ individual tools
+
+    To use consolidated mode, change the args:
+    ```yaml
+    args: ["-y", "@azure/mcp@latest", "server", "start", "--mode", "consolidated"]
+    ```
+
+    To limit to specific services:
+    ```yaml
+    args: ["-y", "@azure/mcp@latest", "server", "start", "--namespace", "compute", "--namespace", "network"]
+    ```
+
+**Step 3: Test it**
 
 ```bash
 holmes ask "List all resource groups in my Azure subscription"
@@ -86,49 +115,51 @@ holmes ask "List all resource groups in my Azure subscription"
 
 ## GCP
 
-GCP uses three specialized MCP servers: gcloud (general CLI), observability (logs, metrics, traces), and storage.
+Google publishes [multiple MCP servers](https://github.com/googleapis/gcloud-mcp) via `npx` (requires Node.js). The main one covers general gcloud CLI operations; additional servers cover observability and storage.
 
-**Step 1: Create a GCP service account and deploy the MCP servers**
-
-Follow the [GCP (MCP) setup guide](../data-sources/builtin-toolsets/gcp.md#service-account-key) - complete the "Holmes CLI" tab.
-
-**Step 2: Port-forward all three servers**
+**Step 1: Authenticate**
 
 ```bash
-kubectl port-forward -n holmes-mcp svc/gcp-mcp-server 8000:8000 8001:8001 8002:8002
+gcloud auth login
+gcloud auth application-default login
 ```
 
-**Step 3: Add to `~/.holmes/config.yaml`**
+**Step 2: Add to `~/.holmes/config.yaml`**
 
 ```yaml
 mcp_servers:
   gcp_gcloud:
     description: "Google Cloud management via gcloud CLI"
     config:
-      url: "http://localhost:8000/sse"
-      mode: "sse"
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/gcloud-mcp"]
     llm_instructions: |
       Use for general GCP resource management and investigation.
       Query compute instances, networking, IAM, and audit logs.
   gcp_observability:
-    description: "GCP Observability - logs, metrics, traces"
+    description: "GCP Observability - Cloud Logging, Monitoring, Trace, Error Reporting"
     config:
-      url: "http://localhost:8001/sse"
-      mode: "sse"
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/observability-mcp"]
     llm_instructions: |
       Use for Cloud Logging, Monitoring, Trace, and Error Reporting.
       Can retrieve historical logs for deleted Kubernetes resources.
   gcp_storage:
     description: "Google Cloud Storage operations"
     config:
-      url: "http://localhost:8002/sse"
-      mode: "sse"
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/storage-mcp"]
     llm_instructions: |
       Use for investigating Cloud Storage bucket issues,
       access permissions, and object operations.
 ```
 
-**Step 4: Test it**
+You can use all three servers together or pick only the ones you need.
+
+**Step 3: Test it**
 
 ```bash
 holmes ask "List all GKE clusters in my project"
@@ -141,18 +172,28 @@ You can configure all three providers simultaneously. Holmes will choose the rig
 ```yaml
 mcp_servers:
   aws_api:
-    description: "AWS API MCP Server"
-    url: "http://localhost:8000"
+    description: "AWS API - execute AWS CLI commands"
+    config:
+      mode: stdio
+      command: "uvx"
+      args: ["awslabs.aws-api-mcp-server@latest"]
+      env:
+        AWS_REGION: "us-east-1"
+        READ_OPERATIONS_ONLY: "true"
     llm_instructions: "Use for investigating AWS infrastructure."
   azure_api:
-    description: "Azure API MCP Server"
-    url: "http://localhost:8001"
+    description: "Azure API - query Azure resources"
+    config:
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@azure/mcp@latest", "server", "start"]
     llm_instructions: "Use for investigating Azure infrastructure."
   gcp_gcloud:
     description: "Google Cloud management via gcloud CLI"
     config:
-      url: "http://localhost:8002/sse"
-      mode: "sse"
+      mode: stdio
+      command: "npx"
+      args: ["-y", "@google-cloud/gcloud-mcp"]
     llm_instructions: "Use for investigating GCP infrastructure."
 ```
 
@@ -170,21 +211,27 @@ holmes ask "Show me logs from the payment-service pod that was OOMKilled"
 ## Troubleshooting
 
 ```bash
-# Verify MCP server pods are running
-kubectl get pods -n holmes-mcp
+# Verify uvx is installed (for AWS)
+uvx --version
 
-# Check MCP server logs for errors
-kubectl logs -n holmes-mcp -l app=aws-mcp-server
-kubectl logs -n holmes-mcp -l app=azure-mcp-server
-kubectl logs -n holmes-mcp deployment/gcp-mcp-server --all-containers
+# Verify npx is installed (for Azure, GCP)
+npx --version
 
-# Test connectivity from your machine (with port-forward active)
-curl http://localhost:8000/health
+# Test AWS MCP server directly
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test"}}}' | AWS_REGION=us-east-1 READ_OPERATIONS_ONLY=true uvx awslabs.aws-api-mcp-server@latest
+
+# Test Azure MCP server directly
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test"}}}' | npx -y @azure/mcp@latest server start
+
+# Verify cloud CLI authentication
+aws sts get-caller-identity        # AWS
+az account show                    # Azure
+gcloud auth list                   # GCP
 ```
 
 ## What's Next?
 
-- **[AWS (MCP)](../data-sources/builtin-toolsets/aws.md)** - Full setup reference including multi-account support
-- **[Azure (MCP)](../data-sources/builtin-toolsets/azure-mcp.md)** - Full setup reference including all auth methods
-- **[GCP (MCP)](../data-sources/builtin-toolsets/gcp.md)** - Full setup reference including Workload Identity
+- **[AWS (MCP)](../data-sources/builtin-toolsets/aws.md)** - Kubernetes deployment and multi-account support
+- **[Azure (MCP)](../data-sources/builtin-toolsets/azure-mcp.md)** - Kubernetes deployment and all auth methods
+- **[GCP (MCP)](../data-sources/builtin-toolsets/gcp.md)** - Kubernetes deployment and Workload Identity
 - **[MCP Servers](../data-sources/remote-mcp-servers.md)** - General MCP server configuration reference
