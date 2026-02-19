@@ -1,5 +1,0 @@
-toolsets:
-  prometheus/metrics:
-    enabled: true
-    config:
-      prometheus_url: http://localhost:11162
