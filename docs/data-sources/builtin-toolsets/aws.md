@@ -220,6 +220,35 @@ Choose your installation method:
             READ_OPERATIONS_ONLY: "true"
             # Uncomment to use a specific AWS profile:
             # AWS_API_MCP_PROFILE_NAME: "your-profile"
+        llm_instructions: |
+          IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
+
+          ## Investigation Principles
+
+          **ALWAYS follow this investigation flow:**
+          1. First, gather current state and configuration using AWS APIs
+          2. Check CloudTrail for recent changes that might have caused the issue
+          3. Collect metrics and logs from CloudWatch if available
+          4. Analyze all gathered data before providing conclusions
+
+          **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
+
+          ## Core Investigation Patterns
+
+          ### For ANY connectivity or access issues:
+          1. ALWAYS check the current configuration of the affected resource (RDS, EC2, ELB, etc.)
+          2. ALWAYS examine security groups and network ACLs
+          3. ALWAYS query CloudTrail for recent configuration changes
+          4. Look for patterns in timing between when issues started and when changes were made
+
+          ### When investigating database issues (RDS):
+          - Get RDS instance status and configuration: `aws rds describe-db-instances --db-instance-identifier INSTANCE_ID`
+          - Check security groups attached to RDS: Extract VpcSecurityGroups from the above
+          - Examine security group rules: `aws ec2 describe-security-groups --group-ids SG_ID`
+          - Look for recent RDS events: `aws rds describe-events --source-identifier INSTANCE_ID --source-type db-instance`
+          - Check CloudTrail for security group modifications: `aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue=SG_ID`
+
+          Remember: Your goal is to gather evidence from AWS, not to instruct the user to gather it. Use the MCP server proactively to build a complete picture of what happened.
     ```
 
     **Step 2c: Test it**

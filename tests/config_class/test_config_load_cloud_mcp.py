@@ -40,6 +40,11 @@ aws_mcp_config_str = """
       env:
         AWS_REGION: "us-east-1"
         READ_OPERATIONS_ONLY: "true"
+    llm_instructions: |
+      IMPORTANT: When investigating AWS issues, always:
+      1. Gather current resource state
+      2. Check CloudTrail for recent changes
+      3. Collect CloudWatch metrics
 """
 
 
@@ -53,6 +58,7 @@ def test_load_aws_mcp_stdio_config():
     assert isinstance(toolset, RemoteMCPToolset)
     assert toolset.name == "aws_api"
     assert toolset.description == "AWS API - execute AWS CLI commands for investigating infrastructure issues"
+    assert "CloudTrail" in toolset.llm_instructions
 
 
 def test_aws_mcp_stdio_config_fields():
@@ -82,6 +88,11 @@ azure_mcp_config_str = """
       mode: stdio
       command: "npx"
       args: ["-y", "@azure/mcp@latest", "server", "start"]
+    llm_instructions: |
+      IMPORTANT: When investigating Azure issues, always:
+      1. Gather current state using Azure CLI commands
+      2. Check Activity Log for recent changes
+      3. Collect Azure Monitor metrics
 """
 
 
@@ -196,12 +207,14 @@ multi_provider_config_str = """
       env:
         AWS_REGION: "us-east-1"
         READ_OPERATIONS_ONLY: "true"
+    llm_instructions: "Use for investigating AWS infrastructure."
   azure_api:
     description: "Azure API - query Azure resources"
     config:
       mode: stdio
       command: "npx"
       args: ["-y", "@azure/mcp@latest", "server", "start"]
+    llm_instructions: "Use for investigating Azure infrastructure."
   gcp_gcloud:
     description: "Google Cloud management via gcloud CLI"
     config:
@@ -223,6 +236,12 @@ def test_load_multi_provider_config():
     for toolset in definitions:
         assert isinstance(toolset, RemoteMCPToolset)
         assert toolset.config["mode"] == "stdio"
+
+    # AWS and Azure have llm_instructions, GCP does not
+    by_name = {t.name: t for t in definitions}
+    assert by_name["aws_api"].llm_instructions is not None
+    assert by_name["azure_api"].llm_instructions is not None
+    assert by_name["gcp_gcloud"].llm_instructions is None
 
 
 def test_multi_provider_different_commands():
@@ -273,4 +292,20 @@ def test_mcp_stdio_config_with_env_var_substitution():
     finally:
         os.environ.clear()
         os.environ.update(original_env)
+
+
+# --- Multiline llm_instructions preservation ---
+
+
+def test_mcp_config_preserves_multiline_llm_instructions():
+    """Multi-line llm_instructions are preserved in the loaded config."""
+    mcp_servers = _prepare_mcp_servers(yaml.safe_load(aws_mcp_config_str))
+    definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
+
+    assert len(definitions) == 1
+    toolset = definitions[0]
+    assert isinstance(toolset, RemoteMCPToolset)
+    assert "CloudTrail" in toolset.llm_instructions
+    assert "CloudWatch" in toolset.llm_instructions
+    assert "1. Gather current resource state" in toolset.llm_instructions
 
