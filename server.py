@@ -565,21 +565,11 @@ def main():
         "%(asctime)s %(levelname)-8s %(message)s"
     )
 
-    # Run startup sync and toolset refresh in a background thread so the HTTP
-    # server starts immediately and can respond to liveness/readiness probes.
-    # Without this, sync_before_server_start() blocks for 16+ seconds (loading
-    # toolsets, importing kubernetes, checking prerequisites via network I/O),
-    # which can cause Kubernetes liveness probe failures and container restarts.
-    def _background_startup():
-        sync_before_server_start()
-        _toolset_status_refresh_loop()
+    # Sync before server start
+    sync_before_server_start()
+    _toolset_status_refresh_loop()
 
-    startup_thread = threading.Thread(
-        target=_background_startup, daemon=True, name="startup-sync"
-    )
-    startup_thread.start()
-
-    # Start server immediately
+    # Start server
     uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
 
 
