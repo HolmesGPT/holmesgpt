@@ -3,8 +3,10 @@ name: Run eval regression tests
 on:
   pull_request:
     branches: ["*"]
-  push:
-    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'mkdocs.yml'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -121,7 +123,6 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'pull_request' ||
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/eval') || startsWith(github.event.comment.body, '/rerun')))
 
