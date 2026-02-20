@@ -1,21 +1,16 @@
 # Azure (MCP)
 
-The Azure MCP server provides comprehensive access to Azure services through the Azure CLI. It enables Holmes to investigate Azure infrastructure issues, analyze Activity Log events, examine network configurations, troubleshoot AKS clusters, investigate database issues, and much more.
+The Azure MCP server gives Holmes **read-only access to any Azure API** you permit via RBAC. This means Holmes can query VMs, AKS, SQL databases, Activity Log, Azure Monitor, networking, storage, and hundreds of other Azure services - limited only by the roles you assign.
 
 ## Overview
 
-The Azure MCP server is deployed as a separate pod in your cluster when using the Holmes or Robusta Helm charts. For CLI users, you'll need to deploy the MCP server manually and configure Holmes to connect to it.
+The Azure MCP server runs as a pod in your Kubernetes cluster.
 
-The server runs in your Kubernetes cluster and can investigate both Azure infrastructure and AKS-hosted workloads. It supports multiple authentication methods including Workload Identity (recommended for AKS), Service Principal, and Managed Identity.
+- **Helm users**: The pod is deployed automatically when you enable the addon
+- **CLI users**: You deploy the pod manually to your cluster, then point Holmes at it
 
-## Prerequisites
-
-Before deploying the Azure MCP server, ensure you have:
-
-- An Azure subscription with appropriate permissions
-- For AKS clusters: Workload Identity or Managed Identity configured (recommended)
-- For Service Principal auth: Client ID and Client Secret
-- Azure RBAC roles assigned based on your investigation needs (see IAM Configuration below)
+!!! note
+    Even when using Holmes CLI locally, the Azure MCP server must run in a Kubernetes cluster. Local-only deployment is not currently supported.
 
 ## Configuration
 
@@ -413,32 +408,17 @@ Before deploying the Azure MCP server, ensure you have:
 
 ### Azure RBAC Roles
 
-The Azure MCP server requires appropriate Azure RBAC roles to investigate resources. The specific roles depend on what you want Holmes to investigate:
+Assign roles based on what you want Holmes to investigate. At minimum, assign **Reader** on the subscription. For broader investigations, add more roles:
 
-**Recommended Roles for Common Scenarios:**
-
-- **Read-Only Investigation (Minimum):**
-  - Reader role on the subscription or specific resource groups
-  - Provides read access to all resources but cannot make changes
-
-- **AKS Troubleshooting:**
-  - Reader role for general AKS investigation
-  - Azure Kubernetes Service Cluster User Role (for kubectl access via az aks get-credentials)
-  - Log Analytics Reader (if using Container Insights)
-
-- **Network Investigation:**
-  - Reader role
-  - Network Contributor (if you need to run network diagnostics)
-
-- **Comprehensive Investigation:**
-  - Reader role on subscription
-  - Log Analytics Reader
-  - Monitoring Reader
-  - Cost Management Reader (for cost analysis)
+| Role | Purpose |
+|------|---------|
+| Reader | Read-only access to all resources (minimum) |
+| Azure Kubernetes Service Cluster User Role | kubectl access via `az aks get-credentials` |
+| Log Analytics Reader | Container Insights and Azure Monitor logs |
+| Monitoring Reader | Azure Monitor metrics |
+| Cost Management Reader | Cost analysis |
 
 **Setup Script:**
-
-For Workload Identity setup with appropriate roles, use the helper script:
 
 ```bash
 curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/azure/setup-workload-identity.sh
@@ -446,6 +426,7 @@ bash setup-workload-identity.sh
 ```
 
 This script will:
+
 1. Create a managed identity
 2. Assign appropriate RBAC roles
 3. Configure federated identity credentials
@@ -475,41 +456,9 @@ az role assignment create \
 
 ### Multi-Subscription Access
 
-The Azure MCP server can query across multiple subscriptions within the same tenant:
+Holmes can automatically discover and switch between subscriptions within the same tenant. Just ensure your identity has the appropriate roles in each subscription.
 
-```bash
-# List all accessible subscriptions
-az account list --output table
-
-# Switch subscription context
-az account set --subscription "subscription-name-or-id"
-
-# Query specific subscription
-az vm list --subscription "subscription-id"
-```
-
-Holmes can automatically discover and switch between subscriptions during investigations.
-
-## Testing the Connection
-
-After deploying the Azure MCP server, verify it's working:
-
-```bash
-# Check pod status
-kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
-
-# Check logs
-kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
-
-# Health check
-kubectl port-forward -n YOUR_NAMESPACE svc/RELEASE_NAME-azure-mcp-server 8000:8000
-curl http://localhost:8000/health
-
-# Ask Holmes
-holmes ask "Can you list all resource groups in my Azure subscription?"
-```
-
-## Common Use Cases
+## Example Usage
 
 ```
 "Pods in namespace production can't reach Azure SQL database"
@@ -529,6 +478,25 @@ holmes ask "Can you list all resource groups in my Azure subscription?"
 
 ```
 "Our Azure costs increased 50% last week"
+```
+
+## Testing the Connection
+
+After deploying the Azure MCP server, verify it's working:
+
+```bash
+# Check pod status
+kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
+
+# Check logs
+kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=azure-mcp-server
+
+# Health check
+kubectl port-forward -n YOUR_NAMESPACE svc/RELEASE_NAME-azure-mcp-server 8000:8000
+curl http://localhost:8000/health
+
+# Ask Holmes
+holmes ask "Can you list all resource groups in my Azure subscription?"
 ```
 
 ## Troubleshooting
