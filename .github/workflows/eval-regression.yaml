@@ -3,6 +3,7 @@ name: Run eval regression tests
 on:
   pull_request:
     branches: ["*"]
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
@@ -170,7 +171,7 @@ jobs:
                   issue_number: context.issue.number,
                   body: '⚠️ `/eval` and `/rerun` on fork PRs require explicit trust confirmation.\n\n' +
                         'Running evals grants the fork code access to secrets. If you\'ve reviewed the code, add `trusted: true`:\n\n' +
-                        '```\n/eval\ntrusted: true\nmarkers: regression\n```\n\n' +
+                        '```\n/eval\ntrusted: true\ntags: regression\n```\n\n' +
                         'Or use `workflow_dispatch` with `is_pr_trusted: true` from the Actions UI.'
                 });
                 core.setFailed('Fork PRs require trusted: true to run /eval or /rerun');
@@ -275,7 +276,7 @@ jobs:
             const patterns = {
               model: /^[a-zA-Z0-9_.,:\/-]*$/,
               markers: /^[a-zA-Z0-9_\- ()]*$/,
-              filter: /^[a-zA-Z0-9_\-]*$/,
+              filter: /^[a-zA-Z0-9_\- ]*$/,
               iterations: /^[0-9]+$/,
               pr_number: /^[0-9]*$/,
               branch: /^[a-zA-Z0-9_.\/-]*$/
@@ -293,8 +294,8 @@ jobs:
             function parseComment(body) {
               const params = { model: '', markers: '', filter: '', iterations: '1', branch: '' };
               const validKeys = new Set(Object.keys(params));
-              // Aliases: marker -> markers, filters -> filter
-              const keyAliases = { marker: 'markers', filters: 'filter' };
+              // Aliases: tag/tags -> markers (preferred), marker -> markers (legacy), filters -> filter
+              const keyAliases = { tag: 'markers', tags: 'markers', marker: 'markers', filters: 'filter' };
               for (const line of body.split('\n').slice(1)) {
                 const colonIdx = line.indexOf(':');
                 if (colonIdx === -1) continue;
@@ -406,12 +407,47 @@ jobs:
               isManual = false;
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
               triggeredBy = '';
+
+              // Parse PR labels for evals-tag-* and evals-id-* to augment the regression run
+              if (event === 'pull_request' && context.payload.pull_request.labels) {
+                const labelSafe = /^[a-zA-Z0-9_\-]+$/;
+                const labels = context.payload.pull_request.labels.map(l => l.name);
+                const tagLabels = labels
+                  .filter(n => n.startsWith('evals-tag-'))
+                  .map(n => n.replace('evals-tag-', ''))
+                  .filter(n => labelSafe.test(n));
+                const idLabels = labels
+                  .filter(n => n.startsWith('evals-id-'))
+                  .map(n => n.replace('evals-id-', ''))
+                  .filter(n => labelSafe.test(n));
+
+                if (idLabels.length > 0 && tagLabels.length === 0) {
+                  // Only IDs specified: broaden markers to all LLM tests, filter by ID
+                  markers = '';
+                  filter = idLabels.join(' or ');
+                } else if (tagLabels.length > 0 && idLabels.length === 0) {
+                  // Only tags specified: add to regression markers
+                  markers = 'regression or ' + tagLabels.join(' or ');
+                } else if (tagLabels.length > 0 && idLabels.length > 0) {
+                  // Both specified: use tag markers + ID filter
+                  markers = 'regression or ' + tagLabels.join(' or ');
+                  filter = idLabels.join(' or ');
+                }
+                // else: no evals-* labels, keep defaults (markers = 'regression')
+              }
+
               // Build descriptive trigger source for automatic runs
               if (event === 'pull_request') {
                 const sha = context.payload.pull_request.head.sha.substring(0, 7);
                 const prBranch = context.payload.pull_request.head.ref;
                 displayBranch = prBranch;
-                triggerSource = `commit ${sha} on branch \`${prBranch}\``;
+                // Only display labels that pass the safe character check (reuse labelSafe from above)
+                const displayLabelSafe = /^[a-zA-Z0-9_\-]+$/;
+                const evalLabels = (context.payload.pull_request.labels || [])
+                  .map(l => l.name)
+                  .filter(n => n.startsWith('evals-') && displayLabelSafe.test(n));
+                const labelSuffix = evalLabels.length > 0 ? ` (labels: ${evalLabels.map(l => '\`' + l + '\`').join(', ')})` : '';
+                triggerSource = `commit ${sha} on branch \`${prBranch}\`` + labelSuffix;
               } else if (event === 'push') {
                 const sha = context.sha.substring(0, 7);
                 const pushBranch = context.ref.replace('refs/heads/', '');
