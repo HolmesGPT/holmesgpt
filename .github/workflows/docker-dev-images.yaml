@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'mkdocs.yml'
       - '.github/**'
 
 # Cancel in-progress runs for the same PR
@@ -12,33 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-changes:
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-    outputs:
-      has_code_changes: ${{ steps.check.outputs.has_code_changes }}
-    steps:
-      - id: check
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-            });
-            const hasCodeChanges = files.some(f =>
-              !f.filename.startsWith('docs/') &&
-              !f.filename.endsWith('.md') &&
-              f.filename !== 'mkdocs.yml' &&
-              !f.filename.startsWith('.github/')
-            );
-            core.setOutput('has_code_changes', hasCodeChanges.toString());
-
   build:
-    needs: check-changes
-    if: needs.check-changes.outputs.has_code_changes == 'true'
     runs-on: ubuntu-latest
 
     permissions:
