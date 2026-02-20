@@ -82,7 +82,7 @@ make test-without-llm
 make test-llm-ask-holmes
 ```
 
-### 7. Run pre-commit checks (optional)
+### 6. Run pre-commit checks (optional)
 
 Pre-commit hooks run automatically in CI, so you don't need to run them locally unless you want to verify your changes first. If running locally, you'll need Python 3.11 available on your system (even if your project uses Python 3.14):
 
