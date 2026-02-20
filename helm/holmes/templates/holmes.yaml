@@ -59,7 +59,7 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
-          failureThreshold: 3
+          failureThreshold: 10
         readinessProbe:
           httpGet:
             path: /readyz
