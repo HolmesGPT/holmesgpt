@@ -26,12 +26,23 @@ jobs:
     - name: Compute dev version from git
       id: dev_version
       run: |
-        # Produces e.g. "0.5.2-3-ga1b2c3f" (last release tag + commits since + short hash)
-        VERSION=$(git describe --tags --always 2>/dev/null || echo "0.0.0-unknown")
-        # Strip leading 'v' if present (e.g. v0.5.2 -> 0.5.2)
-        VERSION="${VERSION#v}"
+        # Get the last release tag (e.g. "0.5.2" or "v0.5.2")
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+        TAG="${TAG#v}"
+
+        # Parse semver components and bump patch
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG"
+        NEXT_PATCH=$((PATCH + 1))
+
+        # Commits since last tag and short hash
+        COUNT=$(git rev-list "${TAG}..HEAD" --count 2>/dev/null || echo "0")
+        HASH=$(git rev-parse --short HEAD)
+
+        # Strict semver: greater than last release, lower than next release
+        # e.g. 0.5.3-dev.3+a1b2c3f  (0.5.2 < this < 0.5.3)
+        VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-dev.${COUNT}+${HASH}"
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
-        echo "Dev version: ${VERSION}"
+        echo "Dev version: ${VERSION} (based on tag ${TAG})"
 
     - name: Patch __version__ for dev build
       run: |
