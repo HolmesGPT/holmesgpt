@@ -7,7 +7,6 @@ on:
       - 'docs/**'
       - '**/*.md'
       - 'mkdocs.yml'
-      - '.github/**'
 
 # Cancel in-progress runs for the same PR
 concurrency:

@@ -10,7 +10,6 @@ on:
       - 'docs/**'
       - '**/*.md'
       - 'mkdocs.yml'
-      - '.github/**'
 
 jobs:
   benchmark-pr:
