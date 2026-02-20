@@ -109,4 +109,9 @@ holmes ask "what pods are failing?" --model="azure/<your-deployment-name>" --api
 
 ## Additional Resources
 
-HolmesGPT uses the LiteLLM API to support Azure OpenAI provider. Refer to [LiteLLM Azure docs](https://litellm.vercel.app/docs/providers/azure){:target="_blank"} for more details.
+HolmesGPT uses the LiteLLM API to support Azure OpenAI provider. For advanced authentication methods (Azure AD, Managed Identity, Workload Identity, Service Principal), refer to:
+
+- [LiteLLM Azure OpenAI docs](https://litellm.vercel.app/docs/providers/azure){:target="_blank"}
+- [LiteLLM OIDC docs](https://docs.litellm.ai/docs/oidc){:target="_blank"} - For Workload Identity and Managed Identity authentication
+- [LiteLLM Azure AD Token support (PR #3861)](https://github.com/BerriAI/litellm/pull/3861){:target="_blank"} - AKS Workload Identity OIDC support
+- [LiteLLM Azure Service Principal (PR #5131)](https://github.com/BerriAI/litellm/pull/5131){:target="_blank"} - Service Principal with client credentials

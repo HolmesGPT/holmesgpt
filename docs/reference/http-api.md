@@ -131,6 +131,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 **Example without Structured Output:**
 
 ```bash
+<!-- test: status=200, has_fields=analysis|conversation_history, id=chat_basic -->
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -362,6 +363,7 @@ data: {"sections": {"Alert Explanation": ...}}
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=analysis|conversation_history, id=issue_chat_basic -->
 curl -X POST http://<HOLMES-URL>/api/issue_chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -398,6 +400,7 @@ curl -X POST http://<HOLMES-URL>/api/issue_chat \
 
 **Example**
 ```bash
+<!-- test: status=200, has_fields=model_name, id=model_list -->
 curl http://<HOLMES-URL>/api/model
 ```
 
