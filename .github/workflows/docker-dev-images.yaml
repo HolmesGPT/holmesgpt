@@ -24,6 +24,33 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history so git describe can find the latest release tag
+
+    - name: Compute dev version from git
+      id: dev_version
+      run: |
+        # Get the last release tag (e.g. "0.5.2" or "v0.5.2")
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+        TAG="${TAG#v}"
+
+        # Parse semver components and bump patch
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG"
+        NEXT_PATCH=$((PATCH + 1))
+
+        # Commits since last tag and short hash
+        COUNT=$(git rev-list "${TAG}..HEAD" --count 2>/dev/null || echo "0")
+        HASH=$(git rev-parse --short HEAD)
+
+        # Strict semver: greater than last release, lower than next release
+        # e.g. 0.5.3-dev.3+a1b2c3f  (0.5.2 < this < 0.5.3)
+        VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-dev.${COUNT}+${HASH}"
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Dev version: ${VERSION} (based on tag ${TAG})"
+
+    - name: Patch __version__ for dev build
+      run: |
+        sed -i 's/__version__ = .*/__version__ = "${{ steps.dev_version.outputs.version }}"/g' holmes/__init__.py
 
     - name: Check if PR is from fork
       id: fork_check
