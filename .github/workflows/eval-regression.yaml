@@ -441,8 +441,11 @@ jobs:
                 const sha = context.payload.pull_request.head.sha.substring(0, 7);
                 const prBranch = context.payload.pull_request.head.ref;
                 displayBranch = prBranch;
-                const labels = (context.payload.pull_request.labels || []).map(l => l.name);
-                const evalLabels = labels.filter(n => n.startsWith('evals-'));
+                // Only display labels that pass the safe character check (reuse labelSafe from above)
+                const displayLabelSafe = /^[a-zA-Z0-9_\-]+$/;
+                const evalLabels = (context.payload.pull_request.labels || [])
+                  .map(l => l.name)
+                  .filter(n => n.startsWith('evals-') && displayLabelSafe.test(n));
                 const labelSuffix = evalLabels.length > 0 ? ` (labels: ${evalLabels.map(l => '\`' + l + '\`').join(', ')})` : '';
                 triggerSource = `commit ${sha} on branch \`${prBranch}\`` + labelSuffix;
               } else if (event === 'push') {
