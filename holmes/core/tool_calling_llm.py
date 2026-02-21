@@ -148,6 +148,7 @@ class LLMCosts(BaseModel):
     total_tokens: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    num_compactions: int = 0
 
 
 def _extract_cost_from_response(full_response) -> float:
@@ -464,6 +465,7 @@ class ToolCallingLLM:
 
             # Include tokens/cost from compaction LLM call if it occurred
             if limit_result.conversation_history_compacted:
+                costs.num_compactions += 1
                 compaction = limit_result.compaction_usage
                 costs.total_tokens += compaction.total_tokens
                 costs.prompt_tokens += compaction.prompt_tokens
