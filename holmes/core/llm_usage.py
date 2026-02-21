@@ -3,6 +3,8 @@
 import logging
 from typing import NamedTuple
 
+from litellm.types.utils import ModelResponse
+
 
 class LLMResponseUsage(NamedTuple):
     """Raw cost and token data extracted from an LLM response."""
@@ -13,7 +15,7 @@ class LLMResponseUsage(NamedTuple):
     completion_tokens: int
 
 
-def extract_usage_from_response(response) -> LLMResponseUsage:
+def extract_usage_from_response(response: ModelResponse) -> LLMResponseUsage:
     """Extract cost and token usage from a litellm ModelResponse.
 
     Handles missing attributes gracefully and returns zeros for any

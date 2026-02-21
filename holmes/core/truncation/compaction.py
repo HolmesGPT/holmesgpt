@@ -100,7 +100,7 @@ def compact_conversation_history(
         logging.error(
             "Failed to compact conversation history. Unexpected LLM's response for compaction"
         )
-        return CompactionResult(messages_after_compaction=original_conversation_history)
+        return CompactionResult(messages_after_compaction=original_conversation_history, usage=compaction_usage)
 
     compacted_conversation_history: list[dict] = []
     if system_prompt_message:

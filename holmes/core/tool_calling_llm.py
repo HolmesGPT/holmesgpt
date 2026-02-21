@@ -982,6 +982,14 @@ class ToolCallingLLM:
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
 
+            # Log compaction cost if a compaction LLM call was attempted
+            compaction = limit_result.compaction_usage
+            if compaction.total_tokens > 0:
+                cost_logger.debug(
+                    f"Compaction cost (streaming): ${compaction.cost:.6f} | "
+                    f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
+                )
+
             if (
                 limit_result.conversation_history_compacted
                 and RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION
