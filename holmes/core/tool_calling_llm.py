@@ -28,6 +28,7 @@ from holmes.core.investigation_structured_output import (
 )
 from holmes.core.issue import Issue
 from holmes.core.llm import LLM
+from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.models import (
     PendingToolApproval,
     ToolApprovalDecision,
@@ -160,16 +161,7 @@ def _extract_cost_from_response(full_response) -> float:
     Returns:
         The cost as a float, or 0.0 if not available
     """
-    try:
-        cost_value = (
-            full_response._hidden_params.get("response_cost", 0)
-            if hasattr(full_response, "_hidden_params")
-            else 0
-        )
-        # Ensure cost is a float
-        return float(cost_value) if cost_value is not None else 0.0
-    except Exception:
-        return 0.0
+    return extract_usage_from_response(full_response).cost
 
 
 def _process_cost_info(
@@ -185,31 +177,29 @@ def _process_cost_info(
         log_prefix: Prefix for logging messages (e.g., "LLM call", "Post-processing")
     """
     try:
-        cost = _extract_cost_from_response(full_response)
-        usage = getattr(full_response, "usage", {})
+        raw = extract_usage_from_response(full_response)
 
-        if usage:
-            if LOG_LLM_USAGE_RESPONSE:  # shows stats on token cache usage
+        if LOG_LLM_USAGE_RESPONSE:
+            usage = getattr(full_response, "usage", None)
+            if usage:
                 logging.info(f"LLM usage response:\n{usage}\n")
-            prompt_toks = usage.get("prompt_tokens", 0)
-            completion_toks = usage.get("completion_tokens", 0)
-            total_toks = usage.get("total_tokens", 0)
+
+        if raw.total_tokens > 0:
             cost_logger.debug(
-                f"{log_prefix} cost: ${cost:.6f} | Tokens: {prompt_toks} prompt + {completion_toks} completion = {total_toks} total"
-            )
-            # Accumulate costs and tokens if costs object provided
-            if costs:
-                costs.total_cost += cost
-                costs.prompt_tokens += prompt_toks
-                costs.completion_tokens += completion_toks
-                costs.total_tokens += total_toks
-        elif cost > 0:
-            cost_logger.debug(
-                f"{log_prefix} cost: ${cost:.6f} | Token usage not available"
+                f"{log_prefix} cost: ${raw.cost:.6f} | Tokens: {raw.prompt_tokens} prompt + {raw.completion_tokens} completion = {raw.total_tokens} total"
             )
             if costs:
-                costs.total_cost += cost
-    except Exception as e:
+                costs.total_cost += raw.cost
+                costs.prompt_tokens += raw.prompt_tokens
+                costs.completion_tokens += raw.completion_tokens
+                costs.total_tokens += raw.total_tokens
+        elif raw.cost > 0:
+            cost_logger.debug(
+                f"{log_prefix} cost: ${raw.cost:.6f} | Token usage not available"
+            )
+            if costs:
+                costs.total_cost += raw.cost
+    except (AttributeError, TypeError, KeyError) as e:
         logging.debug(f"Could not extract cost information: {e}")
 
 
