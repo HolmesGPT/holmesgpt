@@ -98,7 +98,7 @@ def test_compaction(
                 compaction_result = compact_conversation_history(
                     conversation_history, llm
                 )
-                compacted_history = compaction_result.messages
+                compacted_history = compaction_result.messages_after_compaction
 
             # Extract the summary from compacted history
             # The compacted history should have: [optional system], [optional last user prompt], [summary message], [continuation message]

@@ -21,7 +21,7 @@ class CompactionUsage(BaseModel):
 class CompactionResult(BaseModel):
     """Result of conversation history compaction."""
 
-    messages: list[dict]
+    messages_after_compaction: list[dict]
     usage: CompactionUsage = CompactionUsage()
 
 
@@ -108,7 +108,7 @@ def compact_conversation_history(
         logging.error(
             "Failed to compact conversation history. Unexpected LLM's response for compaction"
         )
-        return CompactionResult(messages=original_conversation_history)
+        return CompactionResult(messages_after_compaction=original_conversation_history)
 
     compacted_conversation_history: list[dict] = []
     if system_prompt_message:
@@ -131,5 +131,5 @@ def compact_conversation_history(
         }
     )
     return CompactionResult(
-        messages=compacted_conversation_history, usage=compaction_usage
+        messages_after_compaction=compacted_conversation_history, usage=compaction_usage
     )

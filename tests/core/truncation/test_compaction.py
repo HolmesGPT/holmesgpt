@@ -36,7 +36,7 @@ def test_conversation_history_compaction_system_prompt_untouched():
         compaction_result = compact_conversation_history(
             original_conversation_history=conversation_history, llm=llm
         )
-        compacted_history = compaction_result.messages
+        compacted_history = compaction_result.messages_after_compaction
         assert compacted_history
         assert (
             len(compacted_history) == 4
@@ -61,7 +61,7 @@ def test_conversation_history_compaction():
         compaction_result = compact_conversation_history(
             original_conversation_history=conversation_history, llm=llm
         )
-        compacted_history = compaction_result.messages
+        compacted_history = compaction_result.messages_after_compaction
         assert compacted_history
         assert (
             len(compacted_history) == 3
