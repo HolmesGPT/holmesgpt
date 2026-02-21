@@ -463,10 +463,11 @@ class ToolCallingLLM:
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
 
-            # Include tokens/cost from compaction LLM call if it occurred
-            if limit_result.conversation_history_compacted:
+            # Always accumulate compaction tokens/cost when a compaction LLM call
+            # was attempted, even if it didn't reduce token count
+            compaction = limit_result.compaction_usage
+            if compaction.total_tokens > 0:
                 costs.num_compactions += 1
-                compaction = limit_result.compaction_usage
                 costs.total_tokens += compaction.total_tokens
                 costs.prompt_tokens += compaction.prompt_tokens
                 costs.completion_tokens += compaction.completion_tokens
