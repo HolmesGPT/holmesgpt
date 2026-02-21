@@ -3,9 +3,26 @@ from typing import Optional
 
 import litellm
 from litellm.types.utils import ModelResponse
+from pydantic import BaseModel
 
 from holmes.core.llm import LLM
 from holmes.plugins.prompts import load_and_render_prompt
+
+
+class CompactionUsage(BaseModel):
+    """Token and cost usage from a compaction LLM call."""
+
+    total_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost: float = 0.0
+
+
+class CompactionResult(BaseModel):
+    """Result of conversation history compaction."""
+
+    messages: list[dict]
+    usage: CompactionUsage = CompactionUsage()
 
 
 def strip_system_prompt(
@@ -29,9 +46,29 @@ def find_last_user_prompt(conversation_history: list[dict]) -> Optional[dict]:
     return last_user_prompt
 
 
+def _extract_compaction_usage(response: ModelResponse) -> CompactionUsage:
+    """Extract token and cost usage from a compaction LLM response."""
+    usage = CompactionUsage()
+    try:
+        resp_usage = getattr(response, "usage", None)
+        if resp_usage:
+            usage.prompt_tokens = resp_usage.get("prompt_tokens", 0)
+            usage.completion_tokens = resp_usage.get("completion_tokens", 0)
+            usage.total_tokens = resp_usage.get("total_tokens", 0)
+        cost_value = (
+            response._hidden_params.get("response_cost", 0)
+            if hasattr(response, "_hidden_params")
+            else 0
+        )
+        usage.cost = float(cost_value) if cost_value is not None else 0.0
+    except Exception as e:
+        logging.debug(f"Could not extract compaction usage: {e}")
+    return usage
+
+
 def compact_conversation_history(
     original_conversation_history: list[dict], llm: LLM
-) -> list[dict]:
+) -> CompactionResult:
     """
     The compacted conversation history contains:
       1. Original system prompt, uncompacted (if present)
@@ -57,6 +94,8 @@ def compact_conversation_history(
         )  # type: ignore
     finally:
         litellm.modify_params = original_modify_params
+    compaction_usage = _extract_compaction_usage(response)
+
     response_message = None
     if (
         response
@@ -69,7 +108,7 @@ def compact_conversation_history(
         logging.error(
             "Failed to compact conversation history. Unexpected LLM's response for compaction"
         )
-        return original_conversation_history
+        return CompactionResult(messages=original_conversation_history)
 
     compacted_conversation_history: list[dict] = []
     if system_prompt_message:
@@ -91,4 +130,6 @@ def compact_conversation_history(
             "content": "The conversation history has been compacted to preserve available space in the context window. Continue.",
         }
     )
-    return compacted_conversation_history
+    return CompactionResult(
+        messages=compacted_conversation_history, usage=compaction_usage
+    )
