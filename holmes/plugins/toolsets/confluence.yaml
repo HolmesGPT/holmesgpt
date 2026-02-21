@@ -8,7 +8,6 @@ toolsets:
     prerequisites:
       - command: "curl --version"
       - env:
-          - CONFLUENCE_USER
           - CONFLUENCE_API_KEY
           - CONFLUENCE_BASE_URL
 
@@ -16,4 +15,27 @@ toolsets:
       - name: "fetch_confluence_url"
         description: "Fetch a page in confluence."
         user_description: "fetch confluence page {{ confluence_page_id }}"
-        command: "curl -u ${CONFLUENCE_USER}:${CONFLUENCE_API_KEY} -X GET -H 'Content-Type: application/json' ${CONFLUENCE_BASE_URL}/wiki/rest/api/content/{{ confluence_page_id }}?expand=body.storage"
+        command: "curl --insecure -H 'Authorization: Bearer ${CONFLUENCE_API_KEY}' -X GET -H 'Content-Type: application/json' '${CONFLUENCE_BASE_URL}/wiki/rest/api/content/{{ confluence_page_id }}?expand=body.storage'"
+
+      - name: "list_confluence_spaces"
+        description: "List all spaces in Confluence. Returns space keys, names, and types. Use the space_key from results to get pages within a specific space."
+        user_description: "list confluence spaces"
+        command: "curl --insecure -H 'Authorization: Bearer ${CONFLUENCE_API_KEY}' -X GET -H 'Content-Type: application/json' '${CONFLUENCE_BASE_URL}/wiki/rest/api/space?limit=100'"
+
+      - name: "get_confluence_space_pages"
+        description: "Get pages within a specific Confluence space. Returns page IDs, titles, and metadata. Use the page ID with fetch_confluence_url to get full page content."
+        user_description: "get pages in confluence space {{ space_key }}"
+        parameters:
+          - name: space_key
+            type: string
+            description: "The space key (e.g., 'DEV', 'DOCS'). Use list_confluence_spaces to find available space keys."
+            required: true
+          - name: start
+            type: int
+            description: "Starting index for pagination (default: 0)"
+            required: false
+          - name: limit
+            type: int
+            description: "Maximum number of pages to return (default: 25, max: 100)"
+            required: false
+        command: "curl --insecure -H 'Authorization: Bearer ${CONFLUENCE_API_KEY}' -X GET -H 'Content-Type: application/json' '${CONFLUENCE_BASE_URL}/wiki/rest/api/space/{{ space_key }}/content/page?start={{ start | default(0) }}&limit={{ limit | default(25) }}&expand=metadata.labels'"
