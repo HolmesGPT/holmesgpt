@@ -15,7 +15,7 @@ jobs:
     outputs:
       should_test: ${{ steps.changes.outputs.should_test }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -28,7 +28,14 @@ jobs:
             echo "should_test=true" >> $GITHUB_OUTPUT
             exit 0
           else
-            CHANGED_FILES=$(git diff --name-only HEAD~1..HEAD)
+            # Use the before/after SHAs from the push event to cover all commits in the push.
+            # Fall back to should_test=true for new branches (before SHA is all zeros).
+            BEFORE="${{ github.event.before }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              echo "should_test=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            CHANGED_FILES=$(git diff --name-only "$BEFORE"...${{ github.sha }})
           fi
 
           SHOULD_TEST=false
@@ -59,10 +66,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -151,6 +158,10 @@ jobs:
     steps:
       - name: Check results
         run: |
+          if [ "${{ needs.check-changes.result }}" != "success" ]; then
+            echo "check-changes job failed!"
+            exit 1
+          fi
           if [ "${{ needs.check-changes.outputs.should_test }}" != "true" ]; then
             echo "No source changes detected (docs-only) - skipping tests"
             exit 0
