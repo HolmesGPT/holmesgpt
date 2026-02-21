@@ -6,23 +6,52 @@ on:
   push:
     branches:
       - master
-    paths:
-      - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - '!mkdocs.yml'
-      - 'docs/reference/http-api.md'
   pull_request:
-    paths:
-      - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - '!mkdocs.yml'
-      - 'docs/reference/http-api.md'
   workflow_dispatch:
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should_test: ${{ steps.changes.outputs.should_test }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Check for source changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.sha }})
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_test=true" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            CHANGED_FILES=$(git diff --name-only HEAD~1..HEAD)
+          fi
+
+          SHOULD_TEST=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            # Always test if http-api.md changes (has curl tests)
+            if [ "$file" = "docs/reference/http-api.md" ]; then
+              SHOULD_TEST=true
+              break
+            fi
+            case "$file" in
+              docs/*) continue ;;
+              *.md) continue ;;
+              mkdocs.yml) continue ;;
+              *) SHOULD_TEST=true; break ;;
+            esac
+          done <<< "$CHANGED_FILES"
+
+          echo "should_test=$SHOULD_TEST" >> $GITHUB_OUTPUT
+
   build:
+    needs: check-changes
+    if: needs.check-changes.outputs.should_test == 'true'
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -111,3 +140,23 @@ jobs:
             exit 1
           fi
           echo "Binary test passed"
+
+  # Gate job for branch protection - always runs and reports the correct status.
+  # Require this check ("Build and test HolmesGPT / build-and-test-gate") in
+  # branch protection instead of the individual build matrix jobs.
+  build-and-test-gate:
+    needs: [check-changes, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.check-changes.outputs.should_test }}" != "true" ]; then
+            echo "No source changes detected (docs-only) - skipping tests"
+            exit 0
+          fi
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "Build and test failed!"
+            exit 1
+          fi
+          echo "Build and test passed!"
