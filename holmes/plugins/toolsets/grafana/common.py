@@ -68,10 +68,11 @@ def build_headers(api_key: Optional[str], additional_headers: Optional[Dict[str,
 
 
 def get_base_url(config: GrafanaConfig) -> str:
+    api_url = config.api_url.rstrip("/")
     if config.grafana_datasource_uid:
-        return f"{config.api_url}/api/datasources/proxy/uid/{config.grafana_datasource_uid}"
+        return f"{api_url}/api/datasources/proxy/uid/{config.grafana_datasource_uid}"
     else:
-        return config.api_url
+        return api_url
 
 
 class GrafanaTempoLabelsConfig(ToolsetConfig):

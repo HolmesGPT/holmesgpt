@@ -64,7 +64,7 @@ def test_loki_datasource_toolset_error_health_check():
     toolset.check_prerequisites()
 
     assert (
-        "Unable to connect to Loki.\nFailed to query Loki logs: 404 Client Error: Not Found for url: http://localhost:3000//api/datasources/proxy/uid/wrong-uid/loki/api/v1/query_range"
+        "Unable to connect to Loki.\nFailed to query Loki logs: 404 Client Error: Not Found for url: http://localhost:3000/api/datasources/proxy/uid/wrong-uid/loki/api/v1/query_range"
         in toolset.error
     )
     assert toolset.status == ToolsetStatusEnum.FAILED
