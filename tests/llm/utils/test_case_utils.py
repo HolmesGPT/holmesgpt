@@ -397,6 +397,11 @@ class MockHelper:
                         test_case_folder
                     )
                     test_case = TypeAdapter(HolmesTestCase).validate_python(config_dict)
+                elif self._test_cases_folder.name == "test_holmes_checks":
+                    # Import CheckTestCase here to avoid circular imports
+                    from tests.llm.test_holmes_checks import CheckTestCase  # type: ignore
+
+                    test_case = TypeAdapter(CheckTestCase).validate_python(config_dict)
                 else:
                     # Skip test cases that don't match any known type
                     logging.debug(
