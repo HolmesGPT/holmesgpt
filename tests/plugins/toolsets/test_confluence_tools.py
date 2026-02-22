@@ -419,7 +419,7 @@ class TestGetComments:
 class TestGatewayAutoDetection:
     def test_direct_url_used_when_no_gateway_needed(self, toolset):
         """When direct URL works, no gateway is activated."""
-        url = toolset._build_url("/rest/api/space", {"limit": "1"})
+        url = toolset._build_url("/rest/api/space")
         assert url.startswith("https://test.atlassian.net/wiki/rest/api/space")
         assert toolset._gateway_base_url is None
 
@@ -488,7 +488,7 @@ class TestGatewayAutoDetection:
         )
         ts._gateway_base_url = f"{ATLASSIAN_GATEWAY_BASE}/my-cloud-id"
 
-        url = ts._build_url("/rest/api/space", {"limit": "5"})
+        url = ts._build_url("/rest/api/space")
         assert url.startswith(f"{ATLASSIAN_GATEWAY_BASE}/my-cloud-id/wiki/rest/api/space")
         assert "mycompany.atlassian.net" not in url
 

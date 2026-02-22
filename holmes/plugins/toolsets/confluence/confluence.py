@@ -93,20 +93,13 @@ class ConfluenceConfig(ToolsetConfig):
         ),
     )
 
-    @model_validator(mode="after")
-    def handle_deprecated_fields(self) -> "ConfluenceConfig":
-        extra = self.model_extra or {}
-        deprecated = []
-
-        # Support old env var naming convention
-        if "base_url" in extra and not self.api_url:
-            self.api_url = extra["base_url"]
-            deprecated.append("base_url -> api_url")
-
-        if deprecated:
-            logging.warning(f"Deprecated Confluence config names: {', '.join(deprecated)}")
-
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def handle_deprecated_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "base_url" in data and "api_url" not in data:
+            data["api_url"] = data.pop("base_url")
+            logging.warning("Deprecated Confluence config name: base_url -> api_url")
+        return data
 
     @model_validator(mode="after")
     def validate_auth(self) -> "ConfluenceConfig":
@@ -143,7 +136,7 @@ class ConfluenceToolset(Toolset):
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         try:
             self.config = ConfluenceConfig(**config)
-            self._gateway_base_url: Optional[str] = None
+            self._gateway_base_url = None
             return self._perform_health_check()
         except Exception as e:
             return False, f"Failed to validate Confluence configuration: {e}"
@@ -226,17 +219,13 @@ class ConfluenceToolset(Toolset):
     def confluence_config(self) -> ConfluenceConfig:
         return cast(ConfluenceConfig, self.config)
 
-    def _build_url(self, path: str, params: Optional[Dict[str, str]] = None) -> str:
+    def _build_url(self, path: str) -> str:
         if self._gateway_base_url:
             base = self._gateway_base_url.rstrip("/")
         else:
             base = self.confluence_config.api_url.rstrip("/")
         prefix = self.confluence_config.api_path_prefix.rstrip("/")
-        url = f"{base}{prefix}{path}"
-        if params:
-            query = "&".join(f"{k}={v}" for k, v in params.items())
-            url = f"{url}?{query}"
-        return url
+        return f"{base}{prefix}{path}"
 
     def _build_auth_headers(self) -> Dict[str, str]:
         headers: Dict[str, str] = {"Accept": "application/json"}
@@ -255,9 +244,10 @@ class ConfluenceToolset(Toolset):
         query_params: Optional[Dict[str, str]] = None,
         timeout: int = 30,
     ) -> Dict[str, Any]:
-        url = self._build_url(path, query_params)
+        url = self._build_url(path)
         response = requests.get(
             url,
+            params=query_params,
             auth=self._build_auth_tuple(),
             headers=self._build_auth_headers(),
             timeout=timeout,
