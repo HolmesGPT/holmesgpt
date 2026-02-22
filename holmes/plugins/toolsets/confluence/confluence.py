@@ -5,7 +5,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Literal, Optional, Tuple, Type, cast
 
 import requests  # type: ignore
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -55,8 +55,6 @@ class ConfluenceConfig(ToolsetConfig):
     ```
     """
 
-    model_config = ConfigDict(extra="allow")
-
     api_url: str = Field(
         title="API URL",
         description="Confluence base URL (e.g., https://mycompany.atlassian.net for Cloud, https://confluence.mycompany.com for Data Center)",
@@ -92,14 +90,6 @@ class ConfluenceConfig(ToolsetConfig):
             "If not set, it will be auto-detected when needed."
         ),
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def handle_deprecated_fields(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "base_url" in data and "api_url" not in data:
-            data["api_url"] = data.pop("base_url")
-            logging.warning("Deprecated Confluence config name: base_url -> api_url")
-        return data
 
     @model_validator(mode="after")
     def validate_auth(self) -> "ConfluenceConfig":
