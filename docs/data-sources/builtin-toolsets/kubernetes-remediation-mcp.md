@@ -7,8 +7,6 @@ The Kubernetes Remediation MCP server provides safe kubectl command execution wi
 
 ## Prerequisites
 
-No external credentials are required. The MCP server uses a Kubernetes ServiceAccount with RBAC to access the cluster API.
-
 For CLI deployments, you'll need to create the RBAC resources manually. For Helm deployments, the chart creates them automatically.
 
 ## Configuration

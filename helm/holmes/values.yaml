@@ -503,6 +503,15 @@ mcpAddons:
     networkPolicy:
       enabled: false
 
+    # Tools that can only be called after a runbook invocation (prevents ad-hoc write operations)
+    # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
+    restrictedTools:
+      - "*"
+    # Tools that require user confirmation before execution
+    # Use ["*"] to require approval for all tools, or specify tool names
+    approvalRequiredTools:
+      - "*"
+
     llmInstructions: ""
 
     nodeSelector: {}

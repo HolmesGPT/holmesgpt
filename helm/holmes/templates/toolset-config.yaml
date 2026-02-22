@@ -135,8 +135,8 @@ data:
           "icon_url" "https://cdn.simpleicons.org/kubernetes/326CE5"
         )
         "llm_instructions" (include "holmes.kubernetesRemediationMcp.llmInstructions" . | trim)
-        "restricted_tools" (list "*")
-        "approval_required_tools" (list "*")
+        "restricted_tools" .Values.mcpAddons.kubernetesRemediation.restrictedTools
+        "approval_required_tools" .Values.mcpAddons.kubernetesRemediation.approvalRequiredTools
       )
     }}
     {{- $mcpServers = merge $mcpServers $k8sRemediationMcpServers }}
