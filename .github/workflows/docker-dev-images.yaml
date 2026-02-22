@@ -114,12 +114,14 @@ jobs:
             const tagMatch = existing.body.match(/holmes:([a-f0-9]{7})/);
             if (tagMatch && tagMatch[1] !== shortSha) {
               const prevSha = tagMatch[1];
-              const prevTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${prevSha}`;
+              const prevHolmesTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${prevSha}`;
+              const prevOperatorTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${prevSha}`;
               previousImageSection = [
                 '',
                 '---',
-                `📦 **Previous image (\`${prevSha}\`):**`,
-                `- [${prevTag}](${registryLink})`,
+                `📦 **Previous images (\`${prevSha}\`):**`,
+                `- [${prevHolmesTag}](${registryLink})`,
+                `- [${prevOperatorTag}](${registryLink.replace('holmes', 'holmes-operator')})`,
                 '',
                 '<details>',
                 '<summary>📋 Copy commands</summary>',
@@ -127,9 +129,12 @@ jobs:
                 '⚠️ Temporary images are deleted after 30 days. Copy to a permanent registry before using them:',
                 '```bash',
                 'gcloud auth configure-docker us-central1-docker.pkg.dev',
-                `docker pull ${prevTag}`,
-                `docker tag ${prevTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${prevSha}`,
+                `docker pull ${prevHolmesTag}`,
+                `docker tag ${prevHolmesTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${prevSha}`,
                 `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${prevSha}`,
+                `docker pull ${prevOperatorTag}`,
+                `docker tag ${prevOperatorTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-operator-dev:${prevSha}`,
+                `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-operator-dev:${prevSha}`,
                 '```',
                 '',
                 'Patch Helm values in one line (choose the chart you use):',
@@ -138,7 +143,9 @@ jobs:
                 '```bash',
                 'helm upgrade --install holmesgpt ./helm/holmes \\\\',
                 '  --set registry=me-west1-docker.pkg.dev/robusta-development/development \\\\',
-                `  --set image=holmes-dev:${prevSha}`,
+                `  --set image=holmes-dev:${prevSha} \\\\`,
+                '  --set operator.registry=me-west1-docker.pkg.dev/robusta-development/development \\\\',
+                `  --set operator.image=holmes-operator-dev:${prevSha}`,
                 '```',
                 '',
                 '**Robusta wrapper chart:**',
@@ -146,7 +153,9 @@ jobs:
                 'helm upgrade --install robusta robusta/robusta \\\\',
                 '  --reuse-values \\\\',
                 '  --set holmes.registry=me-west1-docker.pkg.dev/robusta-development/development \\\\',
-                `  --set holmes.image=holmes-dev:${prevSha}`,
+                `  --set holmes.image=holmes-dev:${prevSha} \\\\`,
+                '  --set holmes.operator.registry=me-west1-docker.pkg.dev/robusta-development/development \\\\',
+                `  --set holmes.operator.image=holmes-operator-dev:${prevSha}`,
                 '```',
                 '</details>',
               ].join('\n');
@@ -155,7 +164,7 @@ jobs:
 
           const message = [
             marker,
-            `🔨 **Building Docker image for \`${shortSha}\`...** (x64 only)`,
+            `🔨 **Building Docker images for \`${shortSha}\`...** (x64 only)`,
             '',
             `[View build logs](${runUrl})`,
             previousImageSection,
@@ -202,35 +211,66 @@ jobs:
     # For fork PRs: build only (no push, no registry tags)
     # For non-fork PRs: build and push to registry
     # Note: PR builds are x64-only for speed. Multi-arch builds happen on release.
-    - name: Build Docker image (fork PR - no push)
+    - name: Build Holmes Docker image (fork PR - no push)
       if: steps.fork_check.outputs.is_fork == 'true'
       uses: docker/build-push-action@v6
       with:
         context: .
+        file: ./Dockerfile
         platforms: linux/amd64
         push: false
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=holmes
+        cache-to: type=gha,mode=max,scope=holmes
 
-    - name: Build and push Docker image
+    - name: Build Holmes Operator Docker image (fork PR - no push)
+      if: steps.fork_check.outputs.is_fork == 'true'
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile.operator
+        platforms: linux/amd64
+        push: false
+        cache-from: type=gha,scope=operator
+        cache-to: type=gha,mode=max,scope=operator
+
+    - name: Build and push Holmes Docker image
       if: steps.fork_check.outputs.is_fork != 'true'
       uses: docker/build-push-action@v6
       with:
         context: .
+        file: ./Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
           us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}
           us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=holmes
+        cache-to: type=gha,mode=max,scope=holmes
 
-    - name: Print image location
+    - name: Build and push Holmes Operator Docker image
+      if: steps.fork_check.outputs.is_fork != 'true'
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile.operator
+        platforms: linux/amd64
+        push: true
+        tags: |
+          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${{ github.sha }}
+          us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${{ steps.short_sha.outputs.sha_short }}
+        cache-from: type=gha,scope=operator
+        cache-to: type=gha,mode=max,scope=operator
+
+    - name: Print image locations
       if: steps.fork_check.outputs.is_fork != 'true'
       run: |
-        echo "Docker image pushed (x64 only):"
+        echo "Docker images pushed (x64 only):"
+        echo "Holmes:"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ github.sha }}"
         echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${{ steps.short_sha.outputs.sha_short }}"
+        echo "Holmes Operator:"
+        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${{ github.sha }}"
+        echo "  us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${{ steps.short_sha.outputs.sha_short }}"
 
     - name: Comment with image details
       if: always() && steps.fork_check.outputs.is_fork != 'true'
@@ -254,18 +294,21 @@ jobs:
 
           let message;
           if (jobStatus === 'success') {
-            const shortTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
-            const registryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
+            const holmesTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes:${shortSha}`;
+            const operatorTag = `us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${shortSha}`;
+            const holmesRegistryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes?project=robusta-development';
+            const operatorRegistryLink = 'https://console.cloud.google.com/artifacts/docker/robusta-development/us-central1/temporary-builds/holmes-operator?project=robusta-development';
 
             message = [
               marker,
-              `✅ **Docker image ready for \`${shortSha}\`** (built in ${duration})`,
+              `✅ **Docker images ready for \`${shortSha}\`** (built in ${duration})`,
               '',
-              `- [${shortTag}](${registryLink})`,
+              `- [${holmesTag}](${holmesRegistryLink})`,
+              `- [${operatorTag}](${operatorRegistryLink})`,
               '',
               '> ⚠️ **Warning: does not support ARM** (ARM images are built on release only - not on every PR)',
               '',
-              'Use this tag to pull the image for testing.',
+              'Use these tags to pull the images for testing.',
               '',
               '<details>',
               '<summary>📋 Copy commands</summary>',
@@ -273,9 +316,12 @@ jobs:
               '⚠️ Temporary images are deleted after 30 days. Copy to a permanent registry before using them:',
               '```bash',
               'gcloud auth configure-docker us-central1-docker.pkg.dev',
-              `docker pull ${shortTag}`,
-              `docker tag ${shortTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
+              `docker pull ${holmesTag}`,
+              `docker tag ${holmesTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
               `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-dev:${shortSha}`,
+              `docker pull ${operatorTag}`,
+              `docker tag ${operatorTag} me-west1-docker.pkg.dev/robusta-development/development/holmes-operator-dev:${shortSha}`,
+              `docker push me-west1-docker.pkg.dev/robusta-development/development/holmes-operator-dev:${shortSha}`,
               '```',
               '',
               'Patch Helm values in one line (choose the chart you use):',
@@ -284,7 +330,9 @@ jobs:
               '```bash',
               'helm upgrade --install holmesgpt ./helm/holmes \\',
               '  --set registry=me-west1-docker.pkg.dev/robusta-development/development \\',
-              `  --set image=holmes-dev:${shortSha}`,
+              `  --set image=holmes-dev:${shortSha} \\`,
+              '  --set operator.registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+              `  --set operator.image=holmes-operator-dev:${shortSha}`,
               '```',
               '',
               '**Robusta wrapper chart:**',
@@ -292,7 +340,9 @@ jobs:
               'helm upgrade --install robusta robusta/robusta \\',
               '  --reuse-values \\',
               '  --set holmes.registry=me-west1-docker.pkg.dev/robusta-development/development \\',
-              `  --set holmes.image=holmes-dev:${shortSha}`,
+              `  --set holmes.image=holmes-dev:${shortSha} \\`,
+              '  --set holmes.operator.registry=me-west1-docker.pkg.dev/robusta-development/development \\',
+              `  --set holmes.operator.image=holmes-operator-dev:${shortSha}`,
               '```',
               '</details>',
             ].join('\n');
