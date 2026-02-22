@@ -213,6 +213,7 @@ async def _register_scheduled_healthcheck(
             reason="InvalidCron",
             message=f"Invalid cron expression: {str(e)}",
         )
+        raise
     except Exception as e:
         logger.error(
             f"Failed to register schedule for {namespace}/{name}: {e}", exc_info=True
@@ -226,6 +227,7 @@ async def _register_scheduled_healthcheck(
             reason="InternalError",
             message=str(e),
         )
+        raise
 
 
 async def set_scheduledhealthcheck_condition(

@@ -1,5 +1,6 @@
 """Utility functions for operator."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -75,7 +76,8 @@ async def update_healthcheck_status(
             status["completionTime"] = completion_time
 
         # Update status subresource
-        api.patch_namespaced_custom_object_status(
+        await asyncio.to_thread(
+            api.patch_namespaced_custom_object_status,
             group="holmesgpt.dev",
             version="v1alpha1",
             namespace=namespace,
@@ -108,74 +110,103 @@ async def add_healthcheck_condition(
     name: str,
     namespace: str,
     condition: HealthCheckCondition,
+    max_retries: int = 5,
 ) -> None:
     """
-    Add or update a condition in HealthCheck status.
+    Add or update a condition in HealthCheck status with retry on conflict.
+
+    Performs a read-modify-write with resourceVersion to detect conflicts.
+    On 409 Conflict, re-fetches the resource and retries up to max_retries times.
 
     Args:
         api: Kubernetes CustomObjectsApi instance
         name: Name of the HealthCheck resource
         namespace: Namespace of the HealthCheck resource
         condition: The condition to add or update
+        max_retries: Maximum number of retry attempts on conflict
     """
-    try:
-        # Get current resource to read existing conditions
-        resource = api.get_namespaced_custom_object(
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=namespace,
-            plural="healthchecks",
-            name=name,
-        )
+    for attempt in range(max_retries):
+        try:
+            # Get current resource to read existing conditions and resourceVersion
+            resource = await asyncio.to_thread(
+                api.get_namespaced_custom_object,
+                group="holmesgpt.dev",
+                version="v1alpha1",
+                namespace=namespace,
+                plural="healthchecks",
+                name=name,
+            )
 
-        # Get existing conditions or initialize empty list
-        conditions = resource.get("status", {}).get("conditions", [])
+            # Get existing conditions or initialize empty list
+            conditions = resource.get("status", {}).get("conditions", [])
 
-        # Find existing condition of this type
-        existing_condition = None
-        for i, cond in enumerate(conditions):
-            if cond.get("type") == condition.type:
-                existing_condition = i
-                break
+            # Find existing condition of this type and replace, or append
+            existing_idx = None
+            for i, cond in enumerate(conditions):
+                if cond.get("type") == condition.type:
+                    existing_idx = i
+                    break
 
-        # Update or append condition
-        if existing_condition is not None:
-            conditions[existing_condition] = condition.model_dump()
-        else:
-            conditions.append(condition.model_dump())
+            if existing_idx is not None:
+                conditions[existing_idx] = condition.model_dump()
+            else:
+                conditions.append(condition.model_dump())
 
-        # Update status with new conditions
-        api.patch_namespaced_custom_object_status(
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            namespace=namespace,
-            plural="healthchecks",
-            name=name,
-            body={"status": {"conditions": conditions}},
-        )
+            # Include resourceVersion for conflict detection
+            resource_version = resource.get("metadata", {}).get("resourceVersion")
+            body = {
+                "metadata": {"resourceVersion": resource_version},
+                "status": {"conditions": conditions},
+            }
 
-        logger.debug(
-            f"Added condition to HealthCheck: {namespace}/{name}",
-            extra={
-                "check_name": name,
-                "check_namespace": namespace,
-                "condition_type": condition.type,
-                "status": condition.status.value,
-            },
-        )
+            # Update status with new conditions
+            await asyncio.to_thread(
+                api.patch_namespaced_custom_object_status,
+                group="holmesgpt.dev",
+                version="v1alpha1",
+                namespace=namespace,
+                plural="healthchecks",
+                name=name,
+                body=body,
+            )
 
-    except Exception as e:
-        logger.error(
-            f"Failed to add condition to HealthCheck: {namespace}/{name}",
-            exc_info=True,
-            extra={
-                "check_name": name,
-                "check_namespace": namespace,
-                "condition_type": condition.type,
-                "error": str(e),
-            },
-        )
-        raise
+            logger.debug(
+                f"Added condition to HealthCheck: {namespace}/{name}",
+                extra={
+                    "check_name": name,
+                    "check_namespace": namespace,
+                    "condition_type": condition.type,
+                    "status": condition.status.value,
+                },
+            )
+            return
+
+        except client.exceptions.ApiException as e:
+            if e.status == 409:
+                logger.debug(
+                    f"Conflict updating {namespace}/{name} condition "
+                    f"(attempt {attempt + 1}/{max_retries}), retrying..."
+                )
+                if attempt == max_retries - 1:
+                    raise Exception(
+                        f"Max retries ({max_retries}) exceeded for condition update on {namespace}/{name}"
+                    ) from e
+                await asyncio.sleep(0.1 * (attempt + 1))
+            else:
+                raise
+
+        except Exception as e:
+            logger.error(
+                f"Failed to add condition to HealthCheck: {namespace}/{name}",
+                exc_info=True,
+                extra={
+                    "check_name": name,
+                    "check_namespace": namespace,
+                    "condition_type": condition.type,
+                    "error": str(e),
+                },
+            )
+            raise
 
 
 def get_current_time_iso() -> str:

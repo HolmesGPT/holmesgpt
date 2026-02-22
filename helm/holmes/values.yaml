@@ -397,7 +397,7 @@ operator:
   imagePullPolicy: IfNotPresent
 
   # Holmes API connection
-  holmesApiUrl: ""  # Defaults to "http://<release-name>:80"
+  holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
   holmesApiTimeout: 300  # seconds
 
   # Logging

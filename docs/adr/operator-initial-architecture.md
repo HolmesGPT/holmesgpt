@@ -432,7 +432,7 @@ kubectl patch scheduledhealthcheck frontend-schedule --type='merge' -p '{"spec":
    - Check RBAC configuration
    - Validate API server logs
 
-4. **Scheduling issues**
+3. **Scheduling issues**
 
    - Check operator logs for scheduler errors
    - Verify cron expression syntax

@@ -189,6 +189,13 @@ class SchedulerManager:
             name = metadata.get("name")
             namespace = metadata.get("namespace")
             uid = metadata.get("uid")
+
+            if not name or not namespace or not uid:
+                logger.warning(
+                    f"Skipping ScheduledHealthCheck with missing metadata: name={name}, namespace={namespace}, uid={uid}"
+                )
+                continue
+
             enabled = spec.get("enabled", True)
 
             if not enabled:

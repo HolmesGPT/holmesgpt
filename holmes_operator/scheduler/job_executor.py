@@ -11,6 +11,8 @@ from holmes_operator.utils import get_current_time_iso
 
 logger = logging.getLogger(__name__)
 
+_active_tasks: set[asyncio.Task] = set()
+
 
 def _log_task_exception(task: asyncio.Task):
     """
@@ -19,6 +21,8 @@ def _log_task_exception(task: asyncio.Task):
     Args:
         task: The completed asyncio Task to check for exceptions
     """
+    _active_tasks.discard(task)
+
     if task.cancelled():
         return
 
@@ -80,6 +84,7 @@ async def execute_scheduled_check(
                 k8s_api=k8s_api,
             )
         )
+        _active_tasks.add(task)
         task.add_done_callback(_log_task_exception)
 
         logger.info(f"Successfully created HealthCheck {namespace}/{check_name}")
@@ -502,6 +507,7 @@ def _generate_healthcheck_object(
                     "kind": "ScheduledHealthCheck",
                     "name": name,
                     "uid": scheduled_uid,
+                    "controller": True,
                     "blockOwnerDeletion": True,
                 }
             ],

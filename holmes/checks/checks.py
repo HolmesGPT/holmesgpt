@@ -3,7 +3,7 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -59,7 +59,7 @@ CHECK_STATUS_COLOR = {
 
 
 def _get_check_prompt() -> str:
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     template = Template(CHECK_PROMPT_TEMPLATE_PATH.read_text())
     return template.render(current_time=current_time)
 
