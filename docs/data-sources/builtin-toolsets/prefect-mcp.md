@@ -166,6 +166,25 @@ Before configuring the Prefect MCP server, you need:
           apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
     ```
 
+    To customize how Holmes uses Prefect, you can provide your own LLM instructions:
+
+    ```yaml
+    mcpAddons:
+      prefect:
+        enabled: true
+        auth:
+          secretName: "prefect-mcp-token"
+        config:
+          apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
+        llmInstructions: |
+          Use Prefect tools to investigate workflow failures, check flow run status, and troubleshoot orchestration issues.
+          When investigating a failed flow run:
+            1. First get the flow run details to understand what failed
+            2. Retrieve the logs for the failed flow/task run
+            3. Check if the deployment is healthy and workers are running
+            4. Look at recent runs of the same flow to identify patterns
+    ```
+
     Then deploy or upgrade your Holmes installation:
 
     ```bash

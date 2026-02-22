@@ -160,6 +160,21 @@ You'll also need:
           url: "https://your-company.atlassian.net/wiki"
     ```
 
+    To customize how Holmes uses Confluence, you can provide your own LLM instructions:
+
+    ```yaml
+    mcpAddons:
+      confluenceMcp:
+        enabled: true
+        auth:
+          secretName: "confluence-mcp-credentials"
+        config:
+          url: "https://your-company.atlassian.net/wiki"
+        llmInstructions: |
+          Use the Confluence MCP to search and retrieve documentation.
+          Before every investigation, search Confluence for matching runbooks.
+    ```
+
     Then deploy or upgrade your Holmes installation:
 
     ```bash

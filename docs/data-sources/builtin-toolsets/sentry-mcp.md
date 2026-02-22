@@ -147,6 +147,20 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
           secretName: "sentry-mcp-token"
     ```
 
+    To customize how Holmes uses Sentry, you can provide your own LLM instructions:
+
+    ```yaml
+    mcpAddons:
+      sentry:
+        enabled: true
+        auth:
+          secretName: "sentry-mcp-token"
+        llmInstructions: |
+          Use the Sentry MCP to investigate application errors and crashes.
+          When investigating, always start by listing projects, then search for relevant issues,
+          and retrieve full stack traces before drawing conclusions.
+    ```
+
     For self-hosted Sentry, add the host configuration:
 
     ```yaml

@@ -136,7 +136,13 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
         config:
           url: "http://k8s-remediation-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
           mode: streamable-http
+        restricted_tools:
+          - "*"
+        approval_required_tools:
+          - "*"
     ```
+
+    `restricted_tools: ["*"]` means all tools from this MCP server can only be called during a runbook invocation (prevents ad-hoc write operations). `approval_required_tools: ["*"]` means all tools require user confirmation before execution.
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
@@ -160,6 +166,8 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           allowedCommands: "get,describe,logs"
     ```
 
+    By default, all tools are restricted (require runbook invocation) and require user approval. This is configured in the Helm chart automatically.
+
     Then deploy or upgrade your Holmes installation:
 
     ```bash
@@ -177,6 +185,8 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           enabled: true
     ```
 
+    By default, all tools are restricted (require runbook invocation) and require user approval.
+
     Then deploy or upgrade your Robusta installation:
 
     ```bash
@@ -189,6 +199,8 @@ The MCP server implements multiple security layers:
 
 | Control | Description |
 |---------|-------------|
+| **Restricted tools** | By default, all tools require a runbook invocation to be called — prevents ad-hoc write operations |
+| **Approval required** | By default, all tools require user confirmation before execution |
 | **Command allowlist** | Only explicitly allowed kubectl subcommands can execute |
 | **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token` are always blocked |
 | **Shell injection protection** | Shell metacharacters are rejected |
