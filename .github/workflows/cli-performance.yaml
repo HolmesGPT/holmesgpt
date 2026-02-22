@@ -6,10 +6,12 @@ name: CLI Performance Benchmark
 on:
   pull_request:
     branches: [master]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'mkdocs.yml'
+    paths:
+      - 'holmes/**'
+      - 'pyproject.toml'
+      - 'poetry.lock'
+      - 'scripts/cli_performance_benchmark.py'
+      - '.github/workflows/cli-performance.yaml'
 
 jobs:
   benchmark-pr:

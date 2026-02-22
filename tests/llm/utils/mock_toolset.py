@@ -603,12 +603,14 @@ class MockToolsetManager:
         mock_policy: str = "inherit",
         mock_overrides: Optional[Dict[str, str]] = None,
         allow_toolset_failures: bool = False,
+        toolsets_config_path: Optional[str] = None,
     ):
         self.test_case_folder = test_case_folder
         self.request = request
         self.mock_overrides = mock_overrides or {}
         self.mock_generation_config = mock_generation_config
         self.allow_toolset_failures = allow_toolset_failures
+        self.toolsets_config_path = toolsets_config_path
 
         # Coerce mock_policy string to MockPolicy enum, falling back to INHERIT for unknown values
         if isinstance(mock_policy, str):
@@ -673,7 +675,10 @@ class MockToolsetManager:
         builtin_toolsets = load_builtin_toolsets(mock_dal)
 
         # Load custom toolsets from YAML if present
-        config_path = os.path.join(self.test_case_folder, "toolsets.yaml")
+        # Use explicit toolsets_config_path (from toolsets_matrix) or fall back to default
+        config_path = self.toolsets_config_path or os.path.join(
+            self.test_case_folder, "toolsets.yaml"
+        )
         custom_definitions = self._load_custom_toolsets(config_path)
 
         # Always load default toolsets.yaml

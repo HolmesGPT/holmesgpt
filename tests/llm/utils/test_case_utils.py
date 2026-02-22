@@ -146,6 +146,15 @@ class HolmesTestCase(BaseModel):
     port_forwards: Optional[List[Dict[str, Any]]] = (
         None  # Port forwarding configurations
     )
+    toolsets_matrix: Optional[List[str]] = (
+        None  # List of toolset config filenames for matrix expansion
+    )
+    toolsets_config_name: Optional[str] = (
+        None  # Derived name of the active toolset config (auto-set during matrix expansion)
+    )
+    toolsets_config_path: Optional[str] = (
+        None  # Full path to the active toolset config file (auto-set during matrix expansion)
+    )
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):
@@ -253,6 +262,64 @@ class MockHelper:
                 test_case.tags = []
             if "port-forward" not in test_case.tags:
                 test_case.tags.append("port-forward")
+
+    @staticmethod
+    def _derive_toolset_config_name(filename: str) -> str:
+        """Derive a short name from a toolset config filename for use in test IDs.
+
+        Examples:
+            toolsets_builtin.yaml -> builtin
+            toolsets_http_datadog.yaml -> http_datadog
+            toolsets.yaml -> default
+            custom.yaml -> custom
+        """
+        name = filename
+        for ext in (".yaml", ".yml"):
+            if name.endswith(ext):
+                name = name[: -len(ext)]
+                break
+        if name.startswith("toolsets_"):
+            name = name[len("toolsets_") :]
+        elif name == "toolsets":
+            name = "default"
+        return name or "default"
+
+    def _expand_toolsets_matrix(
+        self, test_cases: List[HolmesTestCase]
+    ) -> List[HolmesTestCase]:
+        """Expand test cases that have toolsets_matrix into multiple variants.
+
+        Each entry in toolsets_matrix is a filename (e.g. toolsets_builtin.yaml)
+        that must exist in the test case folder. For each file, a variant of the
+        test case is created with toolsets_config_name and toolsets_config_path set.
+        The variant ID is appended with [config_name].
+        """
+        expanded: List[HolmesTestCase] = []
+        for tc in test_cases:
+            if not tc.toolsets_matrix:
+                expanded.append(tc)
+                continue
+
+            for config_filename in tc.toolsets_matrix:
+                config_path = os.path.join(tc.folder, config_filename)
+                if not os.path.isfile(config_path):
+                    raise FileNotFoundError(
+                        f"Toolsets matrix config file '{config_filename}' not found "
+                        f"in test case folder: {tc.folder}"
+                    )
+
+                name = self._derive_toolset_config_name(config_filename)
+
+                variant = tc.model_copy(deep=True)
+                variant.toolsets_config_name = name
+                variant.toolsets_config_path = config_path
+                variant.id = f"{tc.id}[{name}]"
+                if not variant.base_id:
+                    variant.base_id = tc.id
+
+                expanded.append(variant)
+
+        return expanded
 
     def load_test_cases(self) -> List[HolmesTestCase]:
         test_cases: List[HolmesTestCase] = []
@@ -393,6 +460,10 @@ class MockHelper:
                 )
                 continue
         logging.debug(f"Found {len(test_cases)} in {self._test_cases_folder}")
+
+        # Expand toolsets_matrix variants (must happen after all test cases are loaded,
+        # including array prompt expansion, to produce the cross-product)
+        test_cases = self._expand_toolsets_matrix(test_cases)
 
         return test_cases
 
