@@ -965,6 +965,7 @@ class ToolCallingLLM:
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
+        costs = LLMCosts()
         i = 0
         tool_number_offset = 0
 
@@ -982,9 +983,14 @@ class ToolCallingLLM:
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
 
-            # Log compaction cost if a compaction LLM call was attempted
+            # Accumulate compaction costs (mirrors call() logic)
             compaction = limit_result.compaction_usage
             if compaction.total_tokens > 0:
+                costs.num_compactions += 1
+                costs.total_tokens += compaction.total_tokens
+                costs.prompt_tokens += compaction.prompt_tokens
+                costs.completion_tokens += compaction.completion_tokens
+                costs.total_cost += compaction.cost
                 cost_logger.debug(
                     f"Compaction cost (streaming): ${compaction.cost:.6f} | "
                     f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
@@ -1009,8 +1015,8 @@ class ToolCallingLLM:
                     drop_params=True,
                 )
 
-                # Log cost information for this iteration (no accumulation in streaming)
-                _process_cost_info(full_response, log_prefix="LLM iteration")
+                # Accumulate cost information for this iteration
+                _process_cost_info(full_response, costs, log_prefix="LLM iteration")
 
             # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
             except BadRequestError as e:
@@ -1066,6 +1072,7 @@ class ToolCallingLLM:
                 maximum_output_token=limit_result.maximum_output_token,
                 metadata=metadata,
             )
+            metadata["costs"] = costs.model_dump()
             yield build_stream_event_token_count(metadata=metadata)
 
             tools_to_call = getattr(response_message, "tool_calls", None)
