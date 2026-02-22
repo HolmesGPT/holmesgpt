@@ -182,7 +182,8 @@ log_cli_format = "%(asctime)s [%(levelname)8s] [%(name)s] %(message)s"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
 # Note: log_file is intentionally not set because pytest-xdist parallel workers
-# would corrupt a shared log file. Use log_cli or --capture=no for debugging.
+# would corrupt a shared log file. Use log_cli (configured above) for debugging;
+# it produces per-worker output that is safe under xdist.
 
 [tool.coverage.run]
 branch = true
