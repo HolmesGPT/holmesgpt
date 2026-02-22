@@ -5,6 +5,10 @@ user_prompt: |
 expected_output:
   - "Must report the verification code: VERIFY-8K3P5N9"
 
+toolsets_matrix:
+  - toolsets.yaml
+  - toolsets_http.yaml
+
 tags:
   - confluence
   - question-answer
