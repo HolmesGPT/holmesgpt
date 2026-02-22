@@ -26,6 +26,13 @@ nav:
           - "CI/CD Troubleshooting": walkthrough/cicd-troubleshooting.md
           - "Investigating Prometheus Alerts": walkthrough/investigating-prometheus-alerts.md
           - "Investigating using AKS MCP Server": walkthrough/investigating-using-aks-mcp-server.md
+    - "Holmes Operator":
+          - "Overview & Installation": operator/index.md
+          - "Health Checks": operator/health-checks.md
+          - "Scheduled Health Checks": operator/scheduled-health-checks.md
+          - "Configuration": operator/configuration.md
+          - "Troubleshooting": operator/troubleshooting.md
+          - "Development Guide": operator/development.md
     - "AI Providers":
           - "Overview": ai-providers/index.md
           - Anthropic: ai-providers/anthropic.md
