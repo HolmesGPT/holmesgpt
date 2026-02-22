@@ -141,7 +141,8 @@ class MockSupabaseDal(SupabaseDal):
         name_pattern: Optional[str] = None,
         kind: Optional[str] = None,
         container: Optional[str] = None,
-    ) -> list:
+        clusters: Optional[List[str]] = None,
+    ) -> Optional[List[Dict]]:
         return []
 
     def get_issues_metadata(
