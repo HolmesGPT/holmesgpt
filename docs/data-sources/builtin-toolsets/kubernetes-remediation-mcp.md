@@ -79,7 +79,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
               name: http
             env:
             - name: KUBECTL_ALLOWED_COMMANDS
-              value: "get,describe,logs,edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+              value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
             - name: KUBECTL_TIMEOUT
               value: "60"
             resources:
@@ -152,16 +152,6 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     mcpAddons:
       kubernetesRemediation:
         enabled: true
-    ```
-
-    To restrict to read-only operations:
-
-    ```yaml
-    mcpAddons:
-      kubernetesRemediation:
-        enabled: true
-        config:
-          allowedCommands: "get,describe,logs"
     ```
 
     By default, all tools are restricted (require runbook invocation) and require user approval. This is configured in the Helm chart automatically.

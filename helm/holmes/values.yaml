@@ -482,7 +482,7 @@ mcpAddons:
 
     config:
       # Comma-separated list of allowed kubectl subcommands
-      allowedCommands: "get,describe,logs,edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
       # Comma-separated list of blocked flags
       dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
       # Command timeout in seconds
