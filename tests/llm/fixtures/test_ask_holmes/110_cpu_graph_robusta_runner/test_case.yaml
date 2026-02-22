@@ -1,4 +1,4 @@
-user_prompt: "Show me robusta-runner memory usage over the last 24 hours"
+user_prompt: "Show me robusta-runner CPU usage over the last 24 hours"
 expected_output: |
   Output must contain 1 or more embeds in the following format
     <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>

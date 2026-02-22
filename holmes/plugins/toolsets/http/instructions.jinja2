@@ -8,11 +8,6 @@ The tool supports:
 - JSON response filtering with `jq` expressions and `max_depth`
 - Requests are restricted to whitelisted hosts, paths, and HTTP methods
 
-When using jq, always use null-safe patterns to handle missing or null fields:
-- Use `(.key // [])[]` instead of `.key[]`
-- Use `(.key // {}).subkey` instead of `.key.subkey`
-- Example: `[(.metrics // [])[] | select(contains("cpu"))][:20]`
-
 {% if config and config.endpoints %}
 **Whitelisted endpoints** (requests to other URLs will be rejected):
 {% for endpoint in config.endpoints %}
