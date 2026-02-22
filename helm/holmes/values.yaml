@@ -417,7 +417,7 @@ mcpAddons:
         cpu: "500m"
 
     networkPolicy:
-      enabled: true
+      enabled: false
 
     llmInstructions: ""
 
@@ -456,7 +456,7 @@ mcpAddons:
         cpu: "500m"
 
     networkPolicy:
-      enabled: true
+      enabled: false
 
     llmInstructions: ""
 
@@ -501,7 +501,7 @@ mcpAddons:
         cpu: "200m"
 
     networkPolicy:
-      enabled: true
+      enabled: false
 
     llmInstructions: ""
 
@@ -545,7 +545,7 @@ mcpAddons:
         cpu: "500m"
 
     networkPolicy:
-      enabled: true
+      enabled: false
 
     llmInstructions: ""
 
