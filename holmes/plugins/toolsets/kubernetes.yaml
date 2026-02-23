@@ -41,6 +41,7 @@ toolsets:
         command: "kubectl get --show-labels -o wide {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
 
       - name: "kubectl_get_by_kind_in_namespace"
+        user_description: "List resources in namespace (JSON): kubectl get {{kind}} -n {{namespace}} -o json"
         description: "Get all resources of a given type in a namespace, returning JSON with count, items, and any stderr"
         script: |
           #!/bin/bash
@@ -77,6 +78,7 @@ toolsets:
                 - Be concise and avoid expansion: target ≤ 50% of input size; prefer counts + outliers over full listings
 
       - name: "kubectl_get_by_kind_in_cluster"
+        user_description: "List resources cluster-wide (JSON): kubectl get {{kind}} -A -o json"
         description: "Get all resources of a given type across all namespaces, returning JSON with count, items, and any stderr"
         script: |
           #!/bin/bash
@@ -113,6 +115,7 @@ toolsets:
                 - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
 
       - name: "kubectl_find_resource"
+        user_description: "Find resources by keyword (JSON): kubectl get {{kind}} -A | grep '{{keyword}}'"
         description: "Find resources matching a keyword, returning JSON with count, matches array, and any stderr"
         script: |
           #!/bin/bash
