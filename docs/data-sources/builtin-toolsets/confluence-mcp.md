@@ -32,8 +32,8 @@ You'll also need:
     kubectl create namespace holmes-mcp
 
     kubectl create secret generic confluence-mcp-credentials \
-      --from-literal=username=<YOUR_EMAIL> \
-      --from-literal=token=<YOUR_API_TOKEN> \
+      --from-literal=confluence-username=<YOUR_EMAIL> \
+      --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
       -n holmes-mcp
     ```
 
@@ -71,12 +71,12 @@ You'll also need:
               valueFrom:
                 secretKeyRef:
                   name: confluence-mcp-credentials
-                  key: username
+                  key: confluence-username
             - name: CONFLUENCE_API_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: confluence-mcp-credentials
-                  key: token
+                  key: confluence-api-token
             - name: ENABLED_TOOLS
               value: "confluence_search,confluence_get_page,confluence_get_page_content,confluence_get_comments"
             - name: READ_ONLY
@@ -143,8 +143,8 @@ You'll also need:
 
     ```bash
     kubectl create secret generic confluence-mcp-credentials \
-      --from-literal=username=<YOUR_EMAIL> \
-      --from-literal=token=<YOUR_API_TOKEN> \
+      --from-literal=confluence-username=<YOUR_EMAIL> \
+      --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
       -n <NAMESPACE>
     ```
 
@@ -187,8 +187,8 @@ You'll also need:
 
     ```bash
     kubectl create secret generic confluence-mcp-credentials \
-      --from-literal=username=<YOUR_EMAIL> \
-      --from-literal=token=<YOUR_API_TOKEN> \
+      --from-literal=confluence-username=<YOUR_EMAIL> \
+      --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
       -n <NAMESPACE>
     ```
 

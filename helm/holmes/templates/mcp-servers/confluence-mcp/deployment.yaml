@@ -79,12 +79,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: {{ required "mcpAddons.confluenceMcp.auth.secretName is required" .Values.mcpAddons.confluenceMcp.auth.secretName }}
-              key: {{ .Values.mcpAddons.confluenceMcp.auth.usernameKey | default "username" }}
+              key: {{ .Values.mcpAddons.confluenceMcp.auth.usernameKey | default "confluence-username" }}
         - name: CONFLUENCE_API_TOKEN
           valueFrom:
             secretKeyRef:
               name: {{ .Values.mcpAddons.confluenceMcp.auth.secretName }}
-              key: {{ .Values.mcpAddons.confluenceMcp.auth.tokenKey | default "token" }}
+              key: {{ .Values.mcpAddons.confluenceMcp.auth.tokenKey | default "confluence-api-token" }}
         {{- if .Values.mcpAddons.confluenceMcp.config.enabledTools }}
         - name: ENABLED_TOOLS
           valueFrom:

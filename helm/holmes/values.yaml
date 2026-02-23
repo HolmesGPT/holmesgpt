@@ -523,7 +523,7 @@ mcpAddons:
   # Authentication: Create an Atlassian API token
   #   Then create a Kubernetes secret:
   #   kubectl create secret generic confluence-mcp-credentials \
-  #     --from-literal=username=<YOUR_EMAIL> --from-literal=token=<YOUR_API_TOKEN> -n <NAMESPACE>
+  #     --from-literal=confluence-username=<YOUR_EMAIL> --from-literal=confluence-api-token=<YOUR_API_TOKEN> -n <NAMESPACE>
   confluenceMcp:
     enabled: false
 
@@ -533,8 +533,8 @@ mcpAddons:
 
     auth:
       secretName: ""         # Required: name of K8s secret containing Confluence credentials
-      usernameKey: "username" # Key in secret for the username/email
-      tokenKey: "token"       # Key in secret for the API token
+      usernameKey: "confluence-username"  # Key in secret for the username/email
+      tokenKey: "confluence-api-token"   # Key in secret for the API token
 
     config:
       # Confluence instance URL (required)
