@@ -348,7 +348,7 @@ toolsets:
         description: >
           Use kubectl to get apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.
-          Returns a JSON object with keys: "total_items_processed", "count" (number of matches),
+          Returns a JSON object with keys: "total_items_processed", "matches_found" (number of matches),
           "preview" (first 10 results truncated to 200 chars), and "stderr" (any error output, or null).
           IMPORTANT: The 'kind' parameter must be the plural form of the resource type
           (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
@@ -367,7 +367,7 @@ toolsets:
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
             jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
-              '{total_items_processed: 0, count: 0, preview: [], stderr: $stderr}'
+              '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
 
@@ -379,7 +379,7 @@ toolsets:
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
             jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
-              '{total_items_processed: 0, count: 0, preview: [], stderr: $stderr}'
+              '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
 
@@ -402,7 +402,7 @@ toolsets:
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
             jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
-              '{total_items_processed: 0, count: 0, preview: [], stderr: $stderr}'
+              '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
 
@@ -434,7 +434,7 @@ toolsets:
               rm -f "$err_file"
               jq -n --arg stderr "kubectl get --raw failed for $QUERY. $err_content" \
                 --argjson total "$TOTAL_PROCESSED" \
-                '{total_items_processed: $total, count: 0, preview: [], stderr: $stderr}'
+                '{total_items_processed: $total, matches_found: 0, preview: [], stderr: $stderr}'
               exit 0
             fi
 
@@ -448,7 +448,7 @@ toolsets:
               rm -f "$err_file"
               jq -n --arg stderr "jq expression failed. $err_content" \
                 --argjson total "$TOTAL_PROCESSED" \
-                '{total_items_processed: $total, count: 0, preview: [], stderr: $stderr}'
+                '{total_items_processed: $total, matches_found: 0, preview: [], stderr: $stderr}'
               exit 0
             fi
 
@@ -472,19 +472,19 @@ toolsets:
           # Count and preview the collected matches
           filtered_matches=$(echo "$ALL_MATCHES" | grep -v '^$' | grep -v '^null$')
           if [ -z "$filtered_matches" ]; then
-            count=0
+            MATCHES_FOUND=0
             PREVIEW="[]"
           else
-            count=$(echo "$filtered_matches" | wc -l)
+            MATCHES_FOUND=$(echo "$filtered_matches" | wc -l)
             PREVIEW=$(echo "$filtered_matches" | head -n 10 | cut -c 1-200 | jq -R . | jq -s '.')
           fi
 
           jq -n \
-            --argjson count "$count" \
+            --argjson matches_found "$MATCHES_FOUND" \
             --argjson preview "$PREVIEW" \
             --argjson total_items_processed "$TOTAL_PROCESSED" \
             --arg stderr "$err_content" \
-            '{total_items_processed: $total_items_processed, count: $count, preview: $preview, stderr: (if $stderr == "" then null else $stderr end)}'
+            '{total_items_processed: $total_items_processed, matches_found: $matches_found, preview: $preview, stderr: (if $stderr == "" then null else $stderr end)}'
 
     # NOTE: this is only possible for probes with a healthz endpoint - we do this to avoid giving the LLM generic
     # http GET capabilities which are more powerful than we want to expose
