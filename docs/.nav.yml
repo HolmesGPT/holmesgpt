@@ -2,6 +2,7 @@ nav:
   - index.md
   - Installation: installation
   - Walkthrough: walkthrough
+  - Holmes Operator: operator
   - AI Providers: ai-providers
   - Data Sources: data-sources
   - Benchmarks: development/evaluations

@@ -14,7 +14,7 @@ class TestGetUlimitPrefix:
         """Test ulimit prefix format with default value."""
         result = get_ulimit_prefix()
         expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
-        assert result == f"ulimit -v {expected_kb} || true; "
+        assert result == f"ulimit -v {expected_kb} 2>/dev/null || true; "
 
 
 class TestCheckOomAndAppendHint:
