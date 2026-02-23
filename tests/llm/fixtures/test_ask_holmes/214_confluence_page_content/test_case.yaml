@@ -18,12 +18,6 @@ before_test: |
   PAGE_TITLE="Verification Page"
   VERIFICATION_CODE="VERIFY-8K3P5N9"
 
-  echo "Cleaning up any leftover space from prior runs..."
-  curl -L -s -o /dev/null -X DELETE \
-    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
-    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" || true
-  sleep 2
-
   echo "Creating Confluence space ${SPACE_KEY}..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
@@ -43,13 +37,14 @@ before_test: |
   HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
   BODY=$(echo "$RESPONSE" | sed '$d')
 
-  if [ "$HTTP_CODE" -ne 200 ]; then
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif [ "$HTTP_CODE" -eq 409 ]; then
+    echo "Space already exists, reusing."
+  else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
     exit 1
   fi
-
-  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-  echo "Space created with ID: ${SPACE_ID}"
 
   sleep 2
 
@@ -75,12 +70,22 @@ before_test: |
   PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
   PAGE_BODY=$(echo "$PAGE_RESPONSE" | sed '$d')
 
-  if [ "$PAGE_HTTP_CODE" -ne 200 ]; then
-    echo "Failed to create page. HTTP ${PAGE_HTTP_CODE}: ${PAGE_BODY}"
-    exit 1
+  if [ "$PAGE_HTTP_CODE" -eq 200 ]; then
+    PAGE_ID=$(echo "$PAGE_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
+    PAGE_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${PAGE_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PAGE_ID" ]; then
+      echo "Failed to create or find page."
+      exit 1
+    fi
+    echo "Found existing page."
   fi
-
-  PAGE_ID=$(echo "$PAGE_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   echo "Page created with ID: ${PAGE_ID}"
 
   echo "Verifying page content..."

@@ -18,12 +18,6 @@ before_test: |
   PARENT_TITLE="Parent Page 216X"
   CHILD_TITLE="Child Page 216"
 
-  echo "Cleaning up any leftover space from prior runs..."
-  curl -L -s -o /dev/null -X DELETE \
-    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
-    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" || true
-  sleep 2
-
   echo "Creating Confluence space ${SPACE_KEY}..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
@@ -43,13 +37,14 @@ before_test: |
   HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
   BODY=$(echo "$RESPONSE" | sed '$d')
 
-  if [ "$HTTP_CODE" -ne 200 ]; then
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif [ "$HTTP_CODE" -eq 409 ]; then
+    echo "Space already exists, reusing."
+  else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
     exit 1
   fi
-
-  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-  echo "Space created with ID: ${SPACE_ID}"
 
   sleep 2
 
@@ -75,12 +70,22 @@ before_test: |
   PARENT_HTTP_CODE=$(echo "$PARENT_RESPONSE" | tail -n1)
   PARENT_BODY=$(echo "$PARENT_RESPONSE" | sed '$d')
 
-  if [ "$PARENT_HTTP_CODE" -ne 200 ]; then
-    echo "Failed to create parent page. HTTP ${PARENT_HTTP_CODE}: ${PARENT_BODY}"
-    exit 1
+  if [ "$PARENT_HTTP_CODE" -eq 200 ]; then
+    PARENT_ID=$(echo "$PARENT_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Parent page creation returned HTTP ${PARENT_HTTP_CODE}, searching for existing page..."
+    PARENT_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${PARENT_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PARENT_ID" ]; then
+      echo "Failed to create or find parent page."
+      exit 1
+    fi
+    echo "Found existing parent page."
   fi
-
-  PARENT_ID=$(echo "$PARENT_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   echo "Parent page created with ID: ${PARENT_ID}"
 
   sleep 2
@@ -112,12 +117,22 @@ before_test: |
   CHILD_HTTP_CODE=$(echo "$CHILD_RESPONSE" | tail -n1)
   CHILD_BODY=$(echo "$CHILD_RESPONSE" | sed '$d')
 
-  if [ "$CHILD_HTTP_CODE" -ne 200 ]; then
-    echo "Failed to create child page. HTTP ${CHILD_HTTP_CODE}: ${CHILD_BODY}"
-    exit 1
+  if [ "$CHILD_HTTP_CODE" -eq 200 ]; then
+    CHILD_ID=$(echo "$CHILD_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Child page creation returned HTTP ${CHILD_HTTP_CODE}, searching for existing page..."
+    CHILD_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${CHILD_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$CHILD_ID" ]; then
+      echo "Failed to create or find child page."
+      exit 1
+    fi
+    echo "Found existing child page."
   fi
-
-  CHILD_ID=$(echo "$CHILD_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   echo "Child page created with ID: ${CHILD_ID}"
 
   echo "Verifying page hierarchy..."
