@@ -60,6 +60,9 @@ class MockConfig(Config):
                 mock_generation_config=self._mock_generation_config,
                 mock_policy=self._test_case.mock_policy,
                 mock_overrides=getattr(self._test_case, "mock_overrides", None),
+                toolsets_config_path=getattr(
+                    self._test_case, "toolsets_config_path", None
+                ),
             )
 
             # With the new file-based mock system, mocks are loaded from disk automatically

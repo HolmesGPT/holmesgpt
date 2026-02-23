@@ -24,7 +24,6 @@ from rich.rule import Rule
 
 from holmes import get_version  # type: ignore
 from holmes.config import (
-    DEFAULT_CONFIG_LOCATION,
     Config,
     SourceFactory,
     SupportedTicketSources,
@@ -48,6 +47,13 @@ from holmes.utils.console.consts import system_prompt_help
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.checks.checks_cli import checks_app
+from holmes.common.cli_commons import (
+    opt_api_key,
+    opt_config_file,
+    opt_model,
+    opt_verbose,
+)
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
 
@@ -85,21 +91,14 @@ toolset_app = typer.Typer(
 )
 app.add_typer(toolset_app, name="toolset")
 
+app.add_typer(checks_app, name="checks")
 
-# Common cli options
+
+# Common cli options defined in holmes.common.cli_commons:
+# opt_api_key, opt_model, opt_config_file, opt_verbose
 # The defaults for options that are also in the config file MUST be None or else the cli defaults will override settings in the config file
-opt_api_key: Optional[str] = typer.Option(
-    None,
-    help="API key to use for the LLM (if not given, uses environment variables OPENAI_API_KEY or AZURE_API_KEY)",
-)
-opt_model: Optional[str] = typer.Option(None, help="Model to use for the LLM")
 opt_fast_model: Optional[str] = typer.Option(
     None, help="Optional fast model for summarization tasks"
-)
-opt_config_file: Optional[Path] = typer.Option(
-    DEFAULT_CONFIG_LOCATION,  # type: ignore
-    "--config",
-    help="Path to the config file. Defaults to ~/.holmes/config.yaml when it exists. Command line arguments take precedence over config file settings",
 )
 opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     [],
@@ -117,12 +116,6 @@ opt_max_steps: Optional[int] = typer.Option(
     40,
     "--max-steps",
     help="Advanced. Maximum number of steps the LLM can take to investigate the issue",
-)
-opt_verbose: Optional[List[bool]] = typer.Option(
-    [],
-    "--verbose",
-    "-v",
-    help="Verbose output. You can pass multiple times to increase the verbosity. e.g. -v or -vv or -vvv",
 )
 opt_log_costs: bool = typer.Option(
     False,
