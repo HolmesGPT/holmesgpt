@@ -1,0 +1,6 @@
+toolsets:
+  test-postgres:
+    type: database
+    enabled: true
+    config:
+      connection_url: "postgresql://holmes:holmespass@localhost:10217/holmesdb"

@@ -8,6 +8,7 @@ nav:
   - Azure SQL Database: azure-sql.md
   - Bash: bash.md
   - Cilium: cilium.md
+  - ClickHouse: database-clickhouse.md
   - Confluence: confluence.md
   - Connectivity Check: connectivity-check.md
   - Coralogix: coralogix-logs.md
@@ -26,14 +27,19 @@ nav:
   - Kafka: kafka.md
   - Kubernetes: kubernetes.md
   - KubeVela: kubevela.md
+  - MariaDB: database-mariadb.md
   - MariaDB (MCP): mariadb-mcp.md
   - MongoDB Atlas: mongodb-atlas.md
+  - MySQL: database-mysql.md
   - New Relic: newrelic.md
   - Notion: notion.md
   - OpenShift: openshift.md
+  - PostgreSQL: database-postgresql.md
   - Prometheus: prometheus.md
   - RabbitMQ: rabbitmq.md
   - Robusta: robusta.md
   - ServiceNow: servicenow.md
   - Slab: slab.md
   - Splunk (MCP): splunk-mcp.md
+  - SQL Server: database-sqlserver.md
+  - SQLite: database-sqlite.md
