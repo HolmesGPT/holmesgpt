@@ -216,12 +216,6 @@ The MCP server implements multiple security layers:
 | `run_image` | Run a temporary pod with a pre-approved image (disabled by default) |
 | `get_config` | Get the current MCP server configuration for debugging |
 
-## Testing the Connection
-
-```bash
-holmes ask "List all pods in the default namespace using the remediation server"
-```
-
 ## Common Use Cases
 
 ```bash
