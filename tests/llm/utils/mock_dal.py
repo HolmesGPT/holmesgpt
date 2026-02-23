@@ -141,7 +141,8 @@ class MockSupabaseDal(SupabaseDal):
         name_pattern: Optional[str] = None,
         kind: Optional[str] = None,
         container: Optional[str] = None,
-    ) -> list:
+        clusters: Optional[List[str]] = None,
+    ) -> Optional[List[Dict]]:
         return []
 
     def get_issues_metadata(
@@ -151,13 +152,13 @@ class MockSupabaseDal(SupabaseDal):
         limit: int = 100,
         workload: Optional[str] = None,
         ns: Optional[str] = None,
-        cluster: Optional[str] = None,
+        clusters: Optional[List[str]] = None,
+        include_external: bool = True,
         finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
         if self._issues_metadata is not None:
             filtered_data = []
-            if not cluster:
-                cluster = self.cluster
+            target_clusters = clusters if clusters else [self.cluster]
             for item in self._issues_metadata:
                 creation_date, start, end = [
                     datetime.fromisoformat(dt.replace("Z", "+00:00")).astimezone(
@@ -169,8 +170,14 @@ class MockSupabaseDal(SupabaseDal):
                     continue
                 if item.get("finding_type") != finding_type.value:
                     continue
-                if item.get("cluster") != cluster:
-                    continue
+                item_cluster = item.get("cluster")
+                if target_clusters == ["*"]:
+                    if not include_external and item_cluster == "external":
+                        continue
+                else:
+                    allowed = target_clusters + (["external"] if include_external else [])
+                    if item_cluster not in allowed:
+                        continue
                 if workload:
                     if item.get("subject_name") != workload:
                         continue
@@ -196,7 +203,7 @@ class MockSupabaseDal(SupabaseDal):
             return None
         else:
             data = super().get_issues_metadata(
-                start_datetime, end_datetime, limit, workload, ns, cluster, finding_type
+                start_datetime, end_datetime, limit, workload, ns, clusters, include_external, finding_type
             )
             if self._generate_mocks:
                 file_path = self._get_mock_file_path("issues_metadata")
