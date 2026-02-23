@@ -2,7 +2,7 @@
 
 By enabling this toolset, HolmesGPT can fetch and search Confluence pages. This is particularly useful if you store runbooks in Confluence and want Holmes to use them during investigations.
 
-Page content is automatically converted from Confluence storage format to clean markdown, preserving code blocks, tables, warnings, status labels, and task lists while reducing token usage by ~50%.
+LLMs can parse Confluence storage format (XHTML with macros) directly, so page content is returned as-is for maximum fidelity.
 
 Works with both **Confluence Cloud** and **Confluence Data Center / Server**.
 
@@ -144,11 +144,7 @@ Works with both **Confluence Cloud** and **Confluence Data Center / Server**.
 
 | Tool Name | Description |
 |-----------|-------------|
-| confluence_get_page | Fetch a Confluence page by content ID or by title + space key. Body is automatically converted to markdown. |
-| confluence_search | Search pages using CQL (Confluence Query Language). Supports expanding results with full body content. |
-| confluence_list_spaces | List Confluence spaces with optional filtering by type, status, or label. |
-| confluence_get_child_pages | Get child pages of a Confluence page. Use after `confluence_get_page` shows child pages exist. |
-| confluence_get_comments | Get comments on a Confluence page. Use after `confluence_get_page` shows comments exist. |
+| confluence_request | Make HTTP GET requests to the Confluence REST API. Supports fetching pages, searching with CQL, listing spaces, and retrieving child pages or comments. |
 
 ## Common Use Cases
 

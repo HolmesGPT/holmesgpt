@@ -31,8 +31,7 @@ def toolset():
 class TestGatewayAutoDetection:
     def test_direct_url_used_when_no_gateway_needed(self, toolset):
         """When direct URL works, no gateway is activated."""
-        url = toolset._build_url("/rest/api/space")
-        assert url.startswith("https://test.atlassian.net/wiki/rest/api/space")
+        assert toolset._effective_base() == "https://test.atlassian.net"
         assert toolset._gateway_base_url is None
 
     def test_gateway_activated_with_explicit_cloud_id(self):
@@ -94,8 +93,8 @@ class TestGatewayAutoDetection:
         assert "gateway" in msg.lower()
         assert ts._gateway_base_url == f"{ATLASSIAN_GATEWAY_BASE}/detected-cloud-id"
 
-    def test_gateway_url_used_in_build_url(self):
-        """Once gateway is activated, _build_url uses the gateway base URL."""
+    def test_gateway_url_used_when_activated(self):
+        """Once gateway is activated, effective base uses the gateway URL."""
         ts = ConfluenceToolset()
         ts.config = ConfluenceConfig(
             api_url="https://mycompany.atlassian.net",
@@ -104,9 +103,8 @@ class TestGatewayAutoDetection:
         )
         ts._gateway_base_url = f"{ATLASSIAN_GATEWAY_BASE}/my-cloud-id"
 
-        url = ts._build_url("/rest/api/space")
-        assert url.startswith(f"{ATLASSIAN_GATEWAY_BASE}/my-cloud-id/wiki/rest/api/space")
-        assert "mycompany.atlassian.net" not in url
+        assert ts._effective_base() == f"{ATLASSIAN_GATEWAY_BASE}/my-cloud-id"
+        assert "mycompany.atlassian.net" not in ts._effective_base()
 
     def test_no_gateway_for_data_center(self):
         """Data Center URLs (non-atlassian.net) should never trigger gateway fallback."""
