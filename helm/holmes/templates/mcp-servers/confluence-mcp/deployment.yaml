@@ -12,12 +12,13 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
 data:
+  TRANSPORT: "sse"
   CONFLUENCE_URL: {{ required "mcpAddons.confluenceMcp.config.url is required" .Values.mcpAddons.confluenceMcp.config.url | quote }}
   {{- if .Values.mcpAddons.confluenceMcp.config.enabledTools }}
   ENABLED_TOOLS: {{ .Values.mcpAddons.confluenceMcp.config.enabledTools | quote }}
   {{- end }}
   {{- if .Values.mcpAddons.confluenceMcp.config.readOnly }}
-  READ_ONLY: "true"
+  READ_ONLY_MODE: "true"
   {{- end }}
 ---
 apiVersion: apps/v1
@@ -70,6 +71,11 @@ spec:
           name: http
           protocol: TCP
         env:
+        - name: TRANSPORT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-confluence-mcp-config
+              key: TRANSPORT
         - name: CONFLUENCE_URL
           valueFrom:
             configMapKeyRef:
@@ -93,7 +99,7 @@ spec:
               key: ENABLED_TOOLS
         {{- end }}
         {{- if .Values.mcpAddons.confluenceMcp.config.readOnly }}
-        - name: READ_ONLY
+        - name: READ_ONLY_MODE
           value: "true"
         {{- end }}
         resources:

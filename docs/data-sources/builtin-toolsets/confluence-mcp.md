@@ -59,12 +59,14 @@ You'll also need:
         spec:
           containers:
           - name: confluence-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/confluence-mcp:1.0.0
+            image: ghcr.io/sooperset/mcp-atlassian:latest
             imagePullPolicy: IfNotPresent
             ports:
             - containerPort: 8000
               name: http
             env:
+            - name: TRANSPORT
+              value: "sse"
             - name: CONFLUENCE_URL
               value: "https://your-company.atlassian.net/wiki"
             - name: CONFLUENCE_USERNAME
@@ -79,7 +81,7 @@ You'll also need:
                   key: confluence-api-token
             - name: ENABLED_TOOLS
               value: "confluence_search,confluence_get_page,confluence_get_page_content,confluence_get_comments"
-            - name: READ_ONLY
+            - name: READ_ONLY_MODE
               value: "true"
             resources:
               requests:
