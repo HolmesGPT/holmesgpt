@@ -152,9 +152,15 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     mcpAddons:
       kubernetesRemediation:
         enabled: true
+        # Tools that can only be called after a runbook invocation
+        # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
+        restrictedTools:
+          - "*"
+        # Tools that require user confirmation before execution
+        # Use ["*"] to require approval for all tools, or specify tool names
+        approvalRequiredTools:
+          - "*"
     ```
-
-    By default, all tools are restricted (require runbook invocation) and require user approval. This is configured in the Helm chart automatically.
 
     Then deploy or upgrade your Holmes installation:
 
@@ -171,9 +177,15 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
       mcpAddons:
         kubernetesRemediation:
           enabled: true
+          # Tools that can only be called after a runbook invocation
+          # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
+          restrictedTools:
+            - "*"
+          # Tools that require user confirmation before execution
+          # Use ["*"] to require approval for all tools, or specify tool names
+          approvalRequiredTools:
+            - "*"
     ```
-
-    By default, all tools are restricted (require runbook invocation) and require user approval.
 
     Then deploy or upgrade your Robusta installation:
 
