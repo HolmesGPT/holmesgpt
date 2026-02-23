@@ -41,7 +41,7 @@ toolsets:
         command: "kubectl get --show-labels -o wide {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
 
       - name: "kubectl_get_by_kind_in_namespace"
-        description: "Get all resources of a given type in a namespace, returning JSON with count, items, and any error"
+        description: "Get all resources of a given type in a namespace, returning JSON with count, items, and any stderr"
         script: |
           #!/bin/bash
           err_file=$(mktemp)
@@ -50,10 +50,17 @@ toolsets:
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
 
-          if [ $kubectl_exit -eq 0 ] && [ -n "$output" ]; then
-            echo "$output" | jq --arg err "$err_content" '{count: (.items | length), items: .items, error: (if $err == "" then null else $err end)}'
+          if command -v jq &>/dev/null; then
+            if [ $kubectl_exit -eq 0 ] && [ -n "$output" ]; then
+              echo "$output" | jq --arg stderr "$err_content" '{count: (.items | length), items: .items, stderr: (if $stderr == "" then null else $stderr end)}'
+            else
+              jq -n --arg stderr "$err_content" '{count: 0, items: [], stderr: $stderr}'
+            fi
           else
-            jq -n --arg err "$err_content" '{count: 0, items: [], error: $err}'
+            echo "=== STDERR ==="
+            echo "$err_content"
+            echo "=== OUTPUT ==="
+            echo "$output"
           fi
         transformers:
           - name: llm_summarize
@@ -70,7 +77,7 @@ toolsets:
                 - Be concise and avoid expansion: target ≤ 50% of input size; prefer counts + outliers over full listings
 
       - name: "kubectl_get_by_kind_in_cluster"
-        description: "Get all resources of a given type across all namespaces, returning JSON with count, items, and any error"
+        description: "Get all resources of a given type across all namespaces, returning JSON with count, items, and any stderr"
         script: |
           #!/bin/bash
           err_file=$(mktemp)
@@ -79,10 +86,17 @@ toolsets:
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
 
-          if [ $kubectl_exit -eq 0 ] && [ -n "$output" ]; then
-            echo "$output" | jq --arg err "$err_content" '{count: (.items | length), items: .items, error: (if $err == "" then null else $err end)}'
+          if command -v jq &>/dev/null; then
+            if [ $kubectl_exit -eq 0 ] && [ -n "$output" ]; then
+              echo "$output" | jq --arg stderr "$err_content" '{count: (.items | length), items: .items, stderr: (if $stderr == "" then null else $stderr end)}'
+            else
+              jq -n --arg stderr "$err_content" '{count: 0, items: [], stderr: $stderr}'
+            fi
           else
-            jq -n --arg err "$err_content" '{count: 0, items: [], error: $err}'
+            echo "=== STDERR ==="
+            echo "$err_content"
+            echo "=== OUTPUT ==="
+            echo "$output"
           fi
         transformers:
           - name: llm_summarize
@@ -99,7 +113,7 @@ toolsets:
                 - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
 
       - name: "kubectl_find_resource"
-        description: "Find resources matching a keyword, returning JSON with count, matches array, and any error"
+        description: "Find resources matching a keyword, returning JSON with count, matches array, and any stderr"
         script: |
           #!/bin/bash
           err_file=$(mktemp)
@@ -107,16 +121,24 @@ toolsets:
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
 
-          if [ -n "$output" ]; then
-            matches=$(echo "$output" | jq -R . | jq -s .)
-            count=$(echo "$output" | wc -l)
+          if command -v jq &>/dev/null; then
+            if [ -n "$output" ]; then
+              matches=$(echo "$output" | jq -R . | jq -s .)
+              count=$(echo "$output" | wc -l)
+            else
+              matches="[]"
+              count=0
+            fi
+            jq -n --argjson matches "$matches" --arg stderr "$err_content" --argjson count "$count" \
+              '{count: $count, matches: $matches, stderr: (if $stderr == "" then null else $stderr end)}'
           else
-            matches="[]"
-            count=0
+            echo "=== STDERR ==="
+            echo "$err_content"
+            echo "=== MATCHES ==="
+            echo "$output"
+            echo "=== COUNT ==="
+            if [ -n "$output" ]; then echo "$output" | wc -l; else echo 0; fi
           fi
-
-          jq -n --argjson matches "$matches" --arg err "$err_content" --argjson count "$count" \
-            '{count: $count, matches: $matches, error: (if $err == "" then null else $err end)}'
 
       - name: "kubectl_get_yaml"
         description: "Run `kubectl get -o yaml` on a single Kubernetes resource"
