@@ -1,0 +1,45 @@
+toolsets:
+  datadog-logs-api:
+    type: http
+    enabled: true
+    config:
+      endpoints:
+        - hosts: ["api.us5.datadoghq.com"]
+          paths: ["/api/v2/logs/*"]
+          methods: ["POST"]
+          auth:
+            type: header
+            name: "DD-API-KEY"
+            value: "{{env.DATADOG_API_KEY}}"
+      default_headers:
+        DD-APPLICATION-KEY: "{{env.DATADOG_APP_KEY}}"
+      timeout_seconds: 30
+    llm_instructions: |
+      ### Datadog Logs REST API
+
+      Base URL: https://api.us5.datadoghq.com
+
+      Available endpoints:
+      - POST /api/v2/logs/events/search - Search logs
+
+      Request body format:
+      {
+        "filter": {
+          "query": "search query using Datadog log search syntax",
+          "from": "unix_epoch_milliseconds_as_string",
+          "to": "unix_epoch_milliseconds_as_string",
+          "indexes": ["*"],
+          "storage_tier": "indexes"
+        },
+        "page": {"limit": 100},
+        "sort": "-timestamp"
+      }
+
+      Time parameters use unix epoch MILLISECONDS as strings (e.g. "1700000000000").
+      Search syntax examples:
+      - "pod_name:coral-reef*" - match pods by name prefix
+      - "service:web-app @http.status_code:500" - filter by service and status
+      - "@message:*error*" - search in message content
+      Use wildcards (*) for pattern matching in pod names.
+
+      For pagination, use the cursor from the response: add "cursor" to the "page" object.

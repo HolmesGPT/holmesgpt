@@ -17,7 +17,7 @@ def get_ulimit_prefix() -> str:
     The '|| true' ensures we continue even if ulimit is not supported.
     """
     memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
-    return f"ulimit -v {memory_limit_kb} || true; "
+    return f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
 
 
 def check_oom_and_append_hint(output: str, return_code: int) -> str:
