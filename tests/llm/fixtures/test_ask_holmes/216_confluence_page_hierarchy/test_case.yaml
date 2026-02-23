@@ -74,7 +74,7 @@ before_test: |
     exit 1
   fi
 
-  PARENT_ID=$(echo "$PARENT_BODY" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  PARENT_ID=$(echo "$PARENT_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   echo "Parent page created with ID: ${PARENT_ID}"
 
   sleep 2
@@ -111,7 +111,7 @@ before_test: |
     exit 1
   fi
 
-  CHILD_ID=$(echo "$CHILD_BODY" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  CHILD_ID=$(echo "$CHILD_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   echo "Child page created with ID: ${CHILD_ID}"
 
   echo "Verifying page hierarchy..."

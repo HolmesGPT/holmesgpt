@@ -294,7 +294,7 @@ before_test: |
     exit 1
   fi
 
-  PAGE_ID=$(echo "$PAGE_BODY_RESP" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  PAGE_ID=$(echo "$PAGE_BODY_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   echo "Page created with ID: ${PAGE_ID}"
 
   echo "Verifying page content..."

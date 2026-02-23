@@ -122,7 +122,7 @@ class ConfluenceToolset(Toolset):
 
         headers: Dict[str, str] = {"Accept": "application/json"}
         auth: Optional[Tuple[str, str]] = None
-        if self._conf.auth_type == "bearer":
+        if self._conf.auth_type == "bearer" or self._gateway_base_url:
             headers["Authorization"] = f"Bearer {self._conf.api_key}"
         else:
             auth = (self._conf.user or "", self._conf.api_key)
