@@ -90,12 +90,14 @@ You'll also need:
               limits:
                 memory: "256Mi"
             readinessProbe:
-              tcpSocket:
+              httpGet:
+                path: /healthz
                 port: 8000
               initialDelaySeconds: 5
               periodSeconds: 10
             livenessProbe:
-              tcpSocket:
+              httpGet:
+                path: /healthz
                 port: 8000
               initialDelaySeconds: 10
               periodSeconds: 30
