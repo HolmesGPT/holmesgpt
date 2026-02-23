@@ -719,15 +719,16 @@ class MockToolsetManager:
     ) -> List[Toolset]:
         """Configure builtin toolsets with custom definitions."""
         from holmes.plugins.toolsets.http.http_toolset import HttpToolset
+        from holmes.plugins.toolsets.database.database import DatabaseToolset
 
         configured = []
 
         # First, validate that all custom definitions reference existing toolsets
-        # (except for HTTP and MCP toolsets which are dynamically created)
+        # (except for HTTP, Database, and MCP toolsets which are dynamically created)
         builtin_names = {ts.name for ts in builtin_toolsets}
         for definition in custom_definitions:
-            # Skip validation for HTTP/MCP toolsets - they are not built-in
-            if isinstance(definition, (HttpToolset, RemoteMCPToolset)):
+            # Skip validation for HTTP, Database, and MCP toolsets - they override/replace built-in toolsets
+            if isinstance(definition, (HttpToolset, DatabaseToolset, RemoteMCPToolset)):
                 continue
             if definition.name not in builtin_names:
                 raise RuntimeError(
@@ -735,9 +736,12 @@ class MockToolsetManager:
                     f"Available toolsets: {', '.join(sorted(builtin_names))}"
                 )
 
-        # Collect HTTP toolsets from custom definitions - these override/replace built-ins
+        # Collect HTTP and Database toolsets from custom definitions - these override/replace built-ins
         http_toolsets = {
             d.name: d for d in custom_definitions if isinstance(d, HttpToolset)
+        }
+        database_toolsets = {
+            d.name: d for d in custom_definitions if isinstance(d, DatabaseToolset)
         }
 
         # Collect MCP toolsets from custom definitions
@@ -751,8 +755,8 @@ class MockToolsetManager:
             initialize_base=False,
         )
         for toolset in builtin_toolsets:
-            # Skip built-in toolsets that are replaced by HTTP or MCP toolsets
-            if toolset.name in http_toolsets or toolset.name in mcp_toolsets:
+            # Skip built-in toolsets that are replaced by HTTP, Database, or MCP toolsets
+            if toolset.name in http_toolsets or toolset.name in database_toolsets or toolset.name in mcp_toolsets:
                 continue
             # Replace RunbookToolset with one that has test folder search path
             if toolset.name == "runbook":
@@ -885,6 +889,36 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                 else:
                     # In MOCK mode, just set status to ENABLED for enabled toolsets
                     http_toolset.status = ToolsetStatusEnum.ENABLED
+
+        # Add Database toolsets from custom definitions (they override/replace built-ins)
+        for database_toolset in database_toolsets.values():
+            configured.append(database_toolset)
+
+            # Check prerequisites for enabled Database toolsets
+            if database_toolset.enabled:
+                toolset_mode = self._get_toolset_mode(database_toolset.name)
+                if toolset_mode == MockMode.LIVE or toolset_mode == MockMode.GENERATE:
+                    try:
+                        database_toolset.check_prerequisites()
+
+                        if (
+                            database_toolset.status != ToolsetStatusEnum.ENABLED
+                            and not self.allow_toolset_failures
+                        ):
+                            raise ToolsetPrerequisiteError(
+                                toolset_name=database_toolset.name,
+                                error_detail=database_toolset.error or "Unknown error",
+                            )
+                    except ToolsetPrerequisiteError:
+                        raise
+                    except Exception as e:
+                        raise ToolsetPrerequisiteError(
+                            toolset_name=database_toolset.name,
+                            error_detail=str(e),
+                        ) from e
+                else:
+                    # In MOCK mode, just set status to ENABLED for enabled toolsets
+                    database_toolset.status = ToolsetStatusEnum.ENABLED
 
         # Add MCP toolsets from custom definitions
         for mcp_toolset in mcp_toolsets.values():

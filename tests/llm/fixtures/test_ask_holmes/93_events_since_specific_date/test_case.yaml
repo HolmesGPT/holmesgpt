@@ -10,4 +10,4 @@ evaluation:
 mock_policy: always_mock
 
 skip: true
-skip_reason: "this sometimes fails to to missing mock errors"
+skip_reason: "this sometimes fails due to missing mock errors"

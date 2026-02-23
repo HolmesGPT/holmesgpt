@@ -163,6 +163,7 @@ class ToolsetType(str, Enum):
     CUSTOMIZED = "custom"
     MCP = "mcp"
     HTTP = "http"
+    DATABASE = "database"
 
 
 class ToolParameter(BaseModel):
@@ -830,6 +831,7 @@ class Toolset(BaseModel):
                     if error_message:
                         self.error = f"{error_message}"
                 except Exception as e:
+                    logger.exception(f"Toolset {self.name} prerequisite check failed")
                     self.status = ToolsetStatusEnum.FAILED
                     self.error = f"Prerequisite call failed unexpectedly: {str(e)}"
 
