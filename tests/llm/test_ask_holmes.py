@@ -22,12 +22,8 @@ from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
 from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.mock_dal import load_mock_dal
-from tests.llm.utils.mock_toolset import (
-    MockGenerationConfig,
-    MockToolsetManager,
-    check_for_mock_errors,
-)
+from tests.llm.utils.mock_dal import load_test_dal
+from tests.llm.utils.test_toolset import TestToolsetManager
 from tests.llm.utils.property_manager import (
     handle_test_error,
     set_initial_properties,
@@ -66,7 +62,6 @@ def test_ask_holmes(
     test_case: AskHolmesTestCase,
     caplog,
     request,
-    mock_generation_config: MockGenerationConfig,
     additional_system_prompt,
     shared_test_infrastructure,  # type: ignore
 ):
@@ -113,7 +108,6 @@ def test_ask_holmes(
                     model,  # positional arg
                     tracer,  # positional arg
                     eval_span,  # positional arg
-                    mock_generation_config,  # positional arg
                     additional_system_prompt=additional_system_prompt,
                     request=request,
                     retry_enabled=retry_enabled,
@@ -129,7 +123,6 @@ def test_ask_holmes(
             test_case=test_case,
             model=model,
             result=result,
-            mock_generation_config=mock_generation_config,
         )
         raise
 
@@ -155,7 +148,6 @@ def test_ask_holmes(
             model=model,
             result=result,
             scores=scores,
-            mock_generation_config=mock_generation_config,
         )
 
     # Get expected for assertion message
@@ -174,7 +166,6 @@ def ask_holmes(
     model: str,
     tracer,
     eval_span,
-    mock_generation_config,
     additional_system_prompt,
     request=None,
 ) -> LLMResult:
@@ -182,13 +173,10 @@ def ask_holmes(
         "Initialize Toolsets",
         type=SpanType.TASK.value,
     ) as toolset_span:
-        toolset_manager = MockToolsetManager(
+        toolset_manager = TestToolsetManager(
             test_case_folder=test_case.folder,
-            mock_generation_config=mock_generation_config,
-            request=request,
-            mock_policy=test_case.mock_policy,
-            mock_overrides=test_case.mock_overrides,
             allow_toolset_failures=getattr(test_case, "allow_toolset_failures", False),
+            toolsets_config_path=getattr(test_case, "toolsets_config_path", None),
         )
 
         tool_executor = ToolExecutor(toolset_manager.toolsets)
@@ -243,11 +231,11 @@ def ask_holmes(
             if test_case.cluster_name:
                 config.cluster_name = test_case.cluster_name
 
-            mock_dal = load_mock_dal(
-                Path(test_case.folder), generate_mocks=False, initialize_base=False
+            dal = load_test_dal(
+                Path(test_case.folder), initialize_base=False
             )
-            runbooks = load_runbook_catalog(mock_dal)
-            global_instructions = mock_dal.get_global_instructions_for_account()
+            runbooks = load_runbook_catalog(dal)
+            global_instructions = dal.get_global_instructions_for_account()
 
             messages = build_chat_messages(
                 ask=chat_request.ask,
@@ -279,10 +267,5 @@ def ask_holmes(
                     request.node.user_properties.append(
                         ("tool_call_count", len(result.tool_calls))
                     )
-
-        # Check for any mock errors that occurred during tool execution
-        # This will raise an exception if any mock data errors happened
-        if request:
-            check_for_mock_errors(request)
 
         return result

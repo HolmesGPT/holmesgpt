@@ -1,7 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_describe", "match_params": {"kind": "node", "name": "ip-172-31-40-111.us-east-2.compute.internal", "namespace": ""}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_describe command", "params": {"kind": "node", "name": "ip-172-31-40-111.us-east-2.compute.internal", "namespace": ""}}
-Command `kubectl describe node ip-172-31-40-111.us-east-2.compute.internal` failed with return code 1
-stdout:
-
-stderr:
-Error from server (NotFound): nodes "ip-172-31-40-111.us-east-2.compute.internal" not found

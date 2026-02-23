@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"deployment","name":"catalogue","namespace":"sock-shop"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide deployment catalogue -n sock-shop", "params": {"kind": "deployment", "name": "catalogue", "namespace": "sock-shop"}}
-NAME        READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES                            SELECTOR         LABELS
-catalogue   1/1     1            1           27d   catalogue    weaveworksdemos/catalogue:0.3.5   name=catalogue   name=catalogue

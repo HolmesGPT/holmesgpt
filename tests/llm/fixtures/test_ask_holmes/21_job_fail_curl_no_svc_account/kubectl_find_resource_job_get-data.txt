@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"job","keyword":"get-data"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide job | grep get-data", "params": {"kind": "job", "keyword": "get-data"}}
-default     get-data   Failed   0/1           9m31s      9m31s   curl-container   curlimages/curl:latest   batch.kubernetes.io/controller-uid=dc756cff-fc0d-4b22-b87b-c79161fb0295   batch.kubernetes.io/controller-uid=dc756cff-fc0d-4b22-b87b-c79161fb0295,batch.kubernetes.io/job-name=get-data,controller-uid=dc756cff-fc0d-4b22-b87b-c79161fb0295,job-name=get-data

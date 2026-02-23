@@ -1,2 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"rabbitmq"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl get -A --show-labels -o wide pod | grep rabbitmq` failed with return code 1\nOutput:\n", "return_code": 1, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep rabbitmq", "params": {"kind": "pod", "keyword": "rabbitmq"}}

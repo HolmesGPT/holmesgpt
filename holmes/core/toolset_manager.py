@@ -198,15 +198,17 @@ class ToolsetManager:
 
         builtin_toolsets_dict: dict[str, dict[str, Any]] = {}
         custom_toolsets_dict: dict[str, dict[str, Any]] = {}
+
         for toolset_name, toolset_config in toolsets.items():
             toolset_name = handle_deprecated_toolset_name(
                 toolset_name, builtin_toolset_names
             )
 
             if toolset_name in builtin_toolset_names:
-                # build-in types was assigned when loaded
+                # Direct reference to builtin toolset by name
                 builtin_toolsets_dict[toolset_name] = toolset_config
             else:
+                # Custom toolset (including HTTP, DATABASE, MCP, etc.)
                 if toolset_config.get("type") is None:
                     toolset_config["type"] = ToolsetType.CUSTOMIZED.value
                 # custom toolsets defaults to enabled when not explicitly disabled
@@ -220,6 +222,7 @@ class ToolsetManager:
         builtin_toolsets = load_toolsets_from_config(
             builtin_toolsets_dict, strict_check=False
         )
+
         # custom toolsets or MCP servers are expected to defined required fields
         custom_toolsets = load_toolsets_from_config(
             toolsets=custom_toolsets_dict, strict_check=True

@@ -14,12 +14,8 @@ from holmes.core.conversations import build_chat_messages
 from holmes.core.llm import DefaultLLM
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
-from tests.llm.utils.mock_dal import load_mock_dal
-from tests.llm.utils.mock_toolset import (
-    MockGenerationConfig,
-    MockMode,
-    MockToolsetManager,
-)
+from tests.llm.utils.mock_dal import load_test_dal
+from tests.llm.utils.test_toolset import TestToolsetManager
 from tests.llm.utils.test_case_utils import get_models
 
 logger = logging.getLogger(__name__)
@@ -88,18 +84,11 @@ def test_cached_output(model: str, request):
 
     with patch.object(litellm, "completion", side_effect=capture_litellm_completion):
         llm = DefaultLLM(model, tracer=None)
-        mock_generation_config = MockGenerationConfig(
-            generate_mocks_enabled=False,
-            regenerate_all_enabled=False,
-            mock_mode=MockMode.MOCK,
-        )
 
         temp_dir = TemporaryDirectory()
         try:
-            toolset_manager = MockToolsetManager(
+            toolset_manager = TestToolsetManager(
                 test_case_folder=str(temp_dir.name),
-                mock_generation_config=mock_generation_config,
-                request=request,
             )
             tool_executor = ToolExecutor(toolset_manager.toolsets)
             ai = ToolCallingLLM(
@@ -107,8 +96,8 @@ def test_cached_output(model: str, request):
             )
             config = Config()
 
-            mock_dal = load_mock_dal(
-                Path(temp_dir.name), generate_mocks=False, initialize_base=False
+            test_dal = load_test_dal(
+                Path(temp_dir.name), initialize_base=False
             )
             runbooks = config.get_runbook_catalog()
 
@@ -121,7 +110,7 @@ def test_cached_output(model: str, request):
             conversation_history: List[Dict[str, Any]] = None
 
             for iteration, ask in enumerate(asks):
-                global_instructions = mock_dal.get_global_instructions_for_account()
+                global_instructions = test_dal.get_global_instructions_for_account()
                 messages = build_chat_messages(
                     ask=ask,
                     conversation_history=conversation_history,

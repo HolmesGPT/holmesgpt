@@ -26,6 +26,13 @@ nav:
           - "CI/CD Troubleshooting": walkthrough/cicd-troubleshooting.md
           - "Investigating Prometheus Alerts": walkthrough/investigating-prometheus-alerts.md
           - "Investigating using AKS MCP Server": walkthrough/investigating-using-aks-mcp-server.md
+    - "Holmes Operator":
+          - "Overview & Installation": operator/index.md
+          - "Health Checks": operator/health-checks.md
+          - "Scheduled Health Checks": operator/scheduled-health-checks.md
+          - "Configuration": operator/configuration.md
+          - "Troubleshooting": operator/troubleshooting.md
+          - "Development Guide": operator/development.md
     - "AI Providers":
           - "Overview": ai-providers/index.md
           - Anthropic: ai-providers/anthropic.md
@@ -52,6 +59,7 @@ nav:
                 - "Bash": data-sources/builtin-toolsets/bash.md
                 - "Cilium": data-sources/builtin-toolsets/cilium.md
                 - "Confluence": data-sources/builtin-toolsets/confluence.md
+                - "Confluence (MCP)": data-sources/builtin-toolsets/confluence-mcp.md
                 - "Connectivity Check": data-sources/builtin-toolsets/connectivity-check.md
                 - "Coralogix": data-sources/builtin-toolsets/coralogix-logs.md
                 - "DataDog": data-sources/builtin-toolsets/datadog.md
@@ -67,14 +75,17 @@ nav:
                 - "Kafka": data-sources/builtin-toolsets/kafka.md
                 - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
                 - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
+                - "Kubernetes Remediation (MCP)": data-sources/builtin-toolsets/kubernetes-remediation-mcp.md
                 - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md
                 - "Notion": data-sources/builtin-toolsets/notion.md
                 - "OpenShift": data-sources/builtin-toolsets/openshift.md
+                - "Prefect (MCP)": data-sources/builtin-toolsets/prefect-mcp.md
                 - "Prometheus": data-sources/builtin-toolsets/prometheus.md
                 - "RabbitMQ": data-sources/builtin-toolsets/rabbitmq.md
                 - "Robusta": data-sources/builtin-toolsets/robusta.md
+                - "Sentry (MCP)": data-sources/builtin-toolsets/sentry-mcp.md
                 - "ServiceNow": data-sources/builtin-toolsets/servicenow.md
                 - "Slab": data-sources/builtin-toolsets/slab.md
                 - "Splunk (MCP)": data-sources/builtin-toolsets/splunk-mcp.md
@@ -235,6 +246,9 @@ extra_javascript:
     - javascripts/tabsync.js
 
 extra:
+    version:
+        provider: mike
+        default: latest
     social:
         - icon: fontawesome/brands/github
           link: https://github.com/HolmesGPT/holmesgpt
