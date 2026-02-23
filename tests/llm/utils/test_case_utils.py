@@ -134,14 +134,7 @@ class HolmesTestCase(BaseModel):
     test_env_vars: Optional[Dict[str, str]] = (
         None  # Environment variables to set during test execution
     )
-    mock_policy: Optional[str] = (
-        "inherit"  # Mock policy: always_mock, never_mock, or inherit
-    )
-    mock_overrides: Optional[Dict[str, str]] = (
-        None  # Per-toolset mock policy overrides: {"toolset_name": "always_mock|never_mock|inherit"}
-    )
     description: Optional[str] = None
-    generate_mocks: Optional[bool] = None
     toolsets: Optional[Dict[str, Any]] = None
     port_forwards: Optional[List[Dict[str, Any]]] = (
         None  # Port forwarding configurations
@@ -244,7 +237,7 @@ def check_and_skip_test(
         pytest.skip(f"Test skipped due to port conflict: {skip_reason}")
 
 
-class MockHelper:
+class TestCaseLoader:
     def __init__(self, test_cases_folder: Path) -> None:
         super().__init__()
         self._test_cases_folder = test_cases_folder

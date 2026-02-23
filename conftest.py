@@ -14,18 +14,6 @@ from tests.llm.utils.braintrust import get_braintrust_url
 def pytest_addoption(parser):
     """Add custom pytest command line options"""
     parser.addoption(
-        "--generate-mocks",
-        action="store_true",
-        default=False,
-        help="Generate mock data files during test execution instead of using existing mocks",
-    )
-    parser.addoption(
-        "--regenerate-all-mocks",
-        action="store_true",
-        default=False,
-        help="Regenerate all mock data files, replacing existing ones (implies --generate-mocks)",
-    )
-    parser.addoption(
         "--skip-setup",
         action="store_true",
         default=False,

@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"my-app-53"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep my-app-53", "params": {"kind": "pod", "keyword": "my-app-53"}}
-ask-holmes-namespace-53             my-app-53-59c65cb4f9-j79dv                               1/1     Running                 0                  127m    10.244.1.173   kind-double-node-worker          <none>           <none>            app=my-app-53,pod-template-hash=59c65cb4f9

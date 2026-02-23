@@ -70,7 +70,7 @@ If the toolset implements `BasePodLoggingToolset` then update the template `_fet
     - Environment variables are missing
     - The credentials are missing permissions
     - No data is returned by the tools in the live tests
-2. Implement integration tests. Because you have actually verified that the data returned by the system is what you expect, you can now mock its behaviour and implement integration tests for each tool and for different scenarios.
+2. Implement integration tests for each tool and for different scenarios, using the data patterns you verified in the live tests.
 
 Run the tests with the `--no-cov` option to avoid code coverage noise.
 

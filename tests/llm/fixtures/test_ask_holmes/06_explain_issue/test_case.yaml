@@ -1,8 +1,0 @@
-user_prompt: 'Explain << { "type": "issue", "id": "asodfkq1209edyhqawdo2uydqawidh" } >>'
-expected_output:
-  - low ephemeral storage on the node
-evaluation:
-  correctness: 0
-# the LLM sometimes confuses the issue id for a resource and tries to run `kubectl get -A --show-labels -o wide pod | grep asodfkq1209edyhqawdo2uydqawidh`
-
-mock_policy: always_mock

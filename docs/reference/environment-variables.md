@@ -115,7 +115,7 @@ Directory for caching HolmesGPT data and temporary files.
 ## Testing and Development
 
 ### RUN_LIVE
-When set to `true`, enables live execution of commands in tests instead of using mocked responses. Strongly recommended for accurate test results.
+Enables live execution of commands in tests. Defaults to `true`.
 
 **Example:**
 ```bash

@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"user-api"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep user-api", "params": {"kind": "pod", "keyword": "user-api"}}
-staging-63      user-api-6969cc599-n99kp                                     1/1     Running                       0                  16s    10.0.2.184     gke-natan-develop-pool-2-41363a6e-yi0r   <none>           <none>            app=user-api,pod-template-hash=6969cc599
