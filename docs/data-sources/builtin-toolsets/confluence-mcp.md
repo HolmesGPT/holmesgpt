@@ -1,6 +1,6 @@
 # Confluence (MCP)
 
-The Confluence MCP server provides access to Confluence for searching and retrieving documentation. It enables Holmes to find runbooks, search internal documentation, and retrieve page content during investigations.
+This integration uses the community-maintained [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) MCP server. It provides access to Confluence for searching and retrieving documentation, enabling Holmes to find runbooks, search internal documentation, and retrieve page content during investigations.
 
 !!! note "Confluence vs Confluence (MCP)"
     HolmesGPT has a built-in [Confluence toolset](confluence.md) that provides basic page fetching. This MCP server provides richer functionality including CQL search, page comments, and optional write operations.
