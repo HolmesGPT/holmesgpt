@@ -1,39 +1,39 @@
-user_prompt: "Count all PriorityClasses that start with 'eval-218' and tell me the exact count. Also list their names."
+user_prompt: "Count all PriorityClasses whose names start with 'eval-218' and tell me the exact total."
 
 expected_output:
-  - The answer must state exactly 12 PriorityClasses
-  - Must mention at least 3 of the PriorityClass names that start with eval-218
+  - The answer must state exactly 49 PriorityClasses
 
 tags:
   - kubernetes
   - counting
-  - easy
 
 before_test: |
-  echo "Creating 12 PriorityClasses for cluster-scoped counting test"
+  echo "Creating 49 PriorityClasses with random names for cluster-scoped counting test"
 
-  # Create PriorityClasses with unique names and varying priority values
-  for i in $(seq 1 12); do
-    # Use different priority values (1000 base + index)
+  # Create PriorityClasses with random suffixes so LLM cannot infer count from names
+  CREATED=0
+  for i in $(seq 1 49); do
+    SUFFIX=$(cat /proc/sys/kernel/random/uuid | cut -c1-8)
     PRIORITY=$((1000 + i))
-    cat <<EOF | kubectl apply -f -
+    cat <<EOF | kubectl apply -f - 2>/dev/null && CREATED=$((CREATED + 1))
   apiVersion: scheduling.k8s.io/v1
   kind: PriorityClass
   metadata:
-    name: eval-218-priority-$i
+    name: eval-218-${SUFFIX}
   value: $PRIORITY
   globalDefault: false
-  description: "Test PriorityClass $i for eval 218"
+  description: "eval-218 test priority class"
   EOF
   done
 
-  # Verify all 12 were created
-  echo "Verifying PriorityClass count..."
-  ACTUAL=$(kubectl get priorityclasses --no-headers | grep "^eval-218-" | wc -l)
-  echo "Created $ACTUAL PriorityClasses with eval-218 prefix"
+  echo "Created $CREATED PriorityClasses"
 
-  if [ "$ACTUAL" -ne 12 ]; then
-    echo "ERROR: Expected 12 PriorityClasses, got $ACTUAL"
+  # Verify all 49 were created
+  ACTUAL=$(kubectl get priorityclasses --no-headers | grep "^eval-218-" | wc -l)
+  echo "Verified $ACTUAL PriorityClasses with eval-218 prefix"
+
+  if [ "$ACTUAL" -ne 49 ]; then
+    echo "ERROR: Expected 49 PriorityClasses, got $ACTUAL"
     kubectl get priorityclasses | grep eval-218
     exit 1
   fi
@@ -42,6 +42,4 @@ before_test: |
 
 after_test: |
   echo "Cleaning up PriorityClasses..."
-  for i in $(seq 1 12); do
-    kubectl delete priorityclass "eval-218-priority-$i" --ignore-not-found=true
-  done
+  kubectl get priorityclasses --no-headers -o custom-columns=NAME:.metadata.name | grep "^eval-218-" | xargs -r kubectl delete priorityclass
