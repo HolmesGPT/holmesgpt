@@ -199,7 +199,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
 - `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
 - `MODEL`: Override default model(s) - supports comma-separated list
-- `RUN_LIVE`: Use live tools in tests (strongly recommended)
+- `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`: For Elasticsearch/OpenSearch cloud testing

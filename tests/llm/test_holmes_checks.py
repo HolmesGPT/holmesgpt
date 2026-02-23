@@ -15,11 +15,6 @@ from holmes.config import Config
 from holmes.core.tracing import SpanType, TracingFactory
 from tests.llm.utils.commands import set_test_env_vars
 from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.mock_toolset import (
-    MockGenerationConfig,
-    MockMode,
-    MockToolsetManager,
-)
 from tests.llm.utils.property_manager import (
     handle_test_error,
     set_initial_properties,
@@ -90,7 +85,6 @@ def run_holmes_check(
     test_case: CheckTestCase,
     tracer,
     eval_span,
-    mock_generation_config: MockGenerationConfig,
     request,
 ) -> Dict[str, CheckStatus]:
     """Run holmes check with the test case configuration."""
@@ -116,33 +110,10 @@ def run_holmes_check(
         config = Config.load_from_env()
         console = Console()
 
-        # Create mock toolset manager if in mock mode
-        if mock_generation_config.mode == MockMode.MOCK:
-            test_case_folder = Path(test_case.folder)
-            manager = MockToolsetManager(
-                test_case_folder,
-                mock_generation_config.generate_mocks,
-                config,
-                console,
-                mock_generation_config.mode,
-            )
-            tool_executor = manager.load()
-        else:
-            tool_executor = config.create_console_tool_executor(
-                dal=None, refresh_status=False
-            )
-
-        if mock_generation_config.mode == MockMode.MOCK:
-            # In mock mode, we still use the mock toolset manager but let the LLM run
-            ai = config.create_console_toolcalling_llm(
-                dal=None, refresh_toolsets=False, tracer=tracer
-            )
-            ai.tool_executor = tool_executor
-        else:
-            # In live mode, use real tools and real LLM
-            ai = config.create_console_toolcalling_llm(
-                dal=None, refresh_toolsets=False, tracer=tracer
-            )
+        # Use real tools and real LLM
+        ai = config.create_console_toolcalling_llm(
+            dal=None, refresh_toolsets=False, tracer=tracer
+        )
 
         # Load checks configuration
         checks_config = load_checks_config(checks_file)
@@ -181,7 +152,6 @@ def test_holmes_check(
     test_case: CheckTestCase,
     caplog,
     request,
-    mock_generation_config: MockGenerationConfig,
     shared_test_infrastructure,  # type: ignore
 ):
     """Test holmes check command with various check configurations."""
@@ -200,9 +170,7 @@ def test_holmes_check(
 
     print(f"\n🧪 TEST: {test_case.id}")
     print("   CONFIGURATION:")
-    print(
-        f"   • Mode: {'⚪️ MOCKED' if mock_generation_config.mode == MockMode.MOCK else '🔥 LIVE'}"
-    )
+    print(f"   • Mode: 🔥 LIVE")
     print(f"   • Checks: {len(test_case.checks)} checks")
     print(f"   • Expected Results: {test_case.expected_results}")
 
@@ -242,7 +210,6 @@ def test_holmes_check(
                             test_case=test_case,
                             tracer=tracer,
                             eval_span=eval_span,
-                            mock_generation_config=mock_generation_config,
                             request=request,
                         )
             else:
@@ -251,7 +218,6 @@ def test_holmes_check(
                         test_case=test_case,
                         tracer=tracer,
                         eval_span=eval_span,
-                        mock_generation_config=mock_generation_config,
                         request=request,
                     )
 
@@ -270,14 +236,8 @@ def test_holmes_check(
         except Exception:
             pass
 
-        # Check if this is a MockDataError
-        is_mock_error = "MockDataError" in type(e).__name__ or any(
-            "MockData" in base.__name__ for base in type(e).__mro__
-        )
-
-        if is_mock_error:
-            handle_test_error(request, e)
-            raise
+        handle_test_error(request, e)
+        raise
 
     # Evaluate correctness
     score = evaluate_check_correctness(
