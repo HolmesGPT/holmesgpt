@@ -129,9 +129,9 @@ class TestDatabaseToolset:
     def test_toolset_has_tools(self):
         toolset = DatabaseToolset()
         tool_names = [t.name for t in toolset.tools]
-        assert "database_query" in tool_names
-        assert "database_list_tables" in tool_names
-        assert "database_describe_table" in tool_names
+        assert "database_sql_query" in tool_names
+        assert "database_sql_list_tables" in tool_names
+        assert "database_sql_describe_table" in tool_names
 
     def test_toolset_disabled_by_default(self):
         toolset = DatabaseToolset()
