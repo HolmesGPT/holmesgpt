@@ -1,5 +1,0 @@
-{"toolset_name": "kubernetes/logs", "tool_name": "fetch_pod_logs", "match_params": {"pod_name": "user-profile-resources-659d4dd659-cq4kq", "namespace": "default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "fetch_pod_logs command", "params": {"pod_name": "user-profile-resources-659d4dd659-cq4kq", "namespace": "default"}}
-stdout:
-
-stderr:

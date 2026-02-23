@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"front-end"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep front-end", "params": {"kind": "pod", "keyword": "front-end"}}
-sock-shop            front-end-6bc5876d74-4lbfd                               0/1     Running                 27 (43s ago)      39d     10.244.1.2    kind-double-node-worker          <none>           <none>            name=front-end,pod-template-hash=6bc5876d74
