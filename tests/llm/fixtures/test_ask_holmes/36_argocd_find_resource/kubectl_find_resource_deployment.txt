@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "deployment", "keyword": "demo-app"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "deployment", "keyword": "demo-app"}}
-Command `kubectl get -A --show-labels -o wide deployment | grep demo-app` failed with return code 1
-stdout:
-
-stderr:
