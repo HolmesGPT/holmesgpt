@@ -1,0 +1,47 @@
+user_prompt: "Count all PriorityClasses that start with 'eval-218' and tell me the exact count. Also list their names."
+
+expected_output:
+  - The answer must state exactly 12 PriorityClasses
+  - Must mention at least 3 of the PriorityClass names that start with eval-218
+
+tags:
+  - kubernetes
+  - counting
+  - easy
+
+before_test: |
+  echo "Creating 12 PriorityClasses for cluster-scoped counting test"
+
+  # Create PriorityClasses with unique names and varying priority values
+  for i in $(seq 1 12); do
+    # Use different priority values (1000 base + index)
+    PRIORITY=$((1000 + i))
+    cat <<EOF | kubectl apply -f -
+  apiVersion: scheduling.k8s.io/v1
+  kind: PriorityClass
+  metadata:
+    name: eval-218-priority-$i
+  value: $PRIORITY
+  globalDefault: false
+  description: "Test PriorityClass $i for eval 218"
+  EOF
+  done
+
+  # Verify all 12 were created
+  echo "Verifying PriorityClass count..."
+  ACTUAL=$(kubectl get priorityclasses --no-headers | grep "^eval-218-" | wc -l)
+  echo "Created $ACTUAL PriorityClasses with eval-218 prefix"
+
+  if [ "$ACTUAL" -ne 12 ]; then
+    echo "ERROR: Expected 12 PriorityClasses, got $ACTUAL"
+    kubectl get priorityclasses | grep eval-218
+    exit 1
+  fi
+
+  echo "Test setup complete!"
+
+after_test: |
+  echo "Cleaning up PriorityClasses..."
+  for i in $(seq 1 12); do
+    kubectl delete priorityclass "eval-218-priority-$i" --ignore-not-found=true
+  done
