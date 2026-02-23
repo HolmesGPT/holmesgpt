@@ -1,7 +1,0 @@
-{"toolset_name": "kubernetes/live-metrics", "tool_name": "kubectl_top_pods", "match_params": {}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_top_pods command", "params": {}}
-Command `kubectl top pods -A` failed with return code 1
-stdout:
-
-stderr:
-error: Metrics API not available

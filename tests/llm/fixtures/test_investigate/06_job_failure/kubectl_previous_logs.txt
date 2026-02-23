@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/logs","tool_name":"kubectl_previous_logs","match_params":{"pod_name":"java-api-checker-jzzdd","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl logs java-api-checker-jzzdd -n default --previous` failed with return code 1\nOutput:\nError from server (BadRequest): previous terminated container \"java-beans\" in pod \"java-api-checker-jzzdd\" not found", "return_code": 1, "data": null, "url": null, "invocation": "kubectl logs java-api-checker-jzzdd -n default --previous", "params": {"pod_name": "java-api-checker-jzzdd", "namespace": "default"}}
-Error from server (BadRequest): previous terminated container "java-beans" in pod "java-api-checker-jzzdd" not found

@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_events","match_params":{"resource_type":"deployment","pod_name":"user-profile-resources","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl events --for deployment/user-profile-resources -n default", "params": {"resource_type": "deployment", "pod_name": "user-profile-resources", "namespace": "default"}}
-LAST SEEN   TYPE     REASON              OBJECT                              MESSAGE
-30m         Normal   ScalingReplicaSet   Deployment/user-profile-resources   Scaled up replica set user-profile-resources-659d4dd659 to 1
