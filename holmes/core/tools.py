@@ -6,6 +6,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import threading
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -661,6 +662,7 @@ class Toolset(BaseModel):
     # Lazy initialization tracking
     _lazy_init: bool = PrivateAttr(default=False)
     _initialized: bool = PrivateAttr(default=True)
+    _init_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     # status fields that be cached
     type: Optional[ToolsetType] = None
@@ -894,16 +896,23 @@ class Toolset(BaseModel):
         """Run deferred initialization (callable and command prerequisites).
 
         Called on first tool use for toolsets that were loaded from cache.
+        Thread-safe: concurrent calls from parallel tool invocations are
+        serialized so that only one thread performs initialization.
         Returns True if initialization succeeded, False otherwise.
         """
         if self._initialized:
             return self.status == ToolsetStatusEnum.ENABLED
 
-        logger.info(f"Lazily initializing toolset {self.name}...")
-        self.check_prerequisites(silent=silent)
-        self._initialized = True
-        self._lazy_init = False
-        return self.status == ToolsetStatusEnum.ENABLED
+        with self._init_lock:
+            # Re-check after acquiring lock; another thread may have initialized
+            if self._initialized:
+                return self.status == ToolsetStatusEnum.ENABLED
+
+            logger.info(f"Lazily initializing toolset {self.name}...")
+            self.check_prerequisites(silent=silent)
+            self._initialized = True
+            self._lazy_init = False
+            return self.status == ToolsetStatusEnum.ENABLED
 
     def get_config_example(self) -> Optional[Dict[str, Any]]:
         """Returns a JSON-serializable example object for the toolset's configuration.
