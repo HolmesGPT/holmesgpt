@@ -26,6 +26,12 @@ before_test: |
   SPACE_NAME="Holmes Test Space 220"
   PAGE_TITLE="Release Deployment Matrix"
 
+  echo "Cleaning up any leftover space from prior runs..."
+  curl -L -s -o /dev/null -X DELETE \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" || true
+  sleep 2
+
   echo "Creating Confluence space ${SPACE_KEY}..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
