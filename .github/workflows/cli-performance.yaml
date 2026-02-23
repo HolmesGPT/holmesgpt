@@ -6,6 +6,10 @@ name: CLI Performance Benchmark
 on:
   pull_request:
     branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'mkdocs.yml'
 
 jobs:
   benchmark-pr:

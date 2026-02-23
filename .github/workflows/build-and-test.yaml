@@ -6,7 +6,19 @@ on:
   push:
     branches:
       - master
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - '!mkdocs.yml'
+      - 'docs/reference/http-api.md'
   pull_request:
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - '!mkdocs.yml'
+      - 'docs/reference/http-api.md'
   workflow_dispatch:
 
 jobs:
