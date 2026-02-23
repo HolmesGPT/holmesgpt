@@ -1,0 +1,74 @@
+{{- if .Values.operator.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: holmes-operator
+    app.kubernetes.io/name: holmes-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    app: holmes-operator
+    app.kubernetes.io/name: holmes-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+rules:
+# HealthCheck CRD permissions
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["healthchecks"]
+  verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["healthchecks/status"]
+  verbs: ["get", "patch", "update"]
+
+# ScheduledHealthCheck CRD permissions
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["scheduledhealthchecks"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["scheduledhealthchecks/status"]
+  verbs: ["get", "patch", "update"]
+
+# Events for audit trail
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+
+# Kopf framework requirements
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["list", "watch"]
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["list", "watch"]
+
+# Kopf peering for leader election (optional, for HA)
+- apiGroups: ["kopf.dev"]
+  resources: ["clusterkopfpeerings"]
+  verbs: ["get", "list", "watch", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    app: holmes-operator
+    app.kubernetes.io/name: holmes-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-operator
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-operator
+  namespace: {{ .Release.Namespace }}
+{{- end }}

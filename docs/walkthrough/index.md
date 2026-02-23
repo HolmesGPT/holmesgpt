@@ -38,7 +38,7 @@ Let's investigate a pod with HolmesGPT to see the value it provides:
 
     === "Google Gemini"
         ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues" --model="google/<your-model-name>"
+        holmes ask "describe the user-profile-import pod and explain any issues" --model="gemini/<your-model-name>"
         ```
 
     === "AWS Bedrock"
@@ -48,7 +48,7 @@ Let's investigate a pod with HolmesGPT to see the value it provides:
 
     === "Ollama"
         ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues" --model="ollama/<your-model-name>"
+        holmes ask "describe the user-profile-import pod and explain any issues" --model="ollama_chat/<your-model-name>"
         ```
 
 3. **See the value:**

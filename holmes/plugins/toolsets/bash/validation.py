@@ -40,9 +40,6 @@ class DenyReason(Enum):
 
     HARDCODED_BLOCK = "hardcoded_block"
     DENY_LIST = "deny_list"
-    SUBSHELL_DETECTED = "subshell_detected"
-    COMPOUND_STATEMENT = "compound_statement"
-    PARSE_ERROR = "parse_error"
     PREFIX_NOT_IN_COMMAND = "fabricated_prefix"
 
 
@@ -84,74 +81,18 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     return allow_list, deny_list
 
 
-def detect_subshells(command: str) -> bool:
-    """
-    Detect if a command contains subshell constructs.
-
-    Blocked patterns:
-    - $(...) - command substitution
-    - `...` - backtick command substitution
-    - <(...) - process substitution (input)
-    - >(...) - process substitution (output)
-
-    Returns:
-        True if subshells detected, False otherwise
-    """
-    # Check for $(...) - but not $VAR or ${VAR}
-    if re.search(r"\$\([^)]*\)", command):
-        return True
-
-    # Check for backticks
-    if "`" in command:
-        return True
-
-    # Check for process substitution <(...) or >(...)
-    if re.search(r"[<>]\([^)]*\)", command):
-        return True
-
-    return False
-
-
-class CompoundStatementError(Exception):
-    """Raised when a compound statement (for, while, if, etc.) is detected."""
-
-    def __init__(self, kind: str):
-        self.kind = kind
-        super().__init__(f"Compound statement detected: {kind}")
-
-
-# Keywords that indicate compound statements (checked when bashlex can't parse)
-COMPOUND_KEYWORDS = {"for", "while", "until", "if", "case", "select", "function"}
-COMPOUND_END_KEYWORDS = {"done", "fi", "esac"}
-
-
-def _detect_compound_keywords(command: str) -> Optional[str]:
-    """
-    Detect compound statement keywords in a command string.
-
-    This is a fallback check for when bashlex can't parse the command
-    (e.g., case statements which bashlex doesn't fully support).
-
-    Returns:
-        The detected keyword if found, None otherwise
-    """
-    words = re.findall(r"\b(\w+)\b", command)
-    for word in words:
-        if word in COMPOUND_KEYWORDS or word in COMPOUND_END_KEYWORDS:
-            return word
-    return None
-
-
 class CommandSegmentExtractor(ast.nodevisitor):
     """
     Bashlex AST visitor that extracts command segments.
 
-    Raises CompoundStatementError when compound statements are encountered.
+    Sets contains_compound_command flag when compound statements are encountered,
+    but continues traversal to extract inner command segments.
     """
 
     def __init__(self, command: str):
         self.command = command
         self.segments: List[str] = []
+        self.contains_compound_command: bool = False
 
     def visitcommand(self, node, *args, **kwargs):
         """Extract the command text for simple commands."""
@@ -159,39 +100,30 @@ class CommandSegmentExtractor(ast.nodevisitor):
         self.segments.append(cmd_text)
 
     def visitcompound(self, node, *args, **kwargs):
-        """Reject compound statements (for, while, if, case, etc.)."""
-        raise CompoundStatementError(node.kind)
+        """Flag compound statements but continue traversal to extract inner segments."""
+        self.contains_compound_command = True
 
 
-def parse_command_segments(command: str) -> List[str]:
+def parse_command_segments(command: str) -> Tuple[List[str], bool]:
     """
     Parse a command into segments separated by |, &&, ||, ;, &.
 
     Uses bashlex AST visitor for proper shell parsing.
 
     Returns:
-        List of command segments
+        Tuple of (segments, contains_compound_command):
+        - segments: List of command segments extracted from the command
+        - contains_compound_command: True if compound statements (for, while, if, etc.) were detected
 
     Raises:
-        CompoundStatementError: If command contains compound statements
+        bashlex.errors.ParsingError: If bashlex cannot parse the command
+        NotImplementedError: If bashlex encounters unsupported syntax (e.g. case statements)
     """
-    try:
-        parts = bashlex.parse(command)
-    except (bashlex.errors.ParsingError, NotImplementedError) as e:
-        logger.debug(f"bashlex failed to parse command: {e}")
-        # Check for compound keywords when bashlex can't parse
-        # (catches cases like `case` statements that bashlex doesn't fully support)
-        keyword = _detect_compound_keywords(command)
-        if keyword:
-            raise CompoundStatementError(keyword)
-        # If no compound keywords found, re-raise the parse error
-        raise CompoundStatementError(f"parse_error: {e}")
-
+    parts = bashlex.parse(command)
     extractor = CommandSegmentExtractor(command)
     for part in parts:
         extractor.visit(part)
-
-    return extractor.segments
+    return (extractor.segments, extractor.contains_compound_command)
 
 
 def check_hardcoded_blocks(segment: str) -> Optional[str]:
@@ -210,6 +142,27 @@ def check_hardcoded_blocks(segment: str) -> Optional[str]:
         if match_prefix_for_deny(segment_lower, block):
             return block
 
+    return None
+
+
+def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optional[str]:
+    """
+    Check for blocked patterns anywhere in a raw command string using word boundaries.
+
+    This is the fallback safety check for when bashlex can't parse the command.
+    It scans the entire raw command for any pattern from the given list.
+
+    Args:
+        command: The full raw command string (may contain compound statements, subshells, etc.)
+        blocked_list: List of command patterns to check for (e.g. HARDCODED_BLOCKS or deny_list)
+
+    Returns:
+        The matched pattern if found, None otherwise
+    """
+    command_lower = command.lower()
+    for pattern in blocked_list:
+        if re.search(rf"\b{re.escape(pattern.lower())}\b", command_lower):
+            return pattern
     return None
 
 
@@ -352,33 +305,33 @@ def validate_command(
                 message=f"Suggested prefix '{prefix}' does not appear in the command.",
             )
 
-    # Check for subshells
-    if detect_subshells(command):
-        return ValidationResult(
-            status=ValidationStatus.DENIED,
-            deny_reason=DenyReason.SUBSHELL_DETECTED,
-            message="Command contains subshell constructs ($(), ``, <(), >()) which are not allowed for security reasons.",
-        )
-
-    # Parse command into segments (may raise CompoundStatementError)
+    # Parse command into segments and detect compound statements
     try:
-        segments = parse_command_segments(command)
-    except CompoundStatementError:
+        segments, contains_compound_command = parse_command_segments(command)
+    except (bashlex.errors.ParsingError, NotImplementedError):
+        # Can't parse — do safety checks on raw string, then ask user to approve
+        blocked = check_blocked_in_raw_command(command, HARDCODED_BLOCKS)
+        if blocked:
+            return ValidationResult(
+                status=ValidationStatus.DENIED,
+                deny_reason=DenyReason.HARDCODED_BLOCK,
+                message=f"Command contains '{blocked}' which is permanently blocked for security reasons and cannot be overridden.",
+            )
+        denied = check_blocked_in_raw_command(command, deny_list)
+        if denied:
+            return ValidationResult(
+                status=ValidationStatus.DENIED,
+                deny_reason=DenyReason.DENY_LIST,
+                message=f"Command matches deny list pattern '{denied}'. This command is blocked by configuration.",
+            )
         return ValidationResult(
-            status=ValidationStatus.DENIED,
-            deny_reason=DenyReason.COMPOUND_STATEMENT,
-            message="Compound statements (for, while, if, case, etc.) are not supported. Only simple one-liner commands are allowed.",
+            status=ValidationStatus.APPROVAL_REQUIRED,
+            message="Command contains complex syntax which requires approval.",
+            prefixes_needing_approval=[],
         )
 
-    if not segments:
-        return ValidationResult(
-            status=ValidationStatus.DENIED,
-            deny_reason=DenyReason.PARSE_ERROR,
-            message="Failed to parse command: no valid command segments found.",
-        )
-
-    # Validate each segment
-    any_needs_approval = False
+    # Validate each segment against deny/allow lists
+    unapproved_segments: List[str] = []
 
     for segment in segments:
         result = validate_segment(segment, allow_list, deny_list)
@@ -388,11 +341,19 @@ def validate_command(
             return result
 
         if result.status == ValidationStatus.APPROVAL_REQUIRED:
-            any_needs_approval = True
+            unapproved_segments.append(segment)
 
-    # If any segments need approval, filter suggested_prefixes to only those not already allowed
-    # Use dict.fromkeys to deduplicate while preserving order
-    if any_needs_approval:
+    # Compound commands always require approval, even if all segments are allowed.
+    # Only unapproved-segment approvals save prefixes to the allow list —
+    # compound and unparseable approvals are one-time only.
+    if contains_compound_command:
+        return ValidationResult(
+            status=ValidationStatus.APPROVAL_REQUIRED,
+            message="Contains compound statements (for/while/if/etc).",
+            prefixes_needing_approval=[],
+        )
+
+    if unapproved_segments:
         prefixes_needing_approval = list(
             dict.fromkeys(
                 prefix
@@ -402,8 +363,8 @@ def validate_command(
         )
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
-            message="Command not in allow list.",
-            prefixes_needing_approval=prefixes_needing_approval or suggested_prefixes,
+            message=f"Segment(s) not in allow list: {', '.join(repr(s) for s in unapproved_segments)}",
+            prefixes_needing_approval=prefixes_needing_approval,
         )
 
     # All segments validated and allowed

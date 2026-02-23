@@ -1,5 +1,8 @@
 # Azure SQL Database
 
+!!! tip "Consider Azure MCP instead"
+    Most users should start with the [Azure MCP](azure-mcp.md) integration, which provides broad access to all Azure APIs including Azure SQL. This standalone toolset is only needed if you require the specialized Query Store analysis tools that aren't available through the general MCP server.
+
 By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, health, and operational issues using Azure REST APIs and Query Store data.
 
 !!! warning

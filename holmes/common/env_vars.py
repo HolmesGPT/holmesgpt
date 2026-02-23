@@ -92,7 +92,8 @@ BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
 LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
 
 
-MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 100))
+MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
+MAX_GRAPH_POINTS_HARD_LIMIT = float(os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 2))
 
 # Limit each tool response to N% of the total context window.
 # Number between 0 and 100

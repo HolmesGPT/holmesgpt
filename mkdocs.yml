@@ -26,6 +26,13 @@ nav:
           - "CI/CD Troubleshooting": walkthrough/cicd-troubleshooting.md
           - "Investigating Prometheus Alerts": walkthrough/investigating-prometheus-alerts.md
           - "Investigating using AKS MCP Server": walkthrough/investigating-using-aks-mcp-server.md
+    - "Holmes Operator":
+          - "Overview & Installation": operator/index.md
+          - "Health Checks": operator/health-checks.md
+          - "Scheduled Health Checks": operator/scheduled-health-checks.md
+          - "Configuration": operator/configuration.md
+          - "Troubleshooting": operator/troubleshooting.md
+          - "Development Guide": operator/development.md
     - "AI Providers":
           - "Overview": ai-providers/index.md
           - Anthropic: ai-providers/anthropic.md
@@ -58,6 +65,7 @@ nav:
                 - "Docker": data-sources/builtin-toolsets/docker.md
                 - "Elasticsearch / OpenSearch": data-sources/builtin-toolsets/elasticsearch.md
                 - "GitHub (MCP)": data-sources/builtin-toolsets/github-mcp.md
+                - "Grafana (MCP)": data-sources/builtin-toolsets/grafana-mcp.md
                 - "Grafana Dashboards": data-sources/builtin-toolsets/grafanadashboards.md
                 - "Loki": data-sources/builtin-toolsets/grafanaloki.md
                 - "Tempo": data-sources/builtin-toolsets/grafanatempo.md
@@ -234,6 +242,9 @@ extra_javascript:
     - javascripts/tabsync.js
 
 extra:
+    version:
+        provider: mike
+        default: latest
     social:
         - icon: fontawesome/brands/github
           link: https://github.com/HolmesGPT/holmesgpt

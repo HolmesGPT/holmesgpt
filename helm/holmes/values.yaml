@@ -386,3 +386,38 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+# Holmes Operator Configuration
+operator:
+  enabled: false  # Set to true to deploy the operator
+
+  # Container image
+  image: holmes-operator:0.0.0
+  registry: robustadev
+  imagePullPolicy: IfNotPresent
+
+  # Holmes API connection
+  holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
+  holmesApiTimeout: 300  # seconds
+
+  # Logging
+  logLevel: INFO
+
+  # History management
+  maxHistoryItems: 10
+  cleanupCompletedChecks: false
+  completedCheckTTLHours: 24
+
+  # Resources
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+
+  # Additional configuration
+  additionalEnvVars: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

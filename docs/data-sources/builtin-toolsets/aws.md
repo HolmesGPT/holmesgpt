@@ -32,7 +32,9 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
     ./enable-oidc-provider.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION
 
     # 2. Create IAM policy and role
-    ./setup-irsa.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION
+    # IMPORTANT: --namespace must match the namespace where Holmes is deployed
+    # (e.g., "robusta" for Robusta Helm chart, or the release namespace for Holmes Helm chart)
+    ./setup-irsa.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION --namespace YOUR_NAMESPACE
     ```
 
     The script outputs the role ARN at the end. Save it for Step 2:
@@ -432,7 +434,7 @@ Edit `multi-cluster-config-example.yaml` with your cluster and account details. 
         oidc_issuer_url: https://oidc.eks.us-west-2.amazonaws.com/id/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 
     kubernetes:
-      namespace: default
+      namespace: YOUR_NAMESPACE  # Must match the namespace where Holmes is deployed
       service_account: multi-account-mcp-sa
 
     iam:
