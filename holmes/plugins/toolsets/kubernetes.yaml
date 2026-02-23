@@ -75,8 +75,8 @@ toolsets:
                 - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
 
       - name: "kubectl_find_resource"
-        description: "Run `kubectl get {{ kind }} -A --show-labels | grep {{ keyword }}` to find a resource where you know a substring of the name, IP, namespace, or labels"
-        command: "kubectl get -A --show-labels -o wide {{ kind }} | grep {{ keyword }}"
+        description: "Find resources matching a keyword, returning matches with count"
+        command: "kubectl get -A --show-labels -o wide {{ kind }} | grep {{ keyword }} | awk '{print} END{print \"---\"; print \"Count:\", NR}'"
 
       - name: "kubectl_get_yaml"
         description: "Run `kubectl get -o yaml` on a single Kubernetes resource"
