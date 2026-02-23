@@ -188,7 +188,6 @@ def log_to_braintrust(
     result: Optional[Any] = None,  # Can be LLMResult or InvestigationResult
     scores: Optional[dict] = None,
     error: Optional[Exception] = None,
-    mock_generation_config: Optional[Any] = None,
 ) -> None:
     """Shared function to log evaluation data to Braintrust.
 
@@ -199,7 +198,6 @@ def log_to_braintrust(
         result: The result object (LLMResult for ask, InvestigationResult for investigate)
         scores: Dictionary of scores (e.g., correctness)
         error: Exception if the test failed
-        mock_generation_config: Mock configuration for additional context
     """
     from tests.llm.utils.test_case_utils import AskHolmesTestCase, InvestigateTestCase
 
@@ -269,10 +267,6 @@ def log_to_braintrust(
     if prompt:
         metadata["system_prompt"] = prompt
 
-    # Add execution context
-    if mock_generation_config and hasattr(mock_generation_config, "mode"):
-        metadata["mock_mode"] = mock_generation_config.mode.value
-
     # Add test configuration if present
     if hasattr(test_case, "conversation_history") and test_case.conversation_history:
         metadata["has_conversation_history"] = True
@@ -309,12 +303,6 @@ def log_to_braintrust(
                 metadata["setup_failure_details"] = (
                     error.output[:5000] if len(error.output) > 5000 else error.output
                 )
-
-        is_mock_error = "MockDataError" in type(error).__name__ or any(
-            "MockData" in base.__name__ for base in type(error).__mro__
-        )
-        if is_mock_error:
-            metadata["is_mock_data_error"] = True
 
     # Determine input and expected based on test type
     if isinstance(test_case, AskHolmesTestCase):
