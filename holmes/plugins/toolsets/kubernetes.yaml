@@ -117,7 +117,7 @@ toolsets:
         script: |
           #!/bin/bash
           err_file=$(mktemp)
-          output=$(kubectl get -A --show-labels -o wide {{ kind }} 2>"$err_file" | grep "{{ keyword }}" || true)
+          output=$(kubectl get -A --show-labels -o wide {{ kind }} 2>"$err_file" | grep -F -- "{{ keyword }}" || true)
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
 
