@@ -1,8 +1,7 @@
 # Test: Extract information hidden inside expand/collapse macros
 # The page uses ac:structured-macro name="expand" sections that contain nested
-# macros (code blocks, warnings, tips). The dedicated toolset expands these into
-# visible markdown sections; the HTTP variant returns raw nested XHTML where the
-# content is buried inside multiple layers of ac: elements.
+# macros (code blocks, warnings, tips) in Confluence storage format. The content
+# is buried inside multiple layers of nested ac: XHTML elements.
 #
 # Requirements:
 #   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
@@ -15,10 +14,6 @@ user_prompt: |
 expected_output:
   - "Must report the standby database host and port: standby-db.prod.internal.acme.io:5432"
   - "Must report the maximum connection limit: 25"
-
-toolsets_matrix:
-  - toolsets.yaml
-  - toolsets_http.yaml
 
 tags:
   - confluence

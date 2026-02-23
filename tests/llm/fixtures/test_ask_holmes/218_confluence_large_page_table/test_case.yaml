@@ -15,10 +15,6 @@ user_prompt: |
 expected_output:
   - "Must report the production endpoint: https://inventory.prod.internal.acme.io:8443/api/v2"
 
-toolsets_matrix:
-  - toolsets.yaml
-  - toolsets_http.yaml
-
 tags:
   - confluence
   - question-answer

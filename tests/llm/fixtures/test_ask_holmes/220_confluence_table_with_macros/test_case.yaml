@@ -1,8 +1,6 @@
 # Test: Extract data from a table whose cells contain Confluence macros
 # The table uses status lozenges (ac:structured-macro name="status") and inline
-# code tags inside table cells. The dedicated toolset converts lozenges to
-# [STATUS] text and produces a clean markdown table; the HTTP variant returns
-# raw XHTML with nested ac: elements inside <td> tags.
+# code tags inside table cells in Confluence storage format (XHTML with ac: elements).
 #
 # Requirements:
 #   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
@@ -15,10 +13,6 @@ user_prompt: |
 expected_output:
   - "Must report the production deployment status for payment-gateway: ROLLBACK"
   - "Must report the production version for payment-gateway: v3.14.7"
-
-toolsets_matrix:
-  - toolsets.yaml
-  - toolsets_http.yaml
 
 tags:
   - confluence

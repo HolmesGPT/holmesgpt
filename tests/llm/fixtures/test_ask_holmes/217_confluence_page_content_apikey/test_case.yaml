@@ -15,10 +15,6 @@ user_prompt: |
 expected_output:
   - "Must report the build number: BUILD-2024-Q4-7M3X9R"
 
-toolsets_matrix:
-  - toolsets.yaml
-  - toolsets_http.yaml
-
 tags:
   - confluence
   - question-answer

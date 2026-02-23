@@ -5,10 +5,6 @@ expected_output:
   - "Must report the space name: Holmes Test Space 213"
   - "Must report the space ID as a number"
 
-toolsets_matrix:
-  - toolsets.yaml
-  - toolsets_http.yaml
-
 tags:
   - confluence
   - question-answer

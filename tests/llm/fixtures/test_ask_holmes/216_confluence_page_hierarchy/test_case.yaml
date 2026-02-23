@@ -5,10 +5,6 @@ user_prompt: |
 expected_output:
   - "Must report the parent page title: Parent Page 216X"
 
-toolsets_matrix:
-  - toolsets.yaml
-  - toolsets_http.yaml
-
 tags:
   - confluence
   - question-answer

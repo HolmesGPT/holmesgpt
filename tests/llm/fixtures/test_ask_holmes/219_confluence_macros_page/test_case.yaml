@@ -1,7 +1,6 @@
 # Test: Extract information embedded inside Confluence macros
 # The page uses code blocks (ac:structured-macro name="code"), warning panels,
-# info panels, status lozenges, and task lists. The dedicated toolset converts
-# these to clean markdown; the HTTP variant returns raw XHTML storage format.
+# info panels, status lozenges, and task lists in Confluence storage format.
 # This tests whether Holmes can extract specific values from macro content.
 #
 # Requirements:
@@ -17,10 +16,6 @@ expected_output:
   - "Must report the rollback build hash: a8f3e2d1b9c7"
   - "Must report the critical memory threshold: 87.5%"
   - "Must report the Payment Gateway status: DEGRADED"
-
-toolsets_matrix:
-  - toolsets.yaml
-  - toolsets_http.yaml
 
 tags:
   - confluence
