@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import urllib.parse
 import urllib.request
 from unittest.mock import MagicMock, patch
 
@@ -130,14 +131,18 @@ def pytest_configure(config):
     # rather than the direct instance URL. We discover the cloud ID via the public tenant_info endpoint.
     confluence_base = os.environ.get("CONFLUENCE_BASE_URL")
     if confluence_base and not os.environ.get("CONFLUENCE_SA_BASE_URL"):
-        try:
-            tenant_url = f"{confluence_base.rstrip('/')}/_edge/tenant_info"
-            with urllib.request.urlopen(tenant_url, timeout=10) as resp:
-                cloud_id = json.loads(resp.read())["cloudId"]
-            os.environ["CONFLUENCE_SA_BASE_URL"] = f"https://api.atlassian.com/ex/confluence/{cloud_id}"
-            logging.info(f"Auto-derived CONFLUENCE_SA_BASE_URL from cloud ID {cloud_id}")
-        except Exception as e:
-            logging.warning(f"Could not auto-derive CONFLUENCE_SA_BASE_URL: {e}")
+        parsed = urllib.parse.urlparse(confluence_base)
+        if parsed.scheme not in ("http", "https"):
+            logging.warning(f"CONFLUENCE_BASE_URL has unsupported scheme '{parsed.scheme}', skipping SA URL derivation")
+        else:
+            try:
+                tenant_url = f"{confluence_base.rstrip('/')}/_edge/tenant_info"
+                with urllib.request.urlopen(tenant_url, timeout=10) as resp:
+                    cloud_id = json.loads(resp.read())["cloudId"]
+                os.environ["CONFLUENCE_SA_BASE_URL"] = f"https://api.atlassian.com/ex/confluence/{cloud_id}"
+                logging.info(f"Auto-derived CONFLUENCE_SA_BASE_URL from cloud ID {cloud_id}")
+            except Exception as e:
+                logging.warning(f"Could not auto-derive CONFLUENCE_SA_BASE_URL: {e}")
 
     # Configure worker-specific log files for xdist compatibility
     # worker_id = getattr(config, "workerinput", {}).get("workerid", "master")
