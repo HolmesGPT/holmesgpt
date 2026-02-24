@@ -593,7 +593,7 @@ def run_tree_editor(
         # Dict child: render as "index: key = value"
         if node.dict_key is not None:
             key_display = node.dict_key if node.dict_key else "<key>"
-            val_display = str(node.value) if node.value is not None else "<value>"
+            val_display = str(node.value) if node.value else "<value>"
             row_parts: List[Tuple[str, str]] = [
                 (style, f"{indent}{prefix}{node.key}: "),
             ]
@@ -608,7 +608,7 @@ def run_tree_editor(
                 row_parts.append(("class:selected", edit_buf[0].text))
                 row_parts.append(("class:dim", "█"))
             else:
-                val_style = "class:dim" if node.value is None or node.value == "" else style
+                val_style = "class:dim" if not node.value else style
                 row_parts.append((val_style, val_display))
             row_parts.append(("", "\n"))
             return row_parts
