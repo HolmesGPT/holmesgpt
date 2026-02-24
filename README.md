@@ -34,73 +34,52 @@ HolmesGPT connects AI models with live observability data and organizational kno
 
 HolmesGPT is purpose-built for production observability and incident response. **[Learn more →](https://holmesgpt.dev/walkthrough/why-holmesgpt/)**
 
-### Petabyte-Scale Observability Data
-
-Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and transforms data sources that return JSON so that the LLM can filter and traverse nested response trees, without pulling entire payloads into context.
-
-### Operator Mode
-
-Deploy as a Kubernetes operator that runs agentic LLM-driven investigations on a schedule or after deployments. Holmes runs in the background 24/7, proactively finding issues and notifying your team before production is impacted. See the [Holmes Operator](https://holmesgpt.dev/operator/) documentation.
-
-### Every Major Observability Platform, Plus Anything With an API
-
-Give SRE agents the data access they need, with the safety profile production demands. HolmesGPT ships with read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources)—RBAC-compliant and fully audited. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) to turn any REST API into an LLM-friendly data source through YAML alone.
-
-### Controlled Access for Your Whole Team
-
-Instead of every engineer connecting their local AI tools to production with personal credentials that carry write access, deploy one Holmes instance with scoped, read-only access. Let engineers use LLMs with observability data - safely.
-
-### Runtime Dependency Graph
-
-Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from Kubernetes resource hierarchies and metric labels, but takes advantage of trace data if available.
-
-### Zero-Hallucination Visualizations
-
-For supported clients, HolmesGPT generates interactive HTML and JavaScript visualizations that can be rendered in sandboxed environments client-side. To avoid hallucinations, the data flows directly from the source (Prometheus, Loki, etc.) to the visualization without passing through an LLM.
-
-### Alert-to-Resolution Workflow
-
-HolmesGPT can integrate into your existing workflows, by automatically fetching alerts and incidents from AlertManager, PagerDuty, OpsGenie, or more—and writing the investigation results back to the source.
-
-### Raw HTTP Endpoints as LLM-Friendly Tools
-
-The [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) turns any REST API into an LLM-friendly tool through YAML configuration—no MCP servers or custom code required. Define endpoint whitelists, authentication, and method restrictions, and Holmes automatically adds context-window-aware parameters (`jq` filters, `max_depth`) so the LLM can safely navigate large API responses.
+- **Petabyte-scale data**: Server-side filtering and JSON traversal keeps large payloads out of context
+- **Operator mode**: Run LLM-driven investigations on a schedule as a Kubernetes operator
+- **40+ data sources**: Read-only integrations for Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any REST API via YAML
+- **Runtime dependency graph**: Infers service relationships from traces, K8s resources, and metric labels
+- **Zero-hallucination visualizations**: Raw data rendered client-side, bypassing the LLM entirely
+- **Alert-to-resolution**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
 
 ### 🔗 Data Sources
 
 HolmesGPT integrates with popular observability and cloud platforms. The following data sources ("toolsets") are built-in. [Add your own](#customizing-holmesgpt).
 
-| Data Source | Status | Notes |
-|-------------|--------|-------|
-| [<img src="images/integration_logos/aks-icon.png" alt="AKS" width="20" style="vertical-align: middle;"> **AKS**](https://holmesgpt.dev/data-sources/builtin-toolsets/aks/) | ✅ | Azure Kubernetes Service cluster and node health diagnostics |
-| [<img src="images/integration_logos/argocd-icon.png" alt="ArgoCD" width="20" style="vertical-align: middle;"> **ArgoCD**](https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/) | ✅ | Get status, history and manifests and more of apps, projects and clusters |
-| [<img src="images/integration_logos/aws_rds_logo.png" alt="AWS RDS" width="20" style="vertical-align: middle;"> **AWS RDS**](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/) | ✅ | Fetch events, instances, slow query logs and more |
-| [<img src="images/integration_logos/azure.png" alt="Azure SQL" width="20" style="vertical-align: middle;"> **Azure SQL**](https://holmesgpt.dev/data-sources/builtin-toolsets/azure-sql/) | ✅ | Database health, performance, connections, and slow queries |
-| [<img src="images/integration_logos/confluence_logo.png" alt="Confluence" width="20" style="vertical-align: middle;"> **Confluence**](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/) | ✅ | Private runbooks and documentation |
-| [<img src="images/integration_logos/coralogix-icon.png" alt="Coralogix" width="20" style="vertical-align: middle;"> **Coralogix**](https://holmesgpt.dev/data-sources/builtin-toolsets/coralogix-logs/) | ✅ | Retrieve logs for any resource |
-| [<img src="images/integration_logos/datadog_logo.png" alt="Datadog" width="20" style="vertical-align: middle;"> **Datadog**](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/) | 🟡 Beta | Query logs, metrics, and traces |
-| [<img src="images/integration_logos/date_time_icon.png" alt="Datetime" width="20" style="vertical-align: middle;"> **Datetime**](https://holmesgpt.dev/data-sources/builtin-toolsets/datetime/) | ✅ | Date and time-related operations |
-| [<img src="images/integration_logos/docker_logo.png" alt="Docker" width="20" style="vertical-align: middle;"> **Docker**](https://holmesgpt.dev/data-sources/builtin-toolsets/docker/) | ✅ | Get images, logs, events, history and more |
-| [<img src="images/integration_logos/opensearchserverless-icon.png" alt="Elasticsearch" width="20" style="vertical-align: middle;"> **Elasticsearch / OpenSearch**](https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/) | ✅ | Query logs, cluster health, shard and index diagnostics |
-| [<img src="images/integration_logos/gcpmonitoring-icon.png" alt="GCP" width="20" style="vertical-align: middle;"> **GCP**](https://holmesgpt.dev/data-sources/builtin-toolsets/gcp/) | ✅ | Google Cloud Platform resources (MCP) |
-| [<img src="images/integration_logos/github_logo.png" alt="GitHub" width="20" style="vertical-align: middle;"> **GitHub**](https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/) | ✅ | Repositories, issues, and pull requests (MCP) |
-| [<img src="images/integration_logos/grafana-icon.png" alt="Grafana" width="20" style="vertical-align: middle;"> **Grafana Dashboards**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanadashboards/) | ✅ | Query and analyze dashboard configurations and panels |
-| [<img src="images/integration_logos/helm_logo.png" alt="Helm" width="20" style="vertical-align: middle;"> **Helm**](https://holmesgpt.dev/data-sources/builtin-toolsets/helm/) | ✅ | Release status, chart metadata, and values |
-| [<img src="images/integration_logos/http-icon.png" alt="Internet" width="20" style="vertical-align: middle;"> **Internet**](https://holmesgpt.dev/data-sources/builtin-toolsets/internet/) | ✅ | Public runbooks, community docs etc |
-| [<img src="images/integration_logos/kafka_logo.png" alt="Kafka" width="20" style="vertical-align: middle;"> **Kafka**](https://holmesgpt.dev/data-sources/builtin-toolsets/kafka/) | ✅ | Fetch metadata, list consumers and topics or find lagging consumer groups |
-| [<img src="images/integration_logos/kubernetes-icon.png" alt="Kubernetes" width="20" style="vertical-align: middle;"> **Kubernetes**](https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/) | ✅ | Pod logs, K8s events, and resource status (kubectl describe) |
-| [<img src="images/integration_logos/grafana_loki-icon.png" alt="Loki" width="20" style="vertical-align: middle;"> **Loki**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/) | ✅ | Query logs for Kubernetes resources or any query |
-| [<img src="images/integration_logos/newrelic_logo.png" alt="NewRelic" width="20" style="vertical-align: middle;"> **NewRelic**](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/) | 🟡 Beta | Investigate alerts, query tracing data |
-| [<img src="images/integration_logos/openshift-icon.png" alt="OpenShift" width="20" style="vertical-align: middle;"> **OpenShift**](https://holmesgpt.dev/data-sources/builtin-toolsets/openshift/) | ✅ | Projects, routes, builds, security context constraints, and deployment configs |
-| [<img src="images/integration_logos/prometheus-icon.png" alt="Prometheus" width="20" style="vertical-align: middle;"> **Prometheus**](https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/) | ✅ | Investigate alerts, query metrics and generate PromQL queries |
-| [<img src="images/integration_logos/rabbit_mq_logo.png" alt="RabbitMQ" width="20" style="vertical-align: middle;"> **RabbitMQ**](https://holmesgpt.dev/data-sources/builtin-toolsets/rabbitmq/) | ✅ | Partitions, memory/disk alerts, troubleshoot split-brain scenarios and more |
-| [<img src="images/integration_logos/robusta_logo.png" alt="Robusta" width="20" style="vertical-align: middle;"> **Robusta**](https://holmesgpt.dev/data-sources/builtin-toolsets/robusta/) | ✅ | Multi-cluster monitoring, historical change data, runbooks, PromQL graphs and more |
-| [<img src="images/integration_logos/servicenow-icon.png" alt="ServiceNow" width="20" style="vertical-align: middle;"> **ServiceNow**](https://holmesgpt.dev/data-sources/builtin-toolsets/servicenow/) | ✅ | Query tables and incident records |
-| [<img src="images/integration_logos/slab_logo.png" alt="Slab" width="20" style="vertical-align: middle;"> **Slab**](https://holmesgpt.dev/data-sources/builtin-toolsets/slab/) | ✅ | Team knowledge base and runbooks on demand |
-| [<img src="images/integration_logos/postgres-icon.png" alt="SQL Databases" width="20" style="vertical-align: middle;"> **SQL Databases**](https://holmesgpt.dev/data-sources/builtin-toolsets/database-postgresql/) | ✅ | PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, SQLite |
-| [<img src="images/integration_logos/tempo_logo.png" alt="Tempo" width="20" style="vertical-align: middle;"> **Tempo**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanatempo/) | ✅ | Fetch trace info, debug issues like high latency in application |
+| Data Source | Notes |
+|-------------|-------|
+| [<img src="images/integration_logos/aks-icon.png" alt="AKS" width="20" style="vertical-align: middle;"> **AKS**](https://holmesgpt.dev/data-sources/builtin-toolsets/aks/) | Azure Kubernetes Service cluster and node health diagnostics |
+| [<img src="images/integration_logos/argocd-icon.png" alt="ArgoCD" width="20" style="vertical-align: middle;"> **ArgoCD**](https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/) | Get status, history and manifests and more of apps, projects and clusters |
+| [<img src="images/integration_logos/aws_logo.png" alt="AWS" width="20" style="vertical-align: middle;"> **AWS**](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/) | RDS events, instances, slow query logs, and more (MCP) |
+| [<img src="images/integration_logos/azure.png" alt="Azure" width="20" style="vertical-align: middle;"> **Azure**](https://holmesgpt.dev/data-sources/builtin-toolsets/azure-mcp/) | Azure resources and diagnostics (MCP) |
+| [<img src="images/integration_logos/azure.png" alt="Azure SQL" width="20" style="vertical-align: middle;"> **Azure SQL**](https://holmesgpt.dev/data-sources/builtin-toolsets/azure-sql/) | Database health, performance, connections, and slow queries |
+| [<img src="images/integration_logos/confluence_logo.png" alt="Confluence" width="20" style="vertical-align: middle;"> **Confluence**](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/) | Private runbooks and documentation |
+| [<img src="images/integration_logos/coralogix-icon.png" alt="Coralogix" width="20" style="vertical-align: middle;"> **Coralogix**](https://holmesgpt.dev/data-sources/builtin-toolsets/coralogix-logs/) | Retrieve logs for any resource |
+| [<img src="images/integration_logos/datadog_logo.png" alt="Datadog" width="20" style="vertical-align: middle;"> **Datadog**](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/) | Query logs, metrics, and traces |
+| [<img src="images/integration_logos/docker_logo.png" alt="Docker" width="20" style="vertical-align: middle;"> **Docker**](https://holmesgpt.dev/data-sources/builtin-toolsets/docker/) | Get images, logs, events, history and more |
+| [<img src="images/integration_logos/opensearchserverless-icon.png" alt="Elasticsearch" width="20" style="vertical-align: middle;"> **Elasticsearch / OpenSearch**](https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/) | Query logs, cluster health, shard and index diagnostics |
+| [<img src="images/integration_logos/gcpmonitoring-icon.png" alt="GCP" width="20" style="vertical-align: middle;"> **GCP**](https://holmesgpt.dev/data-sources/builtin-toolsets/gcp/) | Google Cloud Platform resources (MCP) |
+| [<img src="images/integration_logos/github_logo.png" alt="GitHub" width="20" style="vertical-align: middle;"> **GitHub**](https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/) | Repositories, issues, and pull requests (MCP) |
+| [<img src="images/integration_logos/grafana-icon.png" alt="Grafana" width="20" style="vertical-align: middle;"> **Grafana**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanadashboards/) | Query and analyze dashboard configurations and panels |
+| [<img src="images/integration_logos/helm_logo.png" alt="Helm" width="20" style="vertical-align: middle;"> **Helm**](https://holmesgpt.dev/data-sources/builtin-toolsets/helm/) | Release status, chart metadata, and values |
+| [<img src="images/integration_logos/http-icon.png" alt="Internet" width="20" style="vertical-align: middle;"> **Internet**](https://holmesgpt.dev/data-sources/builtin-toolsets/internet/) | Public runbooks, community docs etc |
+| [<img src="images/integration_logos/kafka_logo.png" alt="Kafka" width="20" style="vertical-align: middle;"> **Kafka**](https://holmesgpt.dev/data-sources/builtin-toolsets/kafka/) | Fetch metadata, list consumers and topics or find lagging consumer groups |
+| [<img src="images/integration_logos/kubernetes-icon.png" alt="Kubernetes" width="20" style="vertical-align: middle;"> **Kubernetes**](https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/) | Pod logs, K8s events, and resource status (kubectl describe) |
+| [<img src="images/integration_logos/grafana_loki-icon.png" alt="Loki" width="20" style="vertical-align: middle;"> **Loki**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/) | Query logs for Kubernetes resources or any query |
+| [<img src="images/integration_logos/postgres-icon.png" alt="MariaDB" width="20" style="vertical-align: middle;"> **MariaDB**](https://holmesgpt.dev/data-sources/builtin-toolsets/mariadb-mcp/) | MariaDB database queries and diagnostics (MCP) |
+| [<img src="images/integration_logos/postgres-icon.png" alt="MongoDB Atlas" width="20" style="vertical-align: middle;"> **MongoDB Atlas**](https://holmesgpt.dev/data-sources/builtin-toolsets/mongodb-atlas/) | Cluster health, slow queries, and performance diagnostics |
+| [<img src="images/integration_logos/newrelic_logo.png" alt="NewRelic" width="20" style="vertical-align: middle;"> **NewRelic**](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/) | Investigate alerts, query tracing data |
+| [<img src="images/integration_logos/openshift-icon.png" alt="OpenShift" width="20" style="vertical-align: middle;"> **OpenShift**](https://holmesgpt.dev/data-sources/builtin-toolsets/openshift/) | Projects, routes, builds, security context constraints, and deployment configs |
+| [<img src="images/integration_logos/prometheus-icon.png" alt="Prometheus" width="20" style="vertical-align: middle;"> **Prometheus**](https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/) | Investigate alerts, query metrics and generate PromQL queries |
+| [<img src="images/integration_logos/rabbit_mq_logo.png" alt="RabbitMQ" width="20" style="vertical-align: middle;"> **RabbitMQ**](https://holmesgpt.dev/data-sources/builtin-toolsets/rabbitmq/) | Partitions, memory/disk alerts, troubleshoot split-brain scenarios and more |
+| [<img src="images/integration_logos/robusta_logo.png" alt="Robusta" width="20" style="vertical-align: middle;"> **Robusta**](https://holmesgpt.dev/data-sources/builtin-toolsets/robusta/) | Multi-cluster monitoring, historical change data, runbooks, PromQL graphs and more |
+| [<img src="images/integration_logos/servicenow-icon.png" alt="ServiceNow" width="20" style="vertical-align: middle;"> **ServiceNow**](https://holmesgpt.dev/data-sources/builtin-toolsets/servicenow/) | Query tables and incident records |
+| **Sentry** | Error tracking, issues, and performance monitoring (MCP) |
+| [<img src="images/integration_logos/slab_logo.png" alt="Slab" width="20" style="vertical-align: middle;"> **Slab**](https://holmesgpt.dev/data-sources/builtin-toolsets/slab/) | Team knowledge base and runbooks on demand |
+| **Splunk** | Log search and analysis (MCP) |
+| [<img src="images/integration_logos/postgres-icon.png" alt="SQL Databases" width="20" style="vertical-align: middle;"> **SQL Databases**](https://holmesgpt.dev/data-sources/builtin-toolsets/database-postgresql/) | PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, SQLite |
+| [<img src="images/integration_logos/tempo_logo.png" alt="Tempo" width="20" style="vertical-align: middle;"> **Tempo**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanatempo/) | Fetch trace info, debug issues like high latency in application |
 
-See the [full list of built-in toolsets](https://holmesgpt.dev/data-sources/builtin-toolsets/) including additional MCP integrations for Splunk, Sentry, Prefect, and more.
+See the [full list of built-in toolsets](https://holmesgpt.dev/data-sources/builtin-toolsets/) for additional integrations including Cilium, KubeVela, Notion, Prefect, and more.
 
 ### 🚀 End-to-End Automation
 
