@@ -1,9 +1,6 @@
 <div align="center">
   <h1 align="center">HolmesGPT — AI Agent for Cloud Troubleshooting</h1>
 
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11586/badge)](https://www.bestpractices.dev/projects/11586)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/HolmesGPT/holmesgpt/badge)](https://scorecard.dev/viewer/?uri=github.com/HolmesGPT/holmesgpt)
-
   <p align="center">
     <a href="#installation"><strong>Installation</strong></a> |
     <a href="#supported-llm-providers"><strong>LLM Providers</strong></a> |
@@ -132,3 +129,6 @@ For help, contact us on [Slack](https://cloud-native.slack.com/archives/C0A1SPQM
 
 Please make sure to follow the CNCF code of conduct - [details here](https://github.com/HolmesGPT/holmesgpt/blob/master/CODE_OF_CONDUCT.md).
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/HolmesGPT/holmesgpt)
+
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11586/badge)](https://www.bestpractices.dev/projects/11586)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/HolmesGPT/holmesgpt/badge)](https://scorecard.dev/viewer/?uri=github.com/HolmesGPT/holmesgpt)
