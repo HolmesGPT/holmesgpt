@@ -541,7 +541,30 @@ def run_tree_editor(
 
     # ── rendering ──
 
-    def _render_row(node: ConfigFieldNode, selected: bool) -> List[Tuple[str, str]]:
+    def _row_content_width(node: ConfigFieldNode) -> int:
+        """Compute the visible width of a row's content (before comment/hints)."""
+        indent = "  " * (node.depth + 1)
+        prefix = "  "  # use non-selected width for alignment
+        display_name = node.title if node.title else node.key
+
+        if node.is_header or node.dict_key is not None:
+            return 0  # no comments on these rows
+
+        val_display = str(node.value) if node.value is not None else ""
+        if node.field_type == "bool":
+            val_display = str(node.value).lower() if node.value is not None else "null"
+
+        return len(f"{indent}{prefix}{display_name}: {val_display}")
+
+    def _compute_comment_column() -> int:
+        """Find the column where all comments should start."""
+        max_width = 0
+        for node in flat_rows:
+            if node.description:
+                max_width = max(max_width, _row_content_width(node))
+        return max_width + 2 if max_width else 0  # 2 chars padding
+
+    def _render_row(node: ConfigFieldNode, selected: bool, comment_col: int) -> List[Tuple[str, str]]:
         indent = "  " * (node.depth + 1)
         prefix = "> " if selected else "  "
         style = "class:selected" if selected else ""
@@ -587,20 +610,26 @@ def run_tree_editor(
             val_display = str(node.value) if node.value is not None else ""
             hints = ""
 
-        desc = f"  # {node.description}" if node.description else ""
+        label_prefix = f"{indent}{prefix}{display_name}: "
 
         row_parts = [
-            (style, f"{indent}{prefix}{display_name}: "),
+            (style, label_prefix),
         ]
 
         # When editing this row, show the buffer contents
         if is_editing_this:
             row_parts.append(("class:selected", edit_buf[0].text))
             row_parts.append(("class:dim", "█"))
-        else:
-            row_parts.append((style, val_display))
+            row_parts.append(("", "\n"))
+            return row_parts
 
-        row_parts.append(("class:dim", desc))
+        row_parts.append((style, val_display))
+
+        if node.description and comment_col > 0:
+            content_width = len(label_prefix) + len(val_display)
+            padding = max(2, comment_col - content_width)
+            row_parts.append(("class:dim", " " * padding + f"# {node.description}"))
+
         row_parts.append(("class:dim", hints))
         row_parts.append(("", "\n"))
         return row_parts
@@ -610,8 +639,9 @@ def run_tree_editor(
         parts.append(("class:header", f"  Configure: {toolset.name}\n"))
         parts.append(("class:dim", f"  Schema: {config_class.__name__}\n\n"))
 
+        comment_col = _compute_comment_column()
         for i, node in enumerate(flat_rows):
-            parts.extend(_render_row(node, selected=(cursor[0] == i)))
+            parts.extend(_render_row(node, selected=(cursor[0] == i), comment_col=comment_col))
 
         # Separator
         parts.append(("", "\n"))
