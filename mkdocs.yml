@@ -66,6 +66,7 @@ nav:
                 - "DataDog": data-sources/builtin-toolsets/datadog.md
                 - "Docker": data-sources/builtin-toolsets/docker.md
                 - "Elasticsearch / OpenSearch": data-sources/builtin-toolsets/elasticsearch.md
+                - "GCP (MCP)": data-sources/builtin-toolsets/gcp.md
                 - "GitHub (MCP)": data-sources/builtin-toolsets/github-mcp.md
                 - "Grafana (MCP)": data-sources/builtin-toolsets/grafana-mcp.md
                 - "Grafana Dashboards": data-sources/builtin-toolsets/grafanadashboards.md
