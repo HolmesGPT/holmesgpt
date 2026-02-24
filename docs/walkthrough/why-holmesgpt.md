@@ -118,19 +118,15 @@ Works even without distributed tracing—Holmes infers service relationships fro
 
 ## 5. Zero-Hallucination Visualizations
 
-For supported clients, HolmesGPT generates interactive visualizations that are rendered directly from source data—the LLM never interprets or describes the visual content.
-
-### How It Works
-
-When Holmes queries a data source like Prometheus, the raw response data (time series, log entries, trace spans) is passed through to the client alongside the LLM's text analysis. The client then renders this data as interactive HTML/JavaScript visualizations in a sandboxed environment:
+HolmesGPT is built so that clients can render interactive visualizations directly from source data—the LLM never interprets or describes the visual content. When Holmes queries a data source like Prometheus, the raw response data (time series, log entries, trace spans) is passed through to the client alongside the LLM's text analysis. The client renders this data as interactive HTML and JavaScript visualizations in a sandboxed environment:
 
 - **Metric graphs**: Interactive Chart.js time series rendered from raw Prometheus query results—with tooltips, legends, and zoom
 - **Log tables**: Structured log data rendered as sortable, filterable tables with severity coloring and CSV export
 - **Trace views**: Distributed trace data rendered as interactive span waterfalls
 
-### Why This Matters
+The LLM decides *what* to query and *how* to analyze it, but the visualization itself is a faithful rendering of the raw data. There is no opportunity for the LLM to hallucinate values, misread a graph, or fabricate trends—what you see is exactly what the data source returned.
 
-The critical difference is that all visualization data comes directly from the source and is rendered by deterministic code, not generated or interpreted by the LLM. The LLM decides *what* to query and *how* to analyze it, but the visualization itself is a faithful rendering of the raw data. There is no opportunity for the LLM to hallucinate values, misread a graph, or fabricate trends—what you see is exactly what the data source returned.
+See this in action in the [Robusta UI](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=why_holmesgpt).
 
 ## 6. Alert-to-Resolution Workflow
 
