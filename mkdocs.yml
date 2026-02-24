@@ -12,6 +12,7 @@ exclude_docs: |
 
 nav:
     - Home: index.md
+    - "Why HolmesGPT": walkthrough/why-holmesgpt.md
     - Installation:
           - "CLI": installation/cli-installation.md
           - "Web UI (3rd party)": installation/ui-installation.md
@@ -22,7 +23,6 @@ nav:
           - "Python SDK": installation/python-installation.md
     - Walkthrough:
           - "Overview": walkthrough/index.md
-          - "Why HolmesGPT": walkthrough/why-holmesgpt.md
           - "Interactive Mode": walkthrough/interactive-mode.md
           - "CI/CD Troubleshooting": walkthrough/cicd-troubleshooting.md
           - "Investigating Prometheus Alerts": walkthrough/investigating-prometheus-alerts.md
