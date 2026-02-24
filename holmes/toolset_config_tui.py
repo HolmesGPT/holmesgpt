@@ -591,19 +591,29 @@ def run_tree_editor(
         row_idx = flat_rows.index(node) if node in flat_rows else -1
         is_editing_this = editing[0] and cursor[0] == row_idx
 
-        # Dict child: render as "index: key = value"
+        # Dict child: render as "index: key = value" with aligned = signs
         if node.dict_key is not None:
             key_display = node.dict_key if node.dict_key else "<key>"
             val_display = str(node.value) if node.value else "<value>"
+
+            # Find max key width among siblings to align = signs
+            max_key_width = len(key_display)
+            if node.parent:
+                for sibling in node.parent.children:
+                    sib_key = sibling.dict_key if sibling.dict_key else "<key>"
+                    max_key_width = max(max_key_width, len(sib_key))
+
             row_parts: List[Tuple[str, str]] = [
                 (style, f"{indent}{prefix}{node.key}: "),
             ]
             if is_editing_this and editing_dict_key[0]:
                 row_parts.append(("class:selected", edit_buf[0].text))
                 row_parts.append(("class:dim", "█"))
+                row_parts.append(("", " " * max(0, max_key_width - len(edit_buf[0].text))))
             else:
                 key_style = "class:dim" if not node.dict_key else style
                 row_parts.append((key_style, key_display))
+                row_parts.append(("", " " * (max_key_width - len(key_display))))
             row_parts.append((style, " = "))
             if is_editing_this and not editing_dict_key[0]:
                 row_parts.append(("class:selected", edit_buf[0].text))
