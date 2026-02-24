@@ -536,11 +536,12 @@ def run_tree_editor(
         indent = "  " * (node.depth + 1)
         prefix = "> " if selected else "  "
         style = "class:selected" if selected else ""
+        display_name = node.title if node.title else node.key
 
         if node.is_header:
             count = len(node.children)
             type_bracket = "{}" if node.field_type == "dict" else "[]"
-            label = f"{indent}{prefix}{node.key}: {type_bracket[0]}{count} items{type_bracket[1]}"
+            label = f"{indent}{prefix}{display_name}: {type_bracket[0]}{count} items{type_bracket[1]}"
             hints = "  (Enter to add entry)"
             return [(style, label), ("class:dim", hints), ("", "\n")]
 
@@ -554,7 +555,7 @@ def run_tree_editor(
         desc = f"  # {node.description}" if node.description else ""
 
         row_parts: List[Tuple[str, str]] = [
-            (style, f"{indent}{prefix}{node.key}: "),
+            (style, f"{indent}{prefix}{display_name}: "),
         ]
 
         # When editing this row, show the buffer contents
