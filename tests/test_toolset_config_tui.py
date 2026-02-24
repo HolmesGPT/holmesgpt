@@ -373,12 +373,12 @@ class TestTreeToDict:
 class TestSaveConfigToFile:
     def test_save_to_new_file(self, tmp_path: Path):
         config_file = tmp_path / "config.yaml"
-        console = Console(quiet=True)
         config_dict = {"api_url": "http://test:9090", "timeout": 60}
 
-        ok = save_config_to_file(config_file, "test/toolset", config_dict, console)
+        ok, msg = save_config_to_file(config_file, "test/toolset", config_dict)
 
         assert ok is True
+        assert "saved" in msg.lower()
         assert config_file.exists()
         with open(config_file) as f:
             saved = yaml.safe_load(f)
@@ -397,9 +397,8 @@ class TestSaveConfigToFile:
         with open(config_file, "w") as f:
             yaml.dump(existing, f)
 
-        console = Console(quiet=True)
-        ok = save_config_to_file(
-            config_file, "new/toolset", {"api_url": "http://new:8080"}, console
+        ok, msg = save_config_to_file(
+            config_file, "new/toolset", {"api_url": "http://new:8080"}
         )
 
         assert ok is True
@@ -423,10 +422,7 @@ class TestSaveConfigToFile:
         with open(config_file, "w") as f:
             yaml.dump(existing, f)
 
-        console = Console(quiet=True)
-        save_config_to_file(
-            config_file, "test/toolset", {"api_url": "new"}, console
-        )
+        save_config_to_file(config_file, "test/toolset", {"api_url": "new"})
 
         with open(config_file) as f:
             saved = yaml.safe_load(f)
@@ -434,9 +430,8 @@ class TestSaveConfigToFile:
 
     def test_creates_parent_directories(self, tmp_path: Path):
         config_file = tmp_path / "subdir" / "deep" / "config.yaml"
-        console = Console(quiet=True)
 
-        save_config_to_file(config_file, "test/toolset", {"key": "val"}, console)
+        save_config_to_file(config_file, "test/toolset", {"key": "val"})
 
         assert config_file.exists()
 
@@ -446,13 +441,20 @@ class TestSaveConfigToFile:
         with open(config_file, "w") as f:
             yaml.dump(existing, f)
 
-        console = Console(quiet=True)
-        save_config_to_file(config_file, "test/toolset", {"key": "val"}, console)
+        save_config_to_file(config_file, "test/toolset", {"key": "val"})
 
         with open(config_file) as f:
             saved = yaml.safe_load(f)
         assert "toolsets" in saved
         assert saved["toolsets"]["test/toolset"]["config"]["key"] == "val"
+
+    def test_does_not_print_to_stdout(self, tmp_path: Path, capsys):
+        config_file = tmp_path / "config.yaml"
+        save_config_to_file(config_file, "test/toolset", {"key": "val"})
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
 
 
 # ── export_config_yaml ────────────────────────────────────────────────

@@ -258,9 +258,12 @@ def save_config_to_file(
     config_file_path: Path,
     toolset_name: str,
     config_dict: Dict[str, Any],
-    console: Console,
-) -> bool:
-    """Merge *config_dict* into the YAML config file under ``toolsets.<name>``."""
+) -> Tuple[bool, str]:
+    """Merge *config_dict* into the YAML config file under ``toolsets.<name>``.
+
+    Returns (success, message).  Never prints to stdout/stderr so the TUI
+    stays intact.
+    """
     config_file = Path(config_file_path)
     existing: Dict[str, Any] = {}
     if config_file.exists():
@@ -277,12 +280,14 @@ def save_config_to_file(
     existing["toolsets"][toolset_name]["enabled"] = True
     existing["toolsets"][toolset_name]["config"] = config_dict
 
-    config_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_file, "w") as f:
-        yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
+    try:
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_file, "w") as f:
+            yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
+    except Exception as e:
+        return False, f"Failed to write {config_file}: {e}"
 
-    console.print(f"[bold green]Configuration saved to {config_file}[/bold green]")
-    return True
+    return True, f"Configuration saved to {config_file}"
 
 
 def export_config_yaml(toolset_name: str, config_dict: Dict[str, Any]) -> str:
@@ -506,7 +511,6 @@ def run_tree_editor(
     toolset: Toolset,
     initial_config: Dict[str, Any],
     config_file_path: Path,
-    console: Console,
 ) -> None:
     """Screen 3 – full tree editor with inline editing and action buttons."""
 
@@ -665,11 +669,9 @@ def run_tree_editor(
                 status_lines = [("", f"  {line}\n") for line in yml.splitlines()]
             elif btn_idx == 2:  # Save
                 config_path = Path(config_file_path) if config_file_path else Path(DEFAULT_CONFIG_LOCATION)
-                ok = save_config_to_file(config_path, toolset.name, config_dict, console)
-                if ok:
-                    status_lines = [("class:status-ok", "  Configuration saved.\n")]
-                else:
-                    status_lines = [("class:status-fail", "  Failed to save configuration.\n")]
+                ok, msg = save_config_to_file(config_path, toolset.name, config_dict)
+                style_cls = "class:status-ok" if ok else "class:status-fail"
+                status_lines = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
             elif btn_idx == 3:  # Exit
                 event.app.exit()
             return
@@ -821,4 +823,4 @@ def run_toolset_config_tui(
         return
 
     config_path = Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
-    run_tree_editor(selected, initial, config_path, console)
+    run_tree_editor(selected, initial, config_path)
