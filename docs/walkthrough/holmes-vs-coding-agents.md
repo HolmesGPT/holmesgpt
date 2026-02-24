@@ -69,9 +69,9 @@ All built-in toolsets are read-only by design. Holmes respects existing platform
 
 Toolsets auto-detect available services (e.g., Kubernetes if a kubeconfig is present, Prometheus if configured) and activate automatically. For external services, provide connection details via environment variables or `~/.holmes/config.yaml`.
 
-### HTTP Connector for Any API
+### Raw HTTP Endpoints as LLM-Friendly Tools
 
-When you need to integrate a service that doesn't have a built-in toolset, the [HTTP connector](../data-sources/api-toolsets.md) lets you add it through YAML configuration alone:
+When you need to integrate a service that doesn't have a built-in toolset, the [HTTP connector](../data-sources/api-toolsets.md) turns raw HTTP endpoints into LLM-friendly tools through YAML configuration—no MCP servers or custom code required:
 
 ```yaml
 toolsets:
@@ -91,24 +91,28 @@ toolsets:
       GET /v1/services/{id}/health - get service health
 ```
 
-Key features of the HTTP connector:
+Holmes automatically transforms these raw endpoints to be LLM-friendly:
 
-- **Endpoint whitelisting**: Only approved hosts, paths, and methods are accessible
-- **Multiple auth methods**: Basic, Bearer, custom headers
-- **Context-window-aware**: Inherits `jq` and `max_depth` parameters for large responses
+- **Context-window-aware**: Adds `jq` and `max_depth` parameters so the LLM can navigate large responses without overflow
+- **Endpoint whitelisting**: Only approved hosts, paths, and methods are accessible—safe by default
+- **Multiple auth methods**: Basic, Bearer, custom headers—configured once, used automatically
 - **Multi-instance**: Configure multiple API connectors with independent credentials
 
 ## 3. Zero-Hallucination Visualizations
 
-For supported clients, HolmesGPT provides direct visualization paths that bypass the LLM entirely:
+For supported clients, HolmesGPT generates interactive visualizations that are rendered directly from source data—the LLM never interprets or describes the visual content.
 
-- **Grafana dashboards**: Direct links with correct time ranges and template variables pre-configured
-- **Prometheus graphs**: PromQL query links for the relevant time window
-- **Tempo/Jaeger traces**: Direct links to specific trace IDs
+### How It Works
 
-These visualization URLs are constructed programmatically from tool output metadata—the LLM doesn't interpret the visual data. When Holmes links you to a Grafana dashboard showing checkout service latency for the last hour, that link is guaranteed to render the actual data with the correct parameters.
+When Holmes queries a data source like Prometheus, the raw response data (time series, log entries, trace spans) is passed through to the client alongside the LLM's text analysis. The client then renders this data as interactive HTML/JavaScript visualizations in a sandboxed environment:
 
-This means you can verify any claim Holmes makes by clicking through to the source visualization.
+- **Metric graphs**: Interactive Chart.js time series rendered from raw Prometheus query results—with tooltips, legends, and zoom
+- **Log tables**: Structured log data rendered as sortable, filterable tables with severity coloring and CSV export
+- **Trace views**: Distributed trace data rendered as interactive span waterfalls
+
+### Why This Matters
+
+The critical difference is that all visualization data comes directly from the source and is rendered by deterministic code, not generated or interpreted by the LLM. The LLM decides *what* to query and *how* to analyze it, but the visualization itself is a faithful rendering of the raw data. There is no opportunity for the LLM to hallucinate values, misread a graph, or fabricate trends—what you see is exactly what the data source returned.
 
 ## 4. Alert-to-Resolution Workflow
 
@@ -215,10 +219,10 @@ See the [Operator documentation](../operator/index.md) for installation and conf
 |------------|------------------------|
 | **Petabyte-scale data** | Server-side filtering, jq/max_depth parameters, transformers for massive telemetry |
 | **40+ integrations** | Pre-built read-only toolsets, HTTP connector for any API |
-| **Zero-hallucination visuals** | Direct links to Grafana, Prometheus, Tempo dashboards—no LLM interpretation |
+| **Zero-hallucination visuals** | Interactive HTML/JS charts rendered from source data in a sandbox—LLM never touches the visual |
 | **Alert-to-resolution** | Ingestion from PagerDuty/OpsGenie/AlertManager/Jira, findings written back |
 | **Kubernetes-native monitoring** | Operator with CRD-based health checks, scheduling, and alert routing |
-| **Connect any API** | HTTP connector, MCP servers, custom toolsets—all context-window-aware |
+| **Raw HTTP → LLM tools** | HTTP connector turns any API into an LLM-friendly tool via YAML—no MCP needed |
 
 ## Get Started
 

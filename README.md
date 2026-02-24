@@ -44,7 +44,7 @@ HolmesGPT ships with pre-built, read-only integrations for Prometheus, Grafana, 
 
 ### Zero-Hallucination Visualizations
 
-For supported clients, HolmesGPT provides direct visualization paths that bypass the LLM entirely. Instead of describing graphs in text, Holmes generates links to native Grafana dashboards, Prometheus graphs, and Tempo traces with the correct time ranges and filters pre-configured—guaranteed to show actual data.
+For supported clients, HolmesGPT generates interactive HTML and JavaScript visualizations rendered in a sandboxed environment. The data flows directly from the source (Prometheus, Loki, etc.) to the visualization—the LLM never interprets or describes the visual data. You see the actual metrics, logs, and traces rendered as interactive charts and tables, not an AI's description of them.
 
 ### Alert-to-Resolution Workflow
 
@@ -54,9 +54,9 @@ HolmesGPT integrates into your incident response workflow. It fetches alerts fro
 
 The [Holmes Operator](https://holmesgpt.dev/operator/) brings declarative, scheduled health checks to Kubernetes via CRDs. Define checks as `HealthCheck` or `ScheduledHealthCheck` resources, and Holmes continuously monitors your cluster, alerting on failures via Slack or PagerDuty.
 
-### Connect Any API in Minutes
+### Raw HTTP Endpoints as LLM-Friendly Tools
 
-The [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) lets you integrate any REST API through configuration alone—no code required. Define endpoint whitelists, authentication, and method restrictions in YAML. Holmes adds context-window-aware parameters (like `jq` expressions and `max_depth`) so the LLM can navigate large API responses safely.
+The [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) turns any REST API into an LLM-friendly tool through YAML configuration—no MCP servers or custom code required. Define endpoint whitelists, authentication, and method restrictions, and Holmes automatically adds context-window-aware parameters (`jq` filters, `max_depth`) so the LLM can safely navigate large API responses.
 
 ### 🔗 Data Sources
 
