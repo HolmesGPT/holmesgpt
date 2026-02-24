@@ -520,8 +520,11 @@ def run_tree_editor(
     toolset: Toolset,
     initial_config: Dict[str, Any],
     config_file_path: Path,
-) -> None:
-    """Screen 3 – full tree editor with inline editing and action buttons."""
+) -> bool:
+    """Screen 3 – full tree editor with inline editing and action buttons.
+
+    Returns True if the configuration was saved at least once.
+    """
 
     config_class: Type[BaseModel] = toolset.config_classes[0]
     top_nodes = build_tree_from_schema(config_class, initial_config)
@@ -533,6 +536,7 @@ def run_tree_editor(
     editing_dict_key = [False]  # True when editing the key portion of a dict entry
     edit_buf = [Buffer()]
     status_lines: List[Tuple[str, str]] = []
+    saved = [False]
 
     total_items = lambda: len(flat_rows) + len(_BUTTON_LABELS)  # noqa: E731
 
@@ -770,6 +774,8 @@ def run_tree_editor(
                 ok, msg = save_config_to_file(config_path, toolset.name, config_dict)
                 style_cls = "class:status-ok" if ok else "class:status-fail"
                 status_lines = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
+                if ok:
+                    saved[0] = True
             elif btn_idx == 3:  # Exit
                 event.app.exit()
             return
@@ -898,6 +904,7 @@ def run_tree_editor(
         erase_when_done=True,
     )
     app.run()
+    return saved[0]
 
 
 def _prompt_add_dict_entry(node: ConfigFieldNode, event: Any) -> None:
@@ -917,6 +924,39 @@ def _prompt_add_dict_entry(node: ConfigFieldNode, event: Any) -> None:
         parent=node,
     )
     node.children.append(new_child)
+
+
+def _refresh_toolset_from_file(
+    config_path: Path,
+    toolset: Toolset,
+    console: Console,
+) -> None:
+    """Re-read the saved config and refresh the toolset's status."""
+    try:
+        with open(config_path, "r") as f:
+            file_data = yaml.safe_load(f) or {}
+        saved_cfg = (
+            file_data.get("toolsets", {}).get(toolset.name, {}).get("config", {})
+        )
+    except Exception as e:
+        logger.warning("Could not re-read config file for refresh: %s", e)
+        return
+
+    toolset.config = saved_cfg
+    toolset.enabled = True
+    toolset.status = ToolsetStatusEnum.DISABLED
+    toolset.error = None
+    toolset.check_prerequisites(silent=True)
+
+    if toolset.status == ToolsetStatusEnum.ENABLED:
+        console.print(
+            f"[bold green]Toolset '{toolset.name}' refreshed — enabled.[/bold green]"
+        )
+    else:
+        console.print(
+            f"[bold {ERROR_COLOR}]Toolset '{toolset.name}' refreshed — "
+            f"{toolset.error or 'prerequisites not met'}.[/bold {ERROR_COLOR}]"
+        )
 
 
 # ── Main orchestrator ─────────────────────────────────────────────────
@@ -945,4 +985,7 @@ def run_toolset_config_tui(
         return
 
     config_path = Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
-    run_tree_editor(selected, initial, config_path)
+    saved = run_tree_editor(selected, initial, config_path)
+
+    if saved:
+        _refresh_toolset_from_file(config_path, selected, console)
