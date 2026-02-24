@@ -48,7 +48,7 @@ Give SRE agents the data access they need, with the safety profile production de
 
 ### Controlled Access for Your Whole Team
 
-Deploy a single Holmes instance with read-only access to your production systems—metrics, logs, traces, Kubernetes, and more. Engineers query Holmes without needing their own credentials to every observability platform. Define what Holmes can access once, in a config file or environment variables you control, and everyone on the team works within those boundaries—without riskier direct connections to production.
+Instead of every engineer connecting their local AI tools to production with personal credentials that carry write access, deploy one Holmes instance with scoped, read-only access. Engineers query Holmes—not production directly.
 
 ### Runtime Dependency Graph
 
