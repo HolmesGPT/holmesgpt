@@ -1,5 +1,6 @@
 nav:
   - index.md
+  - Recommended Setup: recommended-setup.md
   - Built-in Toolsets: builtin-toolsets
   - HTTP Connectors: api-toolsets.md
   - Custom Toolsets: custom-toolsets.md

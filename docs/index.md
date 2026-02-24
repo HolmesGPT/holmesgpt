@@ -36,7 +36,7 @@ SRE Agent for Large-Scale Production Environments.
 
 ## Already Installed?
 
-**[Connect your data sources](walkthrough/recommended-setup.md)** to unlock deeper investigations with metrics, logs, and cloud provider access.
+**[Connect your data sources](data-sources/recommended-setup.md)** to unlock deeper investigations with metrics, logs, and cloud provider access.
 
 ## Need Help?
 

@@ -23,7 +23,6 @@ nav:
           - "Python SDK": installation/python-installation.md
     - Walkthrough:
           - "Overview": walkthrough/index.md
-          - "Recommended Setup": walkthrough/recommended-setup.md
           - "Interactive Mode": walkthrough/interactive-mode.md
           - "CI/CD Troubleshooting": walkthrough/cicd-troubleshooting.md
           - "Investigating Prometheus Alerts": walkthrough/investigating-prometheus-alerts.md
@@ -51,6 +50,7 @@ nav:
           - "Using Multiple Providers": ai-providers/using-multiple-providers.md
     - "Data Sources":
           - "Overview": data-sources/index.md
+          - "Recommended Setup": data-sources/recommended-setup.md
           - "Built-in Toolsets":
                 - "Overview": data-sources/builtin-toolsets/index.md
                 - "AKS Node Health": data-sources/builtin-toolsets/aks-node-health.md

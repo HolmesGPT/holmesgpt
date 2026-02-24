@@ -1,6 +1,5 @@
 nav:
   - index.md
-  - Recommended Setup: recommended-setup.md
   - Interactive Mode: interactive-mode.md
   - CI/CD Troubleshooting: cicd-troubleshooting.md
   - Investigating Prometheus Alerts: investigating-prometheus-alerts.md

@@ -297,7 +297,7 @@ See [Environment Variables Reference](../reference/environment-variables.md) for
 
 ## Next Steps
 
--   **[Recommended Setup](../walkthrough/recommended-setup.md)** - Connect metrics, logs, and cloud providers to unlock deeper investigations.
+-   **[Recommended Setup](../data-sources/recommended-setup.md)** - Connect metrics, logs, and cloud providers to unlock deeper investigations.
 -   **[All Data Sources](../data-sources/index.md)** - Browse the full list of 38+ built-in integrations.
 -   **[Connect MCP Servers](../data-sources/remote-mcp-servers.md)** - Extend capabilities with external MCP servers.
 
