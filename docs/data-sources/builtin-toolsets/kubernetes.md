@@ -181,7 +181,7 @@ For resources not covered by the default CRD permissions, you can add custom Clu
 - **External Integrations and CRDs** - Access to custom resources from other operators
 - **Additional Kubernetes resources** - Resources not included in the default permissions
 
-### Example: Adding Cert-Manager Permissions
+**Example: Adding Cert-Manager Permissions**
 
 To enable HolmesGPT to analyze cert-manager certificates and issuers (not included in default permissions), add custom ClusterRole rules:
 
