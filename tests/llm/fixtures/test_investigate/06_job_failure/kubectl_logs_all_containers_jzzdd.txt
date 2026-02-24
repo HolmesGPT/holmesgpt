@@ -1,7 +1,0 @@
-{"toolset_name":"kubernetes/logs","tool_name":"kubectl_logs_all_containers","match_params":{"pod_name":"java-api-checker-jzzdd","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl logs java-api-checker-jzzdd -n default --all-containers", "params": {"pod_name": "java-api-checker-jzzdd", "namespace": "default"}}
-Java Network Exception:
-All host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256
-All host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256
-All host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256
-All host(s) tried for db query failed (tried: prod-db:3333) - no available connection and the queue has reached its max size 256

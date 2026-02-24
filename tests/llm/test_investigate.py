@@ -25,8 +25,8 @@ from tests.llm.utils.classifiers import (
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
 from tests.llm.utils.iteration_utils import get_test_cases
-from tests.llm.utils.mock_dal import MockSupabaseDal
-from tests.llm.utils.mock_toolset import MockToolsetManager, check_for_mock_errors
+from tests.llm.utils.mock_dal import TestSupabaseDal
+from tests.llm.utils.test_toolset import TestToolsetManager
 from tests.llm.utils.property_manager import (
     handle_test_error,
     set_initial_properties,
@@ -45,26 +45,22 @@ TEST_CASES_FOLDER = Path(
 )
 
 
-class MockConfig(Config):
-    def __init__(self, test_case: InvestigateTestCase, tracer, mock_generation_config):
+class TestConfig(Config):
+    def __init__(self, test_case: InvestigateTestCase, tracer):
         super().__init__()
         self._test_case = test_case
         self._tracer = tracer
-        self._mock_generation_config = mock_generation_config
         self._cached_tool_executor: Optional[ToolExecutor] = None
 
     def create_tool_executor(self, dal: Optional[SupabaseDal]) -> ToolExecutor:
         if not self._cached_tool_executor:
-            mock = MockToolsetManager(
+            manager = TestToolsetManager(
                 test_case_folder=self._test_case.folder,
-                mock_generation_config=self._mock_generation_config,
-                mock_policy=self._test_case.mock_policy,
-                mock_overrides=getattr(self._test_case, "mock_overrides", None),
+                toolsets_config_path=getattr(
+                    self._test_case, "toolsets_config_path", None
+                ),
             )
-
-            # With the new file-based mock system, mocks are loaded from disk automatically
-            # No need to call mock_tool() anymore
-            self._cached_tool_executor = ToolExecutor(mock.toolsets)
+            self._cached_tool_executor = ToolExecutor(manager.toolsets)
         return self._cached_tool_executor
 
     def create_issue_investigator(
@@ -99,21 +95,19 @@ def test_investigate(
     test_case: InvestigateTestCase,
     caplog,
     request,
-    mock_generation_config,
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
     set_initial_properties(request, test_case, model, env_config)
 
     tracer = TracingFactory.create_tracer("braintrust")
-    config = MockConfig(test_case, tracer, mock_generation_config)
+    config = TestConfig(test_case, tracer)
     config.model = model
     metadata = {"model": model, "env_config": env_config.name}
     tracer.start_experiment(additional_metadata=metadata)
 
-    mock_dal = MockSupabaseDal(
+    test_dal = TestSupabaseDal(
         test_case_folder=Path(test_case.folder),
-        generate_mocks=mock_generation_config.generate_mocks,
         issue_data=test_case.issue_data,
         issues_metadata=None,
         resource_instructions=test_case.resource_instructions,
@@ -149,7 +143,7 @@ def test_investigate(
                         "Caching tools executor for create_issue_investigator",
                         type=SpanType.TASK.value,
                     ):
-                        config.create_tool_executor(mock_dal)
+                        config.create_tool_executor(test_dal)
                     with eval_span.start_span(
                         "Holmes Run", type=SpanType.TASK.value
                     ) as holmes_span:
@@ -161,7 +155,7 @@ def test_investigate(
                             investigate_issues,
                             investigate_request=investigate_request,
                             config=config,
-                            dal=mock_dal,
+                            dal=test_dal,
                             trace_span=holmes_span,
                             retry_enabled=retry_enabled,
                             test_id=test_case.id,
@@ -183,10 +177,6 @@ def test_investigate(
                         request.node.user_properties.append(
                             ("tool_call_count", len(result.tool_calls))
                         )
-
-                # Check for any mock errors that occurred during tool execution
-                # This will raise an exception if any mock data errors happened
-                check_for_mock_errors(request)
 
                 # Evaluate and log results inside the span context
                 assert result, "No result returned by investigate_issues()"
@@ -219,7 +209,6 @@ def test_investigate(
                     model=model,
                     result=result,
                     scores=scores,
-                    mock_generation_config=mock_generation_config,
                 )
     except Exception as e:
         handle_test_error(
@@ -229,7 +218,6 @@ def test_investigate(
             test_case=test_case,
             model=model,
             result=result,
-            mock_generation_config=mock_generation_config,
         )
         raise
 
