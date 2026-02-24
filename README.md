@@ -43,7 +43,7 @@ HolmesGPT is purpose-built for production observability and incident response. *
 
 ### 🔗 Data Sources
 
-HolmesGPT integrates with popular observability and cloud platforms. The following data sources ("toolsets") are built-in. [Add your own](#customizing-holmesgpt).
+HolmesGPT integrates with popular observability and cloud platforms. The following data sources ("toolsets") are built-in. [Add your own](https://holmesgpt.dev/data-sources/custom-toolsets/).
 
 | Data Source | Notes |
 |-------------|-------|
@@ -113,112 +113,15 @@ Read the [LLM Providers documentation](https://holmesgpt.dev/ai-providers/) to l
 
 ## Using HolmesGPT
 
-- In the Robusta SaaS: Go to [platform.robusta.dev](https://platform.robusta.dev/signup/?utm_source=github&utm_medium=holmesgpt-readme&utm_content=ways_to_use_holmesgpt_section) and use Holmes from your browser
-- With HolmesGPT CLI: [setup an LLM API key](https://holmesgpt.dev/ai-providers/) and ask Holmes a question 👇
+See the [walkthrough documentation](https://holmesgpt.dev/walkthrough/) for usage guides, including:
 
-```bash
-holmes ask "what pods are unhealthy and why?"
-```
-
-You can also provide files as context:
-```bash
-holmes ask "summarize the key points in this document" -f ./mydocument.txt
-```
-
-You can also load the prompt from a file using the `--prompt-file` option:
-```bash
-holmes ask --prompt-file ~/long-prompt.txt
-
-Enter interactive mode to ask follow-up questions:
-```bash
-holmes ask "what pods are unhealthy and why?" --interactive
-# or
-holmes ask "what pods are unhealthy and why?" -i
-```
-
-Also supported:
-
-<details>
-<summary>HolmesGPT CLI: investigate Prometheus alerts</summary>
-
-Pull alerts from AlertManager and investigate them with HolmesGPT:
-
-```bash
-holmes investigate alertmanager --alertmanager-url http://localhost:9093
-# if on Mac OS and using the Holmes Docker image👇
-#  holmes investigate alertmanager --alertmanager-url http://docker.for.mac.localhost:9093
-```
-
-<b>To investigate alerts in your browser, sign up for a free trial of [Robusta SaaS](https://platform.robusta.dev/signup/?utm_source=github&utm_medium=holmesgpt-readme&utm_content=ways_to_use_holmesgpt_section). </b>
-
-
-<b>Optional:</b> port-forward to AlertManager before running the command mentioned above (if running Prometheus inside Kubernetes)
-
-```bash
-kubectl port-forward alertmanager-robusta-kube-prometheus-st-alertmanager-0 9093:9093 &
-```
-</details>
-
-<details>
-<summary>HolmesGPT CLI: investigate PagerDuty and OpsGenie alerts</summary>
-
-```bash
-holmes investigate opsgenie --opsgenie-api-key <OPSGENIE_API_KEY>
-holmes investigate pagerduty --pagerduty-api-key <PAGERDUTY_API_KEY>
-# to write the analysis back to the incident as a comment
-holmes investigate pagerduty --pagerduty-api-key <PAGERDUTY_API_KEY> --update
-```
-
-For more details, run `holmes investigate <source> --help`
-</details>
-
-## Customizing HolmesGPT
-
-HolmesGPT can investigate many issues out of the box, with no customization or training. Optionally, you can extend Holmes to improve results:
-
-**Custom Data Sources**: Add data sources (toolsets) to improve investigations
-   - If using Robusta SaaS: See [here](https://holmesgpt.dev/data-sources/custom-toolsets/)
-   - If using the CLI: Use `-t` flag with [custom toolset files](./examples/custom_toolset.yaml) or add to `~/.holmes/config.yaml`
-
-**Custom Runbooks**: Give HolmesGPT instructions for known alerts:
-   - If using Robusta SaaS: Use the Robusta UI to add runbooks
-   - If using the CLI: Use `-r` flag with [custom runbook files](./examples/custom_runbooks.yaml) or add to `~/.holmes/config.yaml`
-
-You can save common settings and API Keys in a config file to avoid passing them from the CLI each time:
-
-<details>
-<summary>Reading settings from a config file</summary>
-
-You can save common settings and API keys in config file for re-use. Place the config file in <code>~/.holmes/config.yaml`</code> or pass it using the <code> --config</code>
-
-You can view an example config file with all available settings [here](config.example.yaml).
-
-### Tool Output Transformers
-
-HolmesGPT supports **transformers** to process large tool outputs before sending them to your primary LLM. This feature helps manage context window limits while preserving essential information.
-
-The most common transformer is `llm_summarize`, which uses a fast secondary model to summarize lengthy outputs from tools like `kubectl describe`, log queries, or metrics collection.
-
-📖 **Learn more**: [Tool Output Transformers Documentation](docs/transformers.md)
-</details>
+- [Interactive mode](https://holmesgpt.dev/walkthrough/interactive-mode/) for asking questions and follow-ups
+- [Investigating Prometheus alerts](https://holmesgpt.dev/walkthrough/investigating-prometheus-alerts/)
+- [CI/CD troubleshooting](https://holmesgpt.dev/walkthrough/cicd-troubleshooting/)
 
 ## 🔐 Data Privacy
 
 By design, HolmesGPT has **read-only access** and respects RBAC permissions. It is safe to run in production environments.
-
-We do **not** train HolmesGPT on your data. Data sent to Robusta SaaS is private to your account.
-
-For extra privacy, [bring an API key](https://holmesgpt.dev/ai-providers/) for your own AI model.
-
-
-## Evals
-
-Because HolmesGPT relies on LLMs, it relies on [a suite of pytest based evaluations](https://holmesgpt.dev/development/evals/) to ensure the prompt and HolmesGPT's default set of tools work as expected with LLMs.
-
-- [Introduction to HolmesGPT's evals](https://holmesgpt.dev/development/evaluations/).
-- [Write your own evals](https://holmesgpt.dev/development/evaluations/adding-evals/).
-- [Use Braintrust to view analyze results (optional)](https://holmesgpt.dev/development/evaluations/reporting/).
-
 
 ## License
 Distributed under the Apache 2.0 License. See [LICENSE](https://github.com/HolmesGPT/holmesgpt/blob/master/LICENSE) for more information.
