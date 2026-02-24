@@ -7,7 +7,7 @@ HolmesGPT is an AI agent purpose-built for production observability and incident
 Production systems generate enormous amounts of telemetry data—thousands of metric time series per service, gigabytes of logs per day, and millions of trace spans. HolmesGPT is designed to work at this scale without pulling unbounded data into context:
 
 - **Aggregations at source**: Where possible, filters and aggregations are pushed to the data source—Holmes queries with precise time ranges, label selectors, and aggregations rather than fetching everything and parsing locally
-- **Traversable JSON trees**: For APIs that return large JSON payloads, Holmes transforms responses so the LLM can inspect top-level structure first, then drill into specific fields incrementally, with adaptive depth limits applied automatically
+- **Traversable JSON trees**: For APIs that return large JSON payloads, Holmes gives the LLM JSON filtering and depth-limiting tools so it can traverse the response tree—inspecting top-level structure first, then drilling into specific sub-trees on demand without pulling the entire payload into context
 - **Summarization transformers**: For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before it reaches the LLM
 
 ## 2. Operator Mode
@@ -56,14 +56,16 @@ See the [Operator documentation](../operator/index.md) for installation and conf
 
 HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](../data-sources/api-toolsets/index.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
-- **Metrics**: Prometheus, Datadog, Coralogix
-- **Logs**: Loki, Elasticsearch/OpenSearch, Datadog, Coralogix
+- **Metrics**: Prometheus, Datadog, Coralogix, NewRelic
+- **Logs**: Loki, Elasticsearch/OpenSearch, Datadog, Coralogix, Splunk
 - **Traces**: Tempo, Datadog, NewRelic
 - **Dashboards**: Grafana
-- **Infrastructure**: Kubernetes, Docker, Helm, ArgoCD
-- **Cloud**: AWS RDS, Azure SQL, Azure AKS
+- **Infrastructure**: Kubernetes, Docker, Helm, ArgoCD, OpenShift, Cilium, KubeVela
+- **Cloud**: AWS RDS, Azure SQL, Azure AKS, GCP
+- **Databases**: PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, MongoDB Atlas
+- **ITSM**: ServiceNow
 - **Messaging**: Kafka, RabbitMQ
-- **Knowledge**: Confluence, Slab, Internet/web search
+- **Knowledge**: Confluence, Notion, Slab, Internet/web search
 
 See the [full list of built-in toolsets](../data-sources/builtin-toolsets/index.md).
 
@@ -118,11 +120,7 @@ Works even without distributed tracing—Holmes infers service relationships fro
 
 ## 5. Zero-Hallucination Visualizations
 
-HolmesGPT is built so that clients can render interactive visualizations directly from source data—the LLM never interprets or describes the visual content. When Holmes queries a data source like Prometheus, the raw response data (time series, log entries, trace spans) is passed through to the client alongside the LLM's text analysis. The client renders this data as interactive HTML and JavaScript visualizations in a sandboxed environment:
-
-- **Metric graphs**: Interactive Chart.js time series rendered from raw Prometheus query results—with tooltips, legends, and zoom
-- **Log tables**: Structured log data rendered as sortable, filterable tables with severity coloring and CSV export
-- **Trace views**: Distributed trace data rendered as interactive span waterfalls
+When Holmes queries a data source like Prometheus, the raw response data—time series, log entries, trace spans—is passed through to the client alongside the LLM's text analysis. Supported clients render this data as interactive HTML and JavaScript visualizations in a sandboxed environment: metric graphs with tooltips, legends, and zoom; sortable log tables with severity coloring and CSV export; distributed trace waterfalls with timing breakdowns.
 
 The LLM decides *what* to query and *how* to analyze it, but the visualization itself is a faithful rendering of the raw data. There is no opportunity for the LLM to hallucinate values, misread a graph, or fabricate trends—what you see is exactly what the data source returned.
 
