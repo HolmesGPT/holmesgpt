@@ -613,9 +613,14 @@ def run_tree_editor(
             row_parts.append(("", "\n"))
             return row_parts
 
+        is_list_entry = node.parent and node.parent.field_type == "list"
+
         if node.field_type == "bool":
             val_display = str(node.value).lower() if node.value is not None else "null"
             hints = "  (Enter to toggle)"
+        elif is_list_entry:
+            val_display = str(node.value) if node.value else "<value>"
+            hints = ""
         else:
             val_display = str(node.value) if node.value is not None else ""
             hints = ""
@@ -633,7 +638,8 @@ def run_tree_editor(
             row_parts.append(("", "\n"))
             return row_parts
 
-        row_parts.append((style, val_display))
+        val_style = "class:dim" if is_list_entry and not node.value else style
+        row_parts.append((val_style, val_display))
 
         if node.description and comment_col > 0:
             content_width = len(label_prefix) + len(val_display)
