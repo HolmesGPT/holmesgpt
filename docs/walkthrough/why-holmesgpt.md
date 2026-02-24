@@ -47,7 +47,7 @@ spec:
 
 See the [Operator documentation](../operator/index.md) for installation and configuration.
 
-## 3. Every Major Observability Platform, Plus Anything With an API
+## 3. Connect Any API as a Data Source
 
 HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](../data-sources/api-toolsets/index.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
