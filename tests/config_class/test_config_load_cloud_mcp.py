@@ -79,15 +79,15 @@ def test_aws_mcp_stdio_config_fields():
     assert parsed.args == ["awslabs.aws-api-mcp-server@latest"]
 
 
-# --- Azure MCP config (stdio via npx) ---
+# --- Azure MCP config (stdio via azure-api-mcp Go binary) ---
 
 azure_mcp_config_str = """
   azure_api:
-    description: "Azure API - query Azure resources and investigate infrastructure issues"
+    description: "Azure API MCP Server - comprehensive Azure service access via Azure CLI"
     config:
       mode: stdio
-      command: "npx"
-      args: ["-y", "@azure/mcp@latest", "server", "start"]
+      command: "azure-api-mcp"
+      args: ["--readonly"]
     llm_instructions: |
       IMPORTANT: When investigating Azure issues, always:
       1. Gather current state using Azure CLI commands
@@ -97,7 +97,7 @@ azure_mcp_config_str = """
 
 
 def test_load_azure_mcp_stdio_config():
-    """Azure MCP config with stdio mode (npx) loads correctly."""
+    """Azure MCP config with stdio mode (azure-api-mcp) loads correctly."""
     mcp_servers = _prepare_mcp_servers(yaml.safe_load(azure_mcp_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
@@ -106,31 +106,22 @@ def test_load_azure_mcp_stdio_config():
     assert isinstance(toolset, RemoteMCPToolset)
     assert toolset.name == "azure_api"
     assert toolset.config["mode"] == "stdio"
-    assert toolset.config["command"] == "npx"
-    assert toolset.config["args"] == ["-y", "@azure/mcp@latest", "server", "start"]
+    assert toolset.config["command"] == "azure-api-mcp"
+    assert toolset.config["args"] == ["--readonly"]
     parsed = StdioMCPConfig(**toolset.config)
     assert parsed.mode == MCPMode.STDIO
-    assert parsed.command == "npx"
+    assert parsed.command == "azure-api-mcp"
 
 
-def test_azure_mcp_consolidated_mode():
-    """Azure MCP config with --mode consolidated flag loads correctly."""
-    config_str = """
-      azure_api:
-        description: "Azure API - consolidated mode"
-        config:
-          mode: stdio
-          command: "npx"
-          args: ["-y", "@azure/mcp@latest", "server", "start", "--mode", "consolidated"]
-    """
-    mcp_servers = _prepare_mcp_servers(yaml.safe_load(config_str))
+def test_azure_mcp_readonly_flag():
+    """Azure MCP config passes --readonly flag correctly."""
+    mcp_servers = _prepare_mcp_servers(yaml.safe_load(azure_mcp_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
     assert len(definitions) == 1
     toolset = definitions[0]
     assert isinstance(toolset, RemoteMCPToolset)
-    assert "--mode" in toolset.config["args"]
-    assert "consolidated" in toolset.config["args"]
+    assert "--readonly" in toolset.config["args"]
 
 
 # --- GCP MCP config (stdio via npx, three servers) ---
@@ -212,8 +203,8 @@ multi_provider_config_str = """
     description: "Azure API - query Azure resources"
     config:
       mode: stdio
-      command: "npx"
-      args: ["-y", "@azure/mcp@latest", "server", "start"]
+      command: "azure-api-mcp"
+      args: ["--readonly"]
     llm_instructions: "Use for investigating Azure infrastructure."
   gcp_gcloud:
     description: "Google Cloud management via gcloud CLI"
@@ -245,13 +236,13 @@ def test_load_multi_provider_config():
 
 
 def test_multi_provider_different_commands():
-    """AWS uses uvx while Azure and GCP use npx."""
+    """Each provider uses its own command: uvx for AWS, azure-api-mcp for Azure, npx for GCP."""
     mcp_servers = _prepare_mcp_servers(yaml.safe_load(multi_provider_config_str))
     definitions = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)
 
     commands = {t.name: t.config["command"] for t in definitions}
     assert commands["aws_api"] == "uvx"
-    assert commands["azure_api"] == "npx"
+    assert commands["azure_api"] == "azure-api-mcp"
     assert commands["gcp_gcloud"] == "npx"
 
 

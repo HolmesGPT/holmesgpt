@@ -11,29 +11,38 @@ The Azure MCP server gives Holmes **read-only access to any Azure API** you perm
 
 === "Holmes CLI"
 
-    The [official Azure MCP server](https://github.com/Azure/azure-mcp) runs locally on your machine via `npx`. No Kubernetes cluster required.
+    The same [Azure API MCP server](https://github.com/Azure/azure-api-mcp) used in-cluster can run locally on your machine in stdio mode. No Kubernetes cluster required.
 
-    **Prerequisites:** Node.js 20+ must be installed.
+    **Prerequisites:** Go 1.24+ and [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) must be installed.
 
-    **Step 1: Authenticate**
+    **Step 1: Build the server**
+
+    ```bash
+    git clone https://github.com/Azure/azure-api-mcp.git
+    cd azure-api-mcp
+    go build -o azure-api-mcp ./cmd/server
+    sudo mv azure-api-mcp /usr/local/bin/
+    ```
+
+    **Step 2: Authenticate**
 
     ```bash
     az login
     az account show  # verify correct subscription
     ```
 
-    **Step 2: Configure Holmes CLI**
+    **Step 3: Configure Holmes CLI**
 
     Add to `~/.holmes/config.yaml`:
 
     ```yaml
     mcp_servers:
       azure_api:
-        description: "Azure API - query Azure resources and investigate infrastructure issues"
+        description: "Azure API MCP Server - comprehensive Azure service access via Azure CLI"
         config:
           mode: stdio
-          command: "npx"
-          args: ["-y", "@azure/mcp@latest", "server", "start"]
+          command: "azure-api-mcp"
+          args: ["--readonly"]
         llm_instructions: |
           IMPORTANT: When investigating issues related to Azure resources or Kubernetes workloads running on Azure,
           you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
@@ -51,24 +60,7 @@ The Azure MCP server gives Holmes **read-only access to any Azure API** you perm
           See the Azure MCP documentation for comprehensive investigation patterns and common commands.
     ```
 
-    ??? info "Server modes"
-        The Azure MCP server supports different modes that control how many tools are exposed:
-
-        - **Default (namespace mode)**: one tool per Azure service namespace
-        - **Consolidated mode**: curated tools grouped by user intent
-        - **All mode**: exposes 200+ individual tools
-
-        To use consolidated mode, change the args:
-        ```yaml
-        args: ["-y", "@azure/mcp@latest", "server", "start", "--mode", "consolidated"]
-        ```
-
-        To limit to specific services:
-        ```yaml
-        args: ["-y", "@azure/mcp@latest", "server", "start", "--namespace", "compute", "--namespace", "network"]
-        ```
-
-    **Step 3: Test it**
+    **Step 4: Test it**
 
     ```bash
     holmes ask "List all resource groups in my Azure subscription"
