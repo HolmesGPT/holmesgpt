@@ -56,7 +56,7 @@ Reconstructs upstream/downstream chains from the production data you didn't real
 
 ### Zero-Hallucination Visualizations
 
-For supported clients, HolmesGPT generates interactive HTML and JavaScript visualizations rendered in a sandboxed environment. The data flows directly from the source (Prometheus, Loki, etc.) to the visualization—the LLM never interprets or describes the visual data. You see the actual metrics, logs, and traces rendered as interactive charts and tables, not an AI's description of them.
+For supported clients, HolmesGPT generates interactive HTML and JavaScript visualizations that can be rendered in sandboxed environments client-side. To avoid hallucinations, the data flows directly from the source (Prometheus, Loki, etc.) to the visualization without passing through an LLM.
 
 ### Alert-to-Resolution Workflow
 
