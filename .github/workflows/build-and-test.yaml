@@ -4,12 +4,6 @@ name: Build and test HolmesGPT
 
 on:
   pull_request:
-    paths:
-      - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - '!mkdocs.yml'
-      - 'docs/reference/http-api.md'
   workflow_dispatch:
 
 jobs:
