@@ -14,10 +14,6 @@ jobs:
           - os: ubuntu-22.04
             platform: linux
             arch: amd64
-          # macOS AMD64 (Intel) - macos-13 is the last Intel-based runner
-          - os: macos-13
-            platform: darwin
-            arch: amd64
           # macOS ARM64 (Apple Silicon) - macos-14+ runs on M1/M2
           - os: macos-14
             platform: darwin
@@ -166,24 +162,6 @@ jobs:
         id: calc-hash
         run: echo "MAC_ARM64_BUILD_HASH=$(sha256sum holmes-darwin-arm64-${{ github.ref_name }}.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
 
-  # Define macOS AMD64 hash job (Intel)
-  mac-amd64-hash:
-    needs: check-latest
-    runs-on: ubuntu-latest
-    if: needs.check-latest.outputs.IS_LATEST
-    outputs:
-      MAC_AMD64_BUILD_HASH: ${{ steps.calc-hash.outputs.MAC_AMD64_BUILD_HASH }}
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v2
-      - name: Download macOS AMD64 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: holmes-darwin-amd64-${{ github.ref_name }}
-      - name: Calculate hash
-        id: calc-hash
-        run: echo "MAC_AMD64_BUILD_HASH=$(sha256sum holmes-darwin-amd64-${{ github.ref_name }}.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
-
   # Define Linux hash job
   linux-hash:
     needs: check-latest
@@ -204,7 +182,7 @@ jobs:
 
   # Update Homebrew formula with new binary URLs and hashes
   update-formula:
-    needs: [mac-arm64-hash, mac-amd64-hash, linux-hash]
+    needs: [mac-arm64-hash, linux-hash]
     runs-on: ubuntu-latest
     if: ${{ !github.event.release.prerelease }}
     steps:
@@ -216,7 +194,6 @@ jobs:
       - name: Update holmesgpt.rb formula
         env:
           MAC_ARM64_BUILD_HASH: ${{ needs.mac-arm64-hash.outputs.MAC_ARM64_BUILD_HASH }}
-          MAC_AMD64_BUILD_HASH: ${{ needs.mac-amd64-hash.outputs.MAC_AMD64_BUILD_HASH }}
           LINUX_BUILD_HASH: ${{ needs.linux-hash.outputs.LINUX_BUILD_HASH }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
@@ -226,7 +203,6 @@ jobs:
           import re
 
           mac_arm64_hash = os.environ['MAC_ARM64_BUILD_HASH']
-          mac_amd64_hash = os.environ['MAC_AMD64_BUILD_HASH']
           linux_hash = os.environ['LINUX_BUILD_HASH']
           tag = os.environ['TAG_NAME']
 
