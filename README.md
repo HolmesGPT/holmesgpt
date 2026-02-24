@@ -30,6 +30,34 @@ HolmesGPT connects AI models with live observability data and organizational kno
 
 <img width="3114" alt="holmesgpt-architecture-diagram" src="https://github.com/user-attachments/assets/f659707e-1958-4add-9238-8565a5e3713a" />
 
+## Why HolmesGPT?
+
+HolmesGPT is purpose-built for production observability and incident response. **[Learn more →](https://holmesgpt.dev/walkthrough/holmes-vs-coding-agents/)**
+
+### Scalable Data Access
+
+Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and context-window-aware tooling (like `jq` filters and depth limits) to let the LLM work with massive datasets without hitting token limits.
+
+### 40+ Built-In Observability Integrations
+
+HolmesGPT ships with pre-built, read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources). All toolsets are safe by design—read-only operations, RBAC-compliant, and fully audited. No custom integration code required.
+
+### Hallucination-Free Visualizations
+
+For supported clients, HolmesGPT provides direct visualization paths that bypass the LLM entirely. Instead of describing graphs in text, Holmes generates links to native Grafana dashboards, Prometheus graphs, and Tempo traces with the correct time ranges and filters pre-configured—guaranteed to show actual data.
+
+### End-to-End Workflow Integration
+
+HolmesGPT integrates into your incident response workflow. It fetches alerts from AlertManager, PagerDuty, OpsGenie, or Jira, investigates autonomously, and writes findings back to the source or posts to Slack—all without manual copy-paste between tools.
+
+### Kubernetes Operator for Proactive Monitoring
+
+The [Holmes Operator](https://holmesgpt.dev/operator/) brings declarative, scheduled health checks to Kubernetes via CRDs. Define checks as `HealthCheck` or `ScheduledHealthCheck` resources, and Holmes continuously monitors your cluster, alerting on failures via Slack or PagerDuty.
+
+### HTTP Connector for Any API
+
+The [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) lets you integrate any REST API through configuration alone—no code required. Define endpoint whitelists, authentication, and method restrictions in YAML. Holmes adds context-window-aware parameters (like `jq` expressions and `max_depth`) so the LLM can navigate large API responses safely.
+
 ### 🔗 Data Sources
 
 HolmesGPT integrates with popular observability and cloud platforms. The following data sources ("toolsets") are built-in. [Add your own](#customizing-holmesgpt).

@@ -1,5 +1,6 @@
 nav:
   - index.md
+  - "Why HolmesGPT?": holmes-vs-coding-agents.md
   - Interactive Mode: interactive-mode.md
   - CI/CD Troubleshooting: cicd-troubleshooting.md
   - Investigating Prometheus Alerts: investigating-prometheus-alerts.md
