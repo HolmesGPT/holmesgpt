@@ -30,9 +30,9 @@ Holmes uses an agentic loop to progressively narrow its search:
 
 Each step uses targeted queries, keeping the data within token limits while covering the full investigation scope.
 
-### Context-Window-Aware Tooling
+### Large JSON Response Handling
 
-For tools that return large JSON responses, HolmesGPT adds built-in parameters that let the LLM control response size:
+For data sources that return large JSON responses, HolmesGPT transforms them so the LLM can filter and traverse nested response trees without pulling the full payload into context:
 
 ```python
 # JsonFilterMixin adds these parameters to any tool:
@@ -40,7 +40,7 @@ For tools that return large JSON responses, HolmesGPT adds built-in parameters t
 "jq": "jq expression to extract specific parts (e.g., '.items[0:5]')"
 ```
 
-This applies to built-in toolsets, MCP server integrations, and the HTTP connector. The LLM can traverse a large API response incrementally—inspecting top-level keys first, then filtering and slicing into specific nested fields without loading the full payload into context.
+This applies to built-in toolsets, MCP server integrations, and the HTTP connector. The LLM can inspect top-level structure first, then filter and drill into specific nested fields incrementally.
 
 ### Tool Output Transformers
 

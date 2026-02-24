@@ -36,7 +36,7 @@ HolmesGPT is purpose-built for production observability and incident response. *
 
 ### Petabyte-Scale Observability Data
 
-Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and tools that let the LLM traverse and filter nested JSON response trees field-by-field, without pulling entire payloads into context.
+Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and transforms data sources that return JSON so that the LLM can filter and traverse nested response trees, without pulling entire payloads into context.
 
 ### 40+ Pre-Built, Read-Only Integrations
 
