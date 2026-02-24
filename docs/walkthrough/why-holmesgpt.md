@@ -4,11 +4,11 @@ HolmesGPT is an AI agent purpose-built for production observability and incident
 
 ## 1. Petabyte-Scale Observability Data
 
-Production systems generate enormous amounts of telemetry data—thousands of metric time series per service, gigabytes of logs per day, and millions of trace spans. HolmesGPT is designed to work at this scale without pulling unbounded data into context:
+Production systems generate enormous amounts of telemetry data. HolmesGPT is designed to work at this scale without pulling unbounded data into context:
 
-- **Aggregations at source**: Where possible, filters and aggregations are pushed to the data source—Holmes queries with precise time ranges, label selectors, and aggregations rather than fetching everything and parsing locally
+- **Aggregations at source**: Where possible, filters and aggregations are pushed to the data source rather than fetching everything and parsing locally
 - **Traversable JSON trees**: For APIs that return large JSON payloads, Holmes transforms responses into traversable trees with filtering and depth-limiting controls so the LLM can extract data without pulling the entire payload into context
-- **Summarization transformers**: For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before it reaches the LLM
+- **Summarization transformers**: For tools that still return large outputs, HolmesGPT supports transformers that summarize data before it reaches the LLM
 
 ## 2. Operator Mode
 
@@ -124,7 +124,7 @@ When Holmes queries a data source like Prometheus, the raw response data—time 
 
 The LLM decides *what* to query and *how* to analyze it, but the visualization itself is a faithful rendering of the raw data. There is no opportunity for the LLM to hallucinate values, misread a graph, or fabricate trends—what you see is exactly what the data source returned.
 
-See this in action in the [Robusta UI](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=why_holmesgpt).
+One such supporting client is implemented by [Robusta.dev](https://home.robusta.dev/).
 
 ## 6. Alert-to-Resolution Workflow
 
