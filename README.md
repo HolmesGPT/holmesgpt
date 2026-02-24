@@ -38,17 +38,21 @@ HolmesGPT is purpose-built for production observability and incident response. *
 
 Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and transforms data sources that return JSON so that the LLM can filter and traverse nested response trees, without pulling entire payloads into context.
 
+### Operator Mode
+
+Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. The [Holmes Operator](https://holmesgpt.dev/operator/) is configured as a Kubernetes operator with CRDs to define scheduled health checks, one-off health checks after new deployments, and more.
+
 ### Every Major Observability Platform, Plus Anything With an API
 
 Give SRE agents the data access they need, with the safety profile production demands. HolmesGPT ships with read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources)—RBAC-compliant and fully audited. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) to turn any REST API into an LLM-friendly data source through YAML alone.
 
-### Local-First Access Management
+### Controlled Access for Your Whole Team
 
-All credentials and connection details live where you already manage them—environment variables, `~/.holmes/config.yaml`, your existing kubeconfig, or cloud IAM roles. There's no hosted service to configure and no web dashboard between you and your data sources. Define what Holmes can access in a file you control, version it with your infra, and credentials never leave your environment.
+Deploy a single Holmes instance with read-only access to your production systems—metrics, logs, traces, Kubernetes, and more. Engineers query Holmes without needing their own credentials to every observability platform. Define what Holmes can access once, in a config file or environment variables you control, and everyone on the team works within those boundaries—without riskier direct connections to production.
 
 ### Runtime Dependency Graph
 
-Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from Kubernetes resource hierarchies and metric labels even without distributed tracing—and enriches the picture with trace span data when you have it.
+Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from Kubernetes resource hierarchies and metric labels—trace span data deepens the analysis when you have it.
 
 ### Zero-Hallucination Visualizations
 
@@ -57,10 +61,6 @@ For supported clients, HolmesGPT generates interactive HTML and JavaScript visua
 ### Alert-to-Resolution Workflow
 
 HolmesGPT integrates into your incident response workflow. It fetches alerts from AlertManager, PagerDuty, OpsGenie, or Jira, investigates autonomously, and writes findings back to the source or posts to Slack—all without manual copy-paste between tools.
-
-### Operator Mode
-
-Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. The [Holmes Operator](https://holmesgpt.dev/operator/) is configured as a Kubernetes operator with CRDs to define scheduled health checks, one-off health checks after new deployments, and more.
 
 ### Raw HTTP Endpoints as LLM-Friendly Tools
 
