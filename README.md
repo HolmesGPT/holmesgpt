@@ -48,7 +48,7 @@ Give SRE agents the data access they need, with the safety profile production de
 
 ### Controlled Access for Your Whole Team
 
-Instead of every engineer connecting their local AI tools to production with personal credentials that carry write access, deploy one Holmes instance with scoped, read-only access. Engineers query Holmes—not production directly.
+Instead of every engineer connecting their local AI tools to production with personal credentials that carry write access, deploy one Holmes instance with scoped, read-only access. Let engineers use LLMs with observability data - safely.
 
 ### Runtime Dependency Graph
 
