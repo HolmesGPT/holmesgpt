@@ -1,50 +1,12 @@
 # Why HolmesGPT?
 
-HolmesGPT is an AI agent purpose-built for production observability and incident response. This page explains what makes it uniquely suited for troubleshooting production systems at scale.
+HolmesGPT is an AI agent purpose-built for production observability and incident response.
 
 ## 1. Petabyte-Scale Observability Data
 
-Production systems generate enormous amounts of telemetry data—thousands of metric time series per service, gigabytes of logs per day, and millions of trace spans. HolmesGPT is designed to work with this scale.
+Production systems generate enormous amounts of telemetry data—thousands of metric time series per service, gigabytes of logs per day, and millions of trace spans. HolmesGPT is designed to work at this scale without pulling unbounded data into context.
 
-### Server-Side Filtering
-
-All HolmesGPT toolsets are designed to push filtering to the data source. Instead of retrieving everything and parsing locally, Holmes constructs precise queries with appropriate time ranges, label filters, and aggregations:
-
-```yaml
-# Example: Prometheus toolset queries with specific parameters
-- name: prometheus_query_range
-  parameters:
-    - name: query        # PromQL with label selectors
-    - name: start_time   # Bounded time range
-    - name: end_time
-    - name: step         # Appropriate resolution
-```
-
-### Iterative Query Narrowing
-
-Holmes uses an agentic loop to progressively narrow its search:
-
-1. Query high-level cluster metrics → identify affected namespace
-2. Query namespace-level metrics → identify affected pod
-3. Fetch detailed container metrics → analyze root cause
-
-Each step uses targeted queries, keeping the data within token limits while covering the full investigation scope.
-
-### Large JSON Response Handling
-
-For data sources that return large JSON responses, HolmesGPT transforms them so the LLM can filter and traverse nested response trees without pulling the full payload into context:
-
-```python
-# JsonFilterMixin adds these parameters to any tool:
-"max_depth": "Maximum nesting depth (0 = top-level keys only)"
-"jq": "jq expression to extract specific parts (e.g., '.items[0:5]')"
-```
-
-This applies to built-in toolsets, MCP server integrations, and the HTTP connector. The LLM can inspect top-level structure first, then filter and drill into specific nested fields incrementally.
-
-### Tool Output Transformers
-
-For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before sending it to the LLM, keeping context windows manageable while preserving critical information.
+Where possible, aggregations and filters are pushed to the data source—Holmes queries with precise time ranges, label selectors, and aggregations rather than fetching everything and parsing locally. For APIs that return large JSON payloads, Holmes transforms responses into traversable trees: the LLM can inspect top-level structure first, then drill into specific fields incrementally, with adaptive depth limits applied automatically. For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before it reaches the LLM.
 
 ## 2. Every Major Observability Platform, Plus Anything With an API
 
