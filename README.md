@@ -15,11 +15,10 @@
 
 HolmesGPT is an open-source AI agent that investigates cloud problems, finds root causes, and suggests remediations. It is a [CNCF Sandbox project](./ADOPTERS.md), originally created by [Robusta.Dev](https://home.robusta.dev/).
 
-- **40+ data sources**: Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any REST API via YAML
-- **Alert-to-resolution**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
+- **[Deep integrations](https://holmesgpt.dev/data-sources/builtin-toolsets/)**: Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any REST API via YAML
+- **[Bidirectional alert integrations](https://holmesgpt.dev/walkthrough/investigating-alerts/)**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
 - **Petabyte-scale data**: Server-side filtering keeps large payloads out of context
-- **Zero-hallucination visualizations**: Raw data rendered client-side, bypassing the LLM entirely
-- **Operator mode**: Run investigations on a schedule as a Kubernetes operator
+- **[Operator mode](https://holmesgpt.dev/operator/)**: Run investigations on a schedule as a Kubernetes operator
 
 ## How it Works
 
