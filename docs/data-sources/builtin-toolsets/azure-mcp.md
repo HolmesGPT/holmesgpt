@@ -7,12 +7,6 @@ The Azure MCP server gives Holmes **read-only access to any Azure API** you perm
 - **Helm users**: The MCP server pod is deployed automatically when you enable the addon
 - **CLI users**: The MCP server runs locally on your machine as a subprocess -- no Kubernetes cluster required
 
-## Prerequisites
-
-- An Azure subscription with appropriate permissions
-- For Helm deployments: Workload Identity, Managed Identity, or Service Principal configured
-- For CLI: `az login` and Node.js 20+ installed
-
 ## Configuration
 
 === "Holmes CLI"
