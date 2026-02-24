@@ -730,6 +730,8 @@ def run_tree_editor(
         node = flat_rows[idx]
         if node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list"):
             node.parent.children.remove(node)
+            for i, child in enumerate(node.parent.children):
+                child.key = str(i)
             _refresh_flat()
             if cursor[0] >= total_items():
                 cursor[0] = max(0, total_items() - 1)
