@@ -1,6 +1,6 @@
 # HolmesGPT
 
-AI Agent for Troubleshooting Cloud-Native Environments.
+SRE Agent for Large-Scale Production Environments.
 
 ![HolmesGPT Investigation](assets/HolmesInvestigation.gif)
 
@@ -33,6 +33,10 @@ AI Agent for Troubleshooting Cloud-Native Environments.
     [:octicons-arrow-right-24: Benchmarks](development/evaluations/index.md)
 
 </div>
+
+## Already Installed?
+
+**[Connect your data sources](data-sources/recommended-setup.md)** to unlock deeper investigations with metrics, logs, and cloud provider access.
 
 ## Need Help?
 

@@ -1,20 +1,4 @@
-user_prompt:
-  - "generate me a graph of robusta-runner"
-  - "Show me robusta-runner memory usage over the last 24 hours"
-  - "Graph robusta-runner memory consumption trends for the past week"
-  - "Display hourly memory usage pattern for robusta-runner over the last 3 days"
-  - "Graph robusta-runner memory utilization over time"
-  - "Display robusta-runner memory usage progression over the last week"
-  - "Show me how robusta-runner memory usage changed during the last day"
-  - "Graph robusta-runner memory consumption over time"
-  - "Display robusta-runner memory usage timeline"
-  - "Show me robusta-runner memory usage trends over the last 7 days"
-  - "Can you show me a memory graph of the robusta-runner pod?"
-  - "Show me memory metrics for robusta-runner"
-  - "Display robusta-runner pod memory usage graph"
-  - "What's the memory utilization of the robusta-runner deployment?"
-  - "Generate a memory graph for robusta-runner pods"
-  - "Show memory charts for robusta-runner"
+user_prompt: "Show me robusta-runner CPU usage over the last 24 hours"
 expected_output: |
   Output must contain 1 or more embeds in the following format
     <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>

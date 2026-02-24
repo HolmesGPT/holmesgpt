@@ -18,7 +18,7 @@ class SlackDestination(DestinationPlugin):
         color = (
             "#FF0000" if issue.presentation_status == IssueStatus.OPEN else "#00FF00"
         )  # Red for firing, green for resolved
-        if issue.presentation_status:
+        if issue.presentation_status and issue.show_status_in_title:
             title = f"{issue.name} - {issue.presentation_status.value}"
         else:
             title = f"{issue.name}"

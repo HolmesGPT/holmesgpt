@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"payment-service"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep payment-service", "params": {"kind": "pod", "keyword": "payment-service"}}
-production-62   payment-service-7cb79f8c87-z96z8                             1/1     Running                       0                  14s    10.0.2.187     gke-natan-develop-pool-2-41363a6e-yi0r   <none>           <none>            app=payment-service,pod-template-hash=7cb79f8c87

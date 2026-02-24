@@ -43,7 +43,7 @@ from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
 from holmes.utils.krr_utils import calculate_krr_savings
 
-SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 3600))
+SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 60))
 
 # Maximum total rows to fetch from KRR scans, regardless of number of clusters
 # This prevents unbounded fetches when querying many clusters

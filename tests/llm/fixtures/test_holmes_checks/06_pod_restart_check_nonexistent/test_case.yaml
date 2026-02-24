@@ -1,0 +1,46 @@
+checks:
+  - name: "Pod Restart Count Check"
+    description: "Check that ticket-stats pods did not restart more than 5 times"
+    query: "Check that ticket-stats pods in default namespace did not restart more than 5 times"
+    tags: ["kubernetes", "restart"]
+
+expected_results:
+  "Pod Restart Count Check": "fail"
+
+expected_output: "Pod ticket-stats not found in default namespace"
+
+before_test: |
+  # Clean setup - no ticket-stats pod created
+  # Holmes should discover that ticket-stats pod doesn't exist in default namespace
+
+  # Create a different pod to show the namespace exists but not the target pod
+  cat <<EOF | kubectl apply -f -
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: healthy-app
+    namespace: default
+  spec:
+    containers:
+    - name: app
+      image: busybox:latest
+      command: ["sh", "-c", "while true; do echo 'Running normally'; sleep 30; done"]
+      resources:
+        requests:
+          memory: "32Mi"
+          cpu: "10m"
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+  EOF
+
+  # Wait for the healthy pod to be running
+  kubectl wait --for=condition=Ready pod/healthy-app -n default --timeout=60s || true
+
+after_test: |
+  kubectl delete pod healthy-app -n default --ignore-not-found=true
+
+tags:
+  - kubernetes
+
+description: "Test Holmes handling of pod restart check for nonexistent pod"

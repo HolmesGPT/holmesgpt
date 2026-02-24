@@ -77,6 +77,7 @@ function extractCurrentRun(body) {
   const footerMarkers = [
     '<details>\n<summary>📖 <b>Legend</b>',
     '<details>\n<summary>🔄 <b>Re-run evals manually</b>',
+    '<details>\n<summary>🏷️ <b>Valid tags</b>',
     '<details>\n<summary>🏷️ <b>Valid markers</b>',
     '\n---\n**Commands:**'
   ];
@@ -231,7 +232,7 @@ function renderParamsTable(p, context = null) {
     `| **Triggered via** | ${p.trigger} |\n` +
     (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') +
     `| **Model** | \`${p.model}\` |\n` +
-    `| **Markers** | \`${p.markers || 'all LLM tests'}\` |\n` +
+    `| **Tags** | \`${p.markers || 'all LLM tests'}\` |\n` +
     (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
     `| **Iterations** | ${p.iterations} |\n` +
     (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
@@ -296,6 +297,7 @@ function buildRerunFooter(p, context, options = {}) {
   const markersFormatted = formatAsCodes(p.validMarkers);
 
   // gh CLI command to run workflow from PR branch (include empty filter= for easy copy-paste)
+  // Note: workflow_dispatch still uses 'markers' parameter name
   const ghCommand = p.displayBranch
     ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=`
     : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`;
@@ -323,20 +325,26 @@ function buildRerunFooter(p, context, options = {}) {
     '> ```\n> ' + ghCommand + '\n> ```\n\n' +
     '---\n\n' +
     '**Option 1: Comment on this PR** with `/eval`:\n\n' +
-    '```\n/eval\nmarkers: regression\n```\n\n' +
+    '```\n/eval\ntags: regression\n```\n\n' +
     'Or with more options (one per line):\n\n' +
-    '```\n/eval\nmodel: gpt-4o\nmarkers: regression\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
+    '```\n/eval\nmodel: gpt-4o\ntags: regression\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
     'Run evals on a different branch (e.g., master) for comparison:\n\n' +
-    '```\n/eval\nbranch: master\nmarkers: regression\n```\n\n' +
+    '```\n/eval\nbranch: master\ntags: regression\n```\n\n' +
     '| Option | Description |\n|--------|-------------|\n' +
     '| `model` | Model(s) to test (default: same as automatic runs) |\n' +
-    '| `markers` | Pytest markers (**no default - runs all tests!**) |\n' +
+    '| `tags` | Pytest tags / markers (**no default - runs all tests!**) |\n' +
     '| `filter` | Pytest -k filter (use `/list` to see valid eval names) |\n' +
     '| `iterations` | Number of runs, max 10 |\n' +
     '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
     '**Quick re-run:** Use `/rerun` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
-    `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n</details>\n` +
-    '\n<details>\n<summary>🏷️ <b>Valid markers</b></summary>\n\n' +
+    `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n\n` +
+    '**Option 3: Add PR labels** to include extra evals in automatic regression runs:\n\n' +
+    '| Label | Effect |\n|-------|--------|\n' +
+    '| `evals-tag-<name>` | Run tests with tag `<name>` alongside regression |\n' +
+    '| `evals-id-<name>` | Run a specific eval by test ID |\n\n' +
+    'Examples: `evals-tag-easy`, `evals-id-09_crashpod`\n' +
+    '</details>\n' +
+    '\n<details>\n<summary>🏷️ <b>Valid tags</b></summary>\n\n' +
     markersFormatted +
     '\n</details>\n' +
     '\n---\n**Commands:** `/eval` · `/rerun` · `/list`\n\n' +
