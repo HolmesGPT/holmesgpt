@@ -40,7 +40,7 @@ For tools that return large JSON responses, HolmesGPT adds built-in parameters t
 "jq": "jq expression to extract specific parts (e.g., '.items[0:5]')"
 ```
 
-This applies to built-in toolsets, MCP server integrations, and the HTTP connector. The LLM can explore a large API response incrementally—first checking top-level structure with `max_depth=0`, then drilling into specific fields with `jq` expressions.
+This applies to built-in toolsets, MCP server integrations, and the HTTP connector. The LLM can traverse a large API response incrementally—inspecting top-level keys first, then filtering and slicing into specific nested fields without loading the full payload into context.
 
 ### Tool Output Transformers
 
@@ -108,7 +108,7 @@ Holmes infers service relationships from the telemetry data already flowing thro
 - **Kubernetes resource graphs**: Ownership chains from deployments to pods to services, plus network policies and ingress rules
 - **Metric labels**: Prometheus `job`, `instance`, and custom labels connect metrics to the services that emit them
 
-No static topology file or manual diagram required—the dependency graph is rebuilt from live signals on every investigation.
+Works even without distributed tracing—Holmes infers service relationships from Kubernetes resource hierarchies and metric labels alone. When trace data is available, it uses span parent-child relationships to enrich the picture with per-hop latency and call chains.
 
 ## 4. Zero-Hallucination Visualizations
 

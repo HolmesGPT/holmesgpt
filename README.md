@@ -36,7 +36,7 @@ HolmesGPT is purpose-built for production observability and incident response. *
 
 ### Petabyte-Scale Observability Data
 
-Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and context-window-aware tooling (like `jq` filters and depth limits) to let the LLM work with massive datasets without hitting token limits.
+Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and tools that let the LLM traverse and filter nested JSON response trees field-by-field, without pulling entire payloads into context.
 
 ### 40+ Pre-Built, Read-Only Integrations
 
@@ -44,7 +44,7 @@ Give SRE agents the data access they need, with the safety profile production de
 
 ### Runtime Dependency Graph
 
-Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from distributed traces, Kubernetes resource hierarchies, and metric labels—no static topology files required.
+Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from Kubernetes resource hierarchies and metric labels even without distributed tracing—and enriches the picture with trace span data when you have it.
 
 ### Zero-Hallucination Visualizations
 
