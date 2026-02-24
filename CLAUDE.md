@@ -247,6 +247,15 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - Prompts: `holmes/plugins/prompts/{name}.jinja2`
 - Tests: Match source structure under `tests/`
 
+**Adding a New Integration (Toolset)**:
+When adding a new toolset or integration, update all of the following pages to keep them in sync:
+
+1. `README.md` — Data Sources table (add a row with logo, link, status, and description)
+2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
+3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
+4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
+5. Add a logo image to `images/integration_logos/` if one is available
+
 ## Security Notes
 
 - All tools have read-only access by design

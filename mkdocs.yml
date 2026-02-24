@@ -12,6 +12,7 @@ exclude_docs: |
 
 nav:
     - Home: index.md
+    - "Why HolmesGPT": why-holmesgpt.md
     - Installation:
           - "CLI": installation/cli-installation.md
           - "Web UI (3rd party)": installation/ui-installation.md
