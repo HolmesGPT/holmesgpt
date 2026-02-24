@@ -65,9 +65,11 @@ See the [full list of built-in toolsets](../data-sources/builtin-toolsets/index.
 
 Give SRE agents the data access they need, with the safety profile production demands. All built-in toolsets are read-only, respecting existing platform permissions (Kubernetes RBAC, Grafana roles, cloud IAM policies) with full audit logging of every tool call.
 
-### No Setup Required
+### Local-First Access Management
 
-Toolsets auto-detect available services (e.g., Kubernetes if a kubeconfig is present, Prometheus if configured) and activate automatically. For external services, provide connection details via environment variables or `~/.holmes/config.yaml`.
+All credentials and connection details live where you already manage them—environment variables, `~/.holmes/config.yaml`, your existing kubeconfig, or cloud IAM roles. There's no hosted service to configure and no web dashboard between you and your data sources. Define what Holmes can access in a file you control, version it with your infra, and credentials never leave your environment.
+
+Toolsets auto-detect available services (e.g., Kubernetes if a kubeconfig is present, Prometheus if configured) and activate automatically. For external services, provide connection details via environment variables or config file.
 
 ### Raw HTTP Endpoints as LLM-Friendly Tools
 

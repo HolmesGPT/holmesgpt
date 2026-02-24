@@ -42,6 +42,10 @@ Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is
 
 Give SRE agents the data access they need, with the safety profile production demands. HolmesGPT ships with read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources)—RBAC-compliant and fully audited. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) to turn any REST API into an LLM-friendly data source through YAML alone.
 
+### Local-First Access Management
+
+All credentials and connection details live where you already manage them—environment variables, `~/.holmes/config.yaml`, your existing kubeconfig, or cloud IAM roles. There's no hosted service to configure and no web dashboard between you and your data sources. Define what Holmes can access in a file you control, version it with your infra, and credentials never leave your environment.
+
 ### Runtime Dependency Graph
 
 Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from Kubernetes resource hierarchies and metric labels even without distributed tracing—and enriches the picture with trace span data when you have it.
