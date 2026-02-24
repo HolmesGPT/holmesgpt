@@ -92,9 +92,9 @@ nav:
                 - "ServiceNow": data-sources/builtin-toolsets/servicenow.md
                 - "Slab": data-sources/builtin-toolsets/slab.md
                 - "Splunk (MCP)": data-sources/builtin-toolsets/splunk-mcp.md
+          - "HTTP Connectors": data-sources/api-toolsets.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
-          - "Adding Permissions for Additional Resources": data-sources/permissions.md
     - Benchmarks:
           - "Overview": development/evaluations/index.md
           - "Latest Results": development/evaluations/latest-results.md
