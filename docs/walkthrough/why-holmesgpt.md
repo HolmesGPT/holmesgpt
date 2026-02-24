@@ -12,7 +12,7 @@ Production systems generate enormous amounts of telemetry data—thousands of me
 
 ## 2. Operator Mode
 
-Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. Configured as a Kubernetes operator with CRDs to define scheduled health checks, one-off health checks after new deployments, and more.
+Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. Configured as a Kubernetes operator with CRDs to define scheduled health checks or one-off health checks after new deployments.
 
 The [Holmes Operator](../operator/index.md) manages health checks as Kubernetes-native resources:
 
