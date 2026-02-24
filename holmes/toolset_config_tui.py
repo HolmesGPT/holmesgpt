@@ -394,11 +394,13 @@ def _run_selection_menu(
 
     @kb.add("up")
     @kb.add("k")
+    @kb.add("left")
     def _up(event: Any) -> None:
         selected[0] = (selected[0] - 1) % len(items)
 
     @kb.add("down")
     @kb.add("j")
+    @kb.add("right")
     def _down(event: Any) -> None:
         selected[0] = (selected[0] + 1) % len(items)
 
@@ -610,6 +612,7 @@ def run_tree_editor(
 
     @kb.add("up")
     @kb.add("k")
+    @kb.add("left")
     def _up(event: Any) -> None:
         if editing[0]:
             return
@@ -617,6 +620,7 @@ def run_tree_editor(
 
     @kb.add("down")
     @kb.add("j")
+    @kb.add("right")
     def _down(event: Any) -> None:
         if editing[0]:
             return
@@ -761,9 +765,10 @@ def run_tree_editor(
 
     @kb.add("backspace")
     def _backspace(event: Any) -> None:
-        if not editing[0]:
-            return
-        edit_buf[0].delete_before_cursor()
+        if editing[0]:
+            edit_buf[0].delete_before_cursor()
+        else:
+            _delete_entry(event)
 
     # ── run ──
 
