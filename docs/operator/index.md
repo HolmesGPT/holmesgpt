@@ -1,6 +1,6 @@
 # Holmes Operator - Overview & Installation
 
-Holmes Operator extends HolmesGPT with Kubernetes-native health check capabilities using Custom Resource Definitions (CRDs). It provides a declarative way to define and schedule health checks that run automatically within your cluster.
+Holmes Operator extends HolmesGPT with Kubernetes-native, LLM-driven health checks using Custom Resource Definitions (CRDs). You define a natural-language query ("Are all pods in the payments namespace healthy?"), and Holmes runs a full agentic investigation—calling tools, gathering data from your observability stack, and reasoning about the results—on a schedule or on demand.
 
 !!! warning "Holmes Operator - Alpha Release"
 
