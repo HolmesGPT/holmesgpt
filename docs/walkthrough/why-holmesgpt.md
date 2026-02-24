@@ -45,11 +45,6 @@ spec:
         channel: "#platform-alerts"
 ```
 
-- **Kubernetes-native**: Managed through `kubectl`, integrates with RBAC and standard tooling
-- **Execution history**: Tracks pass/fail results, LLM rationale, and duration per check
-- **Alert routing**: Send failure notifications to Slack or PagerDuty
-- **Horizontal scaling**: Lightweight operator coordinates checks across stateless Holmes API servers
-
 See the [Operator documentation](../operator/index.md) for installation and configuration.
 
 ## 3. Every Major Observability Platform, Plus Anything With an API
