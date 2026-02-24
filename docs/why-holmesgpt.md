@@ -14,7 +14,7 @@ Production systems generate enormous amounts of telemetry data. HolmesGPT is des
 
 HolmesGPT can run in the background to proactively find problems and notify your team.
 
-The [Holmes Operator](../operator/index.md) manages health checks as Kubernetes-native resources:
+The [Holmes Operator](operator/index.md) manages health checks as Kubernetes-native resources:
 
 **One-Time Health Checks:**
 
@@ -45,11 +45,11 @@ spec:
         channel: "#platform-alerts"
 ```
 
-See the [Operator documentation](../operator/index.md) for installation and configuration.
+See the [Operator documentation](operator/index.md) for installation and configuration.
 
 ## 3. Connect Any API as a Data Source
 
-HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](../data-sources/api-toolsets/index.md) to turn any REST API into an LLM-friendly data source through YAML alone.
+HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](data-sources/api-toolsets.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
 - **Metrics**: Prometheus, Datadog, Coralogix, NewRelic
 - **Logs**: Loki, Elasticsearch/OpenSearch, Datadog, Coralogix, Splunk
@@ -62,7 +62,7 @@ HolmesGPT ships with read-only integrations for every major observability vendor
 - **Messaging**: Kafka, RabbitMQ
 - **Knowledge**: Confluence, Notion, Slab, Internet/web search
 
-See the [full list of built-in toolsets](../data-sources/builtin-toolsets/index.md).
+See the [full list of built-in toolsets](data-sources/builtin-toolsets/index.md).
 
 ### Safe by Design
 
@@ -74,7 +74,7 @@ Instead of every engineer connecting their local AI tools to production with per
 
 ### Raw HTTP Endpoints as LLM-Friendly Tools
 
-When you need to integrate a service that doesn't have a built-in toolset, the [HTTP connector](../data-sources/api-toolsets.md) turns raw HTTP endpoints into LLM-friendly tools through YAML configuration—no MCP servers or custom code required:
+When you need to integrate a service that doesn't have a built-in toolset, the [HTTP connector](data-sources/api-toolsets.md) turns raw HTTP endpoints into LLM-friendly tools through YAML configuration—no MCP servers or custom code required:
 
 ```yaml
 toolsets:
@@ -167,4 +167,4 @@ Results include root cause analysis, evidence with links to dashboards and trace
 
 ## Get Started
 
-See the [Installation Guide](../installation/cli-installation.md) to set up HolmesGPT.
+See the [Installation Guide](installation/cli-installation.md) to set up HolmesGPT.
