@@ -1,0 +1,109 @@
+{{- if .Values.mcpAddons.sentry.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-sentry-mcp-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-sentry-mcp
+    app.kubernetes.io/name: sentry-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-sentry-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-sentry-mcp
+    app.kubernetes.io/name: sentry-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-sentry-mcp
+      app.kubernetes.io/name: sentry-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-sentry-mcp
+        app.kubernetes.io/name: sentry-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.sentry | toYaml | sha256sum }}
+    spec:
+      {{- if .Values.mcpAddons.sentry.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.sentry.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.sentry.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.sentry.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.sentry.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.sentry.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: sentry-mcp
+        image: "{{ .Values.mcpAddons.sentry.registry }}/{{ .Values.mcpAddons.sentry.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.sentry.imagePullPolicy | default "IfNotPresent" }}
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: SENTRY_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "mcpAddons.sentry.auth.secretName is required" .Values.mcpAddons.sentry.auth.secretName }}
+              key: {{ .Values.mcpAddons.sentry.auth.secretKey | default "token" }}
+        {{- if .Values.mcpAddons.sentry.config.host }}
+        - name: SENTRY_HOST
+          value: {{ .Values.mcpAddons.sentry.config.host | quote }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.sentry.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-sentry-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-sentry-mcp
+    app.kubernetes.io/name: sentry-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  selector:
+    app: {{ .Release.Name }}-sentry-mcp
+    app.kubernetes.io/name: sentry-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- end }}

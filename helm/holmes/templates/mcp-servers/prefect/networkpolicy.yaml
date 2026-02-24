@@ -1,0 +1,30 @@
+{{- if and .Values.mcpAddons.prefect.enabled .Values.mcpAddons.prefect.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-prefect-mcp-network-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-prefect-mcp
+    app.kubernetes.io/name: prefect-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}-prefect-mcp
+      app.kubernetes.io/name: prefect-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow traffic only from Holmes pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app: holmes
+    ports:
+    - protocol: TCP
+      port: 8000
+{{- end }}

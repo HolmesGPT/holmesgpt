@@ -421,8 +421,11 @@ Assign roles based on what you want Holmes to investigate. At minimum, assign **
 **Setup Script:**
 
 ```bash
-curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/azure/setup-workload-identity.sh
-bash setup-workload-identity.sh
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/azure/setup-azure-identity.sh
+bash setup-azure-identity.sh --auth-method workload-identity \
+  --resource-group YOUR_RESOURCE_GROUP \
+  --aks-cluster YOUR_AKS_CLUSTER \
+  --all-subscriptions
 ```
 
 This script will:
