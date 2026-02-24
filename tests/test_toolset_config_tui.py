@@ -506,6 +506,33 @@ class TestRunConfigTest:
         # Original should be unchanged
         assert ts.status == ToolsetStatusEnum.DISABLED
 
+    def test_captures_stdout_from_callable(self, capsys):
+        """Verify that stdout/stderr from prerequisites doesn't leak to terminal."""
+
+        def noisy_check(config: dict) -> tuple:
+            print("NOISY STDOUT LINE")
+            import sys
+
+            print("NOISY STDERR LINE", file=sys.stderr)
+            return True, ""
+
+        ts = ConfigurableToolset(
+            prerequisites=[CallablePrerequisite(callable=noisy_check)]
+        )
+        ok, msg = run_config_test(ts, {"api_url": "http://test"})
+
+        # The test should pass
+        assert ok is True
+
+        # Nothing should have been printed to the real terminal
+        captured = capsys.readouterr()
+        assert "NOISY" not in captured.out
+        assert "NOISY" not in captured.err
+
+        # But the captured output should be in the returned message
+        assert "NOISY STDOUT LINE" in msg
+        assert "NOISY STDERR LINE" in msg
+
 
 # ── select_toolset ────────────────────────────────────────────────────
 

@@ -6,8 +6,11 @@ Entry points:
 """
 
 import copy
+import io
 import logging
 import os
+import sys
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
@@ -296,16 +299,53 @@ def export_config_yaml(toolset_name: str, config_dict: Dict[str, Any]) -> str:
 
 
 def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool, str]:
-    """Run prerequisite checks against *config_dict* and return (ok, message)."""
+    """Run prerequisite checks against *config_dict* and return (ok, message).
+
+    All stdout/stderr/logging output is captured so it doesn't leak into the TUI.
+    The captured output is appended to the returned message.
+    """
     test_toolset = copy.deepcopy(toolset)
     test_toolset.config = config_dict
     test_toolset.enabled = True
     test_toolset.status = ToolsetStatusEnum.DISABLED
     test_toolset.error = None
-    test_toolset.check_prerequisites()
+
+    # Capture every form of output that prerequisites might produce:
+    #   1. logger.info / logger.warning  → temporary logging handler
+    #   2. print() / sys.stdout writes   → redirect_stdout
+    #   3. sys.stderr writes             → redirect_stderr
+    log_buf = io.StringIO()
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+
+    log_handler = logging.StreamHandler(log_buf)
+    log_handler.setLevel(logging.DEBUG)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(log_handler)
+
+    try:
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            test_toolset.check_prerequisites(silent=True)
+    finally:
+        root_logger.removeHandler(log_handler)
+
+    # Build result message
+    captured = ""
+    for buf in (stdout_buf, stderr_buf, log_buf):
+        text = buf.getvalue().strip()
+        if text:
+            captured += text + "\n"
+
     if test_toolset.status == ToolsetStatusEnum.ENABLED:
-        return True, "Prerequisites passed"
-    return False, f"Failed: {test_toolset.error or 'unknown error'}"
+        msg = "Prerequisites passed"
+        if captured:
+            msg += "\n" + captured
+        return True, msg
+
+    msg = f"Failed: {test_toolset.error or 'unknown error'}"
+    if captured:
+        msg += "\n" + captured
+    return False, msg
 
 
 # ── prompt_toolkit TUI helpers ────────────────────────────────────────
@@ -619,7 +659,7 @@ def run_tree_editor(
             if btn_idx == 0:  # Test
                 ok, msg = run_config_test(toolset, config_dict)
                 style_cls = "class:status-ok" if ok else "class:status-fail"
-                status_lines = [(style_cls, f"  Test result: {msg}\n")]
+                status_lines = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
             elif btn_idx == 1:  # Export
                 yml = export_config_yaml(toolset.name, config_dict)
                 status_lines = [("", f"  {line}\n") for line in yml.splitlines()]
