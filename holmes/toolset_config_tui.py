@@ -129,6 +129,7 @@ class ConfigFieldNode:
     parent: Optional["ConfigFieldNode"] = None
     is_header: bool = False
     depth: int = 0
+    dict_key: Optional[str] = None  # editable key name for dict children
 
 
 def build_tree_from_schema(
@@ -190,11 +191,12 @@ def build_tree_from_schema(
 
         elif ftype == "dict":
             if isinstance(cur, dict):
-                for k, v in cur.items():
+                for i, (k, v) in enumerate(cur.items()):
                     child = ConfigFieldNode(
-                        key=k,
+                        key=str(i),
                         field_type="str",
                         value=v,
+                        dict_key=k,
                         depth=depth + 1,
                         parent=node,
                     )
@@ -232,7 +234,11 @@ def tree_to_dict(nodes: List[ConfigFieldNode]) -> Dict[str, Any]:
     for node in nodes:
         if node.is_header and node.children:
             if node.field_type == "dict":
-                result[node.key] = {c.key: c.value for c in node.children}
+                result[node.key] = {
+                    (c.dict_key if c.dict_key is not None else c.key): c.value
+                    for c in node.children
+                    if c.dict_key is None or c.dict_key  # skip entries with empty dict_key
+                }
             elif node.field_type == "list":
                 result[node.key] = [c.value for c in node.children]
             elif node.field_type == "model":
@@ -523,6 +529,7 @@ def run_tree_editor(
     # State
     cursor = [0]  # index into (flat_rows + buttons)
     editing = [False]
+    editing_dict_key = [False]  # True when editing the key portion of a dict entry
     edit_buf = [Buffer()]
     status_lines: List[Tuple[str, str]] = []
 
@@ -547,6 +554,32 @@ def run_tree_editor(
             hints = "  (Enter to add entry)"
             return [(style, label), ("class:dim", hints), ("", "\n")]
 
+        row_idx = flat_rows.index(node) if node in flat_rows else -1
+        is_editing_this = editing[0] and cursor[0] == row_idx
+
+        # Dict child: render as "index: key = value"
+        if node.dict_key is not None:
+            key_display = node.dict_key if node.dict_key else "<key>"
+            val_display = str(node.value) if node.value is not None else "<value>"
+            row_parts: List[Tuple[str, str]] = [
+                (style, f"{indent}{prefix}{node.key}: "),
+            ]
+            if is_editing_this and editing_dict_key[0]:
+                row_parts.append(("class:selected", edit_buf[0].text))
+                row_parts.append(("class:dim", "█"))
+            else:
+                key_style = "class:dim" if not node.dict_key else style
+                row_parts.append((key_style, key_display))
+            row_parts.append((style, " = "))
+            if is_editing_this and not editing_dict_key[0]:
+                row_parts.append(("class:selected", edit_buf[0].text))
+                row_parts.append(("class:dim", "█"))
+            else:
+                val_style = "class:dim" if node.value is None or node.value == "" else style
+                row_parts.append((val_style, val_display))
+            row_parts.append(("", "\n"))
+            return row_parts
+
         if node.field_type == "bool":
             val_display = str(node.value).lower() if node.value is not None else "null"
             hints = "  (Enter to toggle)"
@@ -556,13 +589,12 @@ def run_tree_editor(
 
         desc = f"  # {node.description}" if node.description else ""
 
-        row_parts: List[Tuple[str, str]] = [
+        row_parts = [
             (style, f"{indent}{prefix}{display_name}: "),
         ]
 
         # When editing this row, show the buffer contents
-        row_idx = flat_rows.index(node) if node in flat_rows else -1
-        if editing[0] and cursor[0] == row_idx:
+        if is_editing_this:
             row_parts.append(("class:selected", edit_buf[0].text))
             row_parts.append(("class:dim", "█"))
         else:
@@ -630,12 +662,14 @@ def run_tree_editor(
     def _escape(event: Any) -> None:
         if editing[0]:
             editing[0] = False
+            editing_dict_key[0] = False
         # Don't exit the whole editor on Escape when not editing
 
     @kb.add("c-c")
     def _ctrl_c(event: Any) -> None:
         if editing[0]:
             editing[0] = False
+            editing_dict_key[0] = False
         else:
             event.app.exit()
 
@@ -684,15 +718,29 @@ def run_tree_editor(
         # ── tree node interaction ──
         node = flat_rows[idx]
 
+        def _make_edit_buffer(text: str) -> Buffer:
+            doc = __import__("prompt_toolkit.document", fromlist=["Document"]).Document(text, len(text))
+            return Buffer(document=doc)
+
         if editing[0]:
-            # Confirm edit
             raw = edit_buf[0].text
+
+            # Dict child: confirm key, then move to editing value
+            if node.dict_key is not None and editing_dict_key[0]:
+                node.dict_key = raw
+                editing_dict_key[0] = False
+                initial_text = str(node.value) if node.value is not None else ""
+                edit_buf[0] = _make_edit_buffer(initial_text)
+                return
+
+            # Confirm edit (value)
             if node.field_type == "int":
                 try:
                     node.value = int(raw)
                 except ValueError:
                     status_lines = [("class:status-fail", f"  Invalid integer: '{raw}'\n")]
                     editing[0] = False
+                    editing_dict_key[0] = False
                     return
             elif node.field_type == "float":
                 try:
@@ -700,10 +748,12 @@ def run_tree_editor(
                 except ValueError:
                     status_lines = [("class:status-fail", f"  Invalid number: '{raw}'\n")]
                     editing[0] = False
+                    editing_dict_key[0] = False
                     return
             else:
                 node.value = raw if raw else None
             editing[0] = False
+            editing_dict_key[0] = False
             status_lines = []
             return
 
@@ -715,7 +765,6 @@ def run_tree_editor(
         # Header: add entry
         if node.is_header:
             if node.field_type == "dict":
-                # Use a simple prompt to get the key
                 _prompt_add_dict_entry(node, event)
                 _refresh_flat()
             elif node.field_type == "list":
@@ -732,10 +781,17 @@ def run_tree_editor(
                 pass  # Models are not directly "addable"
             return
 
+        # Dict child: start editing key first
+        if node.dict_key is not None:
+            editing[0] = True
+            editing_dict_key[0] = True
+            edit_buf[0] = _make_edit_buffer(node.dict_key)
+            return
+
         # Leaf: start inline editing
         editing[0] = True
         initial_text = str(node.value) if node.value is not None else ""
-        edit_buf[0] = Buffer(document=__import__("prompt_toolkit.document", fromlist=["Document"]).Document(initial_text, len(initial_text)))
+        edit_buf[0] = _make_edit_buffer(initial_text)
 
     # Handle typed characters when in editing mode
     @kb.add("<any>")
@@ -788,19 +844,15 @@ def _prompt_add_dict_entry(node: ConfigFieldNode, event: Any) -> None:
     """Add a new key-value child to a dict header node.
 
     Since we're inside a prompt_toolkit Application, we create an inline child
-    with a placeholder key that the user can then edit.
+    with an index key and empty dict_key that the user can then edit.
     """
-    existing_keys = {c.key for c in node.children}
-    key_num = len(node.children)
-    new_key = f"key_{key_num}"
-    while new_key in existing_keys:
-        key_num += 1
-        new_key = f"key_{key_num}"
+    idx = len(node.children)
 
     new_child = ConfigFieldNode(
-        key=new_key,
+        key=str(idx),
         field_type="str",
         value="",
+        dict_key="",
         depth=node.depth + 1,
         parent=node,
     )

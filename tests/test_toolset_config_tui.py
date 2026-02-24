@@ -231,7 +231,8 @@ class TestBuildTreeFromSchema:
         assert headers_node.is_header is True
         assert headers_node.field_type == "dict"
         assert len(headers_node.children) == 1
-        assert headers_node.children[0].key == "Authorization"
+        assert headers_node.children[0].key == "0"
+        assert headers_node.children[0].dict_key == "Authorization"
         assert headers_node.children[0].value == "Bearer token123"
 
     def test_list_field_with_values(self):
@@ -290,11 +291,10 @@ class TestFlattenTree:
         }
         nodes = build_tree_from_schema(NestedConfig, values)
         flat = _flatten_tree(nodes)
-        keys = [n.key for n in flat]
         # Headers should appear before their children in the flat list
-        headers_idx = keys.index("additional_headers")
-        xcustom_idx = keys.index("X-Custom")
-        assert xcustom_idx > headers_idx
+        headers_idx = next(i for i, n in enumerate(flat) if n.key == "additional_headers")
+        child_idx = next(i for i, n in enumerate(flat) if n.dict_key == "X-Custom")
+        assert child_idx > headers_idx
 
 
 # ── tree_to_dict ──────────────────────────────────────────────────────
