@@ -1,45 +1,33 @@
 <div align="center">
-  <h1 align="center">AI Agent for Cloud Troubleshooting and Alert Investigation</h1>
-
-HolmesGPT is an AI agent for investigating problems in your cloud, finding the root cause, and suggesting remediations. It has dozens of built-in integrations for cloud providers, observability tools, and on-call systems.
+  <h1 align="center">HolmesGPT — AI Agent for Cloud Troubleshooting</h1>
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11586/badge)](https://www.bestpractices.dev/projects/11586)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/HolmesGPT/holmesgpt/badge)](https://scorecard.dev/viewer/?uri=github.com/HolmesGPT/holmesgpt)
 
->🎉 **HolmesGPT is now a CNCF Sandbox Project!**  
-HolmesGPT was originally created by [Robusta.Dev](https://home.robusta.dev/) and is a CNCF sandbox project.
-
-Find more about HolmesGPT's maintainers and adopters [here](./ADOPTERS.md).
-
-📚 **[Read the full documentation at holmesgpt.dev](https://holmesgpt.dev/)** for installation guides, tutorials, API reference, and more.
-
   <p align="center">
-    <a href="#how-it-works"><strong>How it Works</strong></a> |
     <a href="#installation"><strong>Installation</strong></a> |
     <a href="#supported-llm-providers"><strong>LLM Providers</strong></a> |
+    <a href="https://holmesgpt.dev/"><strong>Docs</strong></a> |
     <a href="https://www.youtube.com/watch?v=TfQfx65LsDQ"><strong>YouTube Demo</strong></a> |
     <a href="https://deepwiki.com/HolmesGPT/holmesgpt"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 </div>
 
-![HolmesGPT Investigation Demo](https://holmesgpt.dev/assets/HolmesInvestigation.gif)
+HolmesGPT is an open-source AI agent that investigates cloud problems, finds root causes, and suggests remediations. It is a [CNCF Sandbox project](./ADOPTERS.md), originally created by [Robusta.Dev](https://home.robusta.dev/).
+
+- **40+ data sources**: Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any REST API via YAML
+- **Alert-to-resolution**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
+- **Petabyte-scale data**: Server-side filtering keeps large payloads out of context
+- **Zero-hallucination visualizations**: Raw data rendered client-side, bypassing the LLM entirely
+- **Operator mode**: Run investigations on a schedule as a Kubernetes operator
 
 ## How it Works
 
-HolmesGPT connects AI models with live observability data and organizational knowledge. It uses an **agentic loop** to analyze data from multiple sources and identify possible root causes.
+HolmesGPT uses an **agentic loop** to query live observability data from multiple sources and identify root causes.
 
 <img width="3114" alt="holmesgpt-architecture-diagram" src="https://github.com/user-attachments/assets/f659707e-1958-4add-9238-8565a5e3713a" />
 
-## Why HolmesGPT?
-
-HolmesGPT is purpose-built for production observability and incident response. **[Learn more →](https://holmesgpt.dev/walkthrough/why-holmesgpt/)**
-
-- **Petabyte-scale data**: Server-side filtering and JSON traversal keeps large payloads out of context
-- **Operator mode**: Run LLM-driven investigations on a schedule as a Kubernetes operator
-- **40+ data sources**: Read-only integrations for Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any REST API via YAML
-- **Runtime dependency graph**: Infers service relationships from traces, K8s resources, and metric labels
-- **Zero-hallucination visualizations**: Raw data rendered client-side, bypassing the LLM entirely
-- **Alert-to-resolution**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
+![HolmesGPT Investigation Demo](https://holmesgpt.dev/assets/HolmesInvestigation.gif)
 
 ### 🔗 Data Sources
 
