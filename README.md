@@ -32,7 +32,7 @@ HolmesGPT connects AI models with live observability data and organizational kno
 
 ## Why HolmesGPT?
 
-HolmesGPT is purpose-built for production observability and incident response. **[Learn more →](https://holmesgpt.dev/walkthrough/holmes-vs-coding-agents/)**
+HolmesGPT is purpose-built for production observability and incident response. **[Learn more →](https://holmesgpt.dev/walkthrough/why-holmesgpt/)**
 
 ### Petabyte-Scale Observability Data
 
