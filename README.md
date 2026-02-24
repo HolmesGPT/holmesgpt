@@ -40,7 +40,7 @@ Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is
 
 ### Operator Mode
 
-Deploy as a Kubernetes operator that runs agentic investigations on a schedule or after deployments. You define natural-language queries ("Are all pods in the payments namespace healthy?"), and Holmes autonomously gathers data, reasons about the results, and notifies your team — 24/7, before production is impacted. See the [Holmes Operator](https://holmesgpt.dev/operator/) documentation.
+Deploy as a Kubernetes operator that runs agentic LLM-driven investigations on a schedule or after deployments. Holmes runs in the background 24/7, proactively finding issues and notifying your team before production is impacted. See the [Holmes Operator](https://holmesgpt.dev/operator/) documentation.
 
 ### Every Major Observability Platform, Plus Anything With an API
 
