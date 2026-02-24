@@ -914,9 +914,13 @@ def run_toolset_config_tui(
     config: Config,
     config_file: Optional[Path],
     console: Console,
+    preloaded_toolsets: Optional[List[Toolset]] = None,
 ) -> None:
     """Main entry point – runs the full 3-screen config flow."""
-    toolsets = _get_configurable_toolsets(config)
+    if preloaded_toolsets is not None:
+        toolsets = [t for t in preloaded_toolsets if t.config_classes]
+    else:
+        toolsets = _get_configurable_toolsets(config)
 
     selected = select_toolset(toolsets, console)
     if selected is None:

@@ -1349,7 +1349,12 @@ def run_interactive_loop(
                     if config is not None:
                         from holmes.toolset_config_tui import run_toolset_config_tui
 
-                        run_toolset_config_tui(config, config_file_path, console)
+                        run_toolset_config_tui(
+                            config,
+                            config_file_path,
+                            console,
+                            preloaded_toolsets=ai.tool_executor.toolsets,
+                        )
                     else:
                         console.print(
                             "[bold red]Config not available in this session. "
