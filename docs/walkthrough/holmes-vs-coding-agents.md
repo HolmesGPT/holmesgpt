@@ -1,4 +1,4 @@
-# Why HolmesGPT?
+# HolmesGPT: Built for Production Observability
 
 HolmesGPT is an AI agent purpose-built for production observability and incident response.
 
@@ -8,7 +8,49 @@ Production systems generate enormous amounts of telemetry data—thousands of me
 
 Where possible, aggregations and filters are pushed to the data source—Holmes queries with precise time ranges, label selectors, and aggregations rather than fetching everything and parsing locally. For APIs that return large JSON payloads, Holmes transforms responses into traversable trees: the LLM can inspect top-level structure first, then drill into specific fields incrementally, with adaptive depth limits applied automatically. For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before it reaches the LLM.
 
-## 2. Every Major Observability Platform, Plus Anything With an API
+## 2. Operator Mode
+
+Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. Configured as a Kubernetes operator with CRDs to define scheduled health checks, one-off health checks after new deployments, and more.
+
+The [Holmes Operator](../operator/index.md) manages health checks as Kubernetes-native resources:
+
+**One-Time Health Checks:**
+
+```yaml
+apiVersion: holmesgpt.dev/v1alpha1
+kind: HealthCheck
+metadata:
+  name: check-payments
+spec:
+  query: "Are all pods in the payments namespace running and healthy?"
+  timeout: 30
+```
+
+**Scheduled Health Checks:**
+
+```yaml
+apiVersion: holmesgpt.dev/v1alpha1
+kind: ScheduledHealthCheck
+metadata:
+  name: hourly-cluster-health
+spec:
+  schedule: "0 * * * *"
+  query: "Are there any unhealthy pods or failing deployments?"
+  timeout: 60
+  destinations:
+    - type: slack
+      config:
+        channel: "#platform-alerts"
+```
+
+- **Kubernetes-native**: Managed through `kubectl`, integrates with RBAC and standard tooling
+- **Execution history**: Tracks pass/fail results, LLM rationale, and duration per check
+- **Alert routing**: Send failure notifications to Slack or PagerDuty
+- **Horizontal scaling**: Lightweight operator coordinates checks across stateless Holmes API servers
+
+See the [Operator documentation](../operator/index.md) for installation and configuration.
+
+## 3. Every Major Observability Platform, Plus Anything With an API
 
 HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](../data-sources/api-toolsets/index.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
@@ -27,11 +69,9 @@ See the [full list of built-in toolsets](../data-sources/builtin-toolsets/index.
 
 Give SRE agents the data access they need, with the safety profile production demands. All built-in toolsets are read-only, respecting existing platform permissions (Kubernetes RBAC, Grafana roles, cloud IAM policies) with full audit logging of every tool call.
 
-### Local-First Access Management
+### Controlled Access for Your Whole Team
 
-All credentials and connection details live where you already manage them—environment variables, `~/.holmes/config.yaml`, your existing kubeconfig, or cloud IAM roles. There's no hosted service to configure and no web dashboard between you and your data sources. Define what Holmes can access in a file you control, version it with your infra, and credentials never leave your environment.
-
-Toolsets auto-detect available services (e.g., Kubernetes if a kubeconfig is present, Prometheus if configured) and activate automatically. For external services, provide connection details via environment variables or config file.
+Instead of every engineer connecting their local AI tools to production with personal credentials that carry write access, deploy one Holmes instance with scoped, read-only access. Let engineers use LLMs with observability data - safely.
 
 ### Raw HTTP Endpoints as LLM-Friendly Tools
 
@@ -62,7 +102,7 @@ Holmes automatically transforms these raw endpoints to be LLM-friendly:
 - **Multiple auth methods**: Basic, Bearer, custom headers—configured once, used automatically
 - **Multi-instance**: Configure multiple API connectors with independent credentials
 
-## 3. Runtime Dependency Graph
+## 4. Runtime Dependency Graph
 
 Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed.
 
@@ -74,7 +114,7 @@ Holmes infers service relationships from the telemetry data already flowing thro
 
 Works even without distributed tracing—Holmes infers service relationships from Kubernetes resource hierarchies and metric labels alone, but takes advantage of trace data if available.
 
-## 4. Zero-Hallucination Visualizations
+## 5. Zero-Hallucination Visualizations
 
 For supported clients, HolmesGPT generates interactive visualizations that are rendered directly from source data—the LLM never interprets or describes the visual content.
 
@@ -90,9 +130,9 @@ When Holmes queries a data source like Prometheus, the raw response data (time s
 
 The critical difference is that all visualization data comes directly from the source and is rendered by deterministic code, not generated or interpreted by the LLM. The LLM decides *what* to query and *how* to analyze it, but the visualization itself is a faithful rendering of the raw data. There is no opportunity for the LLM to hallucinate values, misread a graph, or fabricate trends—what you see is exactly what the data source returned.
 
-## 5. Alert-to-Resolution Workflow
+## 6. Alert-to-Resolution Workflow
 
-HolmesGPT integrates into your existing on-call and incident response workflows, covering the full lifecycle from alert ingestion to results delivery.
+HolmesGPT can integrate into your existing workflows, by automatically fetching alerts and incidents from AlertManager, PagerDuty, OpsGenie, or more—and writing the investigation results back to the source.
 
 ### Alert Source Integration
 
@@ -146,50 +186,6 @@ holmes ask "investigate the memory leak in payment-service" --interactive
 > "what was the memory usage yesterday at this time?"
 > "check if this correlates with deployment times"
 ```
-
-## 6. Operator Mode
-
-Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. Configured as a Kubernetes operator with CRDs to define scheduled health checks, one-off health checks after new deployments, and more.
-
-The [Holmes Operator](../operator/index.md) manages health checks as Kubernetes-native resources:
-
-### One-Time Health Checks
-
-```yaml
-apiVersion: holmesgpt.dev/v1alpha1
-kind: HealthCheck
-metadata:
-  name: check-payments
-spec:
-  query: "Are all pods in the payments namespace running and healthy?"
-  timeout: 30
-```
-
-### Scheduled Health Checks
-
-```yaml
-apiVersion: holmesgpt.dev/v1alpha1
-kind: ScheduledHealthCheck
-metadata:
-  name: hourly-cluster-health
-spec:
-  schedule: "0 * * * *"
-  query: "Are there any unhealthy pods or failing deployments?"
-  timeout: 60
-  destinations:
-    - type: slack
-      config:
-        channel: "#platform-alerts"
-```
-
-### Operator Features
-
-- **Kubernetes-native**: Managed through `kubectl`, integrates with RBAC and standard tooling
-- **Execution history**: Tracks pass/fail results, LLM rationale, and duration per check
-- **Alert routing**: Send failure notifications to Slack or PagerDuty
-- **Horizontal scaling**: Lightweight operator coordinates checks across stateless Holmes API servers
-
-See the [Operator documentation](../operator/index.md) for installation and configuration.
 
 ## Get Started
 
