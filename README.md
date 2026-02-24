@@ -3,18 +3,17 @@
 
   <p align="center">
     <a href="#installation"><strong>Installation</strong></a> |
-    <a href="#supported-llm-providers"><strong>LLM Providers</strong></a> |
     <a href="https://holmesgpt.dev/"><strong>Docs</strong></a> |
-    <a href="https://www.youtube.com/watch?v=TfQfx65LsDQ"><strong>YouTube Demo</strong></a> |
     <a href="https://deepwiki.com/HolmesGPT/holmesgpt"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 </div>
 
 HolmesGPT is an open-source AI agent that investigates cloud problems, finds root causes, and suggests remediations. It is a [CNCF Sandbox project](./ADOPTERS.md), originally created by [Robusta.Dev](https://home.robusta.dev/).
 
+- **Petabyte-scale data**: Server-side filtering and tool output transformers keep large payloads out of context windows
 - **[Deep integrations](https://holmesgpt.dev/data-sources/builtin-toolsets/)**: Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any REST API via YAML
 - **[Bidirectional alert integrations](https://holmesgpt.dev/walkthrough/investigating-alerts/)**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
-- **Petabyte-scale data**: Server-side filtering keeps large payloads out of context
+- **[Any LLM provider](https://holmesgpt.dev/ai-providers/)**: OpenAI, Anthropic, Azure, Bedrock, Gemini, and more
 - **[Operator mode](https://holmesgpt.dev/operator/)**: Run investigations on a schedule as a Kubernetes operator
 
 ## How it Works
