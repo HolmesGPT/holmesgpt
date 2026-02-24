@@ -60,7 +60,7 @@ For supported clients, HolmesGPT generates interactive HTML and JavaScript visua
 
 ### Alert-to-Resolution Workflow
 
-HolmesGPT integrates into your incident response workflow. It fetches alerts from AlertManager, PagerDuty, OpsGenie, or Jira, investigates autonomously, and writes findings back to the source or posts to Slack—all without manual copy-paste between tools.
+HolmesGPT can integrate into your existing workflows, by automatically fetching alerts and incidents from AlertManager, PagerDuty, OpsGenie, or more—and writing the investigation results back to the source.
 
 ### Raw HTTP Endpoints as LLM-Friendly Tools
 
