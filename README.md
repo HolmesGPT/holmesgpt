@@ -38,9 +38,9 @@ HolmesGPT is purpose-built for production observability and incident response. *
 
 Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is designed for this scale—it uses server-side filtering, iterative query narrowing, and transforms data sources that return JSON so that the LLM can filter and traverse nested response trees, without pulling entire payloads into context.
 
-### 40+ Pre-Built, Read-Only Integrations
+### Every Major Observability Platform, Plus Anything With an API
 
-Give SRE agents the data access they need, with the safety profile production demands. HolmesGPT ships with pre-built, read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources)—RBAC-compliant and fully audited. No custom integration code required.
+Give SRE agents the data access they need, with the safety profile production demands. HolmesGPT ships with read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources)—RBAC-compliant and fully audited. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) to turn any REST API into an LLM-friendly data source through YAML alone.
 
 ### Runtime Dependency Graph
 

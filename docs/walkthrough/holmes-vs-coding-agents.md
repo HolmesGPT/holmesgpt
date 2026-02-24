@@ -46,9 +46,9 @@ This applies to built-in toolsets, MCP server integrations, and the HTTP connect
 
 For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before sending it to the LLM, keeping context windows manageable while preserving critical information.
 
-## 2. 40+ Pre-Built, Read-Only Integrations
+## 2. Every Major Observability Platform, Plus Anything With an API
 
-HolmesGPT ships with pre-built integrations for the most popular observability and cloud platforms:
+HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](../data-sources/api-toolsets/index.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
 - **Metrics**: Prometheus, Datadog, Coralogix
 - **Logs**: Loki, Elasticsearch/OpenSearch, Datadog, Coralogix
