@@ -7,7 +7,7 @@ import threading
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
-from typing import DefaultDict, Dict, List, Optional
+from typing import Any, DefaultDict, Dict, List, Optional
 
 import typer
 from prompt_toolkit import PromptSession
@@ -77,6 +77,7 @@ class SlashCommands(Enum):
     CONTEXT = ("/context", "Show conversation context size and token count")
     SHOW = ("/show", "Show specific tool output in scrollable view")
     FEEDBACK = ("/feedback", "Provide feedback on the agent's response")
+    CONFIG = ("/config", "Open interactive toolset configuration editor")
 
     def __init__(self, command, description):
         self.command = command
@@ -1098,6 +1099,8 @@ def run_interactive_loop(
     bash_always_deny: bool = False,
     bash_always_allow: bool = False,
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
+    config: Optional[Any] = None,
+    config_file_path: Optional[Path] = None,
 ) -> None:
     # Enable CLI mode for bash prefix loading (server mode doesn't call this)
     enable_cli_mode()
@@ -1342,6 +1345,17 @@ def run_interactive_loop(
                     if shared_input is None:
                         continue  # User chose not to share or no output, continue to next input
                     user_input = shared_input
+                elif command == SlashCommands.CONFIG.command:
+                    if config is not None:
+                        from holmes.toolset_config_tui import run_toolset_config_tui
+
+                        run_toolset_config_tui(config, config_file_path, console)
+                    else:
+                        console.print(
+                            "[bold red]Config not available in this session. "
+                            "Use 'holmes toolset config' from the CLI instead.[/bold red]"
+                        )
+                    continue
                 elif (
                     command == SlashCommands.FEEDBACK.command
                     and feedback_callback is not None
