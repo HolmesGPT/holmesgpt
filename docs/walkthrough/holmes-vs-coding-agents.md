@@ -2,7 +2,7 @@
 
 HolmesGPT is an AI agent purpose-built for production observability and incident response. This page explains what makes it uniquely suited for troubleshooting production systems at scale.
 
-## 1. Scalable Data Access for Terabytes of Telemetry
+## 1. Petabyte-Scale Observability Data
 
 Production systems generate enormous amounts of telemetry data—thousands of metric time series per service, gigabytes of logs per day, and millions of trace spans. HolmesGPT is designed to work with this scale.
 
@@ -46,7 +46,7 @@ This applies to built-in toolsets, MCP server integrations, and the HTTP connect
 
 For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before sending it to the LLM, keeping context windows manageable while preserving critical information.
 
-## 2. 40+ Built-In Observability Integrations
+## 2. 40+ Pre-Built, Read-Only Integrations
 
 HolmesGPT ships with pre-built integrations for the most popular observability and cloud platforms:
 
@@ -98,7 +98,7 @@ Key features of the HTTP connector:
 - **Context-window-aware**: Inherits `jq` and `max_depth` parameters for large responses
 - **Multi-instance**: Configure multiple API connectors with independent credentials
 
-## 3. Hallucination-Free Visualizations
+## 3. Zero-Hallucination Visualizations
 
 For supported clients, HolmesGPT provides direct visualization paths that bypass the LLM entirely:
 
@@ -110,7 +110,7 @@ These visualization URLs are constructed programmatically from tool output metad
 
 This means you can verify any claim Holmes makes by clicking through to the source visualization.
 
-## 4. End-to-End Workflow Integration
+## 4. Alert-to-Resolution Workflow
 
 HolmesGPT integrates into your existing on-call and incident response workflows, covering the full lifecycle from alert ingestion to results delivery.
 
@@ -167,7 +167,7 @@ holmes ask "investigate the memory leak in payment-service" --interactive
 > "check if this correlates with deployment times"
 ```
 
-## 5. Kubernetes Operator for Proactive Monitoring
+## 5. Kubernetes-Native Proactive Monitoring
 
 The [Holmes Operator](../operator/index.md) extends HolmesGPT from an on-demand investigation tool into a continuous, declarative health monitoring system using Kubernetes CRDs.
 
@@ -213,12 +213,12 @@ See the [Operator documentation](../operator/index.md) for installation and conf
 
 | Capability | What HolmesGPT Provides |
 |------------|------------------------|
-| **Data scale** | Server-side filtering, jq/max_depth parameters, transformers for terabyte-scale telemetry |
-| **Integrations** | 40+ built-in read-only toolsets, HTTP connector for any API |
-| **Visualizations** | Direct links to Grafana, Prometheus, Tempo dashboards—no LLM interpretation |
-| **Workflow** | Alert ingestion from PagerDuty/OpsGenie/AlertManager/Jira, results written back |
-| **Proactive monitoring** | Kubernetes operator with CRD-based health checks and scheduling |
-| **Extensibility** | HTTP connector, MCP servers, custom toolsets—all with context-window-aware parameters |
+| **Petabyte-scale data** | Server-side filtering, jq/max_depth parameters, transformers for massive telemetry |
+| **40+ integrations** | Pre-built read-only toolsets, HTTP connector for any API |
+| **Zero-hallucination visuals** | Direct links to Grafana, Prometheus, Tempo dashboards—no LLM interpretation |
+| **Alert-to-resolution** | Ingestion from PagerDuty/OpsGenie/AlertManager/Jira, findings written back |
+| **Kubernetes-native monitoring** | Operator with CRD-based health checks, scheduling, and alert routing |
+| **Connect any API** | HTTP connector, MCP servers, custom toolsets—all context-window-aware |
 
 ## Get Started
 
