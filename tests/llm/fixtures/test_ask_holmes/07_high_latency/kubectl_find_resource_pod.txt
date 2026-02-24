@@ -1,3 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "customer-orders"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "customer-orders"}}
-customer-orders-766b65899b-lwqnt                        1/1     Running                      0                 28h   10.244.0.202    kind-control-plane/172.18.0.2    <none>           <none>

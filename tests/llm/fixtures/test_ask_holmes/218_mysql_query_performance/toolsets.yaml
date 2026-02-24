@@ -1,0 +1,6 @@
+toolsets:
+  test-mysql:
+    type: database
+    enabled: true
+    config:
+      connection_url: "mysql://holmes:holmespass@localhost:10218/testdb"

@@ -1,0 +1,6 @@
+toolsets:
+  test-mariadb:
+    type: database
+    enabled: true
+    config:
+      connection_url: "mysql://holmes:holmespass@localhost:10219/testdb"

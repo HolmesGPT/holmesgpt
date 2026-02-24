@@ -1,16 +1,74 @@
-# This runs on every commit/PR to test that we are properly building binaries that work
-# we test this on each commit/PR to catch build problems early
+# This runs on every PR to test that we are properly building binaries that work.
+# Branch protection should require the "build-and-test-gate" job.
 name: Build and test HolmesGPT
 
 on:
-  push:
-    branches:
-      - master
   pull_request:
   workflow_dispatch:
 
 jobs:
-  build:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should_test: ${{ steps.changes.outputs.should_test }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for source changes
+        id: changes
+        run: |
+          # Paths that do NOT require tests (docs-only changes)
+          SKIP_PATTERNS=(
+            "docs/*"
+            "*.md"
+            "mkdocs.yml"
+          )
+
+          # Exceptions: paths matching skip patterns that STILL require tests
+          ALWAYS_TEST=(
+            "docs/reference/http-api.md"   # contains curl tests validated by tests/test_http_docs.py
+          )
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_test=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.sha }})
+
+          SHOULD_TEST=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            # Check always-test exceptions first
+            for pattern in "${ALWAYS_TEST[@]}"; do
+              if [ "$file" = "$pattern" ]; then
+                SHOULD_TEST=true
+                break 2
+              fi
+            done
+
+            # Check if file matches any skip pattern
+            SKIP=false
+            for pattern in "${SKIP_PATTERNS[@]}"; do
+              case "$file" in
+                $pattern) SKIP=true; break ;;
+              esac
+            done
+
+            if [ "$SKIP" = false ]; then
+              SHOULD_TEST=true
+              break
+            fi
+          done <<< "$CHANGED_FILES"
+
+          echo "should_test=$SHOULD_TEST" >> $GITHUB_OUTPUT
+
+  test:
+    needs: check-changes
+    if: needs.check-changes.outputs.should_test == 'true'
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -18,40 +76,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Python dependencies and build
-        # if you change something here, you must also change it in .github/workflows/build-binaries-and-brew.yaml
+      - name: Cache Poetry installation and dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local
+            ~/.cache/pip
+            ~/.cache/pypoetry
+          key: poetry-${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-${{ matrix.python-version }}-
+
+      - name: Install Poetry
         run: |
-          python -m pip install --upgrade pip setuptools pyinstaller
-
-          curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+          # setuptools provides the distutils shim needed by Poetry installer on Python 3.12+
+          python -m pip install --upgrade pip setuptools
+          if ! command -v poetry &> /dev/null; then
+            curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+          fi
           poetry config virtualenvs.create false
-          poetry install --no-root --with dev
 
-          sudo apt-get install -y binutils
-          pyinstaller holmes_cli.py \
-            --name holmes \
-            --add-data 'holmes/plugins/runbooks/*:holmes/plugins/runbooks' \
-            --add-data 'holmes/plugins/prompts/*:holmes/plugins/prompts' \
-            --add-data 'holmes/plugins/toolsets/*:holmes/plugins/toolsets' \
-            --add-data 'holmes/plugins/toolsets/coralogix*:holmes/plugins/toolsets/coralogix' \
-            --add-data 'holmes/plugins/toolsets/grafana*:holmes/plugins/toolsets/grafana' \
-            --add-data 'holmes/plugins/toolsets/internet*:holmes/plugins/toolsets/internet' \
-            --add-data 'holmes/plugins/toolsets/elasticsearch*:holmes/plugins/toolsets/elasticsearch' \
-            --add-data 'holmes/plugins/toolsets/prometheus*:holmes/plugins/toolsets/prometheus' \
-            --hidden-import=tiktoken_ext.openai_public \
-            --hidden-import=tiktoken_ext \
-            --hidden-import=backports \
-            --hiddenimport litellm.llms.tokenizers \
-            --hiddenimport litellm.litellm_core_utils.tokenizers \
-            --collect-data litellm
-          ls dist
+      - name: Install dependencies
+        run: poetry install --no-root --with dev
 
       - name: Run tests
         shell: bash
@@ -90,6 +143,64 @@ jobs:
                   print(f'  - {t}')
           "
 
+  build-binary:
+    needs: check-changes
+    if: needs.check-changes.outputs.should_test == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Poetry installation and dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local
+            ~/.cache/pip
+            ~/.cache/pypoetry
+          key: poetry-3.11-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-3.11-
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip setuptools
+          if ! command -v poetry &> /dev/null; then
+            curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+          fi
+          poetry config virtualenvs.create false
+
+      - name: Install dependencies and build
+        # if you change something here, you must also change it in .github/workflows/build-binaries-and-brew.yaml
+        run: |
+          python -m pip install --upgrade pip setuptools pyinstaller
+
+          poetry install --no-root
+
+          sudo apt-get install -y binutils
+          pyinstaller holmes_cli.py \
+            --name holmes \
+            --add-data 'holmes/plugins/runbooks/*:holmes/plugins/runbooks' \
+            --add-data 'holmes/plugins/prompts/*:holmes/plugins/prompts' \
+            --add-data 'holmes/plugins/toolsets/*:holmes/plugins/toolsets' \
+            --add-data 'holmes/plugins/toolsets/coralogix*:holmes/plugins/toolsets/coralogix' \
+            --add-data 'holmes/plugins/toolsets/grafana*:holmes/plugins/toolsets/grafana' \
+            --add-data 'holmes/plugins/toolsets/internet*:holmes/plugins/toolsets/internet' \
+            --add-data 'holmes/plugins/toolsets/elasticsearch*:holmes/plugins/toolsets/elasticsearch' \
+            --add-data 'holmes/plugins/toolsets/prometheus*:holmes/plugins/toolsets/prometheus' \
+            --hidden-import=tiktoken_ext.openai_public \
+            --hidden-import=tiktoken_ext \
+            --hidden-import=backports \
+            --hiddenimport litellm.llms.tokenizers \
+            --hiddenimport litellm.litellm_core_utils.tokenizers \
+            --collect-data litellm
+          ls dist
+
       - name: Test the binary
         shell: bash
         run: |
@@ -99,3 +210,31 @@ jobs:
             exit 1
           fi
           echo "Binary test passed"
+
+  # Gate job for branch protection — always runs and reports the correct status.
+  # Require this check ("Build and test HolmesGPT / build-and-test-gate") in
+  # branch protection instead of the individual build matrix jobs.
+  build-and-test-gate:
+    needs: [check-changes, test, build-binary]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.check-changes.result }}" != "success" ]; then
+            echo "check-changes job failed!"
+            exit 1
+          fi
+          if [ "${{ needs.check-changes.outputs.should_test }}" != "true" ]; then
+            echo "No source changes detected (docs-only) - skipping tests"
+            exit 0
+          fi
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Tests failed!"
+            exit 1
+          fi
+          if [ "${{ needs.build-binary.result }}" != "success" ]; then
+            echo "Binary build failed!"
+            exit 1
+          fi
+          echo "Build and test passed!"

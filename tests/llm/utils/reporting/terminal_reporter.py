@@ -311,11 +311,6 @@ def _get_llm_analysis(result: TestResult) -> str:
     """
     from litellm import completion
 
-    # Check if this is a MockDataError case and add context
-    mock_data_context = ""
-    if result.mock_data_failure:
-        mock_data_context = "\n\nIMPORTANT CONTEXT: This test failed due to MockDataError - no mock data files were found for the tool calls that the agent tried to make. This is a test infrastructure issue, not a problem with the agent's logic."
-
     prompt = textwrap.dedent(f"""\
         Analyze this failed eval for an AIOps agent why it failed.
         TEST: {result.test_case_name}
@@ -325,15 +320,9 @@ def _get_llm_analysis(result: TestResult) -> str:
         ERROR: {result.error_message or 'Test assertion failed'}
 
         LOGS:
-        {result.logs if result.logs else 'No logs available'}{mock_data_context}
+        {result.logs if result.logs else 'No logs available'}
 
         Please provide a concise analysis (2-3 sentences) and categorize this as one of:
-        - MockDataError - the test failed because mock data files were missing for the tool calls (this is a test infrastructure issue).
-          To fix (show bullet points with each option - any are valid solutions so user should see all options):
-          - Run with RUN_LIVE=true
-          - Use --generate-mocks (may cause inconsistent data)
-          - Use --regenerate-all-mocks (ensures consistency)
-        - Problem with mock data - the test is failing due to incorrect or incomplete mock data, but the agent itself did the correct queries you would expect it to do
         - Setup issue - the test is failing due to an issue with the test setup, such as missing tools or incorrect before_test/after_test configuration
         - Real failure - the test is failing because the agent did not perform as expected, and this is a real issue that needs to be fixed
         """)
