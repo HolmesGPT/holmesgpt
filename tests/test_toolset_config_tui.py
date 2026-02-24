@@ -22,9 +22,7 @@ from holmes.toolset_config_tui import (
     ConfigFieldNode,
     _flatten_tree,
     _resolve_primitive_type,
-    ask_edit_or_fresh,
     build_tree_from_schema,
-    export_config_yaml,
     run_toolset_config_tui,
     save_config_to_file,
     select_toolset,
@@ -457,26 +455,6 @@ class TestSaveConfigToFile:
         assert captured.err == ""
 
 
-# ── export_config_yaml ────────────────────────────────────────────────
-
-
-class TestExportConfigYaml:
-    def test_produces_valid_yaml(self):
-        yml_str = export_config_yaml("grafana/dashboards", {"api_url": "http://grafana:3000"})
-        parsed = yaml.safe_load(yml_str)
-        assert parsed["toolsets"]["grafana/dashboards"]["enabled"] is True
-        assert parsed["toolsets"]["grafana/dashboards"]["config"]["api_url"] == "http://grafana:3000"
-
-    def test_nested_config(self):
-        config_dict = {
-            "api_url": "http://grafana:3000",
-            "labels": {"pod": "k8s.pod.name"},
-        }
-        yml_str = export_config_yaml("grafana/tempo", config_dict)
-        parsed = yaml.safe_load(yml_str)
-        assert parsed["toolsets"]["grafana/tempo"]["config"]["labels"]["pod"] == "k8s.pod.name"
-
-
 # ── run_config_test ───────────────────────────────────────────────────
 
 
@@ -546,27 +524,41 @@ class TestSelectToolset:
         assert result is None
 
 
-# ── ask_edit_or_fresh ─────────────────────────────────────────────────
+# ── _get_existing_config ──────────────────────────────────────────────
 
 
-class TestAskEditOrFresh:
+class TestGetExistingConfig:
     def test_returns_empty_dict_when_no_existing_config(self):
+        from holmes.toolset_config_tui import _get_existing_config
+
         ts = ConfigurableToolset()
         config = MagicMock()
         config.toolsets = {}
-        console = Console(quiet=True)
 
-        result = ask_edit_or_fresh(ts, config, console)
+        result = _get_existing_config(ts, config)
         assert result == {}
 
     def test_returns_empty_dict_when_toolsets_is_none(self):
+        from holmes.toolset_config_tui import _get_existing_config
+
         ts = ConfigurableToolset()
         config = MagicMock()
         config.toolsets = None
-        console = Console(quiet=True)
 
-        result = ask_edit_or_fresh(ts, config, console)
+        result = _get_existing_config(ts, config)
         assert result == {}
+
+    def test_returns_existing_config_when_present(self):
+        from holmes.toolset_config_tui import _get_existing_config
+
+        ts = ConfigurableToolset()
+        config = MagicMock()
+        config.toolsets = {
+            "test/configurable": {"config": {"api_url": "http://saved:9090", "timeout": 60}}
+        }
+
+        result = _get_existing_config(ts, config)
+        assert result == {"api_url": "http://saved:9090", "timeout": 60}
 
 
 # ── ConfigFieldNode manipulation ──────────────────────────────────────

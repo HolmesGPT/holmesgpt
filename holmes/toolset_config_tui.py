@@ -296,17 +296,13 @@ def save_config_to_file(
     return True, f"Configuration saved to {config_file}"
 
 
-def export_config_yaml(toolset_name: str, config_dict: Dict[str, Any]) -> str:
-    """Return a prettified YAML snippet for the toolset config."""
-    snippet = {
-        "toolsets": {
-            toolset_name: {
-                "enabled": True,
-                "config": config_dict,
-            }
-        }
-    }
-    return yaml.dump(snippet, default_flow_style=False, sort_keys=False)
+def _get_existing_config(toolset: Toolset, config: Config) -> Dict[str, Any]:
+    """Return the existing config dict for *toolset* from the loaded Config, or ``{}``."""
+    if config.toolsets and toolset.name in config.toolsets:
+        ts_entry = config.toolsets[toolset.name]
+        if isinstance(ts_entry, dict) and ts_entry.get("config"):
+            return dict(ts_entry["config"])
+    return {}
 
 
 def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool, str]:
@@ -473,47 +469,9 @@ def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolse
     return toolsets[idx]
 
 
-# ── Screen 2: add / edit decision ────────────────────────────────────
+# ── Screen 2: tree editor ─────────────────────────────────────────────
 
-
-def ask_edit_or_fresh(
-    toolset: Toolset,
-    config: Config,
-    console: Console,
-) -> Optional[Dict[str, Any]]:
-    """Screen 2 – decide whether to edit existing config or start fresh.
-
-    Returns the initial values dict, or None to cancel.
-    """
-    # Check if there is existing config in the loaded Config object
-    existing_config: Dict[str, Any] = {}
-    if config.toolsets and toolset.name in config.toolsets:
-        ts_entry = config.toolsets[toolset.name]
-        if isinstance(ts_entry, dict) and ts_entry.get("config"):
-            existing_config = ts_entry["config"]
-
-    if not existing_config:
-        # No existing config → straight to fresh
-        return {}
-
-    idx = _run_selection_menu(
-        [
-            "Edit current configuration",
-            "Start with fresh configuration",
-            "Cancel",
-        ],
-        title=f"Toolset '{toolset.name}' already has a configuration",
-    )
-    if idx is None or idx == 2:
-        return None
-    if idx == 0:
-        return dict(existing_config)
-    return {}
-
-
-# ── Screen 3: tree editor ────────────────────────────────────────────
-
-_BUTTON_LABELS = ["[ Test ]", "[ Export ]", "[ Save ]", "[ Exit ]"]
+_BUTTON_LABELS = ["[ Test ]", "[ Reset ]", "[ Save ]", "[ Exit ]"]
 
 
 def run_tree_editor(
@@ -766,9 +724,13 @@ def run_tree_editor(
                 ok, msg = run_config_test(toolset, config_dict)
                 style_cls = "class:status-ok" if ok else "class:status-fail"
                 status_lines = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
-            elif btn_idx == 1:  # Export
-                yml = export_config_yaml(toolset.name, config_dict)
-                status_lines = [("", f"  {line}\n") for line in yml.splitlines()]
+            elif btn_idx == 1:  # Reset
+                top_nodes.clear()
+                top_nodes.extend(build_tree_from_schema(config_class, {}))
+                _refresh_flat()
+                cursor[0] = 0
+                status_lines = [("class:status-ok", "  Configuration reset to defaults.\n")]
+                return
             elif btn_idx == 2:  # Save
                 config_path = Path(config_file_path) if config_file_path else Path(DEFAULT_CONFIG_LOCATION)
                 ok, msg = save_config_to_file(config_path, toolset.name, config_dict)
@@ -979,10 +941,7 @@ def run_toolset_config_tui(
         console.print(f"[bold {STATUS_COLOR}]No toolset selected.[/bold {STATUS_COLOR}]")
         return
 
-    initial = ask_edit_or_fresh(selected, config, console)
-    if initial is None:
-        console.print(f"[bold {STATUS_COLOR}]Cancelled.[/bold {STATUS_COLOR}]")
-        return
+    initial = _get_existing_config(selected, config)
 
     config_path = Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
     saved = run_tree_editor(selected, initial, config_path)
