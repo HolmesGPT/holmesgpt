@@ -547,8 +547,13 @@ def run_tree_editor(
         prefix = "  "  # use non-selected width for alignment
         display_name = node.title if node.title else node.key
 
-        if node.is_header or node.dict_key is not None:
+        if node.dict_key is not None:
             return 0  # no comments on these rows
+
+        if node.is_header:
+            count = len(node.children)
+            type_bracket = "{}" if node.field_type == "dict" else "[]"
+            return len(f"{indent}{prefix}{display_name}: {type_bracket[0]}{count} items{type_bracket[1]}")
 
         val_display = str(node.value) if node.value is not None else ""
         if node.field_type == "bool":
@@ -560,7 +565,7 @@ def run_tree_editor(
         """Find the column where all comments should start."""
         max_width = 0
         for node in flat_rows:
-            if node.description:
+            if node.description or node.is_header:
                 max_width = max(max_width, _row_content_width(node))
         return max_width + 2 if max_width else 0  # 2 chars padding
 
@@ -574,7 +579,12 @@ def run_tree_editor(
             count = len(node.children)
             type_bracket = "{}" if node.field_type == "dict" else "[]"
             label = f"{indent}{prefix}{display_name}: {type_bracket[0]}{count} items{type_bracket[1]}"
-            hints = "  (Enter to add entry)"
+            hint_text = "# Enter to add entry"
+            if comment_col > 0:
+                padding = max(2, comment_col - len(label))
+                hints = " " * padding + hint_text
+            else:
+                hints = "  " + hint_text
             return [(style, label), ("class:dim", hints), ("", "\n")]
 
         row_idx = flat_rows.index(node) if node in flat_rows else -1
