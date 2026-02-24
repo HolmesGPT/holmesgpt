@@ -110,7 +110,7 @@ Holmes infers service relationships from the telemetry data already flowing thro
 - **Kubernetes resource graphs**: Ownership chains from deployments to pods to services, plus network policies and ingress rules
 - **Metric labels**: Prometheus `job`, `instance`, and custom labels connect metrics to the services that emit them
 
-Works even without distributed tracing—Holmes infers service relationships from Kubernetes resource hierarchies and metric labels alone. When trace data is available, it uses span parent-child relationships to enrich the picture with per-hop latency and call chains.
+Works even without distributed tracing—Holmes infers service relationships from Kubernetes resource hierarchies and metric labels alone, but takes advantage of trace data if available.
 
 ## 4. Zero-Hallucination Visualizations
 
@@ -229,27 +229,6 @@ spec:
 
 See the [Operator documentation](../operator/index.md) for installation and configuration.
 
-## Summary
-
-| Capability | What HolmesGPT Provides |
-|------------|------------------------|
-| **Petabyte-scale data** | Server-side filtering, jq/max_depth parameters, transformers for massive telemetry |
-| **40+ integrations** | Pre-built read-only toolsets, HTTP connector for any API |
-| **Runtime dependency graph** | Upstream/downstream chains inferred from traces, Kubernetes resources, and metric labels |
-| **Zero-hallucination visuals** | Interactive HTML/JS charts rendered from source data in a sandbox—LLM never touches the visual |
-| **Alert-to-resolution** | Ingestion from PagerDuty/OpsGenie/AlertManager/Jira, findings written back |
-| **Operator mode** | Background 24/7 health checks via CRDs, with scheduling and failure notifications |
-| **Raw HTTP → LLM tools** | HTTP connector turns any API into an LLM-friendly tool via YAML—no MCP needed |
-
 ## Get Started
 
-```bash
-pip install holmesgpt
-holmes ask "what pods are unhealthy and why?"
-```
-
-- **[Installation Guide](../installation/cli-installation.md)** - Set up HolmesGPT
-- **[Built-in Toolsets](../data-sources/builtin-toolsets/index.md)** - See all integrations
-- **[HTTP Connector](../data-sources/api-toolsets.md)** - Connect any REST API
-- **[Operator](../operator/index.md)** - Kubernetes-native health checks
-- **[Tool Output Transformers](../development/transformers.md)** - Handle large outputs
+See the [Installation Guide](../installation/cli-installation.md) to set up HolmesGPT.

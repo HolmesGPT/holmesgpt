@@ -52,7 +52,7 @@ Deploy a single Holmes instance with read-only access to your production systems
 
 ### Runtime Dependency Graph
 
-Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from Kubernetes resource hierarchies and metric labels—trace span data deepens the analysis when you have it.
+Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from Kubernetes resource hierarchies and metric labels, but takes advantage of trace data if available.
 
 ### Zero-Hallucination Visualizations
 
