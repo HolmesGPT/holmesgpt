@@ -7,8 +7,7 @@ HolmesGPT is an AI agent purpose-built for production observability and incident
 Production systems generate enormous amounts of telemetry data—thousands of metric time series per service, gigabytes of logs per day, and millions of trace spans. HolmesGPT is designed to work at this scale without pulling unbounded data into context:
 
 - **Aggregations at source**: Where possible, filters and aggregations are pushed to the data source—Holmes queries with precise time ranges, label selectors, and aggregations rather than fetching everything and parsing locally
-- **Traversable JSON trees**: For APIs that return large JSON payloads, Holmes transforms responses so the LLM can inspect top-level structure first, then drill into specific fields incrementally
-- **Adaptive depth limits**: Applied automatically to prevent unbounded responses from overflowing context
+- **Traversable JSON trees**: For APIs that return large JSON payloads, Holmes transforms responses so the LLM can inspect top-level structure first, then drill into specific fields incrementally, with adaptive depth limits applied automatically
 - **Summarization transformers**: For tools that still return large outputs, HolmesGPT supports [transformers](../development/transformers.md) that summarize data before it reaches the LLM
 
 ## 2. Operator Mode
