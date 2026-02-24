@@ -10,7 +10,7 @@ Holmes works across cloud, on-premise, and hybrid environments. If you use Kuber
 
 ## 1. Connect a Metrics Provider
 
-Metrics give Holmes visibility into performance trends over time — CPU/memory pressure, request latency, error rates, and alerting rules. Without metrics, Holmes can still investigate using logs and infrastructure state, but it won't be able to spot gradual degradation or correlate resource usage with incidents.
+Metrics give Holmes visibility into trends over time. Without metrics, Holmes can still investigate using logs and infrastructure state, but it won't be able to spot gradual degradation or correlate historical information as well. Metrics are also critical to answering numerical questions, like 'what is the error rate for service xyz?'
 
 Connect whichever metrics platform you already use:
 
