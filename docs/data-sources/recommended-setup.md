@@ -54,9 +54,6 @@ toolsets:
       grafana_datasource_uid: <loki-datasource-uid>
 ```
 
-!!! note
-    If you use Kubernetes and enable Loki, disable the default Kubernetes logs toolset to avoid duplicate results. Add `kubernetes/logs: enabled: false` to the toolsets section above.
-
 ## 3. Connect Your Cloud Provider
 
 Cloud provider access lets Holmes investigate infrastructure-level causes — misconfigured security groups, IAM permission changes, database failovers, load balancer issues, DNS misconfigurations, or resource quota limits. Many production incidents involve changes at the infrastructure layer that aren't visible from application metrics or logs alone.
