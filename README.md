@@ -40,7 +40,11 @@ Production systems generate terabytes of metrics, logs, and traces. HolmesGPT is
 
 ### 40+ Pre-Built, Read-Only Integrations
 
-HolmesGPT ships with pre-built, read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources). All toolsets are safe by design—read-only operations, RBAC-compliant, and fully audited. No custom integration code required.
+Give SRE agents the data access they need, with the safety profile production demands. HolmesGPT ships with pre-built, read-only integrations for Prometheus, Grafana, Loki, Tempo, Kubernetes, Elasticsearch, Datadog, and [many more](#-data-sources)—RBAC-compliant and fully audited. No custom integration code required.
+
+### Runtime Dependency Graph
+
+Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed. Holmes infers service relationships from distributed traces, Kubernetes resource hierarchies, and metric labels—no static topology files required.
 
 ### Zero-Hallucination Visualizations
 
@@ -50,9 +54,9 @@ For supported clients, HolmesGPT generates interactive HTML and JavaScript visua
 
 HolmesGPT integrates into your incident response workflow. It fetches alerts from AlertManager, PagerDuty, OpsGenie, or Jira, investigates autonomously, and writes findings back to the source or posts to Slack—all without manual copy-paste between tools.
 
-### Kubernetes-Native Proactive Monitoring
+### Operator Mode
 
-The [Holmes Operator](https://holmesgpt.dev/operator/) brings declarative, scheduled health checks to Kubernetes via CRDs. Define checks as `HealthCheck` or `ScheduledHealthCheck` resources, and Holmes continuously monitors your cluster, alerting on failures via Slack or PagerDuty.
+Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. The [Holmes Operator](https://holmesgpt.dev/operator/) is configured as a Kubernetes operator with CRDs to define scheduled health checks, one-off health checks after new deployments, and more.
 
 ### Raw HTTP Endpoints as LLM-Friendly Tools
 

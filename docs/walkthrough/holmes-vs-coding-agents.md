@@ -61,9 +61,9 @@ HolmesGPT ships with pre-built integrations for the most popular observability a
 
 See the [full list of built-in toolsets](../data-sources/builtin-toolsets/index.md).
 
-### Safe, Read-Only Access
+### Safe by Design
 
-All built-in toolsets are read-only by design. Holmes respects existing platform permissions (Kubernetes RBAC, Grafana roles, cloud IAM policies) and logs all tool calls for auditability.
+Give SRE agents the data access they need, with the safety profile production demands. All built-in toolsets are read-only, respecting existing platform permissions (Kubernetes RBAC, Grafana roles, cloud IAM policies) with full audit logging of every tool call.
 
 ### No Setup Required
 
@@ -98,7 +98,19 @@ Holmes automatically transforms these raw endpoints to be LLM-friendly:
 - **Multiple auth methods**: Basic, Bearer, custom headers—configured once, used automatically
 - **Multi-instance**: Configure multiple API connectors with independent credentials
 
-## 3. Zero-Hallucination Visualizations
+## 3. Runtime Dependency Graph
+
+Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed.
+
+Holmes infers service relationships from the telemetry data already flowing through your stack:
+
+- **Distributed traces**: Span parent-child relationships in Tempo reveal which services call which, with latency at each hop
+- **Kubernetes resource graphs**: Ownership chains from deployments to pods to services, plus network policies and ingress rules
+- **Metric labels**: Prometheus `job`, `instance`, and custom labels connect metrics to the services that emit them
+
+No static topology file or manual diagram required—the dependency graph is rebuilt from live signals on every investigation.
+
+## 4. Zero-Hallucination Visualizations
 
 For supported clients, HolmesGPT generates interactive visualizations that are rendered directly from source data—the LLM never interprets or describes the visual content.
 
@@ -114,7 +126,7 @@ When Holmes queries a data source like Prometheus, the raw response data (time s
 
 The critical difference is that all visualization data comes directly from the source and is rendered by deterministic code, not generated or interpreted by the LLM. The LLM decides *what* to query and *how* to analyze it, but the visualization itself is a faithful rendering of the raw data. There is no opportunity for the LLM to hallucinate values, misread a graph, or fabricate trends—what you see is exactly what the data source returned.
 
-## 4. Alert-to-Resolution Workflow
+## 5. Alert-to-Resolution Workflow
 
 HolmesGPT integrates into your existing on-call and incident response workflows, covering the full lifecycle from alert ingestion to results delivery.
 
@@ -171,9 +183,11 @@ holmes ask "investigate the memory leak in payment-service" --interactive
 > "check if this correlates with deployment times"
 ```
 
-## 5. Kubernetes-Native Proactive Monitoring
+## 6. Operator Mode
 
-The [Holmes Operator](../operator/index.md) extends HolmesGPT from an on-demand investigation tool into a continuous, declarative health monitoring system using Kubernetes CRDs.
+Run in the background 24/7 to proactively find problems and notify your team, before production is impacted. Configured as a Kubernetes operator with CRDs to define scheduled health checks, one-off health checks after new deployments, and more.
+
+The [Holmes Operator](../operator/index.md) manages health checks as Kubernetes-native resources:
 
 ### One-Time Health Checks
 
@@ -219,9 +233,10 @@ See the [Operator documentation](../operator/index.md) for installation and conf
 |------------|------------------------|
 | **Petabyte-scale data** | Server-side filtering, jq/max_depth parameters, transformers for massive telemetry |
 | **40+ integrations** | Pre-built read-only toolsets, HTTP connector for any API |
+| **Runtime dependency graph** | Upstream/downstream chains inferred from traces, Kubernetes resources, and metric labels |
 | **Zero-hallucination visuals** | Interactive HTML/JS charts rendered from source data in a sandbox—LLM never touches the visual |
 | **Alert-to-resolution** | Ingestion from PagerDuty/OpsGenie/AlertManager/Jira, findings written back |
-| **Kubernetes-native monitoring** | Operator with CRD-based health checks, scheduling, and alert routing |
+| **Operator mode** | Background 24/7 health checks via CRDs, with scheduling and failure notifications |
 | **Raw HTTP → LLM tools** | HTTP connector turns any API into an LLM-friendly tool via YAML—no MCP needed |
 
 ## Get Started
