@@ -434,6 +434,7 @@ def _run_selection_menu(
         key_bindings=kb,
         style=_MENU_STYLE,
         full_screen=False,
+        erase_when_done=True,
     )
     app.run()
     return result[0]
@@ -884,6 +885,7 @@ def run_tree_editor(
         key_bindings=kb,
         style=_MENU_STYLE,
         full_screen=False,
+        erase_when_done=True,
     )
     app.run()
 
