@@ -393,6 +393,8 @@ def _run_selection_menu(
     hint: str = "Esc to cancel",
 ) -> Optional[int]:
     """Generic arrow-key menu. Returns selected index or None on cancel."""
+    if not items:
+        return None
     selected = [0]
     result: List[Optional[int]] = [None]
 
@@ -413,13 +415,13 @@ def _run_selection_menu(
     @kb.add("up")
     @kb.add("k")
     @kb.add("left")
-    def _up(event: Any) -> None:
+    def _up(_event: Any) -> None:
         selected[0] = (selected[0] - 1) % len(items)
 
     @kb.add("down")
     @kb.add("j")
     @kb.add("right")
-    def _down(event: Any) -> None:
+    def _down(_event: Any) -> None:
         selected[0] = (selected[0] + 1) % len(items)
 
     @kb.add("enter")
