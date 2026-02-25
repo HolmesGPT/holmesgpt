@@ -316,6 +316,8 @@ toolsets:
         user_description: "Tabular output of specific fields: kubectl get {{kind}} --all-namespaces -o custom-columns={{columns}}"
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
+          Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
+          "rows" (array of data rows), and "stderr" (any error output, or null).
           Memory-efficient way to query large clusters - only requested fields are transmitted.
           Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
 
@@ -330,7 +332,59 @@ toolsets:
 
           Note: Output is tabular text with column headers. Filtering works on the entire line.
           Note: not allowed characters are: ' / ; and newline
-        command:  kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}'{% if filter_pattern %} | (read -r header; echo "$header"; grep -E '{{ filter_pattern }}'){% endif %}
+        script: |
+          #!/bin/bash
+          err_file=$(mktemp)
+          output=$(kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}' 2>"$err_file")
+          kubectl_exit=$?
+          err_content=$(cat "$err_file" 2>/dev/null)
+          rm -f "$err_file"
+
+          if [ $kubectl_exit -ne 0 ] || [ -z "$output" ]; then
+            if command -v jq &>/dev/null; then
+              jq -n --arg stderr "$err_content" '{count: 0, header: null, rows: [], stderr: $stderr}'
+            else
+              echo "=== STDERR ==="
+              echo "$err_content"
+              echo "=== ROWS ==="
+              echo "=== COUNT ==="
+              echo 0
+            fi
+            exit 0
+          fi
+
+          # Split header and data rows
+          header=$(echo "$output" | head -1)
+          {% if filter_pattern %}
+          data=$(echo "$output" | tail -n +2 | grep -E '{{ filter_pattern }}' || true)
+          {% else %}
+          data=$(echo "$output" | tail -n +2)
+          {% endif %}
+
+          if command -v jq &>/dev/null; then
+            if [ -n "$data" ]; then
+              rows=$(echo "$data" | jq -R . | jq -s '.')
+              count=$(echo "$data" | wc -l)
+            else
+              rows="[]"
+              count=0
+            fi
+            jq -n \
+              --argjson count "$count" \
+              --arg header "$header" \
+              --argjson rows "$rows" \
+              --arg stderr "$err_content" \
+              '{count: $count, header: $header, rows: $rows, stderr: (if $stderr == "" then null else $stderr end)}'
+          else
+            echo "=== STDERR ==="
+            echo "$err_content"
+            echo "=== HEADER ==="
+            echo "$header"
+            echo "=== ROWS ==="
+            echo "$data"
+            echo "=== COUNT ==="
+            if [ -n "$data" ]; then echo "$data" | wc -l; else echo 0; fi
+          fi
         transformers:
           - name: llm_summarize
             config:
