@@ -1033,3 +1033,12 @@ def run_toolset_config_tui(
 
     if saved:
         _refresh_toolset_from_file(config_path, selected, console)
+        # Update in-memory config so subsequent edits see the saved values
+        if config.toolsets is None:
+            config.toolsets = {}
+        if selected.name not in config.toolsets or not isinstance(
+            config.toolsets.get(selected.name), dict
+        ):
+            config.toolsets[selected.name] = {}
+        config.toolsets[selected.name]["enabled"] = True
+        config.toolsets[selected.name]["config"] = selected.config
