@@ -189,23 +189,9 @@ Choose your installation method:
 
     The [official AWS MCP server](https://github.com/awslabs/mcp) runs locally on your machine via `uvx`.
 
-    **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/) must be installed.
+    **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/) and [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) must be installed with working credentials (`aws sts get-caller-identity` should succeed).
 
-    **Step 2a: Authenticate**
-
-    Holmes uses your existing AWS credentials. Make sure one of these is configured:
-
-    ```bash
-    # Option A: Use an existing AWS profile
-    aws sts get-caller-identity --profile your-profile
-
-    # Option B: Set credentials directly
-    export AWS_ACCESS_KEY_ID=AKIA...
-    export AWS_SECRET_ACCESS_KEY=...
-    export AWS_REGION=us-east-1
-    ```
-
-    **Step 2b: Configure Holmes CLI**
+    **Configure Holmes CLI**
 
     Add to `~/.holmes/config.yaml`:
 
@@ -253,7 +239,7 @@ Choose your installation method:
           Remember: Your goal is to gather evidence from AWS, not to instruct the user to gather it. Use the MCP server proactively to build a complete picture of what happened.
     ```
 
-    **Step 2c: Test it**
+    **Test it**
 
     ```bash
     holmes ask "List my EC2 instances and their current status"
