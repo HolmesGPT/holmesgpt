@@ -5,13 +5,13 @@ The Azure MCP server gives Holmes **read-only access to any Azure API** you perm
 ## Overview
 
 - **Helm users**: The MCP server pod is deployed automatically when you enable the addon
-- **CLI users**: The MCP server runs locally on your machine as a subprocess -- no Kubernetes cluster required
+- **CLI users**: The MCP server runs locally on your machine as a subprocess
 
 ## Configuration
 
 === "Holmes CLI"
 
-    The same [Azure API MCP server](https://github.com/Azure/azure-api-mcp) used in-cluster can run locally on your machine in stdio mode. No Kubernetes cluster required.
+    The same [Azure API MCP server](https://github.com/Azure/azure-api-mcp) used in-cluster can run locally on your machine in stdio mode.
 
     **Prerequisites:** Go 1.24+ and [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) must be installed.
 

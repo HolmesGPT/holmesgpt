@@ -187,7 +187,7 @@ Choose your installation method:
 
 === "Holmes CLI"
 
-    The [official AWS MCP server](https://github.com/awslabs/mcp) runs locally on your machine via `uvx`. No Kubernetes cluster required.
+    The [official AWS MCP server](https://github.com/awslabs/mcp) runs locally on your machine via `uvx`.
 
     **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/) must be installed.
 
