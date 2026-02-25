@@ -9,7 +9,7 @@
 #   CONFLUENCE_SA_BASE_URL, CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY - For setup/teardown
 
 user_prompt: |
-  In the Confluence space 'HOLMES217', find the page titled 'Release Notes'
+  In the Confluence space 'HOLMES224', find the page titled 'Release Notes'
   and tell me the build number mentioned in it.
 
 expected_output:
@@ -23,8 +23,8 @@ tags:
 before_test: |
   set -e
 
-  SPACE_KEY="HOLMES217"
-  SPACE_NAME="Holmes Test Space 217"
+  SPACE_KEY="HOLMES224"
+  SPACE_NAME="Holmes Test Space 224"
   PAGE_TITLE="Release Notes"
   BUILD_NUMBER="BUILD-2024-Q4-7M3X9R"
 
@@ -38,7 +38,7 @@ before_test: |
       \"name\": \"${SPACE_NAME}\",
       \"description\": {
         \"plain\": {
-          \"value\": \"Test space for Holmes eval 217\",
+          \"value\": \"Test space for Holmes eval 224\",
           \"representation\": \"plain\"
         }
       }
@@ -115,7 +115,7 @@ before_test: |
 after_test: |
   set -e
 
-  SPACE_KEY="HOLMES217"
+  SPACE_KEY="HOLMES224"
 
   echo "Deleting space ${SPACE_KEY}..."
   HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
