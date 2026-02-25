@@ -52,7 +52,11 @@ spec:
         # environments that enforce read-only root filesystems.
         securityContext:
           readOnlyRootFilesystem: true
-        command: ["python3", "-u", "server.py"]
+        {{- if and .Values.otlp.enabled .Values.otlp.endpoint }}
+        command: ["opentelemetry-instrument", "python3", "-u", "{{ if .Values.experimental.aguiServer.enabled }}experimental/ag-ui/server-agui.py{{ else }}server.py{{ end }}"]
+        {{- else }}
+        command: ["python3", "-u", "{{ if .Values.experimental.aguiServer.enabled }}experimental/ag-ui/server-agui.py{{ else }}server.py{{ end }}"]
+        {{- end }}
         {{- if .Values.args }}
         args:
         {{- toYaml .Values.args | nindent 8 }}
@@ -83,6 +87,30 @@ spec:
             value: {{ include "holmes.enableTelemetry" . | quote }}
           - name: SENTRY_DSN
             value: {{ .Values.sentryDSN }}
+          {{- if and .Values.otlp.enabled .Values.otlp.endpoint }}
+          - name: OTEL_SERVICE_NAME
+            value: {{ .Values.otlp.service | quote }}
+          - name: OTEL_METRICS_EXPORTER
+            value: {{ .Values.otlp.metrics | quote }}
+          - name: OTEL_LOGS_EXPORTER
+            value: {{ .Values.otlp.logs | quote }}
+          {{- if .Values.otlp.protocol }}
+          - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: {{ .Values.otlp.protocol | quote }}
+          {{- end }}
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: {{ .Values.otlp.endpoint | quote }}
+          {{- if .Values.otlp.insecure }}
+          - name: OTEL_EXPORTER_OTLP_INSECURE
+            value: {{ .Values.otlp.insecure | quote }}
+          {{- end }}
+          {{- if .Values.otlp.headers }}
+          - name: OTEL_EXPORTER_OTLP_HEADERS
+            value: {{ .Values.otlp.headers | quote }}
+          {{- end }}
+          - name: OTEL_PYTHON_FASTAPI_EXCLUDED_URLS
+            value: {{ .Values.otlp.excludedUrls | default "/healthz,/readyz" | quote }}
+          {{- end }}
           {{ if .Values.certificate -}}
           - name: CERTIFICATE
             value: {{ .Values.certificate }}

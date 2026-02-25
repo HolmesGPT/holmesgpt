@@ -1,6 +1,25 @@
 certificate: "" # base64 encoded
 logLevel: INFO
 
+# Experimental: run AG-UI server (experimental/ag-ui/server-agui.py) instead of server.py.
+# When true, the deployment serves the AG-UI endpoint at /api/agui/chat for ExampleOps-style UIs.
+experimental:
+  aguiServer:
+    enabled: false
+
+# OpenTelemetry instrumentation (env vars for opentelemetry-instrument)
+# Set otlp.endpoint to send traces to a collector
+otlp:
+  enabled: false
+  service: holmesgpt
+  metrics: "none"
+  logs: "none"
+  endpoint: "" # e.g. "http://otel-collector:4317"
+  # excludedUrls: defaults to "/healthz,/readyz" in the template; set to override or "" to trace all paths
+  # protocol: "grpc"       # OTLP protocol: "grpc" or "http/protobuf"
+  # insecure: "false"      # Set to "true" for plaintext
+  # headers: ""            # Optional headers as "key1=value1,key2=value2"
+
 additionalEnvVars: []
 additional_env_vars: []
 imagePullSecrets: []

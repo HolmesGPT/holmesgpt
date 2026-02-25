@@ -23,6 +23,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from litellm.exceptions import AuthenticationError
+from opentelemetry.instrumentation.mcp import McpInstrumentor
 
 from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
@@ -84,6 +85,14 @@ def init_logging():
     litellm_logger = logging.getLogger("LiteLLM")
     if litellm_logger:
         litellm_logger.handlers = []
+
+    # Append "otel" to LiteLLM callbacks when OTLP endpoint is set (avoid dropping other callbacks).
+    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        callbacks = list(litellm.callbacks) if litellm.callbacks else []
+        if "otel" not in callbacks:
+            callbacks.append("otel")
+        litellm.callbacks = callbacks
+        McpInstrumentor().instrument()
 
     logging.info(f"logger initialized using {logging_level} log level")
 

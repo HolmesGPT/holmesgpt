@@ -1,8 +1,11 @@
 import logging
+import os
 import warnings
 from enum import Enum
 from typing import List, Optional
 
+import litellm
+from opentelemetry.instrumentation.mcp import McpInstrumentor
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -43,6 +46,15 @@ def suppress_noisy_logs():
 
 def init_logging(verbose_flags: Optional[List[bool]] = None, log_costs: bool = False):
     verbosity = cli_flags_to_verbosity(verbose_flags)  # type: ignore
+
+    # Enable LiteLLM OpenTelemetry callback when OTLP endpoint is set (same as server.py).
+    # Append "otel" to existing callbacks to avoid dropping others; guard against duplicates.
+    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        callbacks = list(litellm.callbacks) if litellm.callbacks else []
+        if "otel" not in callbacks:
+            callbacks.append("otel")
+        litellm.callbacks = callbacks
+        McpInstrumentor().instrument()
 
     # Setup cost logger if requested
     if log_costs:

@@ -37,6 +37,7 @@ from holmes.core.tools_utils.tool_context_window_limiter import (
 )
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import DummySpan
+from holmes.utils.otel_context import bind_with_current_otel_context
 from holmes.core.truncation.input_context_window_limiter import (
     CompactionInsufficientError,
     check_compaction_needed,
@@ -885,7 +886,7 @@ class ToolCallingLLM:
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index
 
-                    future = executor.submit(
+                    task = bind_with_current_otel_context(
                         self._invoke_llm_tool_call,
                         tool_to_call=t,  # type: ignore
                         previous_tool_calls=tool_calls,
@@ -895,6 +896,7 @@ class ToolCallingLLM:
                         request_context=request_context,
                         enable_tool_approval=enable_tool_approval,
                     )
+                    future = executor.submit(task)
                     futures.append(future)
                     yield StreamMessage(
                         event=StreamEvents.START_TOOL,

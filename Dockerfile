@@ -1,5 +1,5 @@
 # Build stage
-FROM python:3.11-slim-bookworm as builder
+FROM python:3.11-slim-bookworm AS builder
 ENV PATH="/root/.local/bin/:$PATH"
 
 RUN apt-get update \
@@ -77,7 +77,7 @@ FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/venv/bin:$PATH"
-ENV PYTHONPATH=$PYTHONPATH:.:/app/holmes
+ENV PYTHONPATH=.:/app/holmes
 
 WORKDIR /app
 

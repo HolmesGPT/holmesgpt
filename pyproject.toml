@@ -75,6 +75,16 @@ clickhouse-sqlalchemy = "^0.3.2"
 pymssql = "^2.3.0"
 pymongo = "^4.7.0"
 
+# OpenTelemetry: distro[otlp] pulls in api, sdk, and both OTLP exporters (proto-grpc + proto-http).
+# Instrumentation packages are not pulled by distro; add only the ones you use.
+# semantic-conventions-ai is for gen_ai attributes (LiteLLM / backends).
+opentelemetry-distro = {version = "^0.61b0", extras = ["otlp"]}
+opentelemetry-instrumentation-fastapi = "^0.61b0"
+opentelemetry-instrumentation-requests = "^0.61b0"
+opentelemetry-instrumentation-httpx = "^0.61b0"
+opentelemetry-instrumentation-mcp = "^0.53.0"
+opentelemetry-semantic-conventions-ai = "^0.4.15"
+
 [tool.poetry.group.dev]
 optional = true
 
@@ -101,11 +111,6 @@ mkdocs-awesome-nav = "^3.2.0"
 mike = "^2.1.0"
 pytest-asyncio = "^1.3.0"
 respx = "^0.22.0"
-# OpenTelemetry packages for Coralogix eval tests (send traces/metrics)
-opentelemetry-api = "^1.20.0"
-opentelemetry-sdk = "^1.20.0"
-opentelemetry-exporter-otlp-proto-grpc = "^1.20.0"
-opentelemetry-exporter-otlp-proto-http = "^1.20.0"
 
 [build-system]
 requires = ["poetry-core"]

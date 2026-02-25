@@ -18,7 +18,7 @@ import uuid
 import uvicorn
 import colorlog
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from starlette.responses import PlainTextResponse
@@ -29,6 +29,7 @@ from holmes.common.env_vars import (
     HOLMES_PORT,
 )
 from holmes.config import Config
+from holmes.utils.log import EndpointFilter
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -54,6 +55,11 @@ from ag_ui.encoder import EventEncoder
 
 
 def init_logging():
+    # Filter out periodical health and readiness probe.
+    uvicorn_logger = logging.getLogger("uvicorn.access")
+    uvicorn_logger.addFilter(EndpointFilter(path="/healthz"))
+    uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
+
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
     logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
     logging_datefmt = "%Y-%m-%d %H:%M:%S"
@@ -92,6 +98,21 @@ def agui_chat_health(request: Request):
     return JSONResponse(content="ok")
 
 
+@app.get("/healthz")
+def health_check():
+    return {"status": "healthy"}
+
+
+@app.get("/readyz")
+def readiness_check():
+    try:
+        models_list = config.get_models_list()
+        return {"status": "ready", "models": models_list}
+    except Exception as e:
+        logging.error(f"Readiness check failed: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+
 @app.post("/api/agui/chat")
 def agui_chat(input_data: RunAgentInput, request: Request):
     accept_header = request.headers.get("accept", "")
@@ -123,6 +144,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
     # Hijack the existing HolmesGPT cat stream output and format as AG-UI events.
 
     async def event_generator(message_history):
+        run_metadata = None  # Token usage, costs, and context stats from the last stream chunk
         try:
             yield encoder.encode(
                 RunStartedEvent(
@@ -136,6 +158,20 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 enable_tool_approval=chat_request.enable_tool_approval or False,
             )
             for chunk in hgpt_chat_stream_response:
+                # Capture usage/token/costs from ANSWER_END or TOKEN_COUNT for RunFinishedEvent
+                if hasattr(chunk, "event") and hasattr(chunk, "data"):
+                    event_type = (
+                        chunk.event.value
+                        if hasattr(chunk.event, "value")
+                        else str(chunk.event)
+                    )
+                    if event_type in (
+                        StreamEvents.ANSWER_END,
+                        StreamEvents.TOKEN_COUNT,
+                    ):
+                        meta = chunk.data.get("metadata") if chunk.data else None
+                        if meta:
+                            run_metadata = meta
                 if hasattr(chunk, "event"):
                     event_type = (
                         chunk.event.value
@@ -224,6 +260,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     type=EventType.RUN_FINISHED,
                     thread_id=input_data.thread_id,
                     run_id=input_data.run_id,
+                    result=run_metadata,
                 )
             )
         except Exception as e:
