@@ -24,6 +24,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style as PTStyle
 from pydantic import BaseModel
 from rich.console import Console
@@ -495,6 +496,7 @@ def run_tree_editor(
     edit_buf = [Buffer()]
     status_lines: List[Tuple[str, str]] = []
     saved = [False]
+    not_editing = Condition(lambda: not editing[0])
 
     total_items = lambda: len(flat_rows) + len(_BUTTON_LABELS)  # noqa: E731
 
@@ -694,7 +696,7 @@ def run_tree_editor(
     kb = KeyBindings()
 
     @kb.add("up")
-    @kb.add("k")
+    @kb.add("k", filter=not_editing)
     @kb.add("left")
     def _up(event: Any) -> None:
         if editing[0]:
@@ -702,7 +704,7 @@ def run_tree_editor(
         cursor[0] = (cursor[0] - 1) % total_items()
 
     @kb.add("down")
-    @kb.add("j")
+    @kb.add("j", filter=not_editing)
     @kb.add("right")
     def _down(event: Any) -> None:
         if editing[0]:
