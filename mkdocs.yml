@@ -114,6 +114,7 @@ nav:
           - "Overview": development/index.md
           - "Tool Output Transformers": development/transformers.md
     - Reference:
+          - "Python SDK": reference/python-sdk.md
           - "Environment Variables": reference/environment-variables.md
           - "Helm Configuration": reference/helm-configuration.md
           - "Kubernetes Permissions": reference/kubernetes-permissions.md
