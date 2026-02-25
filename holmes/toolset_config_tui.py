@@ -686,7 +686,7 @@ def run_tree_editor(
             parts.extend(status_lines)
 
         # Hint line
-        parts.append(("class:hint", "\n  Up/Down: navigate | Enter: edit/select | Ctrl+D: delete entry | Esc: cancel edit\n"))
+        parts.append(("class:hint", "\n  Up/Down: navigate | Enter: edit/select | Backspace: delete entry | Esc: cancel edit\n"))
         return parts
 
     # ── key bindings ──
