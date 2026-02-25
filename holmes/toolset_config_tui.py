@@ -721,13 +721,13 @@ def run_tree_editor(
 
     kb = KeyBindings()
 
-    @kb.add("up")
+    @kb.add("up", filter=not_editing)
     @kb.add("k", filter=not_editing)
     @kb.add("left", filter=not_editing)
     def _up(event: Any) -> None:
         cursor[0] = (cursor[0] - 1) % total_items()
 
-    @kb.add("down")
+    @kb.add("down", filter=not_editing)
     @kb.add("j", filter=not_editing)
     @kb.add("right", filter=not_editing)
     def _down(event: Any) -> None:
