@@ -1,0 +1,231 @@
+# Test: Elasticsearch Cross-Service Spike Onset Timing Analysis
+#
+# 5 service indexes, each with 1440 minutely data points (24 hours).
+# NO marker fields - the LLM must discover spike timing from raw metrics alone.
+#
+# The key challenge: multiple services have spikes, and the LLM must determine
+# the EXACT onset minute for each spike, then compare to find correlations.
+# There are also random noise spikes (2-3 minutes, smaller amplitude) in every
+# service that act as distractors.
+#
+# Spike schedule (onset = first minute where spike begins):
+# - service-alpha: error_rate spike starts at minute 360 (06:00 UTC)
+# - service-beta: latency spike starts at minute 367 (06:07 UTC) - 7 min lag from alpha
+# - service-gamma: latency spike starts at minute 367 (06:07 UTC) - same 7 min lag
+# - service-delta: latency spike starts at minute 720 (12:00 UTC) - INDEPENDENT
+# - service-epsilon: no sustained spike (control)
+#
+# All services have occasional 2-3 minute noise bursts throughout the day.
+# The LLM must distinguish sustained spikes (15 min) from noise bursts (2-3 min).
+#
+# Anti-hallucination: No marker fields. The ONLY way to determine the answer is
+# to use date_histogram or range queries to identify spike onset times per service,
+# then compare them.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "We had an incident affecting multiple services. Analyze the minutely metrics across all app-212-metrics-* indexes. For each service, use date_histogram aggregations to identify any sustained latency or error_rate spikes (lasting 10+ minutes, not brief noise bursts). Report the EXACT onset time (hour:minute UTC) when each sustained spike began. Then determine: which services have correlated spikes (onset times within 10 minutes of each other), and what is the exact lag in minutes from the earliest correlated spike to the others?"
+
+expected_output:
+  - "Must identify service-alpha's sustained error_rate spike starting at approximately 06:00 UTC (minute 360)"
+  - "Must identify service-beta's sustained latency spike starting at approximately 06:07 UTC (minute 367)"
+  - "Must identify service-gamma's sustained latency spike starting at approximately 06:07 UTC (minute 367)"
+  - "Must report the lag between alpha and beta/gamma as approximately 7 minutes"
+  - "Must identify service-delta's spike around 12:00 UTC as independent (not correlated with the alpha-beta-gamma cluster)"
+  - "Must correctly distinguish sustained spikes from brief noise bursts and identify service-epsilon as having no sustained spike"
+
+tags:
+  - elasticsearch
+  - hard
+  - benchmark
+  - fast
+  - regression
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating 5 service metric indexes for spike correlation test..."
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-212-metrics-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  for service in alpha beta gamma delta epsilon; do
+    CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-212-metrics-service-${service}" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      -d '{
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        },
+        "mappings": {
+          "properties": {
+            "@timestamp": {"type": "date"},
+            "service": {"type": "keyword"},
+            "latency_ms": {"type": "float"},
+            "error_rate": {"type": "float"},
+            "request_count": {"type": "integer"}
+          }
+        }
+      }')
+
+    if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+      echo "Failed to create index for service-${service}: $CREATE_RESPONSE"
+      exit 1
+    fi
+  done
+
+  echo "Generating minutely metric data with noise bursts..."
+
+  cat > /tmp/es_gen_212.py << 'PYSCRIPT'
+  import json, random
+
+  random.seed(42)
+
+  base_ts = "2024-03-10T{:02d}:{:02d}:00Z"
+  docs = []
+
+  # Noise burst schedule: random 2-3 minute bursts at various times for ALL services
+  # These are distractors that should NOT be counted as sustained spikes
+  noise_bursts = {
+      "alpha": [(120, 122), (500, 502), (900, 901), (1100, 1102)],
+      "beta": [(80, 82), (250, 252), (600, 601), (1000, 1002), (1300, 1301)],
+      "gamma": [(150, 151), (400, 402), (800, 802), (1200, 1201)],
+      "delta": [(200, 202), (450, 451), (650, 652), (1050, 1051)],
+      "epsilon": [(100, 102), (300, 301), (550, 552), (750, 751), (950, 952), (1150, 1151), (1350, 1352)],
+  }
+
+  for minute in range(1440):
+      hour = minute // 60
+      min_in_hour = minute % 60
+      ts = base_ts.format(hour, min_in_hour)
+
+      # Service Alpha: error_rate spike at minute 360, lasting 15 minutes
+      alpha_latency = 50 + random.gauss(0, 8)
+      alpha_error = 0.02 + random.gauss(0, 0.005)
+      if 360 <= minute <= 374:
+          alpha_error = 0.28 + random.gauss(0, 0.04)
+      # Noise bursts for alpha - smaller amplitude
+      for start, end in noise_bursts["alpha"]:
+          if start <= minute <= end:
+              alpha_error = 0.12 + random.gauss(0, 0.02)
+
+      docs.append({"_index": "app-212-metrics-service-alpha", "ts": ts,
+                   "service": "service-alpha", "latency_ms": round(max(alpha_latency, 5), 1),
+                   "error_rate": round(max(alpha_error, 0), 4), "request_count": random.randint(80, 120)})
+
+      # Service Beta: latency spike at minute 367 (7 min after alpha), lasting 15 minutes
+      beta_latency = 45 + random.gauss(0, 7)
+      beta_error = 0.01 + random.gauss(0, 0.003)
+      if 367 <= minute <= 381:
+          beta_latency = 420 + random.gauss(0, 35)
+      for start, end in noise_bursts["beta"]:
+          if start <= minute <= end:
+              beta_latency = 180 + random.gauss(0, 20)
+
+      docs.append({"_index": "app-212-metrics-service-beta", "ts": ts,
+                   "service": "service-beta", "latency_ms": round(max(beta_latency, 5), 1),
+                   "error_rate": round(max(beta_error, 0), 4), "request_count": random.randint(60, 100)})
+
+      # Service Gamma: latency spike at minute 367 (same 7 min lag as beta)
+      gamma_latency = 60 + random.gauss(0, 10)
+      gamma_error = 0.015 + random.gauss(0, 0.004)
+      if 367 <= minute <= 381:
+          gamma_latency = 480 + random.gauss(0, 45)
+      for start, end in noise_bursts["gamma"]:
+          if start <= minute <= end:
+              gamma_latency = 200 + random.gauss(0, 25)
+
+      docs.append({"_index": "app-212-metrics-service-gamma", "ts": ts,
+                   "service": "service-gamma", "latency_ms": round(max(gamma_latency, 5), 1),
+                   "error_rate": round(max(gamma_error, 0), 4), "request_count": random.randint(70, 110)})
+
+      # Service Delta: INDEPENDENT spike at minute 720 (12:00 UTC)
+      delta_latency = 55 + random.gauss(0, 9)
+      delta_error = 0.018 + random.gauss(0, 0.004)
+      if 720 <= minute <= 734:
+          delta_latency = 350 + random.gauss(0, 30)
+          delta_error = 0.22 + random.gauss(0, 0.03)
+      for start, end in noise_bursts["delta"]:
+          if start <= minute <= end:
+              delta_latency = 170 + random.gauss(0, 20)
+
+      docs.append({"_index": "app-212-metrics-service-delta", "ts": ts,
+                   "service": "service-delta", "latency_ms": round(max(delta_latency, 5), 1),
+                   "error_rate": round(max(delta_error, 0), 4), "request_count": random.randint(50, 90)})
+
+      # Service Epsilon: no sustained spike, only noise bursts (control)
+      epsilon_latency = 40 + random.gauss(0, 6)
+      epsilon_error = 0.01 + random.gauss(0, 0.003)
+      for start, end in noise_bursts["epsilon"]:
+          if start <= minute <= end:
+              epsilon_latency = 160 + random.gauss(0, 15)
+
+      docs.append({"_index": "app-212-metrics-service-epsilon", "ts": ts,
+                   "service": "service-epsilon", "latency_ms": round(max(epsilon_latency, 5), 1),
+                   "error_rate": round(max(epsilon_error, 0), 4), "request_count": random.randint(40, 80)})
+
+  with open("/tmp/es_spike_212.ndjson", "w") as f:
+      for doc in docs:
+          idx = doc.pop("_index")
+          ts = doc.pop("ts")
+          f.write(json.dumps({"index": {"_index": idx}}) + "\n")
+          record = {"@timestamp": ts}
+          record.update(doc)
+          f.write(json.dumps(record) + "\n")
+
+  print(f"Generated {len(docs)} data points across 5 services")
+  PYSCRIPT
+  python3 /tmp/es_gen_212.py
+  rm -f /tmp/es_gen_212.py
+
+  DOC_COUNT=$(grep -c '"index"' /tmp/es_spike_212.ndjson)
+  echo "Bulk file has $DOC_COUNT documents"
+
+  split -l 2000 /tmp/es_spike_212.ndjson /tmp/es_spike_212_chunk_
+
+  for chunk in /tmp/es_spike_212_chunk_*; do
+    RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$chunk")
+
+    if echo "$RESPONSE" | grep -q '"errors":true'; then
+      echo "Errors in bulk insert chunk"
+      exit 1
+    fi
+  done
+
+  rm -f /tmp/es_spike_212.ndjson /tmp/es_spike_212_chunk_*
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-212-metrics-*/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 1
+
+  for service in alpha beta gamma delta epsilon; do
+    COUNT=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-212-metrics-service-${service}/_count" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      -d '{"query": {"match_all": {}}}' | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
+    echo "service-${service}: $COUNT documents"
+    if [ "$COUNT" -ne 1440 ]; then
+      echo "Expected 1440 documents for service-${service}, got $COUNT"
+      exit 1
+    fi
+  done
+
+  echo "Setup complete!"
+
+after_test: |
+  echo "Cleaning up test indexes..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-212-metrics-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  rm -f /tmp/es_spike_212*.ndjson /tmp/es_spike_212_chunk_*
+  echo "Cleanup complete"

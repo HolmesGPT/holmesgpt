@@ -2,6 +2,7 @@ import logging
 from typing import Any, Optional
 
 import sentry_sdk
+from litellm.exceptions import ContextWindowExceededError
 from pydantic import BaseModel
 
 from holmes.common.env_vars import (
@@ -156,9 +157,17 @@ def limit_input_context_window(
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
-        compacted_messages = compact_conversation_history(
-            original_conversation_history=messages, llm=llm
-        )
+        try:
+            compacted_messages = compact_conversation_history(
+                original_conversation_history=messages, llm=llm
+            )
+        except ContextWindowExceededError as e:
+            raise ContextWindowExceededError(
+                message=f"Conversation history ({initial_tokens.total_tokens} tokens) exceeds the model's context window ({max_context_size} tokens) and is too large even for compaction. "
+                f"This is a bug in HolmesGPT - please report it at https://github.com/robusta-dev/holmesgpt/issues",
+                model=llm.model,
+                llm_provider=getattr(llm, "provider", "unknown"),
+            ) from e
         compacted_tokens = llm.count_tokens(compacted_messages, tools=tools)
         compacted_total_tokens = compacted_tokens.total_tokens
 

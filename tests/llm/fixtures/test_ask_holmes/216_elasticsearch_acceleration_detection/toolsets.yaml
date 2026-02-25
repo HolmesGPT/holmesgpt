@@ -1,0 +1,20 @@
+toolsets:
+  elasticsearch/data:
+    enabled: true
+    config:
+      url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true
+  # Disable toolsets that require K8s/helm
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

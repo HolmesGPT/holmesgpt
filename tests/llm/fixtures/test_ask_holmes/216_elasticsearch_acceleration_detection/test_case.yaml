@@ -1,0 +1,196 @@
+# Test: Elasticsearch Memory Growth Pattern Classification
+#
+# 4 services, 96 hours of hourly memory data (384 data points total).
+# Each service has a distinct growth pattern. The TRAP: svc-alpha (linear)
+# has the highest end value (~90%) but svc-beta (cubic/accelerating) at ~78%
+# will actually hit 100% sooner due to acceleration.
+#
+# NO marker fields. The LLM must retrieve data, compute growth rates over
+# different time windows, and identify acceleration vs deceleration.
+#
+# Growth patterns (neutral names to prevent answer leakage):
+# - svc-alpha: constant 0.5%/h, starts at 42%, ends at ~90%
+# - svc-beta: cubic growth, starts slow, accelerating. Starts 35%, ends ~78%
+#   BUT rate at end is ~1.4%/h and increasing. Would hit 100% in ~15h.
+# - svc-gamma: sigmoid curve, starts at ~4% (clamped to 25%), plateaus near 85%.
+#   Growth nearly stopped by end. Safe for days.
+# - svc-delta: 55-75%, sinusoidal, no trend. Control.
+#
+# The LLM must:
+# 1. Retrieve data for all 4 services
+# 2. Compare growth rates in first half vs second half of the window
+# 3. Identify svc-beta as most dangerous (accelerating, not highest value)
+# 4. Identify svc-gamma as LESS dangerous despite high current value
+# 5. Extrapolate approximately when svc-beta would hit 100%
+#
+# Anti-hallucination: No markers. Must compare first-half vs second-half
+# growth rates to distinguish acceleration from deceleration.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "Examine memory usage trends in app-216-memtrends for all 4 services over the 96-hour window. For each service, compare how fast memory was growing in the first half (hours 0-47) versus the second half (hours 48-95). Which service will reach 100% memory soonest? Show your reasoning by comparing first-half and second-half growth rates. Also identify any service whose growth has slowed down or plateaued."
+
+expected_output:
+  - "Must identify svc-beta as the most dangerous service due to acceleration (second-half growth rate much higher than first-half)"
+  - "Must NOT identify svc-alpha as most dangerous despite it having a higher current/end value (~90%) than svc-beta (~78%) - svc-alpha has constant rate while svc-beta is accelerating"
+  - "Must identify svc-gamma as safe despite having peaked near 85% because its growth has decelerated/plateaued"
+  - "Must estimate svc-beta will reach 100% sooner than svc-alpha (approximately 10-16 hours vs 20+ hours)"
+
+tags:
+  - elasticsearch
+  - hard
+  - benchmark
+  - fast
+  - regression
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating memory trends index..."
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-216-memtrends" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-216-memtrends" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": {"type": "date"},
+          "service": {"type": "keyword"},
+          "memory_pct": {"type": "float"},
+          "hour_index": {"type": "integer"}
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  echo "Generating 96 hours of memory trend data for 4 services..."
+
+  cat > /tmp/es_gen_216.py << 'PYSCRIPT'
+  import json, random, math
+
+  random.seed(314)
+
+  docs = []
+
+  for hour in range(96):
+      day = hour // 24
+      hour_of_day = hour % 24
+      ts = f"2024-05-{20+day:02d}T{hour_of_day:02d}:00:00Z"
+
+      # svc-alpha: constant 0.5%/h, starts at 42%, ends at ~90%
+      # Has HIGHER end value than svc-beta (trap: linear looks worse on absolute value)
+      mem_linear = 42 + hour * 0.5 + random.gauss(0, 0.8)
+      docs.append({
+          "@timestamp": ts, "service": "svc-alpha",
+          "memory_pct": round(min(max(mem_linear, 30), 95), 1),
+          "hour_index": hour
+      })
+
+      # svc-beta: cubic growth, starts very slow, ends at ~78%
+      # First-half (0-47): avg rate ~0.15%/h, Second-half (48-95): avg rate ~0.85%/h
+      # KEY: at hour 96, instantaneous rate is ~1.4%/h and STILL INCREASING
+      # Despite lower current value than svc-alpha, this service will overtake it
+      # and hit 100% in ~15 hours while svc-alpha takes ~20 hours
+      mem_accel = 35 + 0.00005 * (hour ** 3) + random.gauss(0, 0.5)
+      docs.append({
+          "@timestamp": ts, "service": "svc-beta",
+          "memory_pct": round(min(max(mem_accel, 30), 95), 1),
+          "hour_index": hour
+      })
+
+      # svc-gamma: logistic/sigmoid curve - fast rise then plateau near 85%
+      # Uses sigmoid: 85 / (1 + exp(-0.1*(hour-30)))
+      # At hour 0: ~4% (clamped to 25%), hour 30: ~42.5%, hour 48: ~70%, hour 96: ~85%
+      # First-half grows fast, second-half growth slows dramatically
+      sigmoid = 85.0 / (1.0 + math.exp(-0.1 * (hour - 30)))
+      mem_plateau = sigmoid + random.gauss(0, 0.6)
+      docs.append({
+          "@timestamp": ts, "service": "svc-gamma",
+          "memory_pct": round(min(max(mem_plateau, 25), 90), 1),
+          "hour_index": hour
+      })
+
+      # svc-delta: sinusoidal, no trend (control)
+      mem_osc = 65 + 10 * math.sin(2 * math.pi * hour / 24) + random.gauss(0, 1.0)
+      docs.append({
+          "@timestamp": ts, "service": "svc-delta",
+          "memory_pct": round(min(max(mem_osc, 45), 80), 1),
+          "hour_index": hour
+      })
+
+  with open("/tmp/es_memtrends_216.ndjson", "w") as f:
+      for doc in docs:
+          f.write(json.dumps({"index": {"_index": "app-216-memtrends"}}) + "\n")
+          f.write(json.dumps(doc) + "\n")
+
+  print(f"Generated {len(docs)} data points across 4 services (96 hours each)")
+
+  # Show key stats
+  for svc in ["svc-alpha", "svc-beta", "svc-gamma", "svc-delta"]:
+      svc_docs = [d for d in docs if d["service"] == svc]
+      vals = [d["memory_pct"] for d in svc_docs]
+      first_half = vals[:48]
+      second_half = vals[48:]
+      first_rate = (first_half[-1] - first_half[0]) / 47
+      second_rate = (second_half[-1] - second_half[0]) / 47
+      print(f"  {svc}:")
+      print(f"    start={vals[0]:.1f}%, end={vals[-1]:.1f}%")
+      print(f"    first_half_rate={first_rate:.3f}%/h, second_half_rate={second_rate:.3f}%/h")
+      print(f"    acceleration={second_rate-first_rate:.3f}%/h change")
+  PYSCRIPT
+  python3 /tmp/es_gen_216.py
+  rm -f /tmp/es_gen_216.py
+
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"/tmp/es_memtrends_216.ndjson")
+
+  if echo "$RESPONSE" | grep -q '"errors":true'; then
+    echo "Errors during bulk insert"
+    exit 1
+  fi
+
+  rm -f /tmp/es_memtrends_216.ndjson
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-216-memtrends/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 1
+
+  TOTAL=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-216-memtrends/_count" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query": {"match_all": {}}}' | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
+  echo "Total documents: $TOTAL"
+
+  if [ "$TOTAL" -ne 384 ]; then
+    echo "Expected 384 data points (4 services * 96 hours), got $TOTAL"
+    exit 1
+  fi
+
+  echo "Setup complete!"
+
+after_test: |
+  echo "Cleaning up memtrends index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-216-memtrends" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  rm -f /tmp/es_memtrends_216*.ndjson
+  echo "Cleanup complete"
