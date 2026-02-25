@@ -107,11 +107,10 @@ You can also pass the API key directly as a command-line parameter:
 holmes ask "what pods are failing?" --model="azure/<your-deployment-name>" --api-key="your-api-key"
 ```
 
+## Microsoft Entra ID Authentication
+
+To authenticate with Microsoft Entra ID (Azure AD) instead of an API key — including support for Workload Identity in AKS and environments where local auth is disabled — see [Azure Entra ID Authentication](azure-entra-id.md).
+
 ## Additional Resources
 
-HolmesGPT uses the LiteLLM API to support Azure OpenAI provider. For advanced authentication methods (Azure AD, Managed Identity, Workload Identity, Service Principal), refer to:
-
 - [LiteLLM Azure OpenAI docs](https://litellm.vercel.app/docs/providers/azure){:target="_blank"}
-- [LiteLLM OIDC docs](https://docs.litellm.ai/docs/oidc){:target="_blank"} - For Workload Identity and Managed Identity authentication
-- [LiteLLM Azure AD Token support (PR #3861)](https://github.com/BerriAI/litellm/pull/3861){:target="_blank"} - AKS Workload Identity OIDC support
-- [LiteLLM Azure Service Principal (PR #5131)](https://github.com/BerriAI/litellm/pull/5131){:target="_blank"} - Service Principal with client credentials
