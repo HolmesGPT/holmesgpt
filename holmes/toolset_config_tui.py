@@ -504,11 +504,36 @@ def run_tree_editor(
 
     # ── rendering ──
 
-    def _row_content_width(node: ConfigFieldNode) -> int:
+    def _compute_value_columns() -> Dict[Optional[int], int]:
+        """For each sibling group, compute the max display-name length.
+
+        Nodes are grouped by parent (id).  Dict children are excluded
+        because they use their own ``=``-sign alignment.
+        """
+        groups: Dict[Optional[int], int] = {}
+        for node in flat_rows:
+            if node.dict_key is not None:
+                continue
+            parent_id = id(node.parent) if node.parent else None
+            display_name = node.title if node.title else node.key
+            name_len = len(display_name)
+            if parent_id not in groups or name_len > groups[parent_id]:
+                groups[parent_id] = name_len
+        return groups
+
+    def _value_pad(node: ConfigFieldNode, value_columns: Dict[Optional[int], int]) -> str:
+        """Return the padding between the colon and the value for *node*."""
+        display_name = node.title if node.title else node.key
+        parent_id = id(node.parent) if node.parent else None
+        max_name_len = value_columns.get(parent_id, len(display_name))
+        return " " * (max_name_len - len(display_name))
+
+    def _row_content_width(node: ConfigFieldNode, value_columns: Dict[Optional[int], int]) -> int:
         """Compute the visible width of a row's content (before comment/hints)."""
         indent = "  " * (node.depth + 1)
         prefix = "  "  # use non-selected width for alignment
         display_name = node.title if node.title else node.key
+        pad = _value_pad(node, value_columns)
 
         if node.dict_key is not None:
             return 0  # no comments on these rows
@@ -516,32 +541,38 @@ def run_tree_editor(
         if node.is_header:
             count = len(node.children)
             type_bracket = "{}" if node.field_type == "dict" else "[]"
-            return len(f"{indent}{prefix}{display_name}: {type_bracket[0]}{count} items{type_bracket[1]}")
+            return len(f"{indent}{prefix}{display_name}:{pad} {type_bracket[0]}{count} items{type_bracket[1]}")
 
         val_display = str(node.value) if node.value is not None else ""
         if node.field_type == "bool":
             val_display = str(node.value).lower() if node.value is not None else "null"
 
-        return len(f"{indent}{prefix}{display_name}: {val_display}")
+        return len(f"{indent}{prefix}{display_name}:{pad} {val_display}")
 
-    def _compute_comment_column() -> int:
+    def _compute_comment_column(value_columns: Dict[Optional[int], int]) -> int:
         """Find the column where all comments should start."""
         max_width = 0
         for node in flat_rows:
             if node.description or node.is_header:
-                max_width = max(max_width, _row_content_width(node))
+                max_width = max(max_width, _row_content_width(node, value_columns))
         return max_width + 2 if max_width else 0  # 2 chars padding
 
-    def _render_row(node: ConfigFieldNode, selected: bool, comment_col: int) -> List[Tuple[str, str]]:
+    def _render_row(
+        node: ConfigFieldNode,
+        selected: bool,
+        comment_col: int,
+        value_columns: Dict[Optional[int], int],
+    ) -> List[Tuple[str, str]]:
         indent = "  " * (node.depth + 1)
         prefix = "> " if selected else "  "
         style = "class:selected" if selected else ""
         display_name = node.title if node.title else node.key
+        pad = _value_pad(node, value_columns)
 
         if node.is_header:
             count = len(node.children)
             type_bracket = "{}" if node.field_type == "dict" else "[]"
-            label = f"{indent}{prefix}{display_name}: {type_bracket[0]}{count} items{type_bracket[1]}"
+            label = f"{indent}{prefix}{display_name}:{pad} {type_bracket[0]}{count} items{type_bracket[1]}"
             hint_text = "# Enter to add entry"
             if comment_col > 0:
                 padding = max(2, comment_col - len(label))
@@ -598,7 +629,7 @@ def run_tree_editor(
             val_display = str(node.value) if node.value is not None else ""
             hints = ""
 
-        label_prefix = f"{indent}{prefix}{display_name}: "
+        label_prefix = f"{indent}{prefix}{display_name}:{pad} "
 
         row_parts = [
             (style, label_prefix),
@@ -628,9 +659,10 @@ def run_tree_editor(
         parts.append(("class:header", f"  Configure: {toolset.name}\n"))
         parts.append(("class:dim", f"  Schema: {config_class.__name__}\n\n"))
 
-        comment_col = _compute_comment_column()
+        value_columns = _compute_value_columns()
+        comment_col = _compute_comment_column(value_columns)
         for i, node in enumerate(flat_rows):
-            parts.extend(_render_row(node, selected=(cursor[0] == i), comment_col=comment_col))
+            parts.extend(_render_row(node, selected=(cursor[0] == i), comment_col=comment_col, value_columns=value_columns))
 
         # Separator
         parts.append(("", "\n"))
