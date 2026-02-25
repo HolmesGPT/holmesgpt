@@ -10,6 +10,7 @@ import io
 import logging
 import os
 import sys
+import types
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,6 +48,12 @@ try:
 except ImportError:  # pragma: no cover
     Annotated = None  # type: ignore
 
+# PEP 604 ``X | Y`` unions have origin ``types.UnionType`` (Python 3.10+).
+_UNION_TYPES: Tuple[Any, ...] = (Union,)
+_UnionType = getattr(types, "UnionType", None)
+if _UnionType is not None:
+    _UNION_TYPES = (Union, _UnionType)
+
 
 def _extract_base_model_subclass(annotation: Any) -> Optional[Type[BaseModel]]:
     """Best-effort extraction of a BaseModel subclass from a type annotation."""
@@ -57,7 +64,7 @@ def _extract_base_model_subclass(annotation: Any) -> Optional[Type[BaseModel]]:
         args = get_args(annotation)
         if args:
             return _extract_base_model_subclass(args[0])
-    if origin is Union:
+    if origin in _UNION_TYPES:
         args = [a for a in get_args(annotation) if a is not type(None)]  # noqa: E721
         if len(args) == 1:
             return _extract_base_model_subclass(args[0])
@@ -65,7 +72,7 @@ def _extract_base_model_subclass(annotation: Any) -> Optional[Type[BaseModel]]:
     try:
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             return annotation
-    except Exception:
+    except TypeError:
         return None
     return None
 
@@ -77,8 +84,8 @@ def _resolve_primitive_type(annotation: Any) -> str:
 
     origin = get_origin(annotation)
 
-    # Unwrap Optional / Union[X, None]
-    if origin is Union:
+    # Unwrap Optional / Union[X, None] (typing.Union and PEP 604 X | None)
+    if origin in _UNION_TYPES:
         args = [a for a in get_args(annotation) if a is not type(None)]  # noqa: E721
         if len(args) == 1:
             return _resolve_primitive_type(args[0])
