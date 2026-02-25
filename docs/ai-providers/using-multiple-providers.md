@@ -4,7 +4,7 @@ Define multiple model configurations and switch between them by name. This is us
 
 ## Configuration
 
-=== "CLI"
+=== "Holmes CLI"
 
     **1. Create a model list file:**
 
@@ -45,7 +45,7 @@ Define multiple model configurations and switch between them by name. This is us
 
     **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
 
-=== "Helm Chart (Robusta UI / HTTP API)"
+=== "Holmes Helm Chart"
 
     Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables.
 
@@ -147,6 +147,113 @@ Define multiple model configurations and switch between them by name. This is us
         thinking:
           budget_tokens: 10000
           type: enabled
+    ```
+
+    When multiple providers are defined, users can select which model to use from a dropdown in the Robusta UI, or specify a `model` parameter when using the HTTP API directly.
+
+=== "Robusta Helm Chart"
+
+    Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables. All Holmes configuration is nested under the `holmes:` key.
+
+    **Create the Kubernetes Secret:**
+
+    ```bash
+    # Example with all providers - only include what you're using
+    kubectl create secret generic robusta-holmes-secret \
+      --from-literal=openai-api-key="sk-..." \
+      --from-literal=anthropic-api-key="sk-ant-..." \
+      --from-literal=azure-api-key="..." \
+      --from-literal=aws-access-key-id="AKIA..." \
+      --from-literal=aws-secret-access-key="..." \
+      -n <namespace>
+
+    # Example with just OpenAI and Anthropic
+    kubectl create secret generic robusta-holmes-secret \
+      --from-literal=openai-api-key="sk-..." \
+      --from-literal=anthropic-api-key="sk-ant-..." \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+
+    ```yaml
+    # values.yaml
+    holmes:
+      # Reference only the API keys you created in the secret
+      additionalEnvVars:
+        - name: AZURE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: azure-api-key
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: anthropic-api-key
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: aws-access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: aws-secret-access-key
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: robusta-holmes-secret
+              key: openai-api-key
+
+      # Configure the model list using the environment variables
+      modelList:
+        # Standard OpenAI
+        openai-4.1:
+          api_key: "{{ env.OPENAI_API_KEY }}"
+          model: openai/gpt-4.1
+          temperature: 0
+
+        # Azure OpenAI Models
+        azure-41:
+          api_key: "{{ env.AZURE_API_KEY }}"
+          model: azure/gpt-4.1
+          api_base: https://your-resource.openai.azure.com/
+          api_version: "2025-01-01-preview"
+          temperature: 0
+
+        azure-gpt-5:
+          api_key: "{{ env.AZURE_API_KEY }}"
+          model: azure/gpt-5
+          api_base: https://your-resource.openai.azure.com/
+          api_version: "2025-01-01-preview"
+          temperature: 1 # only 1 is supported for gpt-5 models
+
+        # Anthropic Models
+        claude-sonnet-4:
+          api_key: "{{ env.ANTHROPIC_API_KEY }}"
+          model: claude-sonnet-4-20250514
+          temperature: 1
+          thinking:
+            budget_tokens: 10000
+            type: enabled
+
+        claude-opus-4-1:
+          api_key: "{{ env.ANTHROPIC_API_KEY }}"
+          model: claude-opus-4-1-20250805
+          temperature: 0
+
+        # AWS Bedrock
+        bedrock-claude:
+          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
+          aws_region_name: us-east-1
+          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+          model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+          temperature: 1
+          thinking:
+            budget_tokens: 10000
+            type: enabled
     ```
 
     When multiple providers are defined, users can select which model to use from a dropdown in the Robusta UI, or specify a `model` parameter when using the HTTP API directly.
