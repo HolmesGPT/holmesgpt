@@ -353,6 +353,11 @@ os.environ["OPENAI_API_KEY"] = "your-api-key"
 config = Config()  # Will auto-detect API key from environment
 ```
 
+## Next Steps
+
+- **[Recommended Setup](../data-sources/recommended-setup.md)** - Connect metrics, logs, and cloud providers to unlock deeper investigations
+- **[All Data Sources](../data-sources/index.md)** - Browse the full list of 38+ built-in integrations
+
 ## Need Help?
 
 - **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community

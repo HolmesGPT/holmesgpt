@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -99,6 +99,60 @@ data:
       )
     }}
     {{- $mcpServers = merge $mcpServers $githubMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.sentry.enabled }}
+    {{- $sentryMcpServers := dict "sentry" (dict
+        "description" "Sentry error tracking and monitoring - search issues, get stack traces, and analyze error patterns"
+        "config" (dict
+          "url" (printf "http://%s-sentry-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
+          "mode" "sse"
+          "icon_url" "https://cdn.simpleicons.org/sentry/362D59"
+        )
+        "llm_instructions" (include "holmes.sentryMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $sentryMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.prefect.enabled }}
+    {{- $prefectMcpServers := dict "prefect" (dict
+        "description" "Prefect workflow orchestration - monitor flow runs, check deployments, and troubleshoot failures"
+        "config" (dict
+          "url" (printf "http://%s-prefect-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
+          "mode" "sse"
+          "icon_url" "https://cdn.simpleicons.org/prefect/024DFD"
+        )
+        "llm_instructions" (include "holmes.prefectMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $prefectMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.kubernetesRemediation.enabled }}
+    {{- $k8sRemediationMcpServers := dict "kubernetes_remediation" (dict
+        "description" "Kubernetes remediation - execute kubectl commands to fix cluster issues"
+        "config" (dict
+          "url" (printf "http://%s-k8s-remediation-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
+          "mode" "streamable-http"
+          "icon_url" "https://cdn.simpleicons.org/kubernetes/326CE5"
+        )
+        "llm_instructions" (include "holmes.kubernetesRemediationMcp.llmInstructions" . | trim)
+        "restricted_tools" .Values.mcpAddons.kubernetesRemediation.restrictedTools
+        "approval_required_tools" .Values.mcpAddons.kubernetesRemediation.approvalRequiredTools
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $k8sRemediationMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.confluenceMcp.enabled }}
+    {{- $confluenceMcpServers := dict "confluence_mcp" (dict
+        "description" "Confluence documentation search and retrieval - find runbooks and internal documentation"
+        "config" (dict
+          "url" (printf "http://%s-confluence-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
+          "mode" "sse"
+          "icon_url" "https://cdn.simpleicons.org/confluence/172B4D"
+        )
+        "llm_instructions" (include "holmes.confluenceMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $confluenceMcpServers }}
     {{- end }}
     mcp_servers: {{ toYaml $mcpServers | nindent 6 }}
   model_list.yaml: |-

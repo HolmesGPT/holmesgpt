@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY pyproject.toml poetry.lock* ./
+RUN pip install --no-cache-dir poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-interaction --no-ansi --no-root
+
+COPY holmes_operator/ ./holmes_operator/
+
+RUN useradd -m -u 10001 holmesop && \
+    chown -R holmesop:holmesop /app
+USER 10001
+
+ENTRYPOINT ["python", "-m", "holmes_operator.operator"]

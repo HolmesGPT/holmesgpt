@@ -112,42 +112,8 @@ Configure your test by defining these fields in `test_case.yaml`:
   ```
 - `port_forwards`: Configure port forwarding for tests
 - `test_env_vars`: Environment variables during test execution
-- `mock_policy`: Control mock behavior (`always_mock`, `never_mock`, or `inherit`)
 - `conversation_history`: For multi-turn conversation tests
 - `expected_sections`: For investigation tests only
-
-## Mock Data Usage
-
-**Live evaluations (`RUN_LIVE=true`) are strongly preferred** because they're more reliable and accurate.
-
-### Generating Mock Data
-
-```bash
-# Generate mocks for one test
-poetry run pytest tests/llm/test_ask_holmes.py -k "your_test" --generate-mocks
-
-# Remove any existing mocks for your test and generate them from scratch
-poetry run pytest tests/llm/test_ask_holmes.py -k "your_test" --regenerate-all-mocks
-```
-
-Mock files are named: `{tool_name}_{context}.txt`
-
-### Mock Data Guidelines
-
-When creating mock data:
-
-- Never generate mock data manually - always use `--generate-mocks` with live execution
-- Mock data should match real-world responses exactly
-- Include all fields that would be present in actual responses
-- Maintain proper timestamps and data relationships
-
-### Important Notes About Mocks
-
-- **Mock data captures only one investigation path** - LLMs may take completely different approaches
-- Tests with mocks often fail when the LLM chooses a different but equally valid investigation strategy
-- Mock execution misses the dynamic nature of real troubleshooting
-- Always develop and validate tests with `RUN_LIVE=true`
-- Mock data becomes stale as APIs and tool behaviors evolve
 
 ## Advanced Features
 
@@ -212,7 +178,7 @@ Port forwards are:
 - Port forwards persist for the entire test session
 - If a port is already in use, the test will fail with helpful debugging information
 - Use `lsof -ti :<port>` to find processes using a port
-- Port forwards work with both mock and live (`RUN_LIVE=true`) test modes
+- Port forwards work with all test modes
 
 ### Toolset Configuration
 
@@ -227,16 +193,6 @@ toolsets:
   grafana/dashboards:
     enabled: false  # Disable specific toolsets
 ```
-
-### Mock Policy
-
-```yaml
-mock_policy: "inherit"  # Options: inherit (default), never_mock, always_mock
-```
-
-- `inherit`: Use global settings
-- `never_mock`: Force live execution (skipped if RUN_LIVE not set)
-- `always_mock`: Always use mocks (avoid when possible)
 
 ### Custom Runbooks
 
@@ -265,6 +221,5 @@ Some examples
 
 - `logs` - Tests HolmesGPT's ability to find and interpret logs correctly
 - `context_window` - Tests handling of data that exceeds the LLM's context window
-- `synthetic` - Tests that use manually generated mock data (cannot be run live)
 - `datetime` - Tests date/time handling and interpretation
 - etc.

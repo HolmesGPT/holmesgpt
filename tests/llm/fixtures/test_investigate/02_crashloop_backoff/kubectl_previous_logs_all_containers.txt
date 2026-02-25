@@ -1,7 +1,0 @@
-{"toolset_name": "kubernetes/logs", "tool_name": "fetch_pod_logs", "match_params": {"pod_name": "logging-agent", "namespace": "default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "fetch_pod_logs command", "params": {"pod_name": "logging-agent", "namespace": "default"}}
-Command `kubectl logs logging-agent -n default --previous --all-containers` failed with return code 1
-stdout:
-
-stderr:
-Error from server (BadRequest): previous terminated container "exporter" in pod "logging-agent" not found
