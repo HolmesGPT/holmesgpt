@@ -329,13 +329,21 @@ def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool
     log_handler = logging.StreamHandler(log_buf)
     log_handler.setLevel(logging.DEBUG)
     root_logger = logging.getLogger()
-    root_logger.addHandler(log_handler)
+
+    # Temporarily replace *all* root-logger handlers so that pre-existing
+    # handlers (e.g. RichHandler) don't write to the real console while
+    # the TUI is active.
+    saved_handlers = root_logger.handlers
+    saved_level = root_logger.level
+    root_logger.handlers = [log_handler]
+    root_logger.setLevel(logging.DEBUG)
 
     try:
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
             test_toolset.check_prerequisites(silent=True)
     finally:
-        root_logger.removeHandler(log_handler)
+        root_logger.handlers = saved_handlers
+        root_logger.setLevel(saved_level)
 
     # Build result message
     captured = ""
