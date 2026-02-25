@@ -330,8 +330,12 @@ toolsets:
           - Nested fields: CREATED:.metadata.creationTimestamp,IMAGE:.spec.containers[0].image
           - Array fields: LABELS:.metadata.labels,PORTS:.spec.ports[*].port
 
-          Note: Output is tabular text with column headers. Filtering works on the entire line.
-          Note: not allowed characters are: ' / ; and newline
+          LIMITATIONS - not allowed characters in columns: ' / ; and newline.
+          Label keys containing dots or slashes (e.g. kubernetes.io/arch, app.kubernetes.io/name)
+          CANNOT be queried with this tool because dots are path separators in JSONPath and
+          slashes are forbidden characters. Use kubernetes_jq_query instead for labels with
+          special characters, e.g.: .items[] | {name: .metadata.name, arch: .metadata.labels["kubernetes.io/arch"]}
+          Similarly, use .status.nodeInfo.architecture instead of .metadata.labels["kubernetes.io/arch"] when possible.
         script: |
           #!/bin/bash
           err_file=$(mktemp)
