@@ -48,6 +48,7 @@ from holmes.utils.console.consts import system_prompt_help
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.toolset_config_tui import run_toolset_config_tui
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
 
@@ -1024,8 +1025,6 @@ def config_toolset(
     """
     Interactive configuration editor for toolsets
     """
-    from holmes.toolset_config_tui import run_toolset_config_tui
-
     console = init_logging(verbose)
     config = Config.load_from_file(config_file)
     run_toolset_config_tui(config, config_file, console)
