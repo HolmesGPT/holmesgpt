@@ -303,15 +303,6 @@ Clients can specify the model in their API requests:
 ### Robusta AI Integration
 If you're a Robusta SaaS customer, you can also use [Robusta AI](robusta-ai.md) which provides access to multiple models without managing individual API keys.
 
-## Best Practices
-
-1. **Secure API keys**: Always use Kubernetes secrets for API keys in Helm deployments
-2. **Model recommendations**: For best results, consider using Anthropic's Claude Opus 4.1 or Claude Sonnet 4 models. GPT-4.1 provides a good balance of speed and capability as an alternative. See [benchmark results](../development/evaluations/latest-results.md) for detailed model performance comparisons.
-
-## Limitations
-
-- **No automatic failover**: If a selected model fails, clients must manually switch to another model
-
 ## See Also
 
 - [Environment Variables Reference](../reference/environment-variables.md)
