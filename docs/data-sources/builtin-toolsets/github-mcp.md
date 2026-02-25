@@ -420,37 +420,6 @@ kubectl create secret generic github-ca-cert \
 
 **Step 2:** Configure the GitHub MCP addon to use the CA certificate:
 
-=== "Holmes Helm Chart"
-
-    ```yaml
-    mcpAddons:
-      github:
-        enabled: true
-        auth:
-          secretName: "github-mcp-token"
-        config:
-          host: "https://github.mycompany.com"
-          customCACert:
-            enabled: true
-            # secretName: "github-ca-cert"  # default
-            # secretKey: "ca.crt"           # default
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        github:
-          enabled: true
-          auth:
-            secretName: "github-mcp-token"
-          config:
-            host: "https://github.mycompany.com"
-            customCACert:
-              enabled: true
-    ```
-
 === "Holmes CLI (Manual Deployment)"
 
     Add volume, volumeMount, and environment variables to your deployment:
@@ -480,6 +449,37 @@ kubectl create secret generic github-ca-cert \
         secret:
           secretName: github-ca-cert
           defaultMode: 420
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "github-mcp-token"
+        config:
+          host: "https://github.mycompany.com"
+          customCACert:
+            enabled: true
+            # secretName: "github-ca-cert"  # default
+            # secretKey: "ca.crt"           # default
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            secretName: "github-mcp-token"
+          config:
+            host: "https://github.mycompany.com"
+            customCACert:
+              enabled: true
     ```
 
 ### Tool Not Found Errors

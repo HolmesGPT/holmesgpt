@@ -106,6 +106,66 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
 Choose your installation method:
 
+=== "Holmes CLI"
+
+    The [official AWS MCP server](https://github.com/awslabs/mcp) runs locally on your machine via `uvx`.
+
+    **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/) and [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) must be installed with working credentials (`aws sts get-caller-identity` should succeed).
+
+    **Configure Holmes CLI**
+
+    Add to `~/.holmes/config.yaml`:
+
+    ```yaml
+    mcp_servers:
+      aws_api:
+        description: "AWS API - execute read-only AWS CLI commands for investigating infrastructure issues"
+        config:
+          mode: stdio
+          command: "uvx"
+          args: ["awslabs.aws-api-mcp-server@latest"]
+          env:
+            AWS_REGION: "us-east-1"  # Change to your region
+            READ_OPERATIONS_ONLY: "true"
+            # Uncomment to use a specific AWS profile:
+            # AWS_API_MCP_PROFILE_NAME: "your-profile"
+        llm_instructions: |
+          IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
+
+          ## Investigation Principles
+
+          **ALWAYS follow this investigation flow:**
+          1. First, gather current state and configuration using AWS APIs
+          2. Check CloudTrail for recent changes that might have caused the issue
+          3. Collect metrics and logs from CloudWatch if available
+          4. Analyze all gathered data before providing conclusions
+
+          **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
+
+          ## Core Investigation Patterns
+
+          ### For ANY connectivity or access issues:
+          1. ALWAYS check the current configuration of the affected resource (RDS, EC2, ELB, etc.)
+          2. ALWAYS examine security groups and network ACLs
+          3. ALWAYS query CloudTrail for recent configuration changes
+          4. Look for patterns in timing between when issues started and when changes were made
+
+          ### When investigating database issues (RDS):
+          - Get RDS instance status and configuration: `aws rds describe-db-instances --db-instance-identifier INSTANCE_ID`
+          - Check security groups attached to RDS: Extract VpcSecurityGroups from the above
+          - Examine security group rules: `aws ec2 describe-security-groups --group-ids SG_ID`
+          - Look for recent RDS events: `aws rds describe-events --source-identifier INSTANCE_ID --source-type db-instance`
+          - Check CloudTrail for security group modifications: `aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue=SG_ID`
+
+          Remember: Your goal is to gather evidence from AWS, not to instruct the user to gather it. Use the MCP server proactively to build a complete picture of what happened.
+    ```
+
+    **Test it**
+
+    ```bash
+    holmes ask "List my EC2 instances and their current status"
+    ```
+
 === "Holmes Helm Chart"
 
     **Step 2a: Update your values.yaml**
@@ -183,66 +243,6 @@ Choose your installation method:
 
     # Check the logs for any errors
     kubectl logs -l app.kubernetes.io/name=aws-mcp-server
-    ```
-
-=== "Holmes CLI"
-
-    The [official AWS MCP server](https://github.com/awslabs/mcp) runs locally on your machine via `uvx`.
-
-    **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/) and [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) must be installed with working credentials (`aws sts get-caller-identity` should succeed).
-
-    **Configure Holmes CLI**
-
-    Add to `~/.holmes/config.yaml`:
-
-    ```yaml
-    mcp_servers:
-      aws_api:
-        description: "AWS API - execute read-only AWS CLI commands for investigating infrastructure issues"
-        config:
-          mode: stdio
-          command: "uvx"
-          args: ["awslabs.aws-api-mcp-server@latest"]
-          env:
-            AWS_REGION: "us-east-1"  # Change to your region
-            READ_OPERATIONS_ONLY: "true"
-            # Uncomment to use a specific AWS profile:
-            # AWS_API_MCP_PROFILE_NAME: "your-profile"
-        llm_instructions: |
-          IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
-
-          ## Investigation Principles
-
-          **ALWAYS follow this investigation flow:**
-          1. First, gather current state and configuration using AWS APIs
-          2. Check CloudTrail for recent changes that might have caused the issue
-          3. Collect metrics and logs from CloudWatch if available
-          4. Analyze all gathered data before providing conclusions
-
-          **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
-
-          ## Core Investigation Patterns
-
-          ### For ANY connectivity or access issues:
-          1. ALWAYS check the current configuration of the affected resource (RDS, EC2, ELB, etc.)
-          2. ALWAYS examine security groups and network ACLs
-          3. ALWAYS query CloudTrail for recent configuration changes
-          4. Look for patterns in timing between when issues started and when changes were made
-
-          ### When investigating database issues (RDS):
-          - Get RDS instance status and configuration: `aws rds describe-db-instances --db-instance-identifier INSTANCE_ID`
-          - Check security groups attached to RDS: Extract VpcSecurityGroups from the above
-          - Examine security group rules: `aws ec2 describe-security-groups --group-ids SG_ID`
-          - Look for recent RDS events: `aws rds describe-events --source-identifier INSTANCE_ID --source-type db-instance`
-          - Check CloudTrail for security group modifications: `aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue=SG_ID`
-
-          Remember: Your goal is to gather evidence from AWS, not to instruct the user to gather it. Use the MCP server proactively to build a complete picture of what happened.
-    ```
-
-    **Test it**
-
-    ```bash
-    holmes ask "List my EC2 instances and their current status"
     ```
 
 ## Multi-Account Setup (Alternative)
@@ -352,6 +352,10 @@ aws eks describe-cluster --name <cluster-name> --query "cluster.identity.oidc.is
 
 Once the IAM roles are set up, configure the Helm chart to enable multi-account mode:
 
+=== "Holmes CLI"
+
+    Multi-account mode is not currently supported for CLI deployments. Use the [Single Account Setup](#single-account-setup) instead, or deploy Holmes via Helm.
+
 === "Holmes Helm Chart"
 
     Add the following configuration to your `values.yaml` file:
@@ -428,10 +432,6 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
             create: true
             # annotations are ignored when multiAccount is enabled
     ```
-
-=== "Holmes CLI"
-
-    Multi-account mode is not currently supported for CLI deployments. Use the [Single Account Setup](#single-account-setup) instead, or deploy Holmes via Helm.
 
 ## Example Usage
 
