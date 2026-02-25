@@ -297,7 +297,8 @@ See [Environment Variables Reference](../reference/environment-variables.md) for
 
 ## Next Steps
 
--   **[Add Data Sources](../data-sources/index.md)** - We encourage you to use built-in toolsets to connect with [AWS](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/), [Prometheus](https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/), [Loki](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/), [NewRelic](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/), [DataDog](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/), [ArgoCD](https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/), [Confluence](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/), and other monitoring tools.
+-   **[Recommended Setup](../data-sources/recommended-setup.md)** - Connect metrics, logs, and cloud providers to unlock deeper investigations.
+-   **[All Data Sources](../data-sources/index.md)** - Browse the full list of 38+ built-in integrations.
 -   **[Connect MCP Servers](../data-sources/remote-mcp-servers.md)** - Extend capabilities with external MCP servers.
 
 ## Need Help?

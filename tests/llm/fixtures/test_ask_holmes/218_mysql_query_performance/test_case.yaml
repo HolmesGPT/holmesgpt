@@ -1,0 +1,124 @@
+# Test: MySQL Query Performance - connectivity and performance diagnosis
+# Tests that Holmes can connect to MySQL, discover schema, query data,
+# and diagnose performance issues (missing index).
+
+user_prompt: |
+  1. List the tables in the database and tell me the verification code from the holmes_eval_218 table
+  2. I'm experiencing slow queries with this SQL: SELECT * FROM orders WHERE customer_id = 12345
+     Analyze why this query is slow and suggest how to fix it
+
+expected_output:
+  - "Must report the verification code: HOLMES-MYSQL-EVAL-218-m4x9k2"
+  - "Must mention the holmes_eval_218 table"
+  - "Must identify missing index on customer_id column"
+  - "Must suggest creating an index on customer_id"
+
+include_tool_calls: true
+
+tags:
+  - db-connectors
+
+setup_timeout: 120
+
+port_forwards:
+  - namespace: app-218
+    service: mysql
+    local_port: 10218
+    remote_port: 3306
+
+before_test: |
+  set -e
+
+  echo "⏳ Setting up MySQL in cluster..."
+
+  # Create namespace
+  kubectl create namespace app-218 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Deploy MySQL
+  kubectl apply -f mysql.yaml -n app-218
+
+  # Wait for MySQL to be ready
+  echo "⏳ Waiting for MySQL pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=mysql -n app-218 --timeout=5s 2>/dev/null; then
+      echo "✅ MySQL pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ MySQL pod failed to become ready after 60 seconds"
+    kubectl get pods -n app-218
+    kubectl logs -l app=mysql -n app-218 --tail=20
+    exit 1
+  fi
+
+  # Wait for MySQL to fully initialize
+  sleep 10
+
+  # Create test tables and data
+  echo "⏳ Creating test data..."
+  kubectl exec -n app-218 deployment/mysql -- mysql -h 127.0.0.1 -uholmes -pholmespass testdb -e "
+  -- Create verification table
+  DROP TABLE IF EXISTS holmes_eval_218;
+  CREATE TABLE holmes_eval_218 (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      category VARCHAR(50) NOT NULL,
+      verification_code VARCHAR(100) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  INSERT INTO holmes_eval_218 (category, verification_code)
+  VALUES ('eval_test', 'HOLMES-MYSQL-EVAL-218-m4x9k2');
+
+  -- Create orders table without index for performance test
+  DROP TABLE IF EXISTS orders;
+  CREATE TABLE orders (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      customer_id INT NOT NULL,
+      order_date DATE NOT NULL,
+      total_amount DECIMAL(10,2) NOT NULL,
+      status VARCHAR(20) NOT NULL
+  );
+
+  "
+
+  # Insert sample data using bulk inserts (10 batches of 100 rows each)
+  echo "⏳ Inserting 1K rows in bulk..."
+  for batch in {1..10}; do
+    SQL="INSERT INTO orders (customer_id, order_date, total_amount, status) VALUES "
+    for i in {1..100}; do
+      customer_id=$((1 + RANDOM % 1000))
+      days_ago=$((RANDOM % 365))
+      amount=$((10 + RANDOM % 990))
+      status_num=$((RANDOM % 3))
+      status="pending"
+      [ $status_num -eq 1 ] && status="completed"
+      [ $status_num -eq 2 ] && status="cancelled"
+
+      if [ $i -eq 100 ]; then
+        SQL="${SQL}($customer_id, DATE_SUB(CURDATE(), INTERVAL $days_ago DAY), $amount.00, '$status');"
+      else
+        SQL="${SQL}($customer_id, DATE_SUB(CURDATE(), INTERVAL $days_ago DAY), $amount.00, '$status'),"
+      fi
+    done
+    kubectl exec -n app-218 deployment/mysql -- mysql -h 127.0.0.1 -uholmes -pholmespass testdb -e "$SQL"
+  done
+
+  kubectl exec -n app-218 deployment/mysql -- mysql -h 127.0.0.1 -uholmes -pholmespass testdb -e "
+  "
+
+  # Verify data
+  VERIFICATION_CODE=$(kubectl exec -n app-218 deployment/mysql -- mysql -h 127.0.0.1 -uholmes -pholmespass testdb -sN -e "SELECT verification_code FROM holmes_eval_218;")
+  ORDER_COUNT=$(kubectl exec -n app-218 deployment/mysql -- mysql -h 127.0.0.1 -uholmes -pholmespass testdb -sN -e "SELECT COUNT(*) FROM orders;")
+  echo "✅ Verification code: $VERIFICATION_CODE"
+  echo "✅ Orders table has $ORDER_COUNT rows"
+
+  echo "✅ MySQL setup complete"
+
+after_test: |
+  echo "⏳ Cleaning up MySQL..."
+  kubectl delete namespace app-218 --ignore-not-found=true --wait=false 2>/dev/null || true
+  echo "✅ Cleanup initiated"

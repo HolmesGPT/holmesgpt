@@ -114,9 +114,6 @@ test_env_vars:
   CUSTOM_API_KEY: "test-key-123"
 ```
 
-### `mock_policy` (str)
-Controls HTTP mocking: `"always_mock"`, `"never_mock"`, or `"inherit"` (default).
-
 ### `skip` / `skip_reason` (bool / str)
 Skip test execution with a reason:
 
