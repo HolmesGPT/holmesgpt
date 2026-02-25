@@ -149,7 +149,7 @@ Define multiple model configurations and switch between them by name. This is us
           type: enabled
     ```
 
-    When multiple providers are defined, users can select which model to use from a dropdown in the Robusta UI, or specify a `model` parameter when using the HTTP API directly.
+    When multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
 
 === "Robusta Helm Chart"
 
