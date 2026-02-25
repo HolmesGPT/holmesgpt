@@ -132,6 +132,7 @@ theme:
         - content.action.view
         - content.code.annotate
         - content.code.copy
+        - content.tabs.link
         - content.tooltips
         - navigation.footer
         - navigation.indexes
