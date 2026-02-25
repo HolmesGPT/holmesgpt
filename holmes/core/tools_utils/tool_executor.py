@@ -62,13 +62,20 @@ class ToolExecutor:
         Returns None on success, or an error message string on failure.
         """
         toolset = self._tool_to_toolset.get(tool_name)
-        if toolset is None or not toolset.needs_initialization:
+        if toolset is None:
             return None
 
-        if not toolset.lazy_initialize():
-            error_msg = f"Toolset '{toolset.name}' failed to initialize: {toolset.error}"
+        if toolset.needs_initialization:
+            if not toolset.lazy_initialize():
+                error_msg = f"Toolset '{toolset.name}' failed to initialize: {toolset.error}"
+                logging.error(error_msg)
+                return error_msg
+        elif toolset.status == ToolsetStatusEnum.FAILED:
+            # Toolset was already initialized but failed — don't let tools execute
+            error_msg = f"Toolset '{toolset.name}' is unavailable: {toolset.error}"
             logging.error(error_msg)
             return error_msg
+
         return None
 
     @sentry_sdk.trace

@@ -75,3 +75,34 @@ def test_ensure_toolset_initialized_unknown_tool():
     tool_executor = ToolExecutor(toolsets=[toolset])
     result = tool_executor.ensure_toolset_initialized("nonexistent_tool")
     assert result is None
+
+
+def test_ensure_toolset_initialized_failure_blocks_subsequent_calls():
+    """After lazy init fails, subsequent calls must still return an error.
+
+    Regression test: previously, the second call would see needs_initialization=False
+    (because _initialized was set to True after the first attempt) and return None,
+    allowing tool execution against a FAILED toolset.
+    """
+    mock_callable = Mock(return_value=(False, "Connection refused"))
+    prereq = CallablePrerequisite(callable=mock_callable)
+    toolset = SampleToolset(prerequisites=[prereq], config={})
+
+    toolset.check_config_prerequisites()
+    toolset.status = ToolsetStatusEnum.ENABLED
+
+    tool_executor = ToolExecutor(toolsets=[toolset])
+
+    # First call: triggers lazy init, which fails
+    result1 = tool_executor.ensure_toolset_initialized("dummy_tool")
+    assert isinstance(result1, str)
+    assert "Connection refused" in result1
+
+    # Second call: must still return an error, not None
+    result2 = tool_executor.ensure_toolset_initialized("dummy_tool")
+    assert isinstance(result2, str)
+    assert "unavailable" in result2.lower()
+    assert "Connection refused" in result2
+
+    # The callable should only have been invoked once (lazy init is not retried)
+    mock_callable.assert_called_once()
