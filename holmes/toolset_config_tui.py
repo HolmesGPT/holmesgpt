@@ -637,10 +637,14 @@ def run_tree_editor(
             (style, label_prefix),
         ]
 
-        # When editing this row, show the buffer contents
+        # When editing this row, show the buffer contents with cursor
         if is_editing_this:
-            row_parts.append(("class:selected", edit_buf[0].text))
+            buf = edit_buf[0]
+            pos = buf.cursor_position
+            text = buf.text
+            row_parts.append(("class:selected", text[:pos]))
             row_parts.append(("class:dim", "█"))
+            row_parts.append(("class:selected", text[pos:]))
             row_parts.append(("", "\n"))
             return row_parts
 
@@ -697,19 +701,27 @@ def run_tree_editor(
 
     @kb.add("up")
     @kb.add("k", filter=not_editing)
-    @kb.add("left")
+    @kb.add("left", filter=not_editing)
     def _up(event: Any) -> None:
-        if editing[0]:
-            return
         cursor[0] = (cursor[0] - 1) % total_items()
 
     @kb.add("down")
     @kb.add("j", filter=not_editing)
-    @kb.add("right")
+    @kb.add("right", filter=not_editing)
     def _down(event: Any) -> None:
-        if editing[0]:
-            return
         cursor[0] = (cursor[0] + 1) % total_items()
+
+    @kb.add("left", filter=~not_editing)
+    def _edit_left(event: Any) -> None:
+        buf = edit_buf[0]
+        if buf.cursor_position > 0:
+            buf.cursor_position -= 1
+
+    @kb.add("right", filter=~not_editing)
+    def _edit_right(event: Any) -> None:
+        buf = edit_buf[0]
+        if buf.cursor_position < len(buf.text):
+            buf.cursor_position += 1
 
     @kb.add("escape")
     def _escape(event: Any) -> None:
