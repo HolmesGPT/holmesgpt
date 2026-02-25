@@ -826,6 +826,11 @@ def run_tree_editor(
             if node.field_type == "dict":
                 _prompt_add_dict_entry(node, event)
                 _refresh_flat()
+                new_child = node.children[-1]
+                cursor[0] = flat_rows.index(new_child)
+                editing[0] = True
+                editing_dict_key[0] = True
+                edit_buf[0] = _make_edit_buffer(new_child.dict_key or "")
             elif node.field_type == "list":
                 new_child = ConfigFieldNode(
                     key=str(len(node.children)),
@@ -836,6 +841,9 @@ def run_tree_editor(
                 )
                 node.children.append(new_child)
                 _refresh_flat()
+                cursor[0] = flat_rows.index(new_child)
+                editing[0] = True
+                edit_buf[0] = _make_edit_buffer("")
             elif node.field_type == "model":
                 pass  # Models are not directly "addable"
             return
