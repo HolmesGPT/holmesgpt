@@ -745,6 +745,15 @@ def run_tree_editor(
         if buf.cursor_position < len(buf.text):
             buf.cursor_position += 1
 
+    @kb.add("up", filter=~not_editing)
+    def _edit_up(event: Any) -> None:
+        edit_buf[0].cursor_position = 0
+
+    @kb.add("down", filter=~not_editing)
+    def _edit_down(event: Any) -> None:
+        buf = edit_buf[0]
+        buf.cursor_position = len(buf.text)
+
     @kb.add("escape")
     def _escape(event: Any) -> None:
         if editing[0]:
