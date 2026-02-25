@@ -58,9 +58,11 @@ class ToolsetManager:
         global_fast_model: Optional[str] = None,
         custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
         config_file_path: Optional[Path] = None,
+        additional_toolsets: Optional[List[Toolset]] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
+        self.additional_toolsets = additional_toolsets or []
         self.custom_runbook_catalogs = custom_runbook_catalogs
         if mcp_servers is not None:
             for _, mcp_server in mcp_servers.items():
@@ -150,6 +152,12 @@ class ToolsetManager:
             custom_toolsets,
             toolsets_by_name,
         )
+
+        # Add additional Python toolsets passed programmatically
+        if self.additional_toolsets:
+            for toolset in self.additional_toolsets:
+                toolset.type = ToolsetType.CUSTOMIZED
+                toolsets_by_name[toolset.name] = toolset
 
         if toolset_tags is not None:
             toolsets_by_name = {
@@ -368,6 +376,16 @@ class ToolsetManager:
         self.check_toolset_prerequisites(enabled_toolsets_from_cli)
 
         all_toolsets_with_status.extend(custom_toolsets_from_cli)
+
+        # Additional Python toolsets passed programmatically are not cached,
+        # so always check their prerequisites.
+        if self.additional_toolsets:
+            additional_to_check = [
+                ts for ts in all_toolsets_with_status
+                if ts.name in {ats.name for ats in self.additional_toolsets} and ts.enabled
+            ]
+            self.check_toolset_prerequisites(additional_to_check)
+
         if using_cached:
             num_available_toolsets = len(
                 [toolset for toolset in all_toolsets_with_status if toolset.enabled]
