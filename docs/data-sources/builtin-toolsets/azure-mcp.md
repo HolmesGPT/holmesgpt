@@ -137,6 +137,8 @@ Choose an authentication method based on your environment:
 
 === "Holmes Helm Chart"
 
+    Update your `values.yaml` with the appropriate authentication method:
+
     **Workload Identity (Recommended for AKS)**
 
     ```yaml
@@ -210,6 +212,8 @@ Choose an authentication method based on your environment:
     ```
 
 === "Robusta Helm Chart"
+
+    Update your `generated_values.yaml` with the appropriate authentication method:
 
     **Workload Identity (Recommended for AKS)**
 

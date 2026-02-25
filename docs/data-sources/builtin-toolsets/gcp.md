@@ -139,6 +139,8 @@ gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.
 
 === "Holmes Helm Chart"
 
+    Add to your `values.yaml`:
+
     ```yaml
     mcpAddons:
       gcp:
@@ -164,6 +166,8 @@ gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.
     ```
 
 === "Robusta Helm Chart"
+
+    Add to your `generated_values.yaml`:
 
     ```yaml
     holmes:
