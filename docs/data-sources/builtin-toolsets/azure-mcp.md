@@ -11,29 +11,52 @@ The Azure MCP server gives Holmes **read-only access to any Azure API** you perm
 
 === "Holmes CLI"
 
-    The same [Azure API MCP server](https://github.com/Azure/azure-api-mcp) used in-cluster can run locally on your machine in stdio mode.
+    The [Azure API MCP server](https://github.com/Azure/azure-api-mcp) runs locally on your machine as a subprocess.
 
-    **Prerequisites:** Go 1.24+ and [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) must be installed.
+    **Prerequisites:** [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) must be installed with working credentials (`az account show` should succeed).
 
-    **Step 1: Build the server**
+    **Step 1: Install the server**
 
-    ```bash
-    git clone https://github.com/Azure/azure-api-mcp.git
-    cd azure-api-mcp
-    go build -o azure-api-mcp ./cmd/server
-    sudo mv azure-api-mcp /usr/local/bin/
-    ```
+    === "go install (recommended)"
 
-    **Step 2: Authenticate**
+        Requires Go 1.24+:
 
-    ```bash
-    az login
-    az account show  # verify correct subscription
-    ```
+        ```bash
+        go install github.com/Azure/azure-api-mcp/cmd/server@latest
+        ```
 
-    **Step 3: Configure Holmes CLI**
+        The binary is installed to `$GOPATH/bin/server`. Rename it for clarity:
 
-    Add to `~/.holmes/config.yaml`:
+        ```bash
+        mv "$(go env GOPATH)/bin/server" "$(go env GOPATH)/bin/azure-api-mcp"
+        ```
+
+    === "Pre-built binary"
+
+        Download from the [releases page](https://github.com/Azure/azure-api-mcp/releases):
+
+        ```bash
+        # Linux (amd64)
+        curl -Lo azure-api-mcp https://github.com/Azure/azure-api-mcp/releases/latest/download/azure-api-mcp-linux-amd64
+        chmod +x azure-api-mcp
+        sudo mv azure-api-mcp /usr/local/bin/
+
+        # macOS (Apple Silicon)
+        curl -Lo azure-api-mcp https://github.com/Azure/azure-api-mcp/releases/latest/download/azure-api-mcp-darwin-arm64
+        chmod +x azure-api-mcp
+        sudo mv azure-api-mcp /usr/local/bin/
+        ```
+
+    === "Build from source"
+
+        ```bash
+        git clone https://github.com/Azure/azure-api-mcp.git
+        cd azure-api-mcp
+        go build -o azure-api-mcp ./cmd/server
+        sudo mv azure-api-mcp /usr/local/bin/
+        ```
+
+    **Step 2: Add to `~/.holmes/config.yaml`**
 
     ```yaml
     mcp_servers:
@@ -60,7 +83,7 @@ The Azure MCP server gives Holmes **read-only access to any Azure API** you perm
           See the Azure MCP documentation for comprehensive investigation patterns and common commands.
     ```
 
-    **Step 4: Test it**
+    **Step 3: Test it**
 
     ```bash
     holmes ask "List all resource groups in my Azure subscription"

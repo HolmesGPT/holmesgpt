@@ -2,14 +2,6 @@
 
 Connect Holmes to Google Cloud Platform for investigating infrastructure issues, audit logs, and retrieving historical data from deleted resources.
 
-## Overview
-
-Choose your setup path based on your environment:
-
-- **[Holmes CLI (local)](#holmes-cli-local)** - Runs locally on your machine, no cluster required
-- **[GKE with Workload Identity](#gke-with-workload-identity)** - Recommended for GKE clusters (no key management)
-- **[Service Account Key](#service-account-key)** - Works anywhere (Helm on EKS, AKS, on-premise)
-
 ??? info "How it works"
     The GCP MCP addon consists of three specialized servers:
 
@@ -17,9 +9,9 @@ Choose your setup path based on your environment:
     - **Observability MCP**: Cloud Logging, Monitoring, Trace, and Error Reporting - can retrieve historical logs for deleted Kubernetes resources
     - **Storage MCP**: Cloud Storage operations and management
 
-## Holmes CLI (local)
+## Holmes CLI
 
-The official Google Cloud MCP servers run locally on your machine via `npx`. No Kubernetes cluster or service account keys required -- authentication uses your existing `gcloud` credentials.
+The official Google Cloud MCP servers run locally on your machine via `npx`. Authentication uses your existing `gcloud` credentials.
 
 **Prerequisites:** Node.js must be installed.
 
@@ -62,7 +54,14 @@ You can use all three servers together or pick only the ones you need.
 holmes ask "List all GKE clusters in my project"
 ```
 
-## GKE with Workload Identity
+## Helm Chart Deployment
+
+For in-cluster deployments, choose an authentication method based on your environment:
+
+- **[GKE with Workload Identity](#gke-with-workload-identity)** — Recommended for GKE clusters (no key management)
+- **[Service Account Key](#service-account-key)** — Works anywhere (EKS, AKS, on-premise)
+
+### GKE with Workload Identity
 
 Workload Identity is Google's recommended way to authenticate workloads on GKE. It eliminates service account keys by allowing Kubernetes service accounts to impersonate GCP service accounts.
 
@@ -191,15 +190,9 @@ gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-## Service Account Key
+### Service Account Key
 
-If you're not using GKE, or prefer not to use Workload Identity, you can authenticate with a service account key instead. This works in any environment but requires managing and rotating key files.
-
-=== "Holmes CLI"
-
-    For CLI usage, see [Holmes CLI (local)](#holmes-cli-local) above -- it runs locally with no cluster required.
-
-    If you specifically need to deploy the MCP servers in a cluster and connect Holmes CLI to them, use the Helm chart tabs and configure port-forwarding.
+If you're not using GKE, or prefer not to use Workload Identity, you can authenticate with a service account key instead.
 
 === "Holmes Helm Chart"
 
@@ -284,6 +277,22 @@ If you're not using GKE, or prefer not to use Workload Identity, you can authent
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
+### Troubleshooting
+
+```bash
+# Check if secret is mounted
+kubectl exec -n YOUR_NAMESPACE deployment/gcp-mcp-server -c gcloud-mcp -- ls -la /var/secrets/gcp/
+
+# Verify authentication
+kubectl exec -n YOUR_NAMESPACE deployment/gcp-mcp-server -c gcloud-mcp -- gcloud auth list
+
+# Check service account roles
+gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:holmes-gcp-mcp@"
+
+# Check pod logs
+kubectl logs -n YOUR_NAMESPACE deployment/gcp-mcp-server --all-containers
+```
+
 ## Common Use Cases
 
 ```
@@ -301,21 +310,3 @@ If you're not using GKE, or prefer not to use Workload Identity, you can authent
 ```
 "Why is my application getting 403 errors accessing the data-bucket?"
 ```
-
-## Troubleshooting
-
-```bash
-# Check if secret is mounted
-kubectl exec -n YOUR_NAMESPACE deployment/gcp-mcp-server -c gcloud-mcp -- ls -la /var/secrets/gcp/
-
-# Verify authentication
-kubectl exec -n YOUR_NAMESPACE deployment/gcp-mcp-server -c gcloud-mcp -- gcloud auth list
-
-# Check service account roles
-gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:holmes-gcp-mcp@"
-
-# Check pod logs
-kubectl logs -n YOUR_NAMESPACE deployment/gcp-mcp-server --all-containers
-```
-
-Replace `YOUR_NAMESPACE` with `holmes-mcp` (CLI), `holmes` (Holmes Helm), or `robusta` (Robusta Helm).
