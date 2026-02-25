@@ -485,6 +485,11 @@ def run_tree_editor(
     Returns True if the configuration was saved at least once.
     """
 
+    if not toolset.config_classes:
+        raise ValueError(
+            f"Toolset '{toolset.name}' has no config_classes; "
+            "cannot open the tree editor for a non-configurable toolset."
+        )
     config_class: Type[BaseModel] = toolset.config_classes[0]
     top_nodes = build_tree_from_schema(config_class, initial_config)
     flat_rows = _flatten_tree(top_nodes)
