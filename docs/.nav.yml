@@ -1,5 +1,6 @@
 nav:
   - index.md
+  - "Why HolmesGPT": why-holmesgpt.md
   - Installation: installation
   - Walkthrough: walkthrough
   - Holmes Operator: operator

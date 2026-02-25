@@ -4,12 +4,6 @@ name: Build and test HolmesGPT
 
 on:
   pull_request:
-    paths:
-      - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - '!mkdocs.yml'
-      - 'docs/reference/http-api.md'
   workflow_dispatch:
 
 jobs:
@@ -72,7 +66,7 @@ jobs:
 
           echo "should_test=$SHOULD_TEST" >> $GITHUB_OUTPUT
 
-  build:
+  test:
     needs: check-changes
     if: needs.check-changes.outputs.should_test == 'true'
     strategy:
@@ -89,33 +83,28 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Python dependencies and build
-        # if you change something here, you must also change it in .github/workflows/build-binaries-and-brew.yaml
+      - name: Cache Poetry installation and dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local
+            ~/.cache/pip
+            ~/.cache/pypoetry
+          key: poetry-${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-${{ matrix.python-version }}-
+
+      - name: Install Poetry
         run: |
-          python -m pip install --upgrade pip setuptools pyinstaller
-
-          curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+          # setuptools provides the distutils shim needed by Poetry installer on Python 3.12+
+          python -m pip install --upgrade pip setuptools
+          if ! command -v poetry &> /dev/null; then
+            curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+          fi
           poetry config virtualenvs.create false
-          poetry install --no-root --with dev
 
-          sudo apt-get install -y binutils
-          pyinstaller holmes_cli.py \
-            --name holmes \
-            --add-data 'holmes/plugins/runbooks/*:holmes/plugins/runbooks' \
-            --add-data 'holmes/plugins/prompts/*:holmes/plugins/prompts' \
-            --add-data 'holmes/plugins/toolsets/*:holmes/plugins/toolsets' \
-            --add-data 'holmes/plugins/toolsets/coralogix*:holmes/plugins/toolsets/coralogix' \
-            --add-data 'holmes/plugins/toolsets/grafana*:holmes/plugins/toolsets/grafana' \
-            --add-data 'holmes/plugins/toolsets/internet*:holmes/plugins/toolsets/internet' \
-            --add-data 'holmes/plugins/toolsets/elasticsearch*:holmes/plugins/toolsets/elasticsearch' \
-            --add-data 'holmes/plugins/toolsets/prometheus*:holmes/plugins/toolsets/prometheus' \
-            --hidden-import=tiktoken_ext.openai_public \
-            --hidden-import=tiktoken_ext \
-            --hidden-import=backports \
-            --hiddenimport litellm.llms.tokenizers \
-            --hiddenimport litellm.litellm_core_utils.tokenizers \
-            --collect-data litellm
-          ls dist
+      - name: Install dependencies
+        run: poetry install --no-root --with dev
 
       - name: Run tests
         shell: bash
@@ -154,6 +143,64 @@ jobs:
                   print(f'  - {t}')
           "
 
+  build-binary:
+    needs: check-changes
+    if: needs.check-changes.outputs.should_test == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Poetry installation and dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local
+            ~/.cache/pip
+            ~/.cache/pypoetry
+          key: poetry-3.11-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-3.11-
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip setuptools
+          if ! command -v poetry &> /dev/null; then
+            curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+          fi
+          poetry config virtualenvs.create false
+
+      - name: Install dependencies and build
+        # if you change something here, you must also change it in .github/workflows/build-binaries-and-brew.yaml
+        run: |
+          python -m pip install --upgrade pip "setuptools<75" "pyinstaller>=6.11"
+
+          poetry install --no-root
+
+          sudo apt-get install -y binutils
+          pyinstaller holmes_cli.py \
+            --name holmes \
+            --add-data 'holmes/plugins/runbooks/*:holmes/plugins/runbooks' \
+            --add-data 'holmes/plugins/prompts/*:holmes/plugins/prompts' \
+            --add-data 'holmes/plugins/toolsets/*:holmes/plugins/toolsets' \
+            --add-data 'holmes/plugins/toolsets/coralogix*:holmes/plugins/toolsets/coralogix' \
+            --add-data 'holmes/plugins/toolsets/grafana*:holmes/plugins/toolsets/grafana' \
+            --add-data 'holmes/plugins/toolsets/internet*:holmes/plugins/toolsets/internet' \
+            --add-data 'holmes/plugins/toolsets/elasticsearch*:holmes/plugins/toolsets/elasticsearch' \
+            --add-data 'holmes/plugins/toolsets/prometheus*:holmes/plugins/toolsets/prometheus' \
+            --hidden-import=tiktoken_ext.openai_public \
+            --hidden-import=tiktoken_ext \
+            --hidden-import=backports \
+            --hiddenimport litellm.llms.tokenizers \
+            --hiddenimport litellm.litellm_core_utils.tokenizers \
+            --collect-data litellm
+          ls dist
+
       - name: Test the binary
         shell: bash
         run: |
@@ -168,7 +215,7 @@ jobs:
   # Require this check ("Build and test HolmesGPT / build-and-test-gate") in
   # branch protection instead of the individual build matrix jobs.
   build-and-test-gate:
-    needs: [check-changes, build]
+    needs: [check-changes, test, build-binary]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -182,8 +229,12 @@ jobs:
             echo "No source changes detected (docs-only) - skipping tests"
             exit 0
           fi
-          if [ "${{ needs.build.result }}" != "success" ]; then
-            echo "Build and test failed!"
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Tests failed!"
+            exit 1
+          fi
+          if [ "${{ needs.build-binary.result }}" != "success" ]; then
+            echo "Binary build failed!"
             exit 1
           fi
           echo "Build and test passed!"

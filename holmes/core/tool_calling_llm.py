@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import textwrap
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
@@ -63,6 +64,12 @@ from holmes.utils.stream import (
     build_stream_event_token_count,
 )
 from holmes.utils.tags import parse_messages_tags
+
+class LLMInterruptedError(Exception):
+    """Raised when the user interrupts an in-progress LLM call (e.g. via Escape key)."""
+
+    pass
+
 
 # Create a named logger for cost tracking
 cost_logger = logging.getLogger("holmes.costs")
@@ -439,6 +446,7 @@ class ToolCallingLLM:
         trace_span=DummySpan(),
         tool_number_offset: int = 0,
         request_context: Optional[Dict[str, Any]] = None,
+        cancel_event: Optional[threading.Event] = None,
     ) -> LLMResult:
         tool_calls: list[
             dict
@@ -450,6 +458,9 @@ class ToolCallingLLM:
         i = 0
         metadata: Dict[Any, Any] = {}
         while i < max_steps:
+            if cancel_event and cancel_event.is_set():
+                raise LLMInterruptedError()
+
             i += 1
             logging.debug(f"running iteration {i}")
             # on the last step we don't allow tools - we want to force a reply, not a request to run another tool
@@ -505,6 +516,9 @@ class ToolCallingLLM:
                     exc_info=True,
                 )
                 raise
+
+            if cancel_event and cancel_event.is_set():
+                raise LLMInterruptedError()
 
             response = full_response.choices[0]  # type: ignore
 
@@ -590,6 +604,13 @@ class ToolCallingLLM:
                     futures.append(future)
 
                 for future in concurrent.futures.as_completed(futures):
+                    # Best-effort cancellation: in-flight tool calls run to completion
+                    # since f.cancel() only prevents queued (not running) tasks.
+                    if cancel_event and cancel_event.is_set():
+                        for f in futures:
+                            f.cancel()
+                        raise LLMInterruptedError()
+
                     tool_call_result: ToolCallResult = future.result()
 
                     tool_number = (
