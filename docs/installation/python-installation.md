@@ -40,4 +40,4 @@ response = ai.call(messages)
 print(response.result)
 ```
 
-For the full API reference, follow-up conversations, custom toolset loading, and writing Python toolsets, see the **[Python SDK Reference](../reference/python-sdk.md)**.
+For the full API reference, see the **[Python SDK Reference](../reference/python-sdk.md)**.

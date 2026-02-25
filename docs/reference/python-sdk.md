@@ -158,125 +158,144 @@ For a complete reference on writing custom toolsets, see [Custom Toolsets](../da
 
 For toolsets that need more than shell commands (e.g., API clients with authentication, response parsing, or complex logic), you can write Python-based toolsets.
 
-**Example: a toolset that queries a custom incident management API.**
+A Python toolset requires three things:
 
-Create `my_incidents_toolset.py`:
+1. **A config class** (Pydantic `BaseModel`) - validates settings like API URLs and tokens
+2. **Tool classes** (subclass `Tool`) - each tool implements `_invoke()` to do the actual work and `get_parameterized_one_liner()` for human-readable logging. Parameters are defined as `Dict[str, ToolParameter]`.
+3. **A toolset class** (subclass `Toolset`) - groups tools together and runs a health check via `prerequisites_callable()`
+
+**Example: a toolset that queries a service's REST API.**
 
 ```python
-import logging
 import requests
-from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, model_validator
-from holmes.core.tools import Tool, Toolset, ToolsetTag, CallablePrerequisite
+from typing import Any, ClassVar, Dict, List, Tuple, Type
+from pydantic import BaseModel
+from holmes.core.tools import (
+    CallablePrerequisite,
+    Tool,
+    ToolParameter,
+    Toolset,
+    ToolsetTag,
+)
+from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.core.models import StructuredToolResult, StructuredToolResultStatus, ToolInvokeContext
 
-class IncidentAPIConfig(BaseModel):
-    """Configuration for the incident management API."""
-    model_config = ConfigDict(extra="allow")
 
+# 1. Config: validated by Pydantic when the toolset loads
+class MyServiceConfig(BaseModel):
     api_url: str
     api_token: str
-    max_results: int = 25
-
-    @model_validator(mode="after")
-    def handle_deprecated_fields(self):
-        extra = self.model_extra or {}
-        if "base_url" in extra:
-            self.api_url = extra["base_url"]
-            logging.warning("Deprecated config name: base_url -> api_url")
-        return self
 
 
-class IncidentToolset(Toolset):
-    """Toolset for querying an incident management API."""
+# 2. Tool: one class per API endpoint
+class GetServiceStatus(Tool):
+    _toolset: "MyServiceToolset"
 
-    config_classes = [IncidentAPIConfig]
-
-    def __init__(self, config: Optional[IncidentAPIConfig] = None):
-        self._config = config or IncidentAPIConfig(
-            api_url="", api_token=""
-        )
-        tools = [
-            Tool(
-                name="list_open_incidents",
-                description="List all open incidents, optionally filtered by severity",
-                func=self.list_incidents,
-                parameters=[
-                    {"name": "severity", "description": "Filter by severity: critical, high, medium, low", "type": "string"},
-                ],
-            ),
-            Tool(
-                name="get_incident_details",
-                description="Get full details for a specific incident by ID",
-                func=self.get_incident_details,
-                parameters=[
-                    {"name": "incident_id", "description": "The incident ID to look up", "type": "string"},
-                ],
-            ),
-        ]
-
+    def __init__(self, toolset: "MyServiceToolset"):
+        self._toolset = toolset
         super().__init__(
-            name="incidents",
-            description="Query the incident management system for open and recent incidents",
-            enabled=True,
-            tools=tools,
-            tags=[ToolsetTag.CORE],
-            prerequisites=[CallablePrerequisite(
-                callable=self._check_connectivity,
-                failure_message="Cannot reach incident API"
-            )],
+            name="get_service_status",
+            description="Get the current status and version of the service",
+            parameters={},  # no parameters needed
         )
 
-    def _check_connectivity(self) -> bool:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        config = self._toolset.config
+        resp = requests.get(
+            f"{config.api_url}/api/v1/status",
+            headers={"Authorization": f"Bearer {config.api_token}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data=f"HTTP {resp.status_code}: {resp.text}",
+                params=params,
+            )
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=resp.json(),
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Get service status"
+
+
+class SearchRecords(Tool):
+    _toolset: "MyServiceToolset"
+
+    def __init__(self, toolset: "MyServiceToolset"):
+        self._toolset = toolset
+        super().__init__(
+            name="search_records",
+            description="Search records by query string",
+            parameters={
+                "query": ToolParameter(description="Search query", type="string"),
+                "limit": ToolParameter(description="Max results (default 10)", type="integer", required=False),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        config = self._toolset.config
+        resp = requests.get(
+            f"{config.api_url}/api/v1/records",
+            headers={"Authorization": f"Bearer {config.api_token}"},
+            params={"q": params["query"], "limit": params.get("limit", 10)},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data=f"HTTP {resp.status_code}: {resp.text}",
+                params=params,
+            )
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=resp.json(),
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Search '{params.get('query', '')}'"
+
+
+# 3. Toolset: groups tools + runs health check
+class MyServiceToolset(Toolset):
+    config_classes: ClassVar[List[Type[MyServiceConfig]]] = [MyServiceConfig]
+
+    def __init__(self):
+        super().__init__(
+            name="my-service",
+            description="Query my service's REST API",
+            prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
+            tools=[GetServiceStatus(self), SearchRecords(self)],
+        )
+
+    def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         try:
+            self.config = MyServiceConfig(**config)
             resp = requests.get(
-                f"{self._config.api_url}/health",
-                headers={"Authorization": f"Bearer {self._config.api_token}"},
+                f"{self.config.api_url}/health",
+                headers={"Authorization": f"Bearer {self.config.api_token}"},
                 timeout=5,
             )
-            return resp.status_code == 200
-        except Exception:
-            return False
-
-    def list_incidents(self, severity: str = "") -> str:
-        params = {"status": "open", "limit": self._config.max_results}
-        if severity:
-            params["severity"] = severity
-        resp = requests.get(
-            f"{self._config.api_url}/api/v1/incidents",
-            headers={"Authorization": f"Bearer {self._config.api_token}"},
-            params=params,
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            return f"Error querying incidents API: HTTP {resp.status_code} - {resp.text}"
-        incidents = resp.json().get("incidents", [])
-        if not incidents:
-            return f"No open incidents found (filter: severity={severity or 'any'})"
-        lines = []
-        for inc in incidents:
-            lines.append(f"[{inc['id']}] {inc['severity'].upper()} - {inc['title']} (assigned: {inc.get('assignee', 'unassigned')})")
-        return "\n".join(lines)
-
-    def get_incident_details(self, incident_id: str) -> str:
-        resp = requests.get(
-            f"{self._config.api_url}/api/v1/incidents/{incident_id}",
-            headers={"Authorization": f"Bearer {self._config.api_token}"},
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            return f"Error fetching incident {incident_id}: HTTP {resp.status_code} - {resp.text}"
-        return str(resp.json())
+            if resp.ok:
+                return True, "Connected to service"
+            return False, f"Health check failed: HTTP {resp.status_code}"
+        except Exception as e:
+            return False, f"Cannot reach service: {e}"
 ```
 
-**Key patterns for Python toolsets:**
+**Key patterns:**
 
-- Use a Pydantic `BaseModel` for configuration with `extra="allow"` to support backwards-compatible field renames
-- Include a health check in the prerequisite callable
-- Return detailed error messages including HTTP status codes and response bodies so the LLM can self-correct
+- `_invoke()` returns `StructuredToolResult` with `SUCCESS` or `ERROR` status
+- Include detailed error messages (HTTP status + body) so the LLM can self-correct
 - Use `requests` for HTTP calls (not specialized client libraries)
-- Each tool function returns a string result
+- The health check in `prerequisites_callable()` validates config and checks connectivity
+- Parameters use `Dict[str, ToolParameter]` (not a list)
 
-For more on the thin API wrapper pattern, see the built-in `servicenow_tables` toolset as a reference implementation.
+See the built-in `servicenow_tables` toolset for a complete production example.
 
 ## API Reference
 
