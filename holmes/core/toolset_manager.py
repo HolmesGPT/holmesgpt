@@ -186,6 +186,17 @@ class ToolsetManager:
             for _ in concurrent.futures.as_completed(futures):
                 pass
 
+    @staticmethod
+    def _check_config_prerequisites(toolsets: list[Toolset]) -> None:
+        """Run only fast config-validity checks for lazy-loaded toolsets.
+
+        Validates static flags and environment variables without running
+        callable or command prerequisites. Toolsets that pass config validation
+        are marked for deferred initialization on first tool use.
+        """
+        for toolset in toolsets:
+            toolset.check_config_prerequisites()
+
     def _load_toolsets_from_config(
         self,
         toolsets: dict[str, dict[str, Any]],
@@ -344,7 +355,25 @@ class ToolsetManager:
             ):
                 # MCP servers need to reload their tools even if previously failed, so rerun prerequisites
                 enabled_toolsets_from_cache.append(toolset)
-        self.check_toolset_prerequisites(enabled_toolsets_from_cache)
+
+        if using_cached:
+            # Lazy initialization: only run fast config-validity checks on startup
+            # (static flags and env vars). Callable and command prerequisites are
+            # deferred until the first time the LLM uses a tool from the toolset.
+            lazy_toolsets: List[Toolset] = []
+            eager_toolsets: List[Toolset] = []
+            for toolset in enabled_toolsets_from_cache:
+                if toolset.type == ToolsetType.MCP:
+                    # MCP servers must be eagerly initialized to load tool definitions
+                    eager_toolsets.append(toolset)
+                else:
+                    lazy_toolsets.append(toolset)
+
+            self._check_config_prerequisites(lazy_toolsets)
+            if eager_toolsets:
+                self.check_toolset_prerequisites(eager_toolsets)
+        else:
+            self.check_toolset_prerequisites(enabled_toolsets_from_cache)
 
         # CLI custom toolsets status are not cached, and their prerequisites are always checked whenever the CLI runs.
         custom_toolsets_from_cli = self._load_toolsets_from_paths(
