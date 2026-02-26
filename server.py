@@ -57,7 +57,7 @@ from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.log import EndpointFilter
+from holmes.utils.log import EndpointFilter, InvalidHttpRequestFilter
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
@@ -66,10 +66,15 @@ from holmes.utils.stream import stream_chat_formatter, stream_investigate_format
 
 
 def init_logging():
-    # Filter out periodical healniss and readiness probe.
+    # Filter out periodical health and readiness probe access logs.
     uvicorn_logger = logging.getLogger("uvicorn.access")
     uvicorn_logger.addFilter(EndpointFilter(path="/healthz"))
     uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
+
+    # Suppress repetitive "Invalid HTTP request received" warnings from uvicorn.
+    # Common in clusters with service meshes (Istio mTLS), load balancers, or TCP probes.
+    uvicorn_error_logger = logging.getLogger("uvicorn.error")
+    uvicorn_error_logger.addFilter(InvalidHttpRequestFilter())
 
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
     logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
