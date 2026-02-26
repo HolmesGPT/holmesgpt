@@ -32,7 +32,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
-from holmes.core.tools import Toolset, ToolsetStatusEnum
+from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetType
 
 logger = logging.getLogger(__name__)
 
@@ -458,9 +458,13 @@ def _run_selection_menu(
 
 
 def _get_configurable_toolsets(config: Config) -> List[Toolset]:
-    """Return toolsets that have at least one config_class."""
+    """Return toolsets that have at least one config_class.
+
+    MCP toolsets are excluded because their config experience is not yet
+    ready – they will be handled in a separate PR.
+    """
     all_toolsets = config.toolset_manager.list_console_toolsets()
-    return [t for t in all_toolsets if t.config_classes]
+    return [t for t in all_toolsets if t.config_classes and t.type != ToolsetType.MCP]
 
 
 def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolset]:
