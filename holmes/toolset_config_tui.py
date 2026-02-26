@@ -8,8 +8,6 @@ Entry points:
 import copy
 import io
 import logging
-import os
-import sys
 import traceback
 import types
 from contextlib import redirect_stderr, redirect_stdout
@@ -18,20 +16,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
 
 import yaml  # type: ignore
-from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
-from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
-from prompt_toolkit.layout.containers import HSplit, VSplit, Window
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style as PTStyle
 from pydantic import BaseModel
 from rich.console import Console
-from rich.panel import Panel
 
 try:
     from pydantic_core import PydanticUndefined  # type: ignore
