@@ -581,66 +581,74 @@ def run_tree_editor(
                 max_width = max(max_width, _row_content_width(node, value_columns))
         return max_width + 2 if max_width else 0  # 2 chars padding
 
-    def _render_row(
+    def _render_header_row(
         node: ConfigFieldNode,
-        selected: bool,
+        style: str,
+        indent: str,
+        prefix: str,
+        display_name: str,
+        pad: str,
         comment_col: int,
-        value_columns: Dict[Optional[int], int],
     ) -> List[Tuple[str, str]]:
-        indent = "  " * (node.depth + 1)
-        prefix = "> " if selected else "  "
-        style = "class:selected" if selected else ""
-        display_name = node.title if node.title else node.key
-        pad = _value_pad(node, value_columns)
+        count = len(node.children)
+        type_bracket = "{}" if node.field_type == "dict" else "[]"
+        label = f"{indent}{prefix}{display_name}:{pad} {type_bracket[0]}{count} items{type_bracket[1]}"
+        hint_text = "# Enter to add entry"
+        if comment_col > 0:
+            padding = max(2, comment_col - len(label))
+            hints = " " * padding + hint_text
+        else:
+            hints = "  " + hint_text
+        return [(style, label), ("class:dim", hints), ("", "\n")]
 
-        if node.is_header:
-            count = len(node.children)
-            type_bracket = "{}" if node.field_type == "dict" else "[]"
-            label = f"{indent}{prefix}{display_name}:{pad} {type_bracket[0]}{count} items{type_bracket[1]}"
-            hint_text = "# Enter to add entry"
-            if comment_col > 0:
-                padding = max(2, comment_col - len(label))
-                hints = " " * padding + hint_text
-            else:
-                hints = "  " + hint_text
-            return [(style, label), ("class:dim", hints), ("", "\n")]
+    def _render_dict_child_row(
+        node: ConfigFieldNode,
+        style: str,
+        indent: str,
+        prefix: str,
+        is_editing_this: bool,
+    ) -> List[Tuple[str, str]]:
+        key_display = node.dict_key if node.dict_key else "<key>"
+        val_display = str(node.value) if node.value else "<value>"
 
-        row_idx = flat_rows.index(node) if node in flat_rows else -1
-        is_editing_this = editing[0] and cursor[0] == row_idx
+        # Find max key width among siblings to align = signs
+        max_key_width = len(key_display)
+        if node.parent:
+            for sibling in node.parent.children:
+                sib_key = sibling.dict_key if sibling.dict_key else "<key>"
+                max_key_width = max(max_key_width, len(sib_key))
 
-        # Dict child: render as "index: key = value" with aligned = signs
-        if node.dict_key is not None:
-            key_display = node.dict_key if node.dict_key else "<key>"
-            val_display = str(node.value) if node.value else "<value>"
+        row_parts: List[Tuple[str, str]] = [
+            (style, f"{indent}{prefix}{node.key}: "),
+        ]
+        if is_editing_this and editing_dict_key[0]:
+            row_parts.append(("class:selected", edit_buf[0].text))
+            row_parts.append(("class:dim", "█"))
+            row_parts.append(("", " " * max(0, max_key_width - len(edit_buf[0].text))))
+        else:
+            key_style = "class:dim" if not node.dict_key else style
+            row_parts.append((key_style, key_display))
+            row_parts.append(("", " " * (max_key_width - len(key_display))))
+        row_parts.append((style, " = "))
+        if is_editing_this and not editing_dict_key[0]:
+            row_parts.append(("class:selected", edit_buf[0].text))
+            row_parts.append(("class:dim", "█"))
+        else:
+            val_style = "class:dim" if not node.value else style
+            row_parts.append((val_style, val_display))
+        row_parts.append(("", "\n"))
+        return row_parts
 
-            # Find max key width among siblings to align = signs
-            max_key_width = len(key_display)
-            if node.parent:
-                for sibling in node.parent.children:
-                    sib_key = sibling.dict_key if sibling.dict_key else "<key>"
-                    max_key_width = max(max_key_width, len(sib_key))
-
-            row_parts: List[Tuple[str, str]] = [
-                (style, f"{indent}{prefix}{node.key}: "),
-            ]
-            if is_editing_this and editing_dict_key[0]:
-                row_parts.append(("class:selected", edit_buf[0].text))
-                row_parts.append(("class:dim", "█"))
-                row_parts.append(("", " " * max(0, max_key_width - len(edit_buf[0].text))))
-            else:
-                key_style = "class:dim" if not node.dict_key else style
-                row_parts.append((key_style, key_display))
-                row_parts.append(("", " " * (max_key_width - len(key_display))))
-            row_parts.append((style, " = "))
-            if is_editing_this and not editing_dict_key[0]:
-                row_parts.append(("class:selected", edit_buf[0].text))
-                row_parts.append(("class:dim", "█"))
-            else:
-                val_style = "class:dim" if not node.value else style
-                row_parts.append((val_style, val_display))
-            row_parts.append(("", "\n"))
-            return row_parts
-
+    def _render_leaf_row(
+        node: ConfigFieldNode,
+        style: str,
+        indent: str,
+        prefix: str,
+        display_name: str,
+        pad: str,
+        comment_col: int,
+        is_editing_this: bool,
+    ) -> List[Tuple[str, str]]:
         is_list_entry = node.parent and node.parent.field_type == "list"
 
         if node.field_type == "bool":
@@ -655,7 +663,7 @@ def run_tree_editor(
 
         label_prefix = f"{indent}{prefix}{display_name}:{pad} "
 
-        row_parts = [
+        row_parts: List[Tuple[str, str]] = [
             (style, label_prefix),
         ]
 
@@ -681,6 +689,29 @@ def run_tree_editor(
         row_parts.append(("class:dim", hints))
         row_parts.append(("", "\n"))
         return row_parts
+
+    def _render_row(
+        node: ConfigFieldNode,
+        selected: bool,
+        comment_col: int,
+        value_columns: Dict[Optional[int], int],
+    ) -> List[Tuple[str, str]]:
+        indent = "  " * (node.depth + 1)
+        prefix = "> " if selected else "  "
+        style = "class:selected" if selected else ""
+        display_name = node.title if node.title else node.key
+        pad = _value_pad(node, value_columns)
+
+        if node.is_header:
+            return _render_header_row(node, style, indent, prefix, display_name, pad, comment_col)
+
+        row_idx = flat_rows.index(node) if node in flat_rows else -1
+        is_editing_this = editing[0] and cursor[0] == row_idx
+
+        if node.dict_key is not None:
+            return _render_dict_child_row(node, style, indent, prefix, is_editing_this)
+
+        return _render_leaf_row(node, style, indent, prefix, display_name, pad, comment_col, is_editing_this)
 
     def _get_display_text() -> List[Tuple[str, str]]:
         parts: List[Tuple[str, str]] = []
