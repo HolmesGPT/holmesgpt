@@ -266,6 +266,18 @@ def tree_to_dict(nodes: List[ConfigFieldNode]) -> Dict[str, Any]:
 # ── Config file save / merge ─────────────────────────────────────────
 
 
+def set_toolset_config(
+    toolsets: Dict[str, Any],
+    toolset_name: str,
+    config_dict: Dict[str, Any],
+) -> None:
+    """Set ``toolsets[toolset_name]`` to ``{"enabled": True, "config": config_dict}``."""
+    if toolset_name not in toolsets or not isinstance(toolsets.get(toolset_name), dict):
+        toolsets[toolset_name] = {}
+    toolsets[toolset_name]["enabled"] = True
+    toolsets[toolset_name]["config"] = config_dict
+
+
 def save_config_to_file(
     config_file_path: Path,
     toolset_name: str,
@@ -284,13 +296,7 @@ def save_config_to_file(
 
     if "toolsets" not in existing:
         existing["toolsets"] = {}
-    if toolset_name not in existing["toolsets"] or not isinstance(
-        existing["toolsets"][toolset_name], dict
-    ):
-        existing["toolsets"][toolset_name] = {}
-
-    existing["toolsets"][toolset_name]["enabled"] = True
-    existing["toolsets"][toolset_name]["config"] = config_dict
+    set_toolset_config(existing["toolsets"], toolset_name, config_dict)
 
     try:
         config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1030,9 +1036,4 @@ def run_toolset_config_tui(
         # Update in-memory config so subsequent edits see the saved values
         if config.toolsets is None:
             config.toolsets = {}
-        if selected.name not in config.toolsets or not isinstance(
-            config.toolsets.get(selected.name), dict
-        ):
-            config.toolsets[selected.name] = {}
-        config.toolsets[selected.name]["enabled"] = True
-        config.toolsets[selected.name]["config"] = selected.config
+        set_toolset_config(config.toolsets, selected.name, selected.config)
