@@ -10,6 +10,7 @@ import io
 import logging
 import os
 import sys
+import traceback
 import types
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ import yaml  # type: ignore
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.document import Document
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
@@ -30,6 +32,11 @@ from prompt_toolkit.styles import Style as PTStyle
 from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
+
+try:
+    from pydantic_core import PydanticUndefined  # type: ignore
+except Exception:  # pragma: no cover
+    PydanticUndefined = object()  # type: ignore
 
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetType
@@ -163,10 +170,6 @@ def build_tree_from_schema(
 
         # Default fallback
         if cur is None:
-            try:
-                from pydantic_core import PydanticUndefined  # type: ignore
-            except Exception:  # pragma: no cover
-                PydanticUndefined = object()  # type: ignore
             default = getattr(field_info, "default", PydanticUndefined)
             default_factory = getattr(field_info, "default_factory", None)
             if default is not PydanticUndefined and default is not None:
@@ -348,6 +351,8 @@ def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool
     try:
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
             test_toolset.check_prerequisites(silent=True)
+    except Exception:
+        stderr_buf.write(traceback.format_exc())
     finally:
         root_logger.handlers = saved_handlers
         root_logger.setLevel(saved_level)
@@ -491,7 +496,7 @@ def run_tree_editor(
     initial_config: Dict[str, Any],
     config_file_path: Path,
 ) -> bool:
-    """Screen 3 – full tree editor with inline editing and action buttons.
+    """Screen 2 – full tree editor with inline editing and action buttons.
 
     Returns True if the configuration was saved at least once.
     """
@@ -817,8 +822,7 @@ def run_tree_editor(
         node = flat_rows[idx]
 
         def _make_edit_buffer(text: str) -> Buffer:
-            doc = __import__("prompt_toolkit.document", fromlist=["Document"]).Document(text, len(text))
-            return Buffer(document=doc)
+            return Buffer(document=Document(text, len(text)))
 
         if editing[0]:
             raw = edit_buf[0].text
@@ -1009,7 +1013,7 @@ def run_toolset_config_tui(
     console: Console,
     preloaded_toolsets: Optional[List[Toolset]] = None,
 ) -> None:
-    """Main entry point – runs the full 3-screen config flow."""
+    """Main entry point – runs the full 2-screen config flow."""
     if preloaded_toolsets is not None:
         toolsets = preloaded_toolsets
     else:

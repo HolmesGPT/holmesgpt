@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
-from typing import Any, DefaultDict, Dict, List, Optional
+from typing import DefaultDict, Dict, List, Optional
 
 try:
     import select as select_module
@@ -40,6 +40,7 @@ from rich.console import Console
 from rich.markdown import Markdown, Panel
 from rich.markup import escape
 
+from holmes.config import Config
 from holmes.core.config import config_path_dir
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
@@ -70,6 +71,7 @@ from holmes.utils.colors import (
     TOOLS_COLOR,
     USER_COLOR,
 )
+from holmes.toolset_config_tui import run_toolset_config_tui
 from holmes.utils.console.consts import agent_name
 from holmes.utils.file_utils import write_json_file
 from holmes.version import check_version_async
@@ -1168,7 +1170,7 @@ def run_interactive_loop(
     bash_always_deny: bool = False,
     bash_always_allow: bool = False,
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
-    config: Optional[Any] = None,
+    config: Optional[Config] = None,
     config_file_path: Optional[Path] = None,
 ) -> None:
     # Enable CLI mode for bash prefix loading (server mode doesn't call this)
@@ -1416,8 +1418,6 @@ def run_interactive_loop(
                     user_input = shared_input
                 elif command == SlashCommands.CONFIG.command:
                     if config is not None:
-                        from holmes.toolset_config_tui import run_toolset_config_tui
-
                         run_toolset_config_tui(
                             config,
                             config_file_path,
