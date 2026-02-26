@@ -457,14 +457,15 @@ def _run_selection_menu(
 # ── Screen 1: select toolset ─────────────────────────────────────────
 
 
-def _get_configurable_toolsets(config: Config) -> List[Toolset]:
-    """Return toolsets that have at least one config_class.
+def _is_configurable(t: Toolset) -> bool:
+    """A toolset is configurable if it has config classes and is not MCP."""
+    return bool(t.config_classes) and t.type != ToolsetType.MCP
 
-    MCP toolsets are excluded because their config experience is not yet
-    ready – they will be handled in a separate PR.
-    """
+
+def _get_configurable_toolsets(config: Config) -> List[Toolset]:
+    """Return toolsets that are configurable in the TUI editor."""
     all_toolsets = config.toolset_manager.list_console_toolsets()
-    return [t for t in all_toolsets if t.config_classes and t.type != ToolsetType.MCP]
+    return [t for t in all_toolsets if _is_configurable(t)]
 
 
 def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolset]:
@@ -1021,7 +1022,7 @@ def run_toolset_config_tui(
 ) -> None:
     """Main entry point – runs the full 3-screen config flow."""
     if preloaded_toolsets is not None:
-        toolsets = [t for t in preloaded_toolsets if t.config_classes]
+        toolsets = [t for t in preloaded_toolsets if _is_configurable(t)]
     else:
         toolsets = _get_configurable_toolsets(config)
 
