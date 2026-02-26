@@ -178,7 +178,7 @@ jobs:
       - name: Install dependencies and build
         # if you change something here, you must also change it in .github/workflows/build-binaries-and-brew.yaml
         run: |
-          python -m pip install --upgrade pip setuptools pyinstaller
+          python -m pip install --upgrade pip "setuptools<75" "pyinstaller>=6.11"
 
           poetry install --no-root
 
