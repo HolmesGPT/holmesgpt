@@ -323,7 +323,7 @@ def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool
     All stdout/stderr/logging output is captured so it doesn't leak into the TUI.
     The captured output is appended to the returned message.
     """
-    test_toolset = copy.deepcopy(toolset)
+    test_toolset = copy.copy(toolset)
     test_toolset.config = config_dict
     test_toolset.enabled = True
     test_toolset.status = ToolsetStatusEnum.DISABLED
