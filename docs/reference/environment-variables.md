@@ -61,6 +61,16 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 ## HolmesGPT Configuration
 
+### MODEL_LIST_FILE_LOCATION
+Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
+
+**Example:**
+```bash
+export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
+```
+
+See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for the model list file format and usage.
+
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.
 
