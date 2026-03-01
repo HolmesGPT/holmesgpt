@@ -6,6 +6,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import threading
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -602,6 +603,23 @@ class ToolsetEnvironmentPrerequisite(BaseModel):
     env: List[str] = []  # optional
 
 
+def _prereq_priority(prereq: Union[StaticPrerequisite, ToolsetCommandPrerequisite, ToolsetEnvironmentPrerequisite, CallablePrerequisite]) -> int:
+    """Priority ordering for prerequisite checks. Lower number = higher priority.
+
+    Static checks and env vars are fast config-validity checks (0-1).
+    Callable and command checks may involve network/IO and are deferrable (2-3).
+    """
+    if isinstance(prereq, StaticPrerequisite):
+        return 0
+    elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
+        return 1
+    elif isinstance(prereq, CallablePrerequisite):
+        return 2
+    elif isinstance(prereq, ToolsetCommandPrerequisite):
+        return 3
+    return 4
+
+
 class Toolset(BaseModel):
     model_config = ConfigDict(extra="forbid")
     experimental: bool = False
@@ -641,6 +659,11 @@ class Toolset(BaseModel):
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
+
+    # Lazy initialization tracking
+    _lazy_init: bool = PrivateAttr(default=False)
+    _initialized: bool = PrivateAttr(default=True)
+    _init_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     # status fields that be cached
     type: Optional[ToolsetType] = None
@@ -765,18 +788,7 @@ class Toolset(BaseModel):
         # 2. Environment variable checks (instant, often required by commands)
         # 3. Callable checks (variable speed)
         # 4. Command checks (slowest - may timeout or hang)
-        def prereq_priority(prereq):
-            if isinstance(prereq, StaticPrerequisite):
-                return 0
-            elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
-                return 1
-            elif isinstance(prereq, CallablePrerequisite):
-                return 2
-            elif isinstance(prereq, ToolsetCommandPrerequisite):
-                return 3
-            return 4  # Unknown types go last
-
-        sorted_prereqs = sorted(self.prerequisites, key=prereq_priority)
+        sorted_prereqs = sorted(self.prerequisites, key=_prereq_priority)
 
         for prereq in sorted_prereqs:
             if isinstance(prereq, ToolsetCommandPrerequisite):
@@ -834,6 +846,75 @@ class Toolset(BaseModel):
 
         if not silent:
             logger.info(f"✅ Toolset {self.name}")
+
+    def check_config_prerequisites(self, silent: bool = False) -> None:
+        """Run only fast config-validity checks (static flags and environment variables).
+
+        Callable and command prerequisites are deferred for lazy initialization
+        on first tool use. This avoids slow network/IO operations at startup when
+        using cached toolset status.
+        """
+        self.status = ToolsetStatusEnum.ENABLED
+
+        sorted_prereqs = sorted(self.prerequisites, key=_prereq_priority)
+        has_deferred_prereqs = False
+
+        for prereq in sorted_prereqs:
+            if isinstance(prereq, StaticPrerequisite):
+                if not prereq.enabled:
+                    self.status = ToolsetStatusEnum.FAILED
+                    self.error = f"{prereq.disabled_reason}"
+
+            elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
+                for env_var in prereq.env:
+                    if env_var not in os.environ:
+                        self.status = ToolsetStatusEnum.FAILED
+                        self.error = f"Environment variable {env_var} was not set"
+
+            elif isinstance(prereq, (CallablePrerequisite, ToolsetCommandPrerequisite)):
+                has_deferred_prereqs = True
+                continue
+
+            if (
+                self.status == ToolsetStatusEnum.DISABLED
+                or self.status == ToolsetStatusEnum.FAILED
+            ):
+                if not silent:
+                    logger.info(f"❌ Toolset {self.name}: {self.error}")
+                return
+
+        if has_deferred_prereqs:
+            self._lazy_init = True
+            self._initialized = False
+        else:
+            self._initialized = True
+
+    @property
+    def needs_initialization(self) -> bool:
+        """Whether this toolset requires lazy initialization before its tools can be used."""
+        return self._lazy_init and not self._initialized
+
+    def lazy_initialize(self, silent: bool = False) -> bool:
+        """Run deferred initialization (callable and command prerequisites).
+
+        Called on first tool use for toolsets that were loaded from cache.
+        Thread-safe: concurrent calls from parallel tool invocations are
+        serialized so that only one thread performs initialization.
+        Returns True if initialization succeeded, False otherwise.
+        """
+        if self._initialized:
+            return self.status == ToolsetStatusEnum.ENABLED
+
+        with self._init_lock:
+            # Re-check after acquiring lock; another thread may have initialized
+            if self._initialized:
+                return self.status == ToolsetStatusEnum.ENABLED
+
+            logger.info(f"Lazily initializing toolset {self.name}...")
+            self.check_prerequisites(silent=silent)
+            self._initialized = True
+            self._lazy_init = False
+            return self.status == ToolsetStatusEnum.ENABLED
 
     def get_config_example(self) -> Optional[Dict[str, Any]]:
         """Returns a JSON-serializable example object for the toolset's configuration.
