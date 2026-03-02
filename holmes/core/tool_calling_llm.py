@@ -29,6 +29,7 @@ from holmes.core.investigation_structured_output import (
 )
 from holmes.core.issue import Issue
 from holmes.core.llm import LLM
+from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.models import (
     PendingToolApproval,
     ToolApprovalDecision,
@@ -155,6 +156,7 @@ class LLMCosts(BaseModel):
     total_tokens: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    num_compactions: int = 0
 
 
 def _extract_cost_from_response(full_response) -> float:
@@ -166,16 +168,7 @@ def _extract_cost_from_response(full_response) -> float:
     Returns:
         The cost as a float, or 0.0 if not available
     """
-    try:
-        cost_value = (
-            full_response._hidden_params.get("response_cost", 0)
-            if hasattr(full_response, "_hidden_params")
-            else 0
-        )
-        # Ensure cost is a float
-        return float(cost_value) if cost_value is not None else 0.0
-    except Exception:
-        return 0.0
+    return extract_usage_from_response(full_response).cost
 
 
 def _process_cost_info(
@@ -191,31 +184,29 @@ def _process_cost_info(
         log_prefix: Prefix for logging messages (e.g., "LLM call", "Post-processing")
     """
     try:
-        cost = _extract_cost_from_response(full_response)
-        usage = getattr(full_response, "usage", {})
+        raw = extract_usage_from_response(full_response)
 
-        if usage:
-            if LOG_LLM_USAGE_RESPONSE:  # shows stats on token cache usage
+        if LOG_LLM_USAGE_RESPONSE:
+            usage = getattr(full_response, "usage", None)
+            if usage:
                 logging.info(f"LLM usage response:\n{usage}\n")
-            prompt_toks = usage.get("prompt_tokens", 0)
-            completion_toks = usage.get("completion_tokens", 0)
-            total_toks = usage.get("total_tokens", 0)
+
+        if raw.total_tokens > 0:
             cost_logger.debug(
-                f"{log_prefix} cost: ${cost:.6f} | Tokens: {prompt_toks} prompt + {completion_toks} completion = {total_toks} total"
-            )
-            # Accumulate costs and tokens if costs object provided
-            if costs:
-                costs.total_cost += cost
-                costs.prompt_tokens += prompt_toks
-                costs.completion_tokens += completion_toks
-                costs.total_tokens += total_toks
-        elif cost > 0:
-            cost_logger.debug(
-                f"{log_prefix} cost: ${cost:.6f} | Token usage not available"
+                f"{log_prefix} cost: ${raw.cost:.6f} | Tokens: {raw.prompt_tokens} prompt + {raw.completion_tokens} completion = {raw.total_tokens} total"
             )
             if costs:
-                costs.total_cost += cost
-    except Exception as e:
+                costs.total_cost += raw.cost
+                costs.prompt_tokens += raw.prompt_tokens
+                costs.completion_tokens += raw.completion_tokens
+                costs.total_tokens += raw.total_tokens
+        elif raw.cost > 0:
+            cost_logger.debug(
+                f"{log_prefix} cost: ${raw.cost:.6f} | Token usage not available"
+            )
+            if costs:
+                costs.total_cost += raw.cost
+    except (AttributeError, TypeError, KeyError) as e:
         logging.debug(f"Could not extract cost information: {e}")
 
 
@@ -472,6 +463,16 @@ class ToolCallingLLM:
             )
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
+
+            # Always accumulate compaction tokens/cost when a compaction LLM call
+            # was attempted, even if it didn't reduce token count
+            compaction = limit_result.compaction_usage
+            if compaction.total_tokens > 0:
+                costs.num_compactions += 1
+                costs.total_tokens += compaction.total_tokens
+                costs.prompt_tokens += compaction.prompt_tokens
+                costs.completion_tokens += compaction.completion_tokens
+                costs.total_cost += compaction.cost
 
             if (
                 limit_result.conversation_history_compacted
@@ -994,6 +995,7 @@ class ToolCallingLLM:
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
+        costs = LLMCosts()
         i = 0
         tool_number_offset = 0
 
@@ -1010,6 +1012,19 @@ class ToolCallingLLM:
             yield from limit_result.events
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
+
+            # Accumulate compaction costs (mirrors call() logic)
+            compaction = limit_result.compaction_usage
+            if compaction.total_tokens > 0:
+                costs.num_compactions += 1
+                costs.total_tokens += compaction.total_tokens
+                costs.prompt_tokens += compaction.prompt_tokens
+                costs.completion_tokens += compaction.completion_tokens
+                costs.total_cost += compaction.cost
+                cost_logger.debug(
+                    f"Compaction cost (streaming): ${compaction.cost:.6f} | "
+                    f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
+                )
 
             if (
                 limit_result.conversation_history_compacted
@@ -1030,8 +1045,8 @@ class ToolCallingLLM:
                     drop_params=True,
                 )
 
-                # Log cost information for this iteration (no accumulation in streaming)
-                _process_cost_info(full_response, log_prefix="LLM iteration")
+                # Accumulate cost information for this iteration
+                _process_cost_info(full_response, costs, log_prefix="LLM iteration")
 
             # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
             except BadRequestError as e:
@@ -1087,6 +1102,7 @@ class ToolCallingLLM:
                 maximum_output_token=limit_result.maximum_output_token,
                 metadata=metadata,
             )
+            metadata["costs"] = costs.model_dump()
             yield build_stream_event_token_count(metadata=metadata)
 
             tools_to_call = getattr(response_message, "tool_calls", None)

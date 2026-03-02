@@ -227,12 +227,14 @@ def generate_markdown_report(
         markdown += "\n"
 
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Tokens | Compactions |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
     total_cost = 0.0
+    total_tokens_sum = 0
+    total_compactions = 0
     total_turns = 0
     total_tools = 0
     time_count = 0
@@ -287,14 +289,32 @@ def generate_markdown_report(
         if cost and cost > 0:
             total_cost += cost
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} |\n"
+        # Format total tokens
+        tokens = result.get("total_tokens", 0)
+        if tokens and tokens > 0:
+            tokens_str = f"{tokens:,}"
+            total_tokens_sum += tokens
+        else:
+            tokens_str = "—"
+
+        # Format compactions
+        num_compactions = result.get("num_compactions", 0)
+        if num_compactions and num_compactions > 0:
+            compactions_str = str(num_compactions)
+            total_compactions += num_compactions
+        else:
+            compactions_str = "—"
+
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {tokens_str} | {compactions_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
     avg_turns_str = f"{total_turns / turns_count:.1f}" if turns_count > 0 else "—"
     avg_tools_str = f"{total_tools / tools_count:.1f}" if tools_count > 0 else "—"
     total_cost_str = f"${total_cost:.4f}" if total_cost > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** |\n"
+    total_tokens_str = f"{total_tokens_sum:,}" if total_tokens_sum > 0 else "—"
+    total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_str}** | **{total_compactions_str}** |\n"
 
     # Add footer explaining historical comparison status
     if historical and comparison_map:

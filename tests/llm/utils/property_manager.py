@@ -245,6 +245,10 @@ def update_test_results(
             request.node.user_properties.append(
                 ("completion_tokens", result.completion_tokens)
             )
+        if hasattr(result, "num_compactions"):
+            request.node.user_properties.append(
+                ("num_compactions", result.num_compactions)
+            )
 
     return scores
 
