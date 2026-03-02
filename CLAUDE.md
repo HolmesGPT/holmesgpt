@@ -468,6 +468,24 @@ toolsets:
 2. `poetry run pytest -k "test_name" --no-cov` — run full test
 3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
 
+## Reading CodeRabbit Review Comments
+
+In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:
+
+1. **Find the PR number** via the GitHub API (unauthenticated, one call):
+   ```bash
+   curl -s "https://api.github.com/repos/HolmesGPT/holmesgpt/pulls?head=HolmesGPT:BRANCH_NAME&state=open" \
+     | python3 -c "import sys,json; [print(f'PR #{p[\"number\"]}') for p in json.load(sys.stdin)]"
+   ```
+2. **Fetch comments with WebFetch** (not rate-limited):
+   Use the `WebFetch` tool on `https://github.com/HolmesGPT/holmesgpt/pull/<NUMBER>` and ask it to extract all CodeRabbit comments, including file/line references, full text, and code suggestions.
+
+**What does NOT work:**
+
+- `gh` CLI — not installed in the sandbox
+- Multiple `curl` calls to `api.github.com` — hits unauthenticated rate limits (60/hour) fast
+- The local git proxy (`127.0.0.1`) — only supports git protocol, not the GitHub REST API
+
 ## Documentation Lookup
 
 When asked about content from the HolmesGPT documentation website (https://holmesgpt.dev/), look in the local `docs/` directory:
