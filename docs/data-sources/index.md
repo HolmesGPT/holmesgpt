@@ -14,6 +14,10 @@ HolmesGPT connects to your monitoring and observability tools to provide compreh
 
     Create your own integrations for proprietary or specialized tools.
 
+-   **[HTTP Connectors](api-toolsets.md)**
+
+    Connect to any HTTP API using standard authentication methods.
+
 -   **[MCP Servers](remote-mcp-servers.md)**
 
     Connect to Model Context Protocol servers for extended capabilities.

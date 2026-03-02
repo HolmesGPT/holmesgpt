@@ -199,7 +199,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
 - `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
 - `MODEL`: Override default model(s) - supports comma-separated list
-- `RUN_LIVE`: Use live tools in tests (strongly recommended)
+- `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`: For Elasticsearch/OpenSearch cloud testing
@@ -246,6 +246,15 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - Toolsets: `holmes/plugins/toolsets/{name}.yaml` or `{name}/`
 - Prompts: `holmes/plugins/prompts/{name}.jinja2`
 - Tests: Match source structure under `tests/`
+
+**Adding a New Integration (Toolset)**:
+When adding a new toolset or integration, update all of the following pages to keep them in sync:
+
+1. `README.md` — Data Sources table (add a row with logo, link, status, and description)
+2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
+3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
+4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
+5. Add a logo image to `images/integration_logos/` if one is available
 
 ## Security Notes
 

@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"pod","name":"my-server-deployment","namespace":"ask-holmes-namespace-45"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl get --show-labels -o wide pod my-server-deployment -n ask-holmes-namespace-45` failed with return code 1\nOutput:\nError from server (NotFound): pods \"my-server-deployment\" not found", "return_code": 1, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide pod my-server-deployment -n ask-holmes-namespace-45", "params": {"kind": "pod", "name": "my-server-deployment", "namespace": "ask-holmes-namespace-45"}}
-Error from server (NotFound): pods "my-server-deployment" not found

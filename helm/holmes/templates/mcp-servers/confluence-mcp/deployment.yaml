@@ -1,0 +1,141 @@
+{{- if .Values.mcpAddons.confluenceMcp.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-confluence-mcp-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-confluence-mcp
+    app.kubernetes.io/name: confluence-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data:
+  TRANSPORT: "sse"
+  CONFLUENCE_URL: {{ required "mcpAddons.confluenceMcp.config.url is required" .Values.mcpAddons.confluenceMcp.config.url | quote }}
+  {{- if .Values.mcpAddons.confluenceMcp.config.enabledTools }}
+  ENABLED_TOOLS: {{ .Values.mcpAddons.confluenceMcp.config.enabledTools | quote }}
+  {{- end }}
+  {{- if .Values.mcpAddons.confluenceMcp.config.readOnly }}
+  READ_ONLY_MODE: "true"
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-confluence-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-confluence-mcp
+    app.kubernetes.io/name: confluence-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-confluence-mcp
+      app.kubernetes.io/name: confluence-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-confluence-mcp
+        app.kubernetes.io/name: confluence-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.confluenceMcp | toYaml | sha256sum }}
+    spec:
+      {{- if .Values.mcpAddons.confluenceMcp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.confluenceMcp.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.confluenceMcp.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.confluenceMcp.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.confluenceMcp.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.confluenceMcp.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: confluence-mcp
+        image: "{{ .Values.mcpAddons.confluenceMcp.registry }}/{{ .Values.mcpAddons.confluenceMcp.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.confluenceMcp.imagePullPolicy | default "IfNotPresent" }}
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: TRANSPORT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-confluence-mcp-config
+              key: TRANSPORT
+        - name: CONFLUENCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-confluence-mcp-config
+              key: CONFLUENCE_URL
+        - name: CONFLUENCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "mcpAddons.confluenceMcp.auth.secretName is required" .Values.mcpAddons.confluenceMcp.auth.secretName }}
+              key: {{ .Values.mcpAddons.confluenceMcp.auth.usernameKey | default "confluence-username" }}
+        - name: CONFLUENCE_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mcpAddons.confluenceMcp.auth.secretName }}
+              key: {{ .Values.mcpAddons.confluenceMcp.auth.tokenKey | default "confluence-api-token" }}
+        {{- if .Values.mcpAddons.confluenceMcp.config.enabledTools }}
+        - name: ENABLED_TOOLS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-confluence-mcp-config
+              key: ENABLED_TOOLS
+        {{- end }}
+        {{- if .Values.mcpAddons.confluenceMcp.config.readOnly }}
+        - name: READ_ONLY_MODE
+          value: "true"
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.confluenceMcp.resources | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-confluence-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-confluence-mcp
+    app.kubernetes.io/name: confluence-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  selector:
+    app: {{ .Release.Name }}-confluence-mcp
+    app.kubernetes.io/name: confluence-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- end }}
