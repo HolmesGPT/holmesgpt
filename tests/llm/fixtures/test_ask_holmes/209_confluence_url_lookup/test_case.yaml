@@ -1,6 +1,6 @@
-# Test: Fetch Confluence page from URL without page ID
+# Test: Fetch Confluence page from URL without page ID (API key variant)
 # Tests that Holmes can fetch a page from a display URL (no page ID in URL).
-# Should FAIL with current toolset - it only supports fetching by page ID.
+# Uses personal API key credentials (not service account) to verify both auth methods.
 #
 # Requirements:
 #   CONFLUENCE_USER - Email/username for Confluence

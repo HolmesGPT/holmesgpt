@@ -666,6 +666,15 @@ class ToolCallingLLM:
         session_approved_prefixes: Optional[List[str]] = None,
         request_context: Optional[Dict[str, Any]] = None,
     ) -> StructuredToolResult:
+        # Ensure the toolset is initialized (lazy initialization on first use)
+        init_error = self.tool_executor.ensure_toolset_initialized(tool_name)
+        if isinstance(init_error, str):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=init_error,
+                params=tool_params,
+            )
+
         tool = self.tool_executor.get_tool_by_name(tool_name)
         if not tool:
             logging.warning(

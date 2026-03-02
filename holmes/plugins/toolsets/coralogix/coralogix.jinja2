@@ -7,7 +7,8 @@ Rules:
 - Start broad, then narrow down
 - Never assume labels: start with plain text (e.g., `source logs | lucene 'app-173'`); only use label equality after seeing the exact field path in results
 - Traces: use `source spans`
-- Never query archive tier; only query frequent search data
+- Query frequent tier first; only try archive tier if frequent tier has no results or if instructed to
+- If archive tier returns no results, verify archive access by running `source logs | limit 1` with tier=ARCHIVE and a wide time range (60 days). If that also returns nothing, try `source spans | limit 1`. If both are empty, archive is likely not configured for this account — fall back to frequent tier only.
 
 Example of a bad query: `source logs | filter $l.k8s.namespace_name == 'my_namespace'` (uses filter, unverified labels, no limit)
 
