@@ -378,13 +378,19 @@ class ToolsetManager:
         all_toolsets_with_status.extend(custom_toolsets_from_cli)
 
         # Additional Python toolsets passed programmatically are not cached,
-        # so always check their prerequisites.
+        # so check prerequisites for any that weren't already checked above.
         if self.additional_toolsets:
+            already_checked_names = {ts.name for ts in enabled_toolsets_from_cache} | {
+                ts.name for ts in enabled_toolsets_from_cli
+            }
             additional_to_check = [
                 ts for ts in all_toolsets_with_status
-                if ts.name in {ats.name for ats in self.additional_toolsets} and ts.enabled
+                if ts.name in {ats.name for ats in self.additional_toolsets}
+                and ts.enabled
+                and ts.name not in already_checked_names
             ]
-            self.check_toolset_prerequisites(additional_to_check)
+            if additional_to_check:
+                self.check_toolset_prerequisites(additional_to_check)
 
         if using_cached:
             num_available_toolsets = len(
