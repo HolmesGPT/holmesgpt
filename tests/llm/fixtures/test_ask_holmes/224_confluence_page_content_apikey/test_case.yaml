@@ -1,9 +1,19 @@
+# Test: Fetch Confluence page content via HTTP toolset (API key variant)
+# Tests that the HTTP toolset can fetch page content using personal API key credentials
+# routed directly to the Confluence instance (not via api.atlassian.com gateway).
+#
+# Requirements:
+#   CONFLUENCE_BASE_URL - e.g., https://robusta-llm-test.atlassian.net
+#   CONFLUENCE_USER - Email/username for Confluence
+#   CONFLUENCE_API_KEY - Atlassian API token
+#   CONFLUENCE_SA_BASE_URL, CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY - For setup/teardown
+
 user_prompt: |
-  Search Confluence for pages containing the text 'holmeseval215secret' and tell me
-  the title of the page you find.
+  In the Confluence space 'HOLMES224', find the page titled 'Release Notes'
+  and tell me the build number mentioned in it.
 
 expected_output:
-  - "Must report the page title: Secret Document 215"
+  - "Must report the build number: BUILD-2024-Q4-7M3X9R"
 
 tags:
   - confluence
@@ -13,10 +23,10 @@ tags:
 before_test: |
   set -e
 
-  SPACE_KEY="HOLMES215"
-  SPACE_NAME="Holmes Test Space 215"
-  PAGE_TITLE="Secret Document 215"
-  SECRET_TEXT="holmeseval215secret"
+  SPACE_KEY="HOLMES224"
+  SPACE_NAME="Holmes Test Space 224"
+  PAGE_TITLE="Release Notes"
+  BUILD_NUMBER="BUILD-2024-Q4-7M3X9R"
 
   echo "Creating Confluence space ${SPACE_KEY}..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
@@ -28,7 +38,7 @@ before_test: |
       \"name\": \"${SPACE_NAME}\",
       \"description\": {
         \"plain\": {
-          \"value\": \"Test space for Holmes eval 215\",
+          \"value\": \"Test space for Holmes eval 224\",
           \"representation\": \"plain\"
         }
       }
@@ -48,7 +58,7 @@ before_test: |
 
   sleep 2
 
-  echo "Creating page with secret text..."
+  echo "Creating page with build number..."
   PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
     -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
@@ -61,7 +71,7 @@ before_test: |
       },
       \"body\": {
         \"storage\": {
-          \"value\": \"<p>This is a confidential document for testing purposes.</p><p>Internal reference code: ${SECRET_TEXT}</p><p>This document should only be findable via search.</p>\",
+          \"value\": \"<h2>Release Notes - Q4 2024</h2><p>This release includes several improvements and bug fixes.</p><p>Build number: <strong>${BUILD_NUMBER}</strong></p><p>Key changes:</p><ul><li>Improved search performance</li><li>Fixed pagination in dashboard</li><li>Updated dependencies</li></ul>\",
           \"representation\": \"storage\"
         }
       }
@@ -88,31 +98,24 @@ before_test: |
   fi
   echo "Page created with ID: ${PAGE_ID}"
 
-  echo "Waiting for Confluence search indexing..."
-  sleep 10
+  echo "Verifying page content..."
+  VERIFY=$(curl -L -s \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content/${PAGE_ID}?expand=body.storage" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
 
-  echo "Verifying page is searchable..."
-  for i in $(seq 1 12); do
-    SEARCH_RESULT=$(curl -L -s \
-      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content/search?cql=text~\"${SECRET_TEXT}\"" \
-      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+  if echo "$VERIFY" | grep -q "${BUILD_NUMBER}"; then
+    echo "Page content verified"
+  else
+    echo "Page verification failed - build number not found in content"
+    exit 1
+  fi
 
-    if echo "$SEARCH_RESULT" | grep -q "${PAGE_TITLE}"; then
-      echo "Page is searchable (attempt ${i})"
-      echo "Setup complete"
-      exit 0
-    fi
-
-    echo "Search not ready, waiting... (attempt ${i}/12)"
-    sleep 5
-  done
-
-  echo "Warning: Search verification timed out, but continuing with test"
+  echo "Setup complete"
 
 after_test: |
   set -e
 
-  SPACE_KEY="HOLMES215"
+  SPACE_KEY="HOLMES224"
 
   echo "Deleting space ${SPACE_KEY}..."
   HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
