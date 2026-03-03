@@ -22,7 +22,6 @@ BRAINTRUST_API_URL = "https://api.braintrust.dev/v1"
 # CI benchmark experiment name prefix (set by eval-benchmarks.yaml workflow)
 BENCHMARK_EXPERIMENT_PREFIX = "ci-benchmark-"
 
-# Re-export for backwards compatibility with github_reporter.py imports
 __all__ = [
     "BRAINTRUST_ORG",
     "BRAINTRUST_PROJECT",
@@ -32,10 +31,6 @@ __all__ = [
     "ExperimentInfo",
     "get_benchmark_baseline",
     "compare_with_benchmark",
-    # Legacy aliases
-    "HistoricalMetrics",
-    "get_historical_metrics",
-    "compare_with_historical",
 ]
 
 
@@ -60,9 +55,6 @@ class BenchmarkMetrics:
     cost: Optional[float] = None
     tool_call_count: Optional[int] = None
 
-
-# Legacy alias
-HistoricalMetrics = BenchmarkMetrics
 
 
 @dataclass
@@ -378,19 +370,3 @@ def compare_with_benchmark(
         comparisons[key] = comparison
 
     return comparisons
-
-
-# Legacy aliases for backwards compatibility with github_reporter.py
-def get_historical_metrics(
-    limit: int = 10,
-) -> Tuple[Dict[str, BenchmarkMetrics], HistoricalComparisonDetails]:
-    """Legacy wrapper - delegates to get_benchmark_baseline()."""
-    return get_benchmark_baseline()
-
-
-def compare_with_historical(
-    current_results: List[Dict[str, Any]],
-    historical: Dict[str, BenchmarkMetrics],
-) -> Dict[str, HistoricalComparison]:
-    """Legacy wrapper - delegates to compare_with_benchmark()."""
-    return compare_with_benchmark(current_results, historical)
