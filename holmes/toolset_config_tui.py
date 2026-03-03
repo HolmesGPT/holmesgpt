@@ -6,6 +6,7 @@ Entry points:
 """
 
 import copy
+import concurrent.futures
 import io
 import logging
 import traceback
@@ -451,9 +452,18 @@ def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool
     root_logger.handlers = [log_handler]
     root_logger.setLevel(logging.DEBUG)
 
-    try:
+    # Run in a thread so that toolsets using asyncio.run() (e.g. MCP)
+    # don't clash with prompt_toolkit's own event loop.
+    def _run_check() -> None:
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
             test_toolset.check_prerequisites(silent=True)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_run_check)
+            future.result(timeout=30)
+    except concurrent.futures.TimeoutError:
+        stderr_buf.write("Prerequisite check timed out after 30 seconds\n")
     except Exception:
         stderr_buf.write(traceback.format_exc())
     finally:
