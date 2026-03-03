@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Type
 from unittest.mock import MagicMock, patch
@@ -18,12 +19,15 @@ from holmes.core.tools import (
     Tool,
     Toolset,
     ToolsetStatusEnum,
+    ToolsetType,
 )
 from holmes.toolset_config_tui import (
     ConfigFieldNode,
+    _extract_enum_class,
     _flatten_tree,
     _get_existing_config,
     _resolve_primitive_type,
+    _select_config_class,
     build_tree_from_schema,
     run_toolset_config_tui,
     save_config_to_file,
@@ -671,3 +675,216 @@ class TestRealConfigSchemas:
         assert result["api_key"] == original["api_key"]
         assert result["verify_ssl"] == original["verify_ssl"]
         assert result["additional_headers"] == original["additional_headers"]
+
+    def test_mcp_config_tree(self) -> None:
+        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode
+
+        values = {"url": "http://example.com:8000/mcp", "mode": "sse"}
+        nodes = build_tree_from_schema(MCPConfig, values)
+        mode_node = next(n for n in nodes if n.key == "mode")
+        assert mode_node.field_type == "enum"
+        assert mode_node.enum_class is MCPMode
+        assert mode_node.value == "sse"
+
+    def test_stdio_mcp_config_tree(self) -> None:
+        from holmes.plugins.toolsets.mcp.toolset_mcp import StdioMCPConfig, MCPMode
+
+        values = {"mode": "stdio", "command": "uvx", "args": ["mcp-atlassian"]}
+        nodes = build_tree_from_schema(StdioMCPConfig, values)
+        mode_node = next(n for n in nodes if n.key == "mode")
+        assert mode_node.field_type == "enum"
+        assert mode_node.value == "stdio"
+
+        cmd_node = next(n for n in nodes if n.key == "command")
+        assert cmd_node.value == "uvx"
+
+        args_node = next(n for n in nodes if n.key == "args")
+        assert args_node.is_header is True
+        assert len(args_node.children) == 1
+        assert args_node.children[0].value == "mcp-atlassian"
+
+    def test_mcp_config_roundtrip(self) -> None:
+        from holmes.plugins.toolsets.mcp.toolset_mcp import StdioMCPConfig
+
+        original = {
+            "mode": "stdio",
+            "command": "uvx",
+            "args": ["mcp-atlassian"],
+            "env": {"JIRA_URL": "https://example.atlassian.net"},
+        }
+        nodes = build_tree_from_schema(StdioMCPConfig, original)
+        result = tree_to_dict(nodes)
+        assert result["mode"] == "stdio"
+        assert result["command"] == "uvx"
+        assert result["args"] == ["mcp-atlassian"]
+        assert result["env"]["JIRA_URL"] == "https://example.atlassian.net"
+
+
+# ── Enum support ─────────────────────────────────────────────────────
+
+
+class SampleEnum(str, Enum):
+    ALPHA = "alpha"
+    BETA = "beta"
+    GAMMA = "gamma"
+
+
+class EnumConfig(ToolsetConfig):
+    mode: SampleEnum = Field(default=SampleEnum.ALPHA, title="Mode")
+    name: str = Field(default="", title="Name")
+
+
+class AltEnumConfig(ToolsetConfig):
+    mode: SampleEnum = Field(default=SampleEnum.BETA, title="Mode")
+    extra_field: str = Field(default="", title="Extra")
+
+
+class TestExtractEnumClass:
+    def test_direct_enum(self) -> None:
+        assert _extract_enum_class(SampleEnum) is SampleEnum
+
+    def test_optional_enum(self) -> None:
+        assert _extract_enum_class(Optional[SampleEnum]) is SampleEnum
+
+    def test_non_enum(self) -> None:
+        assert _extract_enum_class(str) is None
+        assert _extract_enum_class(int) is None
+
+    def test_none(self) -> None:
+        assert _extract_enum_class(None) is None
+
+
+class TestResolvePrimitiveTypeEnum:
+    def test_enum(self) -> None:
+        assert _resolve_primitive_type(SampleEnum) == "enum"
+
+    def test_optional_enum(self) -> None:
+        assert _resolve_primitive_type(Optional[SampleEnum]) == "enum"
+
+
+class TestBuildTreeEnum:
+    def test_enum_field_detected(self) -> None:
+        nodes = build_tree_from_schema(EnumConfig, {})
+        mode_node = next(n for n in nodes if n.key == "mode")
+        assert mode_node.field_type == "enum"
+        assert mode_node.enum_class is SampleEnum
+        assert mode_node.value == "alpha"  # default
+
+    def test_enum_with_current_value(self) -> None:
+        nodes = build_tree_from_schema(EnumConfig, {"mode": "beta"})
+        mode_node = next(n for n in nodes if n.key == "mode")
+        assert mode_node.value == "beta"
+
+    def test_enum_value_normalised_from_instance(self) -> None:
+        nodes = build_tree_from_schema(EnumConfig, {"mode": SampleEnum.GAMMA})
+        mode_node = next(n for n in nodes if n.key == "mode")
+        assert mode_node.value == "gamma"
+        assert isinstance(mode_node.value, str)
+
+    def test_enum_roundtrip(self) -> None:
+        nodes = build_tree_from_schema(EnumConfig, {"mode": "beta", "name": "test"})
+        result = tree_to_dict(nodes)
+        assert result["mode"] == "beta"
+        assert result["name"] == "test"
+
+
+class TestSelectConfigClass:
+    def test_single_class(self) -> None:
+        result = _select_config_class([EnumConfig], {})
+        assert result is EnumConfig
+
+    def test_picks_correct_class_by_discriminator(self) -> None:
+        result = _select_config_class(
+            [EnumConfig, AltEnumConfig], {"mode": "beta"}
+        )
+        assert result is AltEnumConfig
+
+    def test_falls_back_to_first_class(self) -> None:
+        result = _select_config_class(
+            [EnumConfig, AltEnumConfig], {"mode": "gamma"}
+        )
+        assert result is EnumConfig
+
+    def test_no_value_returns_first(self) -> None:
+        result = _select_config_class([EnumConfig, AltEnumConfig], {})
+        assert result is EnumConfig
+
+    def test_mcp_config_classes(self) -> None:
+        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode, StdioMCPConfig
+
+        assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "stdio"}) is StdioMCPConfig
+        assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "sse"}) is MCPConfig
+        assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "streamable-http"}) is MCPConfig
+
+
+# ── MCP save/load ────────────────────────────────────────────────────
+
+
+class TestSaveMCPConfig:
+    def test_save_mcp_to_mcp_servers_section(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_dict = {"mode": "stdio", "command": "uvx", "args": ["mcp-atlassian"]}
+
+        ok, msg = save_config_to_file(config_file, "jira_server", config_dict, is_mcp=True)
+
+        assert ok is True
+        with open(config_file) as f:
+            saved = yaml.safe_load(f)
+        assert "mcp_servers" in saved
+        assert saved["mcp_servers"]["jira_server"]["config"]["mode"] == "stdio"
+        assert "toolsets" not in saved
+
+    def test_save_mcp_preserves_existing_fields(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.yaml"
+        existing = {
+            "mcp_servers": {
+                "jira_server": {
+                    "description": "Jira integration",
+                    "llm_instructions": "Use this for Jira",
+                    "config": {"mode": "sse", "url": "http://old"},
+                }
+            }
+        }
+        with open(config_file, "w") as f:
+            yaml.dump(existing, f)
+
+        save_config_to_file(
+            config_file, "jira_server", {"mode": "stdio", "command": "uvx"}, is_mcp=True
+        )
+
+        with open(config_file) as f:
+            saved = yaml.safe_load(f)
+        entry = saved["mcp_servers"]["jira_server"]
+        assert entry["description"] == "Jira integration"
+        assert entry["llm_instructions"] == "Use this for Jira"
+        assert entry["config"]["mode"] == "stdio"
+
+    def test_regular_save_still_uses_toolsets(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.yaml"
+        ok, _ = save_config_to_file(config_file, "grafana/dashboards", {"api_url": "http://x"})
+        assert ok is True
+        with open(config_file) as f:
+            saved = yaml.safe_load(f)
+        assert "toolsets" in saved
+        assert saved["toolsets"]["grafana/dashboards"]["enabled"] is True
+
+
+class TestGetExistingConfigMCP:
+    def test_finds_mcp_config(self) -> None:
+        ts = make_toolset("jira_server")
+        config = MagicMock()
+        config.toolsets = {}
+        config.mcp_servers = {
+            "jira_server": {"config": {"mode": "stdio", "command": "uvx"}}
+        }
+        result = _get_existing_config(ts, config)
+        assert result["mode"] == "stdio"
+        assert result["command"] == "uvx"
+
+    def test_prefers_toolsets_over_mcp_servers(self) -> None:
+        ts = make_toolset("shared_name")
+        config = MagicMock()
+        config.toolsets = {"shared_name": {"config": {"api_url": "http://toolset"}}}
+        config.mcp_servers = {"shared_name": {"config": {"mode": "stdio"}}}
+        result = _get_existing_config(ts, config)
+        assert result["api_url"] == "http://toolset"

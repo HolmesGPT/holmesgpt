@@ -12,6 +12,7 @@ import traceback
 import types
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
 
@@ -79,6 +80,28 @@ def _extract_base_model_subclass(annotation: Any) -> Optional[Type[BaseModel]]:
     return None
 
 
+def _extract_enum_class(annotation: Any) -> Optional[Type[Enum]]:
+    """Best-effort extraction of an Enum subclass from a type annotation."""
+    if annotation is None:
+        return None
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        if args:
+            return _extract_enum_class(args[0])
+    if origin in _UNION_TYPES:
+        args = [a for a in get_args(annotation) if a is not type(None)]  # noqa: E721
+        if len(args) == 1:
+            return _extract_enum_class(args[0])
+        return None
+    try:
+        if isinstance(annotation, type) and issubclass(annotation, Enum):
+            return annotation
+    except TypeError:
+        return None
+    return None
+
+
 def _resolve_primitive_type(annotation: Any) -> str:
     """Map a Python type annotation to a simple type tag."""
     if annotation is None:
@@ -109,6 +132,10 @@ def _resolve_primitive_type(annotation: Any) -> str:
     if origin in (list, List):
         return "list"
 
+    # Check for Enum subclass (before str, since str Enums also match str)
+    if _extract_enum_class(annotation) is not None:
+        return "enum"
+
     # Primitives
     if annotation is int:
         return "int"
@@ -130,7 +157,7 @@ class ConfigFieldNode:
     """One row in the config tree."""
 
     key: str
-    field_type: str  # "str" | "int" | "float" | "bool" | "dict" | "list" | "model"
+    field_type: str  # "str" | "int" | "float" | "bool" | "enum" | "dict" | "list" | "model"
     value: Any = None
     title: str = ""
     description: str = ""
@@ -140,6 +167,7 @@ class ConfigFieldNode:
     is_header: bool = False
     depth: int = 0
     dict_key: Optional[str] = None  # editable key name for dict children
+    enum_class: Optional[Type[Enum]] = None  # the Enum class for "enum" fields
 
 
 def build_tree_from_schema(
@@ -186,6 +214,12 @@ def build_tree_from_schema(
             parent=parent,
             is_header=ftype in ("dict", "list", "model"),
         )
+
+        # Store enum metadata and normalise value to plain string
+        if ftype == "enum":
+            node.enum_class = _extract_enum_class(annotation)
+            if isinstance(node.value, Enum):
+                node.value = node.value.value
 
         if ftype == "model":
             nested_cls = _extract_base_model_subclass(annotation)
@@ -263,6 +297,48 @@ def tree_to_dict(nodes: List[ConfigFieldNode]) -> Dict[str, Any]:
     return result
 
 
+# ── Multi-config-class selection ──────────────────────────────────────
+
+
+def _select_config_class(
+    config_classes: List[Type[BaseModel]],
+    config_values: Dict[str, Any],
+) -> Type[BaseModel]:
+    """Pick the config class that matches the current discriminator enum value.
+
+    When a toolset declares multiple config classes (e.g. MCPConfig and
+    StdioMCPConfig), the shared enum field (e.g. ``mode``) acts as a
+    discriminator.  This function maps the current value of that field to
+    the class whose default matches it.  Falls back to the first class.
+    """
+    if len(config_classes) <= 1:
+        return config_classes[0]
+
+    first_cls = config_classes[0]
+    for field_name, field_info in first_cls.model_fields.items():
+        annotation = getattr(field_info, "annotation", None)
+        if _extract_enum_class(annotation) is None:
+            continue
+        # Must exist in all classes to act as discriminator
+        if not all(field_name in cls.model_fields for cls in config_classes):
+            continue
+
+        current_value = config_values.get(field_name)
+        if current_value is None:
+            continue
+        if isinstance(current_value, Enum):
+            current_value = current_value.value
+
+        for cls in config_classes:
+            cls_default = getattr(cls.model_fields[field_name], "default", None)
+            if isinstance(cls_default, Enum) and cls_default.value == current_value:
+                return cls
+        # Value didn't match any default – fall back to first class
+        return first_cls
+
+    return first_cls
+
+
 # ── Config file save / merge ─────────────────────────────────────────
 
 
@@ -278,12 +354,27 @@ def set_toolset_config(
     toolsets[toolset_name]["config"] = config_dict
 
 
+def set_mcp_config(
+    mcp_servers: Dict[str, Any],
+    toolset_name: str,
+    config_dict: Dict[str, Any],
+) -> None:
+    """Set ``mcp_servers[toolset_name]["config"]``, preserving other keys."""
+    if toolset_name not in mcp_servers or not isinstance(mcp_servers.get(toolset_name), dict):
+        mcp_servers[toolset_name] = {}
+    mcp_servers[toolset_name]["config"] = config_dict
+
+
 def save_config_to_file(
     config_file_path: Path,
     toolset_name: str,
     config_dict: Dict[str, Any],
+    is_mcp: bool = False,
 ) -> Tuple[bool, str]:
-    """Merge *config_dict* into the YAML config file under ``toolsets.<name>``.
+    """Merge *config_dict* into the YAML config file.
+
+    Regular toolsets are stored under ``toolsets.<name>``.
+    MCP servers are stored under ``mcp_servers.<name>``.
 
     Returns (success, message).  Never prints to stdout/stderr so the TUI
     stays intact.
@@ -294,9 +385,14 @@ def save_config_to_file(
         with open(config_file, "r") as f:
             existing = yaml.safe_load(f) or {}
 
-    if "toolsets" not in existing:
-        existing["toolsets"] = {}
-    set_toolset_config(existing["toolsets"], toolset_name, config_dict)
+    if is_mcp:
+        if "mcp_servers" not in existing:
+            existing["mcp_servers"] = {}
+        set_mcp_config(existing["mcp_servers"], toolset_name, config_dict)
+    else:
+        if "toolsets" not in existing:
+            existing["toolsets"] = {}
+        set_toolset_config(existing["toolsets"], toolset_name, config_dict)
 
     try:
         config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -314,6 +410,12 @@ def _get_existing_config(toolset: Toolset, config: Config) -> Dict[str, Any]:
         ts_entry = config.toolsets[toolset.name]
         if isinstance(ts_entry, dict) and ts_entry.get("config"):
             return dict(ts_entry["config"])
+    # Also check mcp_servers for MCP toolsets
+    mcp_servers = getattr(config, "mcp_servers", None)
+    if mcp_servers and toolset.name in mcp_servers:
+        mcp_entry = mcp_servers[toolset.name]
+        if isinstance(mcp_entry, dict) and mcp_entry.get("config"):
+            return dict(mcp_entry["config"])
     return {}
 
 
@@ -507,7 +609,10 @@ def run_tree_editor(
             f"Toolset '{toolset.name}' has no config_classes; "
             "cannot open the tree editor for a non-configurable toolset."
         )
-    config_class: Type[BaseModel] = toolset.config_classes[0]
+    is_mcp = toolset.type == ToolsetType.MCP
+    config_class: Type[BaseModel] = _select_config_class(
+        toolset.config_classes, initial_config
+    )
     top_nodes = build_tree_from_schema(config_class, initial_config)
     flat_rows = _flatten_tree(top_nodes)
 
@@ -525,6 +630,20 @@ def run_tree_editor(
     def _refresh_flat() -> None:
         nonlocal flat_rows
         flat_rows = _flatten_tree(top_nodes)
+
+    def _rebuild_for_class(new_class: Type[BaseModel], field_key: str) -> None:
+        """Rebuild the tree when the discriminator enum switches config class."""
+        nonlocal config_class, flat_rows
+        config_dict = tree_to_dict(top_nodes)
+        config_class = new_class
+        top_nodes.clear()
+        top_nodes.extend(build_tree_from_schema(config_class, config_dict))
+        flat_rows = _flatten_tree(top_nodes)
+        # Keep cursor on the discriminator field
+        for i, row in enumerate(flat_rows):
+            if row.key == field_key:
+                cursor[0] = i
+                break
 
     # ── rendering ──
 
@@ -570,6 +689,8 @@ def run_tree_editor(
         val_display = str(node.value) if node.value is not None else ""
         if node.field_type == "bool":
             val_display = str(node.value).lower() if node.value is not None else "null"
+        elif node.field_type == "enum":
+            val_display = str(node.value) if node.value is not None else ""
 
         return len(f"{indent}{prefix}{display_name}:{pad} {val_display}")
 
@@ -654,6 +775,9 @@ def run_tree_editor(
         if node.field_type == "bool":
             val_display = str(node.value).lower() if node.value is not None else "null"
             hints = "  (Enter to toggle)"
+        elif node.field_type == "enum":
+            val_display = str(node.value) if node.value is not None else ""
+            hints = "  (Enter to cycle)"
         elif is_list_entry:
             val_display = str(node.value) if node.value else "<value>"
             hints = ""
@@ -841,7 +965,7 @@ def run_tree_editor(
                 return
             elif btn_idx == 2:  # Save
                 config_path = Path(config_file_path) if config_file_path else Path(DEFAULT_CONFIG_LOCATION)
-                ok, msg = save_config_to_file(config_path, toolset.name, config_dict)
+                ok, msg = save_config_to_file(config_path, toolset.name, config_dict, is_mcp=is_mcp)
                 style_cls = "class:status-ok" if ok else "class:status-fail"
                 status_lines = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
                 if ok:
@@ -894,6 +1018,24 @@ def run_tree_editor(
         # Bool toggle
         if node.field_type == "bool":
             node.value = not bool(node.value)
+            return
+
+        # Enum cycle
+        if node.field_type == "enum" and node.enum_class is not None:
+            members = list(node.enum_class)
+            current_idx = 0
+            for i, member in enumerate(members):
+                if member.value == node.value:
+                    current_idx = i
+                    break
+            next_idx = (current_idx + 1) % len(members)
+            node.value = members[next_idx].value
+            # If multiple config classes, check if we need to switch
+            if len(toolset.config_classes) > 1:
+                new_config_dict = tree_to_dict(top_nodes)
+                new_class = _select_config_class(toolset.config_classes, new_config_dict)
+                if new_class is not config_class:
+                    _rebuild_for_class(new_class, node.key)
             return
 
         # Header: add entry
@@ -1012,9 +1154,10 @@ def _refresh_toolset_from_file(
     try:
         with open(config_path, "r") as f:
             file_data = yaml.safe_load(f) or {}
-        saved_cfg = (
-            file_data.get("toolsets", {}).get(toolset.name, {}).get("config", {})
-        )
+        if toolset.type == ToolsetType.MCP:
+            saved_cfg = file_data.get("mcp_servers", {}).get(toolset.name, {}).get("config", {})
+        else:
+            saved_cfg = file_data.get("toolsets", {}).get(toolset.name, {}).get("config", {})
     except Exception as e:
         logger.warning("Could not re-read config file for refresh: %s", e)
         return
@@ -1051,7 +1194,7 @@ def run_toolset_config_tui(
     else:
         toolsets = config.toolset_manager.list_console_toolsets()
 
-    toolsets = [t for t in toolsets if t.config_classes and t.type != ToolsetType.MCP]
+    toolsets = [t for t in toolsets if t.config_classes]
     selected = select_toolset(toolsets, console)
     if selected is None:
         console.print(f"[bold {STATUS_COLOR}]No toolset selected.[/bold {STATUS_COLOR}]")
@@ -1065,6 +1208,11 @@ def run_toolset_config_tui(
     if saved:
         _refresh_toolset_from_file(config_path, selected, console)
         # Update in-memory config so subsequent edits see the saved values
-        if config.toolsets is None:
-            config.toolsets = {}
-        set_toolset_config(config.toolsets, selected.name, selected.config)
+        if selected.type == ToolsetType.MCP:
+            if config.mcp_servers is None:
+                config.mcp_servers = {}
+            set_mcp_config(config.mcp_servers, selected.name, selected.config)
+        else:
+            if config.toolsets is None:
+                config.toolsets = {}
+            set_toolset_config(config.toolsets, selected.name, selected.config)
