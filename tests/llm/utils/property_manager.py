@@ -245,6 +245,10 @@ def update_test_results(
             request.node.user_properties.append(
                 ("completion_tokens", result.completion_tokens)
             )
+        if hasattr(result, "num_compactions"):
+            request.node.user_properties.append(
+                ("num_compactions", result.num_compactions)
+            )
 
     return scores
 
@@ -256,7 +260,6 @@ def handle_test_error(
     test_case=None,
     model: Optional[str] = None,
     result=None,
-    mock_generation_config=None,
 ) -> None:
     """Centralized error handling for LLM tests.
 
@@ -267,7 +270,6 @@ def handle_test_error(
         test_case: The test case being executed
         model: The model being tested
         result: Optional partial result if available
-        mock_generation_config: Mock configuration for logging
     """
     # Import here to avoid circular dependency
     from tests.llm.utils.braintrust import log_to_braintrust
@@ -281,7 +283,6 @@ def handle_test_error(
                 model=model,
                 result=result,
                 error=error,
-                mock_generation_config=mock_generation_config,
             )
         except Exception:
             pass  # Don't fail the test due to logging issues
@@ -309,17 +310,6 @@ def handle_test_error(
         # Mark as failed due to throttling (terminal failure after max retries)
         request.node.user_properties.append(("failed_due_to_throttling", True))
         request.node.user_properties.append(("throttle_reason", str(error)))
-        return  # Don't check for other error types
-
-    # Check if this is a MockDataError (check class name and inheritance)
-    is_mock_error = any("MockData" in cls.__name__ for cls in type(error).__mro__)
-
-    if is_mock_error:
-        # Mark as mock data failure
-        request.node.user_properties.append(("mock_data_failure", True))
-        request.node.user_properties.append(("mock_error_message", str(error)))
-        # Update the actual output to indicate mock data failure
-        update_property(request, "actual", f"Mock data error: {str(error)}")
         return  # Don't check for other error types
 
     # Check if this is a ToolsetPrerequisiteError (toolset infrastructure not available)

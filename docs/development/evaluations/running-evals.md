@@ -81,7 +81,7 @@ Essential variables for controlling test behavior:
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `RUN_LIVE` | Use real tools instead of mocks | `RUN_LIVE=true` |
+| `RUN_LIVE` | Enable live execution of tools (default: true) | `RUN_LIVE=true` |
 | `ITERATIONS` | Run each test N times | `ITERATIONS=10` |
 | `MODEL` | LLM to test | `MODEL=gpt-4.1` |
 | `CLASSIFIER_MODEL` | LLM for scoring (needed for Anthropic) | `CLASSIFIER_MODEL=gpt-4.1` |
@@ -181,12 +181,6 @@ RUN_LIVE=true ITERATIONS=10 poetry run pytest -m 'llm and easy' --no-cov
 # Quick check: Single run (less reliable)
 RUN_LIVE=true poetry run pytest -m 'llm and easy' --no-cov
 ```
-
-### Using RUN_LIVE=true vs Mock Data
-
-Some evals support mock-data and don't need a live Kubernetes cluster to run. However, for the most accurate evaluation you should set `RUN_LIVE=true` which tests HolmesGPT with a live Kubernetes cluster not mock data.
-
-This is important because LLMs can take multiple paths to reach conclusions, and mock data only captures one path.
 
 ### Parallel Execution
 

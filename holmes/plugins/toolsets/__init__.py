@@ -14,10 +14,12 @@ from holmes.common.env_vars import (
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetType, ToolsetYamlFromConfig, YAMLToolset
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
+from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
+from holmes.plugins.toolsets.database.database import DatabaseToolset
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
     DatadogGeneralToolset,
 )
@@ -108,10 +110,12 @@ def load_python_toolsets(
         RabbitMQToolset(),
         BashExecutorToolset(),
         KubectlRunToolset(),
+        ConfluenceToolset(),
         MongoDBAtlasToolset(),
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        DatabaseToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
     ]
@@ -204,6 +208,8 @@ def load_toolsets_from_config(
                 validated_toolset = RemoteMCPToolset(**config, name=name)
             elif toolset_type == ToolsetType.HTTP.value:
                 validated_toolset = HttpToolset(name=name, **config)
+            elif toolset_type == ToolsetType.DATABASE.value:
+                validated_toolset = DatabaseToolset(name=name, **config)
             elif strict_check:
                 validated_toolset = YAMLToolset(**config, name=name)  # type: ignore
             else:

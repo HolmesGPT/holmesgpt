@@ -117,7 +117,10 @@ password: "{{ env.CONFLUENCE_API_KEY }}"
 
 ## Example: Confluence Integration
 
-This example integrates with Atlassian Confluence to search pages and retrieve content.
+!!! tip "Use the dedicated Confluence toolset instead"
+    HolmesGPT includes a [dedicated Confluence toolset](builtin-toolsets/confluence.md) with CQL search and support for both Cloud and Data Center. The HTTP connector example below is only needed for advanced use cases not covered by the built-in toolset.
+
+This example shows how to use an HTTP connector with Atlassian Confluence to search pages and retrieve content.
 
 === "Holmes CLI"
 

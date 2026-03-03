@@ -199,7 +199,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
 - `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
 - `MODEL`: Override default model(s) - supports comma-separated list
-- `RUN_LIVE`: Use live tools in tests (strongly recommended)
+- `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`: For Elasticsearch/OpenSearch cloud testing
@@ -246,6 +246,15 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - Toolsets: `holmes/plugins/toolsets/{name}.yaml` or `{name}/`
 - Prompts: `holmes/plugins/prompts/{name}.jinja2`
 - Tests: Match source structure under `tests/`
+
+**Adding a New Integration (Toolset)**:
+When adding a new toolset or integration, update all of the following pages to keep them in sync:
+
+1. `README.md` — Data Sources table (add a row with logo, link, status, and description)
+2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
+3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
+4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
+5. Add a logo image to `images/integration_logos/` if one is available
 
 ## Security Notes
 
@@ -458,6 +467,24 @@ toolsets:
 1. `poetry run pytest -k "test_name" --only-setup --no-cov` — verify setup
 2. `poetry run pytest -k "test_name" --no-cov` — run full test
 3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
+
+## Reading CodeRabbit Review Comments
+
+In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:
+
+1. **Find the PR number** via the GitHub API (unauthenticated, one call):
+   ```bash
+   curl -s "https://api.github.com/repos/HolmesGPT/holmesgpt/pulls?head=HolmesGPT:BRANCH_NAME&state=open" \
+     | python3 -c "import sys,json; [print(f'PR #{p[\"number\"]}') for p in json.load(sys.stdin)]"
+   ```
+2. **Fetch comments with WebFetch** (not rate-limited):
+   Use the `WebFetch` tool on `https://github.com/HolmesGPT/holmesgpt/pull/<NUMBER>` and ask it to extract all CodeRabbit comments, including file/line references, full text, and code suggestions.
+
+**What does NOT work:**
+
+- `gh` CLI — not installed in the sandbox
+- Multiple `curl` calls to `api.github.com` — hits unauthenticated rate limits (60/hour) fast
+- The local git proxy (`127.0.0.1`) — only supports git protocol, not the GitHub REST API
 
 ## Documentation Lookup
 
