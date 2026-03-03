@@ -6,11 +6,8 @@ Entry points:
 """
 
 import copy
-import concurrent.futures
-import io
 import logging
 import types
-from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -422,8 +419,9 @@ def _get_existing_config(toolset: Toolset, config: Config) -> Dict[str, Any]:
 def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool, str]:
     """Run prerequisite checks against *config_dict* and return (ok, message).
 
-    All stdout/stderr/logging output is captured so it doesn't leak into the TUI.
-    The captured output is appended to the returned message.
+    This is designed to be called **outside** of the TUI (after the
+    prompt_toolkit Application has exited), so output goes to the normal
+    terminal and there is no event-loop conflict with asyncio.run().
     """
     test_toolset = copy.copy(toolset)
     test_toolset.config = config_dict
@@ -431,55 +429,15 @@ def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool
     test_toolset.status = ToolsetStatusEnum.DISABLED
     test_toolset.error = None
 
-    # Suppress noisy output that prerequisites might produce so it
-    # doesn't corrupt the TUI.  Only logger warnings are shown to the user.
-    log_buf = io.StringIO()
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
-
-    log_handler = logging.StreamHandler(log_buf)
-    log_handler.setLevel(logging.WARNING)
-    root_logger = logging.getLogger()
-
-    # Temporarily replace *all* root-logger handlers so that pre-existing
-    # handlers (e.g. RichHandler) don't write to the real console while
-    # the TUI is active.  Only capture WARNING+ to keep output concise.
-    saved_handlers = root_logger.handlers
-    saved_level = root_logger.level
-    root_logger.handlers = [log_handler]
-    root_logger.setLevel(logging.WARNING)
-
-    # Run in a thread so that toolsets using asyncio.run() (e.g. MCP)
-    # don't clash with prompt_toolkit's own event loop.
-    def _run_check() -> None:
-        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-            test_toolset.check_prerequisites(silent=True)
-
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_run_check)
-            future.result(timeout=30)
-    except concurrent.futures.TimeoutError:
-        test_toolset.error = "Prerequisite check timed out after 30 seconds"
+        test_toolset.check_prerequisites(silent=True)
     except Exception as exc:
         test_toolset.error = str(exc)
-    finally:
-        root_logger.handlers = saved_handlers
-        root_logger.setLevel(saved_level)
-
-    # Build result message – only include captured warnings, never tracebacks
-    captured = log_buf.getvalue().strip()
 
     if test_toolset.status == ToolsetStatusEnum.ENABLED:
-        msg = "Prerequisites passed"
-        if captured:
-            msg += "\n" + captured
-        return True, msg
+        return True, "Prerequisites passed"
 
-    msg = f"Failed: {test_toolset.error or 'unknown error'}"
-    if captured:
-        msg += "\n" + captured
-    return False, msg
+    return False, f"Failed: {test_toolset.error or 'unknown error'}"
 
 
 # ── prompt_toolkit TUI helpers ────────────────────────────────────────
@@ -601,10 +559,16 @@ def run_tree_editor(
     toolset: Toolset,
     initial_config: Dict[str, Any],
     config_file_path: Path,
-) -> bool:
+    initial_status: Optional[List[Tuple[str, str]]] = None,
+    cursor_on_test_button: bool = False,
+) -> Tuple[Optional[Dict[str, Any]], bool]:
     """Screen 2 – full tree editor with inline editing and action buttons.
 
-    Returns True if the configuration was saved at least once.
+    Returns ``(test_config, saved)``:
+      - *test_config* is a dict when the user pressed **Test** (the caller
+        should run the test outside the TUI and then re-enter the editor),
+        or ``None`` when the user exited normally.
+      - *saved* is ``True`` if the configuration was saved at least once.
     """
 
     if not toolset.config_classes:
@@ -626,11 +590,11 @@ def run_tree_editor(
         _class_config_cache[config_class] = dict(initial_config)
 
     # State
-    cursor = [0]  # index into (flat_rows + buttons)
+    cursor = [len(flat_rows) if cursor_on_test_button else 0]  # index into (flat_rows + buttons)
     editing = [False]
     editing_dict_key = [False]  # True when editing the key portion of a dict entry
     edit_buf = [Buffer()]
-    status_lines: List[Tuple[str, str]] = []
+    status_lines: List[Tuple[str, str]] = list(initial_status) if initial_status else []
     saved = [False]
     not_editing = Condition(lambda: not editing[0])
 
@@ -968,10 +932,9 @@ def run_tree_editor(
             btn_idx = idx - btn_start
             config_dict = tree_to_dict(top_nodes)
 
-            if btn_idx == 0:  # Test
-                ok, msg = run_config_test(toolset, config_dict)
-                style_cls = "class:status-ok" if ok else "class:status-fail"
-                status_lines = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
+            if btn_idx == 0:  # Test – exit TUI so the test runs in the normal terminal
+                event.app.exit(result=("test", config_dict))
+                return
             elif btn_idx == 1:  # Reset
                 top_nodes.clear()
                 top_nodes.extend(build_tree_from_schema(config_class, {}))
@@ -1132,15 +1095,18 @@ def run_tree_editor(
     layout = Layout(
         Window(FormattedTextControl(_get_display_text, show_cursor=False), wrap_lines=True)
     )
-    app: Application[None] = Application(
+    app: Application[Any] = Application(
         layout=layout,
         key_bindings=kb,
         style=_MENU_STYLE,
         full_screen=False,
         erase_when_done=True,
     )
-    app.run()
-    return saved[0]
+    result = app.run()
+
+    if isinstance(result, tuple) and result[0] == "test":
+        return result[1], saved[0]
+    return None, saved[0]
 
 
 def _prompt_add_dict_entry(node: ConfigFieldNode, event: Any) -> None:
@@ -1217,12 +1183,39 @@ def run_toolset_config_tui(
         console.print(f"[bold {STATUS_COLOR}]No toolset selected.[/bold {STATUS_COLOR}]")
         return
 
-    initial = _get_existing_config(selected, config)
-
+    config_values = _get_existing_config(selected, config)
     config_path = Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
-    saved = run_tree_editor(selected, initial, config_path)
+    test_status: Optional[List[Tuple[str, str]]] = None
+    ever_saved = False
+    cursor_on_test = False
 
-    if saved:
+    while True:
+        test_config, saved = run_tree_editor(
+            selected,
+            config_values,
+            config_path,
+            initial_status=test_status,
+            cursor_on_test_button=cursor_on_test,
+        )
+        ever_saved = ever_saved or saved
+
+        if test_config is not None:
+            # User pressed Test – run outside the TUI so output goes to the
+            # normal terminal and asyncio.run() has no event-loop conflict.
+            config_values = test_config
+            ok, msg = run_config_test(selected, test_config)
+            if ok:
+                console.print(f"[bold green]{msg}[/bold green]")
+            else:
+                console.print(f"[bold {ERROR_COLOR}]{msg}[/bold {ERROR_COLOR}]")
+            style_cls = "class:status-ok" if ok else "class:status-fail"
+            test_status = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
+            cursor_on_test = True
+            continue
+
+        break
+
+    if ever_saved:
         _refresh_toolset_from_file(config_path, selected, console)
         # Update in-memory config so subsequent edits see the saved values
         if selected.type == ToolsetType.MCP:

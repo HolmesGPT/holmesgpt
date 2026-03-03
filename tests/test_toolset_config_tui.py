@@ -1,7 +1,6 @@
 """Tests for holmes.toolset_config_tui module."""
 
 import os
-import sys
 import tempfile
 from enum import Enum
 from pathlib import Path
@@ -493,12 +492,11 @@ class TestRunConfigTest:
         # Original should be unchanged
         assert ts.status == ToolsetStatusEnum.DISABLED
 
-    def test_suppresses_stdout_from_callable(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Verify that stdout/stderr from prerequisites doesn't leak to terminal or message."""
+    def test_allows_stdout_outside_tui(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """run_config_test is called outside the TUI so output flows freely."""
 
         def noisy_check(config: dict) -> tuple:
             print("NOISY STDOUT LINE")
-            print("NOISY STDERR LINE", file=sys.stderr)
             return True, ""
 
         ts = ConfigurableToolset(
@@ -506,16 +504,11 @@ class TestRunConfigTest:
         )
         ok, msg = run_config_test(ts, {"api_url": "http://test"})
 
-        # The test should pass
         assert ok is True
 
-        # Nothing should have been printed to the real terminal
+        # Output is no longer captured — it goes to the real terminal
         captured = capsys.readouterr()
-        assert "NOISY" not in captured.out
-        assert "NOISY" not in captured.err
-
-        # Noisy output should NOT appear in the result message
-        assert "NOISY" not in msg
+        assert "NOISY" in captured.out
 
 
 # ── select_toolset ────────────────────────────────────────────────────
