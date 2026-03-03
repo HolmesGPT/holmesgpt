@@ -8,18 +8,18 @@ from tests.llm.utils.braintrust import get_braintrust_url
 from tests.llm.utils.braintrust_history import (
     BRAINTRUST_ORG,
     BRAINTRUST_PROJECT,
+    BenchmarkMetrics,
     HistoricalComparison,
     HistoricalComparisonDetails,
-    HistoricalMetrics,
-    compare_with_historical,
-    get_historical_metrics,
+    compare_with_benchmark,
+    get_benchmark_baseline,
 )
 from tests.llm.utils.test_results import TestStatus
 
 
 def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
     """Format a diff percentage as an indicator string, bold if >25%."""
-    if diff is None or sample_count < 3:
+    if diff is None or sample_count < 1:
         return ""
     if abs(diff) < 10:
         return " ±0%"
@@ -68,11 +68,11 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
     Returns:
         Markdown string with collapsible details section
     """
-    lines = ["<details>", "<summary><b>Historical Comparison Details</b></summary>\n"]
+    lines = ["<details>", "<summary><b>Benchmark Comparison Details</b></summary>\n"]
 
     # Filter description
     if details.filter_description:
-        lines.append(f"**Filter:** {details.filter_description}\n")
+        lines.append(f"**Baseline:** {details.filter_description}\n")
 
     # Status
     if details.status:
@@ -84,15 +84,11 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
 
     # Experiments used
     if details.experiments:
-        lines.append(f"\n**Experiments compared ({len(details.experiments)}):**\n")
-        # Show first 3 experiments, summarize the rest to reduce email spam
-        for exp in details.experiments[:3]:
-            # Build Braintrust URL for the experiment
+        lines.append(f"\n**Benchmark experiment{'s' if len(details.experiments) > 1 else ''}:**\n")
+        for exp in details.experiments:
             exp_url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{exp.id}"
-            branch_info = f" (branch: `{exp.branch}`)" if exp.branch else ""
-            lines.append(f"- [{exp.name}]({exp_url}){branch_info}")
-        if len(details.experiments) > 3:
-            lines.append(f"- _...and {len(details.experiments) - 3} more_")
+            created_info = f" (created: {exp.created[:10]})" if exp.created else ""
+            lines.append(f"- [{exp.name}]({exp_url}){created_info}")
         lines.append("")
 
     # Errors
@@ -115,8 +111,8 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
 
 def handle_github_output(sorted_results: List[dict]) -> None:
     """Generate and write GitHub Actions report files."""
-    # Generate markdown report
-    markdown, _, total_regressions = generate_markdown_report(sorted_results, False)
+    # Generate markdown report (always compare against weekly benchmark when possible)
+    markdown, _, total_regressions = generate_markdown_report(sorted_results, True)
 
     # Always write markdown report
     with open("evals_report.md", "w", encoding="utf-8") as file:
@@ -147,21 +143,21 @@ def generate_markdown_report(
     else:
         markdown = "## Results of HolmesGPT evals\n\n"
 
-    # Fetch historical metrics for comparison (only for passing tests)
-    historical: Dict[str, HistoricalMetrics] = {}
+    # Fetch benchmark baseline for comparison (latest weekly ci-benchmark run)
+    benchmark: Dict[str, BenchmarkMetrics] = {}
     comparison_map: Dict[str, HistoricalComparison] = {}
     historical_details: Optional[HistoricalComparisonDetails] = None
     if include_historical:
         try:
-            historical, historical_details = get_historical_metrics(limit=30)
-            if historical:
-                comparison_map = compare_with_historical(sorted_results, historical)
+            benchmark, historical_details = get_benchmark_baseline()
+            if benchmark:
+                comparison_map = compare_with_benchmark(sorted_results, benchmark)
                 logging.info(
-                    f"Loaded historical data for {len(historical)} test/model combinations"
+                    f"Loaded benchmark baseline: {len(benchmark)} test/model combinations"
                 )
         except Exception as e:
             historical_details = HistoricalComparisonDetails(status=f"API error: {e}")
-            logging.warning(f"Failed to fetch historical metrics: {e}")
+            logging.warning(f"Failed to fetch benchmark baseline: {e}")
 
     # Count results by test type and status
     ask_holmes_total = 0
@@ -316,12 +312,12 @@ def generate_markdown_report(
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
     markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_str}** | **{total_compactions_str}** |\n"
 
-    # Add footer explaining historical comparison status
-    if historical and comparison_map:
-        markdown += "\n_Time/Cost columns show % change vs historical average (↑slower/costlier, ↓faster/cheaper). Changes under 10% shown as ±0%._\n"
+    # Add footer explaining benchmark comparison status
+    if benchmark and comparison_map:
+        markdown += "\n_Time/Cost columns show % change vs weekly benchmark (↑slower/costlier, ↓faster/cheaper). Changes under 10% shown as ±0%._\n"
     elif historical_details and historical_details.status:
         markdown += (
-            f"\n_Historical comparison unavailable: {historical_details.status}_\n"
+            f"\n_Benchmark comparison unavailable: {historical_details.status}_\n"
         )
 
     # Add collapsible details section for historical comparison transparency
