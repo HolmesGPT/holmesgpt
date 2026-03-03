@@ -9,7 +9,6 @@ import copy
 import concurrent.futures
 import io
 import logging
-import traceback
 import types
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
@@ -432,25 +431,23 @@ def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool
     test_toolset.status = ToolsetStatusEnum.DISABLED
     test_toolset.error = None
 
-    # Capture every form of output that prerequisites might produce:
-    #   1. logger.info / logger.warning  → temporary logging handler
-    #   2. print() / sys.stdout writes   → redirect_stdout
-    #   3. sys.stderr writes             → redirect_stderr
+    # Suppress noisy output that prerequisites might produce so it
+    # doesn't corrupt the TUI.  Only logger warnings are shown to the user.
     log_buf = io.StringIO()
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
 
     log_handler = logging.StreamHandler(log_buf)
-    log_handler.setLevel(logging.DEBUG)
+    log_handler.setLevel(logging.WARNING)
     root_logger = logging.getLogger()
 
     # Temporarily replace *all* root-logger handlers so that pre-existing
     # handlers (e.g. RichHandler) don't write to the real console while
-    # the TUI is active.
+    # the TUI is active.  Only capture WARNING+ to keep output concise.
     saved_handlers = root_logger.handlers
     saved_level = root_logger.level
     root_logger.handlers = [log_handler]
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(logging.WARNING)
 
     # Run in a thread so that toolsets using asyncio.run() (e.g. MCP)
     # don't clash with prompt_toolkit's own event loop.
@@ -463,19 +460,15 @@ def run_config_test(toolset: Toolset, config_dict: Dict[str, Any]) -> Tuple[bool
             future = pool.submit(_run_check)
             future.result(timeout=30)
     except concurrent.futures.TimeoutError:
-        stderr_buf.write("Prerequisite check timed out after 30 seconds\n")
-    except Exception:
-        stderr_buf.write(traceback.format_exc())
+        test_toolset.error = "Prerequisite check timed out after 30 seconds"
+    except Exception as exc:
+        test_toolset.error = str(exc)
     finally:
         root_logger.handlers = saved_handlers
         root_logger.setLevel(saved_level)
 
-    # Build result message
-    captured = ""
-    for buf in (stdout_buf, stderr_buf, log_buf):
-        text = buf.getvalue().strip()
-        if text:
-            captured += text + "\n"
+    # Build result message – only include captured warnings, never tracebacks
+    captured = log_buf.getvalue().strip()
 
     if test_toolset.status == ToolsetStatusEnum.ENABLED:
         msg = "Prerequisites passed"
