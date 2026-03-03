@@ -616,6 +616,12 @@ def run_tree_editor(
     top_nodes = build_tree_from_schema(config_class, initial_config)
     flat_rows = _flatten_tree(top_nodes)
 
+    # Per-class config cache: preserves field values when cycling between
+    # config classes so that the user doesn't lose data on a round-trip.
+    _class_config_cache: Dict[Type[BaseModel], Dict[str, Any]] = {}
+    if len(toolset.config_classes) > 1:
+        _class_config_cache[config_class] = dict(initial_config)
+
     # State
     cursor = [0]  # index into (flat_rows + buttons)
     editing = [False]
@@ -631,13 +637,20 @@ def run_tree_editor(
         nonlocal flat_rows
         flat_rows = _flatten_tree(top_nodes)
 
-    def _rebuild_for_class(new_class: Type[BaseModel], field_key: str) -> None:
+    def _rebuild_for_class(
+        new_class: Type[BaseModel], field_key: str, new_value: str
+    ) -> None:
         """Rebuild the tree when the discriminator enum switches config class."""
         nonlocal config_class, flat_rows
-        config_dict = tree_to_dict(top_nodes)
+        # Save current values into the cache for the outgoing class
+        _class_config_cache[config_class] = tree_to_dict(top_nodes)
+        # Load cached values for the incoming class, falling back to empty
+        restored = dict(_class_config_cache.get(new_class, {}))
+        # Ensure the discriminator carries the new value
+        restored[field_key] = new_value
         config_class = new_class
         top_nodes.clear()
-        top_nodes.extend(build_tree_from_schema(config_class, config_dict))
+        top_nodes.extend(build_tree_from_schema(config_class, restored))
         flat_rows = _flatten_tree(top_nodes)
         # Keep cursor on the discriminator field
         for i, row in enumerate(flat_rows):
@@ -1029,13 +1042,14 @@ def run_tree_editor(
                     current_idx = i
                     break
             next_idx = (current_idx + 1) % len(members)
-            node.value = members[next_idx].value
+            new_value = members[next_idx].value
+            node.value = new_value
             # If multiple config classes, check if we need to switch
             if len(toolset.config_classes) > 1:
                 new_config_dict = tree_to_dict(top_nodes)
                 new_class = _select_config_class(toolset.config_classes, new_config_dict)
                 if new_class is not config_class:
-                    _rebuild_for_class(new_class, node.key)
+                    _rebuild_for_class(new_class, node.key, new_value)
             return
 
         # Header: add entry

@@ -686,6 +686,15 @@ class TestRealConfigSchemas:
         assert mode_node.enum_class is MCPMode
         assert mode_node.value == "sse"
 
+    def test_mcp_config_mode_is_first_field(self) -> None:
+        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, StdioMCPConfig
+
+        sse_nodes = build_tree_from_schema(MCPConfig, {})
+        assert sse_nodes[0].key == "mode"
+
+        stdio_nodes = build_tree_from_schema(StdioMCPConfig, {})
+        assert stdio_nodes[0].key == "mode"
+
     def test_stdio_mcp_config_tree(self) -> None:
         from holmes.plugins.toolsets.mcp.toolset_mcp import StdioMCPConfig, MCPMode
 
@@ -888,3 +897,56 @@ class TestGetExistingConfigMCP:
         config.mcp_servers = {"shared_name": {"config": {"mode": "stdio"}}}
         result = _get_existing_config(ts, config)
         assert result["api_url"] == "http://toolset"
+
+
+# ── Per-class config cache (mode cycling) ────────────────────────────
+
+
+class TestConfigClassCaching:
+    """Simulate the per-class caching that run_tree_editor uses when cycling modes."""
+
+    def test_roundtrip_preserves_values_across_class_switch(self) -> None:
+        """Cycling stdio → sse → stdio must preserve the original stdio fields."""
+        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, StdioMCPConfig
+
+        config_classes = [MCPConfig, StdioMCPConfig]
+        cache: Dict[Type[BaseModel], Dict[str, Any]] = {}
+
+        # Start with stdio config
+        stdio_values = {
+            "mode": "stdio",
+            "command": "uvx",
+            "args": ["mcp-atlassian"],
+            "env": {"JIRA_URL": "https://example.com"},
+        }
+        current_class = _select_config_class(config_classes, stdio_values)
+        assert current_class is StdioMCPConfig
+        cache[current_class] = dict(stdio_values)
+
+        nodes = build_tree_from_schema(current_class, stdio_values)
+
+        # Simulate switching to SSE (cache current, load new)
+        cache[current_class] = tree_to_dict(nodes)
+        new_class = MCPConfig
+        restored = dict(cache.get(new_class, {}))
+        restored["mode"] = "sse"
+        nodes = build_tree_from_schema(new_class, restored)
+        current_class = new_class
+
+        # Verify SSE fields are present
+        field_keys = {n.key for n in nodes}
+        assert "url" in field_keys
+        assert "command" not in field_keys
+
+        # Simulate switching back to STDIO (cache current, load from cache)
+        cache[current_class] = tree_to_dict(nodes)
+        new_class = StdioMCPConfig
+        restored = dict(cache.get(new_class, {}))
+        restored["mode"] = "stdio"
+        nodes = build_tree_from_schema(new_class, restored)
+
+        # The original stdio values should be fully restored
+        result = tree_to_dict(nodes)
+        assert result["command"] == "uvx"
+        assert result["args"] == ["mcp-atlassian"]
+        assert result["env"] == {"JIRA_URL": "https://example.com"}
