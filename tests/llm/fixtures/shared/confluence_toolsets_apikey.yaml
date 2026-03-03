@@ -1,0 +1,14 @@
+# Shared Confluence toolset config (builtin Python toolset, personal API key)
+toolsets:
+  confluence:
+    enabled: true
+    config:
+      api_url: "{{ env.CONFLUENCE_BASE_URL }}"
+      user: "{{ env.CONFLUENCE_USER }}"
+      api_key: "{{ env.CONFLUENCE_API_KEY }}"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

@@ -99,9 +99,11 @@ Directory for caching HolmesGPT data and temporary files.
 - `PROMETHEUS_URL` - URL of the Prometheus server
 
 ### Confluence
-- `CONFLUENCE_BASE_URL` - Base URL of Confluence instance
-- `CONFLUENCE_EMAIL` - Email for Confluence authentication
-- `CONFLUENCE_API_KEY` - API key for Confluence
+
+- `CONFLUENCE_API_URL` - Base URL of Confluence instance (e.g., `https://mycompany.atlassian.net`)
+- `CONFLUENCE_USER` - User email (Cloud) or username (Data Center) for authentication
+- `CONFLUENCE_API_KEY` - API token (Cloud) or password (Data Center)
+- `CONFLUENCE_PAT` - Personal Access Token (Data Center, used with `auth_type: bearer`)
 
 ### GitHub
 - `GITHUB_TOKEN` - Personal access token for GitHub API
