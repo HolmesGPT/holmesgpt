@@ -18,6 +18,7 @@ from holmes.clients.robusta_client import (
     RobustaModelsResponse,
     fetch_robusta_models,
 )
+from holmes.common import holmes_context
 from holmes.common.env_vars import (
     EXTRA_HEADERS,
     FALLBACK_CONTEXT_WINDOW_SIZE,
@@ -405,6 +406,17 @@ class DefaultLLM(LLM):
 
         self.args.setdefault("temperature", temperature)
 
+        # Build per-call args to avoid mutating self.args with request-scoped headers
+        call_args = dict(self.args)
+        if self.is_robusta_model:
+            feature_id = holmes_context.get_feature_id()
+            if feature_id:
+                call_extra_headers: dict[str, Any] = dict(
+                    call_args.get("extra_headers", {})
+                )
+                call_extra_headers["X-Feature-ID"] = feature_id
+                call_args["extra_headers"] = call_extra_headers
+
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
@@ -421,7 +433,7 @@ class DefaultLLM(LLM):
             stream=stream,
             timeout=LLM_REQUEST_TIMEOUT,
             **tools_args,
-            **self.args,
+            **call_args,
             cache_control_injection_points=[
                 {
                     "location": "message",

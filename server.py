@@ -14,7 +14,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import colorlog
 import litellm
@@ -38,6 +38,7 @@ from holmes.common.env_vars import (
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
 )
+from holmes.common import holmes_context
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core import investigation
 from holmes.core.conversations import (
@@ -245,6 +246,16 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
 
 app = FastAPI()
 
+
+@app.middleware("http")
+async def set_holmes_context_middleware(request: Request, call_next: Any) -> Any:
+    feature_id = request.headers.get("X-Feature-ID")
+    if feature_id:
+        holmes_context.set_feature_id(feature_id)
+
+    return await call_next(request)
+
+
 if LOG_PERFORMANCE:
 
     @app.middleware("http")
@@ -320,7 +331,7 @@ def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
                         request_context=request_context,
                     ),
                 ),
-                req_info
+                req_info,
             ),
             media_type="text/event-stream",
         )
