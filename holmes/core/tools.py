@@ -519,7 +519,7 @@ class YAMLTool(Tool, BaseModel):
         error = (
             None
             if return_code == 0
-            else f"Command `{invocation}` failed with return code {return_code}\nOutput:\n{raw_output}"
+            else f"Command `{invocation}` failed with return code {return_code}"
         )
         status = self._get_status(return_code, raw_output)
 
