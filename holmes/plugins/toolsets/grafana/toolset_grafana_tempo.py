@@ -211,38 +211,23 @@ class FetchTracesSimpleComparison(Tool):
     def __init__(self, toolset: BaseGrafanaTempoToolset):
         super().__init__(
             name="tempo_fetch_traces_comparative_sample",
-            description="""Fetches statistics and representative samples of fast, slow, and typical traces for performance analysis. Requires either a `base_query` OR at least one of `service_name`, `pod_name`, `namespace_name`, `deployment_name`, `node_name`.
+            description="""Fetches statistics and representative samples of fast, slow, and typical traces for performance analysis. Requires either `labels` or `base_query`.
 
 Important: call this tool first when investigating performance issues via traces. This tool provides comprehensive analysis for identifying patterns.
 
 Examples:
-- For service latency: service_name="payment" (matches "payment-service" too)
-- For namespace issues: namespace_name="production"
-- Combined: service_name="auth", namespace_name="staging\"""",
+- labels={"resource.service.name": "payment", "span.http.method": "POST"}
+- labels={"resource.k8s.namespace.name": "production", "span.http.status_code": "=500"}
+- base_query="duration > 100ms && status = error\"""",
             parameters={
-                "service_name": ToolParameter(
-                    description="Service to analyze (partial match supported)",
-                    type="string",
-                    required=False,
-                ),
-                "pod_name": ToolParameter(
-                    description="Filter traces by pod name (partial match supported)",
-                    type="string",
-                    required=False,
-                ),
-                "namespace_name": ToolParameter(
-                    description="Kubernetes namespace to filter traces",
-                    type="string",
-                    required=False,
-                ),
-                "deployment_name": ToolParameter(
-                    description="Filter traces by deployment name (partial match supported)",
-                    type="string",
-                    required=False,
-                ),
-                "node_name": ToolParameter(
-                    description="Filter traces by node name",
-                    type="string",
+                "labels": ToolParameter(
+                    description=(
+                        "Label filters as key-value pairs. Keys are label names "
+                        "(e.g., 'resource.service.name', 'span.http.method'). Values are matched "
+                        "using partial/regex match by default. Prefix value with '=' for exact match. "
+                        'Example: {"resource.service.name": "api", "span.http.status_code": "=500"}'
+                    ),
+                    type="object",
                     required=False,
                 ),
                 "base_query": ToolParameter(
@@ -276,12 +261,34 @@ Examples:
         self._toolset = toolset
 
     @staticmethod
-    def validate_params(params: Dict[str, Any], expected_params: List[str]):
-        for param in expected_params:
-            if param in params and params[param] not in (None, "", [], {}):
-                return None
+    def build_label_filters(labels: Dict[str, Any]) -> List[str]:
+        """Build TraceQL filters from label key-value pairs.
 
-        return f"At least one of the following argument is expected but none were set: {expected_params}"
+        Args:
+            labels: Dictionary of label names to values. Values prefixed with '='
+                   use exact match, otherwise partial/regex match is used.
+
+        Returns:
+            List of TraceQL filter strings
+        """
+        filters = []
+        for label, value in labels.items():
+            if value is None or value == "":
+                continue
+
+            str_value = str(value)
+
+            # Check if exact match is requested (value prefixed with '=')
+            if str_value.startswith("="):
+                # Exact match - remove the '=' prefix and escape quotes
+                actual_value = str_value[1:]
+                escaped_value = actual_value.replace('"', '\\"')
+                filters.append(f'{label}="{escaped_value}"')
+            else:
+                # Partial/regex match
+                filters.append(f'{label}=~".*{str_value}.*"')
+
+        return filters
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
@@ -289,24 +296,19 @@ Examples:
             if params.get("base_query"):
                 base_query = params["base_query"]
             else:
-                # Use the shared utility with partial matching (regex)
-                filters = self._toolset.build_k8s_filters(params, use_exact_match=False)
-
-                # Validate that at least one parameter was provided
-                invalid_params_error = FetchTracesSimpleComparison.validate_params(
-                    params,
-                    [
-                        "service_name",
-                        "pod_name",
-                        "namespace_name",
-                        "deployment_name",
-                        "node_name",
-                    ],
-                )
-                if invalid_params_error:
+                labels = params.get("labels")
+                if not labels or not isinstance(labels, dict) or not labels:
                     return StructuredToolResult(
                         status=StructuredToolResultStatus.ERROR,
-                        error=invalid_params_error,
+                        error="Either 'labels' or 'base_query' parameter is required",
+                        params=params,
+                    )
+
+                filters = FetchTracesSimpleComparison.build_label_filters(labels)
+                if not filters:
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error="No valid filters found in 'labels' parameter",
                         params=params,
                     )
 
