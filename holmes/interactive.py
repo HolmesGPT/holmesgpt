@@ -1093,7 +1093,8 @@ def save_conversation_to_file(
             f"[bold {STATUS_COLOR}]Conversation saved to {json_output_file}[/bold {STATUS_COLOR}]"
         )
     except Exception as e:
-        logging.error(f"Failed to save conversation: {e}", exc_info=e)
+        logging.error(f"Failed to save conversation: {e}")
+        logging.debug("Full traceback:", exc_info=e)
         console.print(
             f"[bold {ERROR_COLOR}]Failed to save conversation: {e}[/bold {ERROR_COLOR}]"
         )
@@ -1576,8 +1577,9 @@ def run_interactive_loop(
             )
             break
         except Exception as e:
-            logging.error("An error occurred during interactive mode:", exc_info=e)
-            console.print(f"[bold {ERROR_COLOR}]Error: {e}[/bold {ERROR_COLOR}]")
+            logging.debug("Full traceback for interactive mode error:", exc_info=e)
+            console.print(f"\n[bold {ERROR_COLOR}]Error: {e}[/bold {ERROR_COLOR}]")
+            console.print(f"[dim]Tip: Use -v for more details[/dim]")
         finally:
             # Print trace URL for debugging (works for both success and error cases)
             trace_url = tracer.get_trace_url()

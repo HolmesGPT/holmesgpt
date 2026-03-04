@@ -91,7 +91,8 @@ def stream_investigate_formatter(
             else:
                 yield create_sse_message(message.event.value, message.data)
     except Exception as e:
-        logging.error(f"Error during streaming investigation: {e}", exc_info=True)
+        logging.error(f"Error during streaming investigation: {e}")
+        logging.debug("Full traceback:", exc_info=True)
         if _is_rate_limit_error(e):
             yield create_rate_limit_error_message(str(e))
         else:
@@ -131,7 +132,8 @@ def stream_chat_formatter(
             else:
                 yield create_sse_message(message.event.value, message.data)
     except Exception as e:
-        logging.error(f"Error during streaming chat: {e}", exc_info=True)
+        logging.error(f"Error during streaming chat: {e}")
+        logging.debug("Full traceback:", exc_info=True)
         if _is_rate_limit_error(e):
             yield create_rate_limit_error_message(str(e))
         else:

@@ -465,7 +465,8 @@ def alertmanager(
     try:
         issues = source.fetch_issues()
     except Exception as e:
-        logging.error("Failed to fetch issues from alertmanager", exc_info=e)
+        logging.error(f"Failed to fetch issues from alertmanager: {e}")
+        logging.debug("Full traceback:", exc_info=e)
         return
 
     if alertmanager_limit is not None:
@@ -589,7 +590,8 @@ def jira(
     try:
         issues = source.fetch_issues()
     except Exception as e:
-        logging.error("Failed to fetch issues from Jira", exc_info=e)
+        logging.error(f"Failed to fetch issues from Jira: {e}")
+        logging.debug("Full traceback:", exc_info=e)
         return
 
     console.print(
@@ -681,7 +683,8 @@ def ticket(
         if issue_to_investigate is None:
             raise Exception(f"Issue {ticket_id} Not found")
     except Exception as e:
-        logging.error(f"Failed to fetch issue from {source}", exc_info=e)
+        logging.error(f"Failed to fetch issue from {source}: {e}")
+        logging.debug("Full traceback:", exc_info=e)
         console.print(
             f"[bold red]Error: Failed to fetch issue {ticket_id} from {source}.[/bold red]"
         )
@@ -785,7 +788,8 @@ def github(
     try:
         issues = source.fetch_issues()
     except Exception as e:
-        logging.error("Failed to fetch issues from GitHub", exc_info=e)
+        logging.error(f"Failed to fetch issues from GitHub: {e}")
+        logging.debug("Full traceback:", exc_info=e)
         return
 
     console.print(
@@ -866,7 +870,8 @@ def pagerduty(
     try:
         issues = source.fetch_issues()
     except Exception as e:
-        logging.error("Failed to fetch issues from PagerDuty", exc_info=e)
+        logging.error(f"Failed to fetch issues from PagerDuty: {e}")
+        logging.debug("Full traceback:", exc_info=e)
         return
 
     console.print(
@@ -949,7 +954,8 @@ def opsgenie(
     try:
         issues = source.fetch_issues()
     except Exception as e:
-        logging.error("Failed to fetch issues from OpsGenie", exc_info=e)
+        logging.error(f"Failed to fetch issues from OpsGenie: {e}")
+        logging.debug("Full traceback:", exc_info=e)
         return
 
     console.print(

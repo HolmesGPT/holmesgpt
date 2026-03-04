@@ -579,8 +579,8 @@ class YAMLTool(Tool, BaseModel):
         except Exception as e:
             logger.error(
                 f"An unexpected error occurred while running '{cmd}': {e}",
-                exc_info=True,
             )
+            logger.debug("Full traceback:", exc_info=True)
             output = f"Command execution failed with error: {e}"
             return output, 1
 
