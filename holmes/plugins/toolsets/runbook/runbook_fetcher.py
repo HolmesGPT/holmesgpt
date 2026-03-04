@@ -25,6 +25,7 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 class RunbookFetcher(Tool):
     toolset: "RunbookToolset"
     available_runbooks: List[str] = []
+    md_runbooks: List[str] = []
     additional_search_paths: Optional[List[str]] = None
     _dal: Optional[SupabaseDal] = None
 
@@ -38,9 +39,14 @@ class RunbookFetcher(Tool):
         catalog = load_runbook_catalog(
             dal=dal, custom_catalog_paths=custom_catalog_paths
         )
-        available_runbooks = []
+        available_runbooks: List[str] = []
         if catalog:
             available_runbooks = catalog.list_available_runbooks()
+
+        # Separate local .md files from remote UUIDs
+        # Local .md files are static and can use enum validation
+        # Remote UUIDs are dynamic and should be listed in the prompt instead
+        md_runbooks: List[str] = [r for r in available_runbooks if r.endswith(".md")]
 
         if additional_search_paths:
             for search_path in additional_search_paths:
@@ -48,35 +54,63 @@ class RunbookFetcher(Tool):
                     continue
 
                 for file in os.listdir(search_path):
-                    if file.endswith(".md") and file not in available_runbooks:
-                        available_runbooks.append(f"{file}")
+                    if file.endswith(".md") and file not in md_runbooks:
+                        md_runbooks.append(f"{file}")
 
-        runbook_list = ", ".join([f'"{rb}"' for rb in available_runbooks])
+        # Build parameters: always have runbook_file for local .md files
+        # Only add runbook_uuid if dal is available for remote runbooks
+        parameters = {
+            "runbook_file": ToolParameter(
+                description=(
+                    "Filename of a local runbook (.md file). "
+                    "Use this parameter ONLY for local markdown runbooks. "
+                    "Do NOT use this for remote/Robusta runbooks - use runbook_uuid instead."
+                ),
+                type="string",
+                required=False,
+                enum=md_runbooks if md_runbooks else None,
+            ),
+        }
+
+        # Add runbook_uuid parameter only when dal is available
+        if dal and dal.enabled:
+            parameters["runbook_uuid"] = ToolParameter(
+                description=(
+                    "UUID of a remote Robusta runbook. "
+                    "Use this parameter ONLY for remote runbooks from the Robusta platform. "
+                    "The available UUIDs are listed in the system prompt. "
+                    "Do NOT use this for local .md files - use runbook_file instead."
+                ),
+                type="string",
+                required=False,
+            )
 
         super().__init__(
             name="fetch_runbook",
-            description="Get runbook content by runbook link. Use this to get troubleshooting steps for incidents",
-            parameters={
-                "runbook_id": ToolParameter(
-                    description=f"The runbook_id: either a UUID or a .md filename. Must be one of: {runbook_list}",
-                    type="string",
-                    required=True,
-                ),
-            },
+            description=(
+                "Get runbook content to find troubleshooting steps for incidents. "
+                "Provide EITHER runbook_file (for local .md files) OR runbook_uuid (for remote Robusta runbooks), but not both."
+            ),
+            parameters=parameters,
             toolset=toolset,  # type: ignore[call-arg]
             available_runbooks=available_runbooks,  # type: ignore[call-arg]
+            md_runbooks=md_runbooks,  # type: ignore[call-arg]
             additional_search_paths=additional_search_paths,  # type: ignore[call-arg]
         )
         self._dal = dal
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        runbook_id: str = params.get("runbook_id", "")
-        is_md_file: bool = True if runbook_id.endswith(".md") else False
+        runbook_file: str = params.get("runbook_file", "")
+        runbook_uuid: str = params.get("runbook_uuid", "")
 
-        # Validate link is not empty
-        if not runbook_id or not runbook_id.strip():
+        # Check that exactly one parameter is provided
+        has_file = bool(runbook_file and runbook_file.strip())
+        has_uuid = bool(runbook_uuid and runbook_uuid.strip())
+
+        if has_file and has_uuid:
             err_msg = (
-                "Runbook link cannot be empty. Please provide a valid runbook path."
+                "Provide EITHER runbook_file OR runbook_uuid, not both. "
+                "Use runbook_file for local .md files, runbook_uuid for remote Robusta runbooks."
             )
             logging.error(err_msg)
             return StructuredToolResult(
@@ -85,10 +119,19 @@ class RunbookFetcher(Tool):
                 params=params,
             )
 
-        if is_md_file:
-            return self._get_md_runbook(runbook_id, params)
+        if not has_file and not has_uuid:
+            err_msg = "Must provide either runbook_file (for local .md files) or runbook_uuid (for remote Robusta runbooks)."
+            logging.error(err_msg)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=err_msg,
+                params=params,
+            )
+
+        if has_file:
+            return self._get_md_runbook(runbook_file, params)
         else:
-            return self._get_robusta_runbook(runbook_id, params)
+            return self._get_robusta_runbook(runbook_uuid, params)
 
     def _get_robusta_runbook(self, link: str, params: dict) -> StructuredToolResult:
         if self._dal and self._dal.enabled:
@@ -129,8 +172,8 @@ class RunbookFetcher(Tool):
         search_paths = [DEFAULT_RUNBOOK_SEARCH_PATH]
         if self.additional_search_paths:
             search_paths.extend(self.additional_search_paths)
-        # Validate link is in the available runbooks list OR is a valid path within allowed directories
-        if link not in self.available_runbooks:
+        # Validate link is in the md_runbooks list OR is a valid path within allowed directories
+        if link not in self.md_runbooks:
             # Check if the link would resolve to a valid path within allowed directories
             # This prevents path traversal attacks like ../../secret.md
             is_valid_path = False
@@ -150,7 +193,7 @@ class RunbookFetcher(Tool):
                         break
 
             if not is_valid_path:
-                err_msg = f"Invalid runbook link '{link}'. Must be one of: {', '.join(self.available_runbooks) if self.available_runbooks else 'No runbooks available'}"
+                err_msg = f"Invalid runbook file '{link}'. Must be one of: {', '.join(self.md_runbooks) if self.md_runbooks else 'No local runbooks available'}"
                 logging.error(err_msg)
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
@@ -221,8 +264,10 @@ class RunbookFetcher(Tool):
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        path: str = params.get("runbook_id", "")
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Runbook {path}"
+        runbook_file: str = params.get("runbook_file", "")
+        runbook_uuid: str = params.get("runbook_uuid", "")
+        identifier = runbook_file or runbook_uuid or "unknown"
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Runbook {identifier}"
 
 
 class RunbookToolset(Toolset):

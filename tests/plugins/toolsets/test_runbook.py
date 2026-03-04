@@ -15,7 +15,7 @@ TEST_RUNBOOKS_PATH = os.path.join(
 def test_RunbookFetcher():
     runbook_fetch_tool = RunbookFetcher(RunbookToolset(dal=None))
     result = runbook_fetch_tool._invoke(
-        {"runbook_id": "wrong_runbook_path.md", "type": "md_file"},
+        {"runbook_file": "wrong_runbook_path.md"},
         context=create_mock_tool_invoke_context(),
     )
     assert result.status == StructuredToolResultStatus.ERROR
@@ -29,8 +29,7 @@ def test_RunbookFetcher_with_additional_search_paths():
     )
     result = runbook_fetch_tool._invoke(
         {
-            "runbook_id": "test_runbook.md",
-            "type": "md_file",
+            "runbook_file": "test_runbook.md",
         },
         context=create_mock_tool_invoke_context(),
     )
@@ -41,8 +40,7 @@ def test_RunbookFetcher_with_additional_search_paths():
     assert (
         runbook_fetch_tool.get_parameterized_one_liner(
             {
-                "runbook_id": "test_runbook.md",
-                "type": "md_file",
+                "runbook_file": "test_runbook.md",
             }
         )
         == "Runbook: Fetch Runbook test_runbook.md"
