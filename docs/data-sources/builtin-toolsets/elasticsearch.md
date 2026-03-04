@@ -136,13 +136,61 @@ The toolsets support multiple authentication methods:
 |--------|--------------|-------------|
 | API Key | `api_key` | Recommended for Elastic Cloud |
 | Basic Auth | `username`, `password` | Username and password |
+| mTLS | `client_cert`, `client_key` | Client certificate authentication (e.g., OpenShift Jaeger operator) |
 | None | - | For clusters without authentication |
+
+### mTLS (Mutual TLS)
+
+For Elasticsearch clusters that require client certificate authentication (common with the OpenShift Jaeger operator), configure the certificate paths:
+
+=== "Holmes CLI"
+
+    ```yaml
+    toolsets:
+      elasticsearch/data:
+        enabled: true
+        config:
+          api_url: "https://elasticsearch.jaeger.svc:9200"
+          client_cert: "/path/to/client.crt"
+          client_key: "/path/to/client.key"
+          ca_cert: "/path/to/ca.crt"
+    ```
+
+=== "Holmes Helm Chart"
+
+    Mount the certificates as a Kubernetes secret and reference the paths:
+
+    ```yaml
+    additionalEnvVars:
+      - name: ELASTICSEARCH_URL
+        value: "https://elasticsearch.jaeger.svc:9200"
+
+    runner:
+      extraVolumes:
+        - name: es-certs
+          secret:
+            secretName: elasticsearch-client-certs
+      extraVolumeMounts:
+        - name: es-certs
+          mountPath: /etc/elasticsearch/certs
+          readOnly: true
+
+    toolsets:
+      elasticsearch/data:
+        enabled: true
+        config:
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
+          client_cert: "/etc/elasticsearch/certs/tls.crt"
+          client_key: "/etc/elasticsearch/certs/tls.key"
+          ca_cert: "/etc/elasticsearch/certs/ca.crt"
+    ```
 
 ### Other Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `verify_ssl` | `true` | Verify SSL certificates |
+| `verify_ssl` | `true` | Verify SSL certificates (ignored if `ca_cert` is set) |
+| `ca_cert` | - | Path to CA certificate for server verification (PEM format) |
 | `timeout_seconds` | `10` | Request timeout in seconds |
 
 ## Tools
