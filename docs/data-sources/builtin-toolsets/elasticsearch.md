@@ -196,7 +196,16 @@ For Elasticsearch clusters that require client certificate authentication (commo
 
 === "Robusta Helm Chart"
 
-    Create the secret as above, then nest the values under `holmes:`:
+    First, create a Kubernetes secret containing the client certificates:
+
+    ```bash
+    kubectl create secret generic elasticsearch-client-certs \
+      --from-file=tls.crt=/path/to/client.crt \
+      --from-file=tls.key=/path/to/client.key \
+      --from-file=ca.crt=/path/to/ca.crt
+    ```
+
+    Then add to your Robusta Helm values:
 
     ```yaml
     holmes:
