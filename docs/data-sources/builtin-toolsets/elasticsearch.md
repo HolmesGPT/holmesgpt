@@ -158,22 +158,31 @@ For Elasticsearch clusters that require client certificate authentication (commo
 
 === "Holmes Helm Chart"
 
-    Mount the certificates as a Kubernetes secret and reference the paths:
+    First, create a Kubernetes secret containing the client certificates:
+
+    ```bash
+    kubectl create secret generic elasticsearch-client-certs \
+      --from-file=tls.crt=/path/to/client.crt \
+      --from-file=tls.key=/path/to/client.key \
+      --from-file=ca.crt=/path/to/ca.crt
+    ```
+
+    Then mount the secret into the Holmes container using `additionalVolumes` and `additionalVolumeMounts`:
 
     ```yaml
     additionalEnvVars:
       - name: ELASTICSEARCH_URL
         value: "https://elasticsearch.jaeger.svc:9200"
 
-    runner:
-      extraVolumes:
-        - name: es-certs
-          secret:
-            secretName: elasticsearch-client-certs
-      extraVolumeMounts:
-        - name: es-certs
-          mountPath: /etc/elasticsearch/certs
-          readOnly: true
+    additionalVolumes:
+      - name: es-certs
+        secret:
+          secretName: elasticsearch-client-certs
+
+    additionalVolumeMounts:
+      - name: es-certs
+        mountPath: /etc/elasticsearch/certs
+        readOnly: true
 
     toolsets:
       elasticsearch/data:
@@ -183,6 +192,36 @@ For Elasticsearch clusters that require client certificate authentication (commo
           client_cert: "/etc/elasticsearch/certs/tls.crt"
           client_key: "/etc/elasticsearch/certs/tls.key"
           ca_cert: "/etc/elasticsearch/certs/ca.crt"
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create the secret as above, then nest the values under `holmes:`:
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: ELASTICSEARCH_URL
+          value: "https://elasticsearch.jaeger.svc:9200"
+
+      additionalVolumes:
+        - name: es-certs
+          secret:
+            secretName: elasticsearch-client-certs
+
+      additionalVolumeMounts:
+        - name: es-certs
+          mountPath: /etc/elasticsearch/certs
+          readOnly: true
+
+      toolsets:
+        elasticsearch/data:
+          enabled: true
+          config:
+            api_url: "{{ env.ELASTICSEARCH_URL }}"
+            client_cert: "/etc/elasticsearch/certs/tls.crt"
+            client_key: "/etc/elasticsearch/certs/tls.key"
+            ca_cert: "/etc/elasticsearch/certs/ca.crt"
     ```
 
 ### Other Options
