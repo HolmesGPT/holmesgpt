@@ -254,17 +254,9 @@ class ChatRequest(ChatRequestBaseModel):
     )
 
 
-class FollowUpAction(BaseModel):
-    id: str
-    action_label: str
-    pre_action_notification_text: str
-    prompt: str
-
-
 class ChatResponse(BaseModel):
     analysis: str
     conversation_history: list[dict]
     tool_calls: Optional[List[ToolCallResult]] = []
-    follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None

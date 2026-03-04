@@ -46,7 +46,6 @@ def mock_chat_function():
             analysis="Test analysis",
             conversation_history=[],
             tool_calls=[],
-            follow_up_actions=[],
             metadata={"test": "metadata"},
         )
 

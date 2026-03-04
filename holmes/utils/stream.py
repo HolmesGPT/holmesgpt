@@ -100,7 +100,6 @@ def stream_investigate_formatter(
 
 def stream_chat_formatter(
     call_stream: Generator[StreamMessage, None, None],
-    followups: Optional[List[dict]] = None,
 ):
     try:
         for message in call_stream:
@@ -108,7 +107,6 @@ def stream_chat_formatter(
                 response_data = {
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
-                    "follow_up_actions": followups,
                     "metadata": message.data.get("metadata") or {},
                 }
 
@@ -117,7 +115,6 @@ def stream_chat_formatter(
                 response_data = {
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
-                    "follow_up_actions": followups,
                 }
 
                 response_data["requires_approval"] = True
