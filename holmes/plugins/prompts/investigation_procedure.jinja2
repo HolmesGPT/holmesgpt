@@ -59,13 +59,13 @@ YOU MUST COMPLETE EVERY SINGLE TASK before providing your final answer. NO EXCEP
  - Complete the task
  - Mark it "completed" with TodoWrite
 3. **Only after ALL tasks are "completed"**: Proceed to verification and final answer
+4. **EFFICIENCY RULE**: When only ONE task remains and you have finished the work for it, do NOT call TodoWrite to mark it completed. Instead, just provide your final answer directly — your final answer itself signals that the last task is done. This saves an unnecessary round trip.
 
 **VIOLATION CONSEQUENCES**:
 {% if runbooks_enabled -%}
 - Not fetching relevant runbooks at the beginning of the investigation = PROCESS VIOLATION
 {%- endif %}
 - Providing answers with pending tasks = INVESTIGATION FAILURE
-- You MUST complete the verification task as the final step before any answer
 - Incomplete investigations are unacceptable and must be continued
 
 **Task Status Check Example:**
@@ -73,7 +73,6 @@ Before final answer, confirm you see something like:
 [✓] completed - Task 1
 [✓] completed - Task 2
 [✓] completed - Task 3
-[✓] completed - Investigation Verification
 
 If you see ANY `[ ] pending` or `[~] in_progress` tasks, DO NOT provide final answer.
 
@@ -133,9 +132,9 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
  - "I can provide a complete answer with specific, actionable information"
  - "No additional investigation would improve my answer"
 
-## MANDATORY Final Phase: Final Review
+## Before Providing Your Final Answer
 
-  **Before providing final answer, you MUST:**
+  **Mentally verify (do NOT create a task for this):**
   - Confirm answer addresses user question completely! This is the most important thing
   - Verify all claims backed by tool evidence
 {% if runbooks_enabled -%}
@@ -147,10 +146,8 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
 ## CRITICAL ENFORCEMENT RULES
 
     **ABSOLUTE REQUIREMENTS:**
-    - NO final answer until the final review phase is 100% completed
     - Each investigation phase must have ALL tasks completed before evaluation
     - You MUST explicitly create new investigation phases when gaps are identified
-    - Final Review phase is MANDATORY - never skip it
 
     **EXAMPLES of Phase Progression:**
 
@@ -164,44 +161,16 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
     *Phase 3*: Investigate upstream services causing the crashes
 {%- endif %}
 
-    *Final Review Phase*: Self-critique and validate the complete solution
-
     *Phase 1*: Initial investigation - check pod health, metrics, logs, traces
     *Phase 2*: Based on data from the traces in Phase 1, investigate another workload in the cluster, that seem to be the root cause of the issue. Investigate this workload as well
     *Phase 3*: Based on logs gathered in Phase 2, investigate a 3rd party managed service, that seems to be the cause for the whole chain of events.
-    *Final Review Phase*: Validate that the chain of events, accross the different components, can lead to the investigated scenario.
 
     **VIOLATION CONSEQUENCES:**
 {% if runbooks_enabled -%}
     - Not fetching relevant runbooks at the beginning of the investigation = PROCESS VIOLATION
 {%- endif %}
-    - Providing answers without Final Review phase = INVESTIGATION FAILURE
     - Skipping investigation phases when gaps exist = INCOMPLETE ANALYSIS
     - Not completing all tasks in a phase = PROCESS VIOLATION
-
-# FINAL REVIEW PHASE EXECUTION GUIDE
-
-    When executing Final Review, you must:
-    - Reread the original user question word-by-word
-    - Compare against your proposed answer
-    - Identify any aspects not addressed
-    - Make sure you answer what the user asked!
-    - List each claim in your answer
-    - Trace each claim back to specific tool outputs
-    - Flag any unsupported statements
-    - Walk through your "five whys" chain
-    - Verify each "why" logically follows from evidence
-    - Ensure you reached actual root cause, not just symptoms
-    - Verify exact resource names are provided (not generic examples)
-    - Check commands are complete and runnable
-    - Ensure steps are specific to user's environment
-    - List any resource names, namespaces, configurations mentioned
-    - Verify each was confirmed via tool calls
-    - Flag anything assumed without verification
-    - Identify potential weaknesses in your investigation
-    - Consider alternative explanations not explored
-    - Assess if additional investigation would strengthen answer
-    - If there are additional investigation steps that can help the user, start a new phase, and create a new task list to perform these steps
 
 
 # INVESTIGATION PHASE TRANSITION EXAMPLES
@@ -213,17 +182,15 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
   → Evaluation: Found the upstream service has error while connecting to a managed storage service.
   Phase 3: Investigate the external managed storage found in Phase 2
   → Evaluation: Complete - found managed service is down due to outage
-  Verification Phase: Validate solution addresses original increased error rate.
 
   **Example 2: Application Performance Issue**
   Phase 1: Check application metrics, resource usage
   → Evaluation: Found high CPU usage, but root cause unclear
   Phase 2: Investigate database connections, query performance
   → Evaluation: Complete - found slow database queries causing CPU spike
-  Verification Phase: Confirm analysis provides actionable database optimization steps
 
   **REMEMBER:** Each evaluation is a decision point:
   - Continue investigating (create new phase) OR
-  - Proceed to verification (investigation complete)
+  - Provide final answer (investigation complete)
 
   Never guess - if unsure whether investigation is complete, create another phase.
