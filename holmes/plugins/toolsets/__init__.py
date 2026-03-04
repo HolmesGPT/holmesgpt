@@ -121,9 +121,17 @@ def load_python_toolsets(
     ]
 
     if not DISABLE_PROMETHEUS_TOOLSET:
-        from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
+        try:
+            from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 
-        toolsets.append(PrometheusToolset())
+            toolsets.append(PrometheusToolset())
+        except Exception as e:
+            logging.warning(
+                "Skipping Prometheus toolset (import failed). "
+                "This can happen on Python 3.14+ due to prometrix/pydantic-v1 compatibility. "
+                "Use Python 3.12 or 3.13 for full toolset support, or set DISABLE_PROMETHEUS_TOOLSET=true to silence. Error: %s",
+                e,
+            )
 
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
