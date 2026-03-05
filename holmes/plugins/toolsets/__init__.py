@@ -14,6 +14,7 @@ from holmes.common.env_vars import (
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetType, ToolsetYamlFromConfig, YAMLToolset
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
+from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
@@ -109,6 +110,7 @@ def load_python_toolsets(
         RabbitMQToolset(),
         BashExecutorToolset(),
         KubectlRunToolset(),
+        ConfluenceToolset(),
         MongoDBAtlasToolset(),
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),

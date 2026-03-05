@@ -4,6 +4,8 @@ import subprocess
 from typing import Any, Dict, List
 from unittest.mock import Mock, call, patch
 
+import pytest
+
 from holmes.core.tools import (
     CallablePrerequisite,
     StaticPrerequisite,
@@ -393,3 +395,176 @@ def test_check_prerequisites_static_checked_first():
     # Verify nothing else was executed
     mock_callable_should_not_run.assert_not_called()
     mock_run.assert_not_called()
+
+
+# ============================================================================
+# Lazy initialization tests
+# ============================================================================
+
+
+class TestCheckConfigPrerequisites:
+    """Tests for check_config_prerequisites - validates only fast config checks."""
+
+    def test_no_prerequisites(self):
+        """Toolset with no prerequisites is fully initialized immediately."""
+        toolset = SampleToolset(prerequisites=[])
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset._initialized is True
+        assert toolset._lazy_init is False
+        assert not toolset.needs_initialization
+
+    def test_static_enabled(self):
+        """Static prerequisite passes: no deferred prereqs means fully initialized."""
+        prereq = StaticPrerequisite(enabled=True, disabled_reason="")
+        toolset = SampleToolset(prerequisites=[prereq])
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset._initialized is True
+        assert not toolset.needs_initialization
+
+    def test_static_disabled(self):
+        """Static prerequisite fails: toolset should be FAILED, not lazy."""
+        prereq = StaticPrerequisite(enabled=False, disabled_reason="Feature off")
+        toolset = SampleToolset(prerequisites=[prereq])
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.FAILED
+        assert toolset.error == "Feature off"
+
+    @patch.dict(os.environ, {"MY_VAR": "value"}, clear=True)
+    def test_env_var_present(self):
+        """Env var present: no deferred prereqs means fully initialized."""
+        prereq = ToolsetEnvironmentPrerequisite(env=["MY_VAR"])
+        toolset = SampleToolset(prerequisites=[prereq])
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset._initialized is True
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_env_var_missing(self):
+        """Env var missing: toolset should be FAILED."""
+        prereq = ToolsetEnvironmentPrerequisite(env=["MISSING_VAR"])
+        toolset = SampleToolset(prerequisites=[prereq])
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.FAILED
+        assert "MISSING_VAR" in toolset.error
+
+    def test_callable_deferred(self):
+        """Callable prerequisite is deferred: toolset marked for lazy init."""
+        prereq = CallablePrerequisite(callable=callable_success)
+        toolset = SampleToolset(prerequisites=[prereq], config={})
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset._initialized is False
+        assert toolset._lazy_init is True
+        assert toolset.needs_initialization
+
+    def test_command_deferred(self):
+        """Command prerequisite is deferred: toolset marked for lazy init."""
+        prereq = ToolsetCommandPrerequisite(command="my_cmd")
+        toolset = SampleToolset(prerequisites=[prereq])
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset._initialized is False
+        assert toolset._lazy_init is True
+        assert toolset.needs_initialization
+
+    @patch.dict(os.environ, {"MY_VAR": "value"}, clear=True)
+    def test_mixed_prereqs_with_deferred(self):
+        """Mix of config checks and callable: config passes, callable deferred."""
+        prerequisites = [
+            StaticPrerequisite(enabled=True, disabled_reason=""),
+            ToolsetEnvironmentPrerequisite(env=["MY_VAR"]),
+            CallablePrerequisite(callable=callable_success),
+        ]
+        toolset = SampleToolset(prerequisites=prerequisites, config={})
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset.needs_initialization
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_env_fails_before_callable_deferred(self):
+        """If env var check fails, callable is never considered (short-circuit)."""
+        mock_callable = Mock(return_value=(True, ""))
+        prerequisites = [
+            ToolsetEnvironmentPrerequisite(env=["MISSING"]),
+            CallablePrerequisite(callable=mock_callable),
+        ]
+        toolset = SampleToolset(prerequisites=prerequisites, config={})
+        toolset.check_config_prerequisites()
+        assert toolset.status == ToolsetStatusEnum.FAILED
+        mock_callable.assert_not_called()
+
+
+class TestLazyInitialize:
+    """Tests for lazy_initialize - runs deferred prerequisites on first use."""
+
+    def test_already_initialized(self):
+        """If already initialized, lazy_initialize is a no-op."""
+        toolset = SampleToolset(prerequisites=[])
+        toolset.check_config_prerequisites()
+        assert toolset._initialized is True
+        result = toolset.lazy_initialize()
+        assert result is True
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+
+    def test_lazy_init_runs_full_prerequisites(self):
+        """lazy_initialize runs the full check_prerequisites including callables."""
+        mock_callable = Mock(return_value=(True, ""))
+        prereq = CallablePrerequisite(callable=mock_callable)
+        toolset = SampleToolset(prerequisites=[prereq], config={"key": "value"})
+
+        # Config check defers the callable
+        toolset.check_config_prerequisites()
+        assert toolset.needs_initialization
+        mock_callable.assert_not_called()
+
+        # Lazy init runs the callable
+        result = toolset.lazy_initialize()
+        assert result is True
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset._initialized is True
+        assert not toolset.needs_initialization
+        mock_callable.assert_called_once_with({"key": "value"})
+
+    def test_lazy_init_failure(self):
+        """If callable prerequisite fails during lazy init, status becomes FAILED."""
+        prereq = CallablePrerequisite(callable=callable_failure_with_message)
+        toolset = SampleToolset(prerequisites=[prereq], config={})
+
+        toolset.check_config_prerequisites()
+        assert toolset.needs_initialization
+
+        result = toolset.lazy_initialize()
+        assert result is False
+        assert toolset.status == ToolsetStatusEnum.FAILED
+        assert toolset.error == "Callable check failed"
+        assert toolset._initialized is True  # Marked as initialized (won't retry)
+        assert not toolset.needs_initialization
+
+    @patch("subprocess.run")
+    def test_lazy_init_with_command(self, mock_subprocess_run):
+        """Command prerequisites run during lazy init, not during config check."""
+        mock_subprocess_run.return_value = Mock(stdout="output", returncode=0)
+        prereq = ToolsetCommandPrerequisite(command="my_cmd")
+        toolset = SampleToolset(prerequisites=[prereq])
+
+        toolset.check_config_prerequisites()
+        mock_subprocess_run.assert_not_called()
+
+        toolset.lazy_initialize()
+        mock_subprocess_run.assert_called_once()
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+
+    def test_lazy_init_exception_in_callable(self):
+        """If callable raises exception during lazy init, status is FAILED."""
+        prereq = CallablePrerequisite(callable=failing_callable_for_test)
+        toolset = SampleToolset(prerequisites=[prereq], config={})
+
+        toolset.check_config_prerequisites()
+        assert toolset.needs_initialization
+
+        result = toolset.lazy_initialize()
+        assert result is False
+        assert toolset.status == ToolsetStatusEnum.FAILED
+        assert "Failure in callable prerequisite" in toolset.error

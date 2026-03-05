@@ -874,6 +874,7 @@ def _collect_test_results_from_stats(terminalreporter):
                 "total_tokens": user_props.get("total_tokens", 0),
                 "prompt_tokens": user_props.get("prompt_tokens", 0),
                 "completion_tokens": user_props.get("completion_tokens", 0),
+                "num_compactions": user_props.get("num_compactions", 0),
                 # Tag tracking for performance analysis
                 "tags": user_props.get("tags", []),
                 # Error tracking for better reporting
