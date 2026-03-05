@@ -54,6 +54,7 @@ from holmes.common.cli_commons import (
     opt_model,
     opt_verbose,
 )
+from holmes.toolset_config_tui import run_toolset_config_tui
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
 
@@ -342,6 +343,8 @@ def ask(
                 bash_always_deny=bash_always_deny,
                 bash_always_allow=bash_always_allow,
                 prompt_component_overrides=prompt_component_overrides,
+                config=config,
+                config_file_path=config_file,
             )
             return
 
@@ -1005,6 +1008,19 @@ def refresh_toolsets(
     config = Config.load_from_file(config_file)
     cli_toolsets = config.toolset_manager.list_console_toolsets(refresh_status=True)
     pretty_print_toolset_status(cli_toolsets, console)
+
+
+@toolset_app.command("config")
+def config_toolset(
+    verbose: Optional[List[bool]] = opt_verbose,
+    config_file: Optional[Path] = opt_config_file,  # type: ignore
+):
+    """
+    Interactive configuration editor for toolsets
+    """
+    console = init_logging(verbose)
+    config = Config.load_from_file(config_file)
+    run_toolset_config_tui(config, config_file, console)
 
 
 @app.command()
