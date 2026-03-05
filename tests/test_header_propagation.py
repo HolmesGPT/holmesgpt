@@ -26,10 +26,9 @@ from holmes.core.tools import (
     YAMLTool,
     YAMLToolset,
 )
-from holmes.utils.header_rendering import (
-    CaseInsensitiveDict,
-    render_template_headers,
-)
+from requests.structures import CaseInsensitiveDict
+
+from holmes.utils.header_rendering import render_template_headers
 
 
 # ---------------------------------------------------------------------------
@@ -482,9 +481,10 @@ class TestMCPConfigExtraHeaders:
         assert rendered["X-Static"] == "static-value"
         assert rendered["X-Dynamic"] == "dynamic-value"
 
-    def test_render_extra_headers_returns_empty(self):
-        """MCP toolsets handle headers at connection time, not per-tool-call.
-        The base render_extra_headers() should return empty to avoid duplicate rendering."""
+    def test_render_extra_headers_falls_through_to_base(self):
+        """MCP toolsets no longer override render_extra_headers — the base Toolset
+        implementation renders extra_headers from config normally.  The actual
+        merging with static 'headers' happens in _render_headers() at connection time."""
         from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 
         mcp_toolset = RemoteMCPToolset(
@@ -492,11 +492,12 @@ class TestMCPConfigExtraHeaders:
             description="Test toolset",
             config={
                 "url": "http://localhost:1234",
-                "extra_headers": {"X-Should-Not-Render": "value"},
+                "extra_headers": {"X-Dynamic": "value"},
             },
         )
-        # Base class method should return empty for MCP
-        assert mcp_toolset.render_extra_headers({"headers": {"X-Foo": "bar"}}) == {}
+        # Base class renders extra_headers normally (no override blocking it)
+        result = mcp_toolset.render_extra_headers({"headers": {"X-Foo": "bar"}})
+        assert result == {"X-Dynamic": "value"}
 
     def test_extra_headers_override_static_headers(self):
         """extra_headers should take precedence over static headers."""

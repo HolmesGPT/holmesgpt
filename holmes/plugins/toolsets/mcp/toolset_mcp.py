@@ -24,7 +24,6 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
 )
-from holmes.utils.header_rendering import render_template_headers
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
@@ -339,28 +338,11 @@ class RemoteMCPToolset(Toolset):
 
         Process:
         1. Start with 'headers' field (backward compatibility, passed as-is)
-        2. Render config-level 'extra_headers' templates (from MCPConfig)
+        2. Render config-level 'extra_headers' via base Toolset.render_extra_headers()
         3. Merge them (later layers take precedence)
-
-        Template sources for extra_headers:
-        - {{ request_context.headers['foo'] }}: Pass-through from client request
-        - {{ env.CORALOGIX_API_KEY }}: From environment variables
-        - "hardcoded value": Static hardcoded values
 
         Returns:
             Merged headers dictionary or None
-
-        Example of mcp_config:
-            mcp_servers:
-                my_mcp_server:
-                    config:
-                        ...
-                        headers:
-                            Header-Name: "hardcoded value"
-                        extra_headers:
-                            Header-Name-1: "hardcoded value"
-                            Header-Name-2: "{{ request_context.headers['foo'] }}"
-                            Header-Name-3: "{{ env.CORALOGIX_API_KEY }}"
         """
         if not isinstance(self._mcp_config, MCPConfig):
             return None
@@ -371,22 +353,11 @@ class RemoteMCPToolset(Toolset):
             final_headers.update(self._mcp_config.headers)
 
         # Render and merge config-level extra_headers
-        if self._mcp_config.extra_headers:
-            config_extra = render_template_headers(
-                extra_headers=self._mcp_config.extra_headers,
-                request_context=request_context,
-                source_name=f"MCP:{self.name}",
-            )
-            final_headers.update(config_extra)
+        rendered = super().render_extra_headers(request_context)
+        if rendered:
+            final_headers.update(rendered)
 
         return final_headers if final_headers else None
-
-    def render_extra_headers(
-        self, request_context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, str]:
-        """MCP toolsets handle header rendering at connection time via _render_headers(),
-        not per-tool-call.  Return empty to avoid duplicate rendering in tool_calling_llm."""
-        return {}
 
     def model_post_init(self, __context: Any) -> None:
         self.prerequisites = [

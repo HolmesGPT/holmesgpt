@@ -9,37 +9,9 @@ import os
 from typing import Any, Dict, Optional
 
 from jinja2 import Template
+from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
-
-
-class CaseInsensitiveDict(dict):
-    """Dictionary with case-insensitive key lookup for HTTP headers."""
-
-    def _find_key(self, key: str) -> Optional[str]:
-        if isinstance(key, str):
-            key_lower = key.lower()
-            for k in dict.keys(self):
-                if k.lower() == key_lower:
-                    return k
-        return None
-
-    def __getitem__(self, key: str) -> Any:
-        found = self._find_key(key)
-        if found is not None:
-            return dict.__getitem__(self, found)
-        raise KeyError(key)
-
-    def __contains__(self, key: object) -> bool:
-        if isinstance(key, str):
-            return self._find_key(key) is not None
-        return False
-
-    def get(self, key: str, default: Any = None) -> Any:
-        found = self._find_key(key)
-        if found is not None:
-            return dict.__getitem__(self, found)
-        return default
 
 
 def render_template_headers(
