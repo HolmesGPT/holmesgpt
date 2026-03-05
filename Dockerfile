@@ -1,3 +1,16 @@
+# Go builder stage - rebuild Go binaries with Go 1.25.7 to fix CVE-2025-68121
+FROM golang:1.25.7-bookworm AS go-builder
+ARG ARGOCD_VERSION=v3.3.2
+ARG HELM_VERSION=v3.20.0
+# Build ArgoCD CLI with patched Go
+RUN git clone --depth 1 --branch ${ARGOCD_VERSION} https://github.com/argoproj/argo-cd.git /build/argo-cd
+WORKDIR /build/argo-cd
+RUN CGO_ENABLED=0 go build -ldflags "-X github.com/argoproj/argo-cd/v3/common.version=${ARGOCD_VERSION}" -o /go/bin/argocd ./cmd
+# Build Helm with patched Go
+RUN git clone --depth 1 --branch ${HELM_VERSION} https://github.com/helm/helm.git /build/helm
+WORKDIR /build/helm
+RUN CGO_ENABLED=0 go build -ldflags "-X helm.sh/helm/v3/internal/version.version=${HELM_VERSION}" -o /go/bin/helm ./cmd/helm
+
 # Build stage
 FROM python:3.11-slim-bookworm as builder
 ENV PATH="/root/.local/bin/:$PATH"
@@ -28,8 +41,8 @@ ENV VERIFY_CHECKSUM=true \
 RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key -o Release.key
 
 # Set the architecture-specific kube lineage URLs
-ARG KUBE_LINEAGE_ARM_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.4/kube-lineage-macos-latest-v2.2.4
-ARG KUBE_LINEAGE_AMD_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.4/kube-lineage-ubuntu-latest-v2.2.4
+ARG KUBE_LINEAGE_ARM_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.5/kube-lineage-macos-latest-v2.2.5
+ARG KUBE_LINEAGE_AMD_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.5/kube-lineage-ubuntu-latest-v2.2.5
 # Define a build argument to identify the platform
 ARG TARGETPLATFORM
 # Conditional download based on the platform
@@ -42,24 +55,6 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
     fi
 RUN chmod 777 kube-lineage
 RUN ./kube-lineage --version
-
-# Set the architecture-specific argocd URLs
-ARG ARGOCD_VERSION=v3.2.0
-ARG ARGOCD_ARM_URL=https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-arm64
-ARG ARGOCD_AMD_URL=https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64
-# Conditional download based on the platform
-RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-    curl -fsSL -o argocd $ARGOCD_ARM_URL; \
-    elif [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-    curl -fsSL -o argocd $ARGOCD_AMD_URL; \
-    else \
-    echo "Unsupported platform: $TARGETPLATFORM"; exit 1; \
-    fi
-RUN chmod 777 argocd
-RUN ./argocd --help
-
-# Install Helm
-RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # Set up poetry
 ARG PRIVATE_PACKAGE_REGISTRY="none"
@@ -127,13 +122,12 @@ RUN VERSION_ID=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2 | cut -d '.' 
 COPY --from=builder /kube-lineage /usr/local/bin
 RUN kube-lineage --version
 
-# Set up ArgoCD
-COPY --from=builder /argocd /usr/local/bin/argocd
+# Set up ArgoCD (built from source with patched Go for CVE-2025-68121)
+COPY --from=go-builder /go/bin/argocd /usr/local/bin/argocd
 RUN argocd --help
 
-# Set up Helm
-COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
-RUN chmod 555 /usr/local/bin/helm
+# Set up Helm (built from source with patched Go for CVE-2025-68121)
+COPY --from=go-builder /go/bin/helm /usr/local/bin/helm
 RUN helm version
 
 ARG AWS_DEFAULT_PROFILE
