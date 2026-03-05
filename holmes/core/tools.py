@@ -803,7 +803,7 @@ class Toolset(BaseModel):
         if not requires_config:
             return True
 
-        if self.config:
+        if self.config is not None:
             return True
 
         return False

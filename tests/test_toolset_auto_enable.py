@@ -45,15 +45,13 @@ def _make_toolset(
     if config is not None:
         kwargs["config"] = config
 
-    toolset = Toolset(**kwargs)
-
-    # config_classes is a ClassVar, so we override it on the instance's class
-    # by creating a subclass dynamically
+    # Create a per-test subclass so config_classes doesn't leak between tests
+    cls_attrs: dict = {}
     if config_classes is not None:
-        # Patch directly on the instance for testing
-        type(toolset).config_classes = config_classes  # type: ignore[assignment]
+        cls_attrs["config_classes"] = config_classes
+    subclass = type("TestToolset", (Toolset,), cls_attrs)
 
-    return toolset
+    return subclass(**kwargs)
 
 
 # --- ToolsetConfig.has_required_fields tests ---
@@ -107,6 +105,14 @@ class TestShouldAutoEnable:
         """Toolset with required config AND no config is NOT auto-enabled."""
         toolset = _make_toolset(config_classes=[RequiredFieldConfig])
         assert toolset.should_auto_enable() is False
+
+    def test_required_config_with_empty_config(self):
+        """Toolset with required config AND explicitly empty config ({}) is auto-enabled."""
+        toolset = _make_toolset(
+            config_classes=[RequiredFieldConfig],
+            config={},
+        )
+        assert toolset.should_auto_enable() is True
 
     def test_disabled_by_default_no_config_classes(self):
         """Even a disabled toolset with no config classes should auto-enable."""
