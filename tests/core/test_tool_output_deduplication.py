@@ -177,8 +177,8 @@ class TestNoOutputDuplication:
         error_has_output = raw_output in (result_dump.get("error") or "")
         data_has_output = raw_output in (result_dump.get("data") or "")
 
-        assert not (error_has_output and data_has_output), (
-            f"Raw output '{raw_output}' appears in BOTH error and data fields of streaming response.\n"
+        assert data_has_output and not error_has_output, (
+            f"Raw output '{raw_output}' should appear in data but not in error of streaming response.\n"
             f"error: {result_dump.get('error')}\n"
             f"data: {result_dump.get('data')}"
         )
