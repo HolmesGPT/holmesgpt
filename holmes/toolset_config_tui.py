@@ -28,13 +28,9 @@ from prompt_toolkit.styles import Style as PTStyle
 from pydantic import BaseModel
 from rich.console import Console
 
-try:
-    from pydantic_core import PydanticUndefined  # type: ignore
-except Exception:  # pragma: no cover
-    PydanticUndefined = object()  # type: ignore
-
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetType
+from holmes.utils.pydantic_utils import PydanticUndefined
 
 logger = logging.getLogger(__name__)
 
