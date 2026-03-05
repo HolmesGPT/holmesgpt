@@ -637,6 +637,7 @@ class ToolCallingLLM:
                     tool_calls.append(tool_result_response_dict)
                     all_tool_calls.append(tool_result_response_dict)
                     messages.append(tool_call_result.as_tool_call_message())
+                    tokens = self.llm.count_tokens(messages=messages, tools=tools)
 
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
