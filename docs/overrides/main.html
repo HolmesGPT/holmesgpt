@@ -7,3 +7,15 @@
   </div>
 </div>
 {% endblock %}
+
+{% block outdated %}
+  <div class="md-banner md-banner--warning" data-md-component="outdated" hidden>
+    <div class="md-banner__inner md-typeset">
+      You're viewing the <strong>development</strong> version of the docs (unreleased changes).
+      <a href="/latest/">
+        <span class="twemoji">{% include ".icons/material/arrow-right.svg" %}</span>
+        <strong>Switch to the latest stable release</strong>
+      </a>
+    </div>
+  </div>
+{% endblock %}

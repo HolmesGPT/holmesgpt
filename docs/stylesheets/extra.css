@@ -27,6 +27,36 @@
   text-decoration: underline;
 }
 
+/* Dev version warning banner */
+.md-banner--warning {
+  background: #f59e0b;
+  color: #1a1a1a;
+  font-size: 0.85rem;
+  padding: 0.4rem 1rem;
+}
+
+.md-banner--warning a {
+  color: #1a1a1a;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.md-banner--warning a:hover {
+  color: #000;
+  text-decoration: underline;
+}
+
+.md-banner--warning .twemoji {
+  vertical-align: middle;
+  margin-right: 0.15rem;
+}
+
+.md-banner--warning .twemoji svg {
+  width: 1em;
+  height: 1em;
+  fill: currentcolor;
+}
+
 /* Tab styling - full border around tabbed content */
 .tabbed-set {
   border: 1px solid #e0e0e0;
