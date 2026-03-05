@@ -43,6 +43,7 @@ pygments = "^2.18.0"
 azure-identity = "^1.23.0"
 azure-core = "^1.34.0"
 requests = "^2.32.4"
+PyJWT = {extras = ["crypto"], version = "^2.8.0"}
 azure-mgmt-sql = "^4.0.0b21"
 pyodbc = "^5.0.1"
 azure-monitor-query = "^1.2.0"

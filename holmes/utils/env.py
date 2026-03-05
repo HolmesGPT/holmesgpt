@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 from pydantic import SecretStr
 
+from holmes.utils.github_app_token_manager import refresh_github_app_token_env
+
 
 def environ_get_safe_int(env_var: str, default: str = "0") -> int:
     try:
@@ -34,6 +36,9 @@ def get_env_replacement(value: str) -> Optional[str]:
 
 
 def replace_env_vars_values(values: dict[str, Any]) -> dict[str, Any]:
+    # Ensure GitHub App token is fresh before resolving env vars
+    refresh_github_app_token_env()
+
     for key, value in values.items():
         if isinstance(value, str):
             env_var_value = get_env_replacement(value)
