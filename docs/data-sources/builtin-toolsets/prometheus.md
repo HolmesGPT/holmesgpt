@@ -218,8 +218,6 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
 
     ```yaml
     additionalEnvVars:
-      - name: GRAFANA_CLOUD_PROM_URL
-        value: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
       - name: GRAFANA_CLOUD_PROM_AUTH
         valueFrom:
           secretKeyRef:
@@ -230,7 +228,7 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
       prometheus/metrics:
         enabled: true
         config:
-          prometheus_url: "{{ env.GRAFANA_CLOUD_PROM_URL }}"
+          prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
           additional_headers:
             Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
     ```
@@ -250,8 +248,6 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
     ```yaml
     holmes:
       additionalEnvVars:
-        - name: GRAFANA_CLOUD_PROM_URL
-          value: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
         - name: GRAFANA_CLOUD_PROM_AUTH
           valueFrom:
             secretKeyRef:
@@ -261,7 +257,7 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
         prometheus/metrics:
           enabled: true
           config:
-            prometheus_url: "{{ env.GRAFANA_CLOUD_PROM_URL }}"
+            prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
             additional_headers:
               Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
     ```
@@ -313,10 +309,6 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
 
     ```yaml
     additionalEnvVars:
-      - name: GRAFANA_CLOUD_URL
-        value: "https://YOUR-INSTANCE.grafana.net"
-      - name: GRAFANA_CLOUD_PROM_DATASOURCE_UID
-        value: "YOUR_PROMETHEUS_DATASOURCE_UID"
       - name: GRAFANA_CLOUD_SA_TOKEN
         valueFrom:
           secretKeyRef:
@@ -327,7 +319,7 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
       prometheus/metrics:
         enabled: true
         config:
-          prometheus_url: "{{ env.GRAFANA_CLOUD_URL }}/api/datasources/proxy/uid/{{ env.GRAFANA_CLOUD_PROM_DATASOURCE_UID }}"
+          prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
           additional_headers:
             Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
     ```
@@ -346,10 +338,6 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
     ```yaml
     holmes:
       additionalEnvVars:
-        - name: GRAFANA_CLOUD_URL
-          value: "https://YOUR-INSTANCE.grafana.net"
-        - name: GRAFANA_CLOUD_PROM_DATASOURCE_UID
-          value: "YOUR_PROMETHEUS_DATASOURCE_UID"
         - name: GRAFANA_CLOUD_SA_TOKEN
           valueFrom:
             secretKeyRef:
@@ -359,7 +347,7 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
         prometheus/metrics:
           enabled: true
           config:
-            prometheus_url: "{{ env.GRAFANA_CLOUD_URL }}/api/datasources/proxy/uid/{{ env.GRAFANA_CLOUD_PROM_DATASOURCE_UID }}"
+            prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
             additional_headers:
               Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
     ```
