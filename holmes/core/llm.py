@@ -222,16 +222,39 @@ class DefaultLLM(LLM):
                     "https://docs.litellm.ai/docs/providers/watsonx#usage---models-in-deployment-spaces"
                 )
         elif provider == "bedrock":
-            if os.environ.get("AWS_PROFILE") or os.environ.get(
-                "AWS_BEARER_TOKEN_BEDROCK"
+            if (
+                os.environ.get("AWS_PROFILE")
+                or os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+                # IRSA (IAM Roles for Service Accounts) on EKS or custom OIDC clusters
+                or (
+                    os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+                    and os.environ.get("AWS_ROLE_ARN")
+                )
+                # Existing temporary credentials (e.g. from a CronJob refresh)
+                or os.environ.get("AWS_SESSION_TOKEN")
+                # Cross-account role assumption via aws_role_name in modelList
+                or (args and args.get("aws_role_name"))
             ):
                 model_requirements = {"keys_in_environment": True, "missing_keys": []}
             elif args.get("aws_access_key_id") and args.get("aws_secret_access_key"):
                 return  # break fast.
             else:
-                model_requirements = litellm.validate_environment(
-                    model=model, api_key=api_key, api_base=api_base
-                )
+                # Final fallback: try boto3 default credential chain
+                # (covers EC2 instance profile, ECS task role, ~/.aws/credentials, etc.)
+                try:
+                    import boto3
+                    session = boto3.Session()
+                    credentials = session.get_credentials()
+                    if credentials is not None and credentials.resolve() is not None:
+                        model_requirements = {"keys_in_environment": True, "missing_keys": []}
+                    else:
+                        model_requirements = litellm.validate_environment(
+                            model=model, api_key=api_key, api_base=api_base
+                        )
+                except Exception:
+                    model_requirements = litellm.validate_environment(
+                        model=model, api_key=api_key, api_base=api_base
+                    )
         else:
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base
