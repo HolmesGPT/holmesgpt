@@ -171,36 +171,67 @@ holmes:
 
 ### Grafana Cloud (Mimir)
 
-To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
+There are two ways to connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
 
-1. **Create a service account token in Grafana Cloud:**
-   - Navigate to "Administration → Service accounts"
-   - Create a new service account
-   - Generate a service account token (starts with `glsa_`)
+=== "Direct Prometheus Endpoint (Recommended)"
 
-2. **Find your Prometheus datasource UID:**
-   ```bash
-   curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
-        "https://YOUR-INSTANCE.grafana.net/api/datasources" | \
-        jq '.[] | select(.type=="prometheus") | {name, uid}'
-   ```
+    Use Grafana Cloud's direct Prometheus endpoint with Basic authentication. This is the simplest approach.
 
-3. **Configure HolmesGPT:**
-   ```yaml
-   holmes:
-     toolsets:
-       prometheus/metrics:
-         enabled: true
-         config:
-           prometheus_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
-           additional_headers:
-             Authorization: Bearer YOUR_GLSA_TOKEN
-   ```
+    **Find your Prometheus endpoint URL:**
 
-**Important notes:**
+    - Go to your Grafana Cloud portal → your stack → Prometheus details
+    - Copy the URL and append `/api/prom` to it
 
-- Use the proxy endpoint URL format `/api/datasources/proxy/uid/` - this handles authentication and routing to Mimir automatically
-- The toolset automatically detects and uses the most appropriate APIs for discovery
+    The URL format is: `https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom`
+
+    **Configure HolmesGPT:**
+
+    ```yaml
+    holmes:
+      toolsets:
+        prometheus/metrics:
+          enabled: true
+          config:
+            prometheus_url: https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom
+            additional_headers:
+              Authorization: "Basic <base64_encoded_credentials>"
+    ```
+
+    The Basic auth credentials are `<username>:<api_key>` base64-encoded, where:
+
+    - `username` is your Grafana Cloud Prometheus username (numeric ID from the Prometheus details page)
+    - `api_key` is a Grafana Cloud API key with metrics read permissions
+
+=== "Grafana API Proxy"
+
+    Use Grafana's datasource proxy to route requests through the Grafana API. This approach uses a Grafana service account token.
+
+    **Create a service account token in Grafana Cloud:**
+
+    - Navigate to "Administration → Service accounts"
+    - Create a new service account
+    - Generate a service account token (starts with `glsa_`)
+
+    **Find your Prometheus datasource UID:**
+
+    ```bash
+    curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
+         "https://YOUR-INSTANCE.grafana.net/api/datasources" | \
+         jq '.[] | select(.type=="prometheus") | {name, uid}'
+    ```
+
+    **Configure HolmesGPT:**
+
+    ```yaml
+    holmes:
+      toolsets:
+        prometheus/metrics:
+          enabled: true
+          config:
+            prometheus_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
+            additional_headers:
+              Authorization: Bearer YOUR_GLSA_TOKEN
+    ```
 
 ---
 
