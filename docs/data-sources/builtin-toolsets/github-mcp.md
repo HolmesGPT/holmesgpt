@@ -259,11 +259,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ### Using a GitHub App
 
-Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This method uses GitHub's remote MCP endpoint (`api.githubcopilot.com/mcp`) with automatically refreshed installation tokens. No self-hosted MCP server pod is needed.
-
-- **Higher rate limits** (5,000 → 15,000+ requests/hour)
-- **No user-tied credentials** — the token is scoped to the App installation
-- **Automatic token refresh** — Holmes generates short-lived installation tokens and rotates them in the background
+Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This method uses GitHub's remote MCP endpoint (`api.githubcopilot.com/mcp`) with automatically refreshed installation tokens.
 
 **Step 1: Create a GitHub App**
 
@@ -300,7 +296,14 @@ Note the **Installation ID** from the URL after installation: `https://github.co
 
 Find the **App ID** on the App's settings page (under "About").
 
-**Step 5: Configure Holmes**
+**Step 5: Configure the GitHub MCP Server**
+
+Choose one of:
+
+- **Self-hosted in cluster** — Deploy the MCP server using [Steps 1–2 from the PAT section above](#using-a-personal-access-token), then use its in-cluster URL.
+- **GitHub's remote endpoint** — Use `https://api.githubcopilot.com/mcp` (no deployment needed).
+
+**Step 6: Configure Holmes**
 
 === "Holmes CLI"
 
@@ -312,16 +315,31 @@ Find the **App ID** on the App's settings page (under "About").
     export GITHUB_APP_PRIVATE_KEY="$(cat /path/to/private-key.pem)"
     ```
 
-    ```yaml
-    mcp_servers:
-      github:
-        description: "GitHub MCP Server"
-        config:
-          url: "https://api.githubcopilot.com/mcp"
-          mode: "streamable-http"
-          extra_headers:
-            Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
-    ```
+    === "Self-hosted MCP Server"
+
+        ```yaml
+        mcp_servers:
+          github:
+            description: "GitHub MCP Server"
+            config:
+              url: "http://github-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+              mode: "sse"
+              extra_headers:
+                Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+        ```
+
+    === "GitHub's Remote MCP"
+
+        ```yaml
+        mcp_servers:
+          github:
+            description: "GitHub MCP Server"
+            config:
+              url: "https://api.githubcopilot.com/mcp"
+              mode: "streamable-http"
+              extra_headers:
+                Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+        ```
 
     Holmes will automatically generate an installation token at startup and refresh it in the background.
 
@@ -339,33 +357,65 @@ Find the **App ID** on the App's settings page (under "About").
 
     **Add to your `values.yaml`:**
 
-    ```yaml
-    additionalEnvVars:
-    - name: GITHUB_APP_ID
-      valueFrom:
-        secretKeyRef:
-          name: holmes-github-app
-          key: GITHUB_APP_ID
-    - name: GITHUB_APP_INSTALLATION_ID
-      valueFrom:
-        secretKeyRef:
-          name: holmes-github-app
-          key: GITHUB_APP_INSTALLATION_ID
-    - name: GITHUB_APP_PRIVATE_KEY
-      valueFrom:
-        secretKeyRef:
-          name: holmes-github-app
-          key: GITHUB_APP_PRIVATE_KEY
+    === "Self-hosted MCP Server"
 
-    mcp_servers:
-      github:
-        description: "GitHub MCP Server"
-        config:
-          url: "https://api.githubcopilot.com/mcp"
-          mode: "streamable-http"
-          extra_headers:
-            Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
-    ```
+        ```yaml
+        additionalEnvVars:
+        - name: GITHUB_APP_ID
+          valueFrom:
+            secretKeyRef:
+              name: holmes-github-app
+              key: GITHUB_APP_ID
+        - name: GITHUB_APP_INSTALLATION_ID
+          valueFrom:
+            secretKeyRef:
+              name: holmes-github-app
+              key: GITHUB_APP_INSTALLATION_ID
+        - name: GITHUB_APP_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: holmes-github-app
+              key: GITHUB_APP_PRIVATE_KEY
+
+        mcp_servers:
+          github:
+            description: "GitHub MCP Server"
+            config:
+              url: "http://github-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+              mode: "sse"
+              extra_headers:
+                Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+        ```
+
+    === "GitHub's Remote MCP"
+
+        ```yaml
+        additionalEnvVars:
+        - name: GITHUB_APP_ID
+          valueFrom:
+            secretKeyRef:
+              name: holmes-github-app
+              key: GITHUB_APP_ID
+        - name: GITHUB_APP_INSTALLATION_ID
+          valueFrom:
+            secretKeyRef:
+              name: holmes-github-app
+              key: GITHUB_APP_INSTALLATION_ID
+        - name: GITHUB_APP_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: holmes-github-app
+              key: GITHUB_APP_PRIVATE_KEY
+
+        mcp_servers:
+          github:
+            description: "GitHub MCP Server"
+            config:
+              url: "https://api.githubcopilot.com/mcp"
+              mode: "streamable-http"
+              extra_headers:
+                Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+        ```
 
     ```bash
     helm upgrade --install holmes robusta/holmes -f values.yaml
@@ -385,34 +435,67 @@ Find the **App ID** on the App's settings page (under "About").
 
     **Add to your `generated_values.yaml`:**
 
-    ```yaml
-    holmes:
-      additionalEnvVars:
-      - name: GITHUB_APP_ID
-        valueFrom:
-          secretKeyRef:
-            name: holmes-github-app
-            key: GITHUB_APP_ID
-      - name: GITHUB_APP_INSTALLATION_ID
-        valueFrom:
-          secretKeyRef:
-            name: holmes-github-app
-            key: GITHUB_APP_INSTALLATION_ID
-      - name: GITHUB_APP_PRIVATE_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-github-app
-            key: GITHUB_APP_PRIVATE_KEY
+    === "Self-hosted MCP Server"
 
-      mcp_servers:
-        github:
-          description: "GitHub MCP Server"
-          config:
-            url: "https://api.githubcopilot.com/mcp"
-            mode: "streamable-http"
-            extra_headers:
-              Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
-    ```
+        ```yaml
+        holmes:
+          additionalEnvVars:
+          - name: GITHUB_APP_ID
+            valueFrom:
+              secretKeyRef:
+                name: holmes-github-app
+                key: GITHUB_APP_ID
+          - name: GITHUB_APP_INSTALLATION_ID
+            valueFrom:
+              secretKeyRef:
+                name: holmes-github-app
+                key: GITHUB_APP_INSTALLATION_ID
+          - name: GITHUB_APP_PRIVATE_KEY
+            valueFrom:
+              secretKeyRef:
+                name: holmes-github-app
+                key: GITHUB_APP_PRIVATE_KEY
+
+          mcp_servers:
+            github:
+              description: "GitHub MCP Server"
+              config:
+                url: "http://github-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+                mode: "sse"
+                extra_headers:
+                  Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+        ```
+
+    === "GitHub's Remote MCP"
+
+        ```yaml
+        holmes:
+          additionalEnvVars:
+          - name: GITHUB_APP_ID
+            valueFrom:
+              secretKeyRef:
+                name: holmes-github-app
+                key: GITHUB_APP_ID
+          - name: GITHUB_APP_INSTALLATION_ID
+            valueFrom:
+              secretKeyRef:
+                name: holmes-github-app
+                key: GITHUB_APP_INSTALLATION_ID
+          - name: GITHUB_APP_PRIVATE_KEY
+            valueFrom:
+              secretKeyRef:
+                name: holmes-github-app
+                key: GITHUB_APP_PRIVATE_KEY
+
+          mcp_servers:
+            github:
+              description: "GitHub MCP Server"
+              config:
+                url: "https://api.githubcopilot.com/mcp"
+                mode: "streamable-http"
+                extra_headers:
+                  Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+        ```
 
     ```bash
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
