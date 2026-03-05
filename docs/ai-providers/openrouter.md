@@ -210,10 +210,14 @@ You can use any model available on OpenRouter. The model prefix depends on which
 
 - `openrouter/anthropic/claude-sonnet-4-5`
 - `openrouter/anthropic/claude-opus-4-5`
+- `openrouter/openai/gpt-4o`
+- `openrouter/google/gemini-pro`
 
 **Method 2 (OpenAI-Compatible):** Use `openai/` prefix
 
 - `openai/anthropic/claude-sonnet-4-5`
 - `openai/anthropic/claude-opus-4-5`
+- `openai/openai/gpt-4o`
+- `openai/google/gemini-pro`
 
 See the [OpenRouter models page](https://openrouter.ai/models) for a complete list of available models.
