@@ -55,6 +55,12 @@ class ServiceNowTablesConfig(ToolsetConfig):
         description="Table queried on startup to verify connectivity and permissions. Change this if your API key doesn't have access to the default table.",
         examples=["sys_user", "incident", "sys_db_object"],
     )
+    extra_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        title="Extra Headers",
+        description="Optional extra HTTP headers (supports Jinja2 templates with env vars).",
+        examples=[{"X-Custom-Header": "{{ env.MY_TOKEN }}"}],
+    )
 
 
 class ServiceNowTablesToolset(Toolset):

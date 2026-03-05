@@ -45,8 +45,6 @@ class ToolsetConfig(BaseModel):
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {}
 
-    extra_headers: Optional[Dict[str, str]] = None
-
     @model_validator(mode="before")
     @classmethod
     def handle_deprecated_fields(cls, data: Any) -> Any:

@@ -16,6 +16,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from holmes.utils.pydantic_utils import ToolsetConfig
+
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -196,14 +198,14 @@ class TestYAMLToolsetExtraEnvVars:
 # Base Toolset extra_headers (used by HTTP/Python toolsets, NOT YAML)
 # ---------------------------------------------------------------------------
 
+class _ConfigWithExtraHeaders(ToolsetConfig):
+    extra_headers: Optional[Dict[str, str]] = None
+
+
 class TestToolsetExtraHeaders:
     def test_render_extra_headers_from_pydantic_config(self):
         """Verify render_extra_headers works with a Pydantic model config (attribute access)."""
-        from holmes.utils.pydantic_utils import ToolsetConfig
-
-        config = ToolsetConfig(extra_headers={"X-From-Model": "pydantic-value"})
-        # Use a non-YAML toolset subclass — ToolsetYamlFromConfig extends Toolset
-        # but does not override render_extra_headers, so it uses the base class.
+        config = _ConfigWithExtraHeaders(extra_headers={"X-From-Model": "pydantic-value"})
         from holmes.core.tools import ToolsetYamlFromConfig
 
         ts = ToolsetYamlFromConfig(
