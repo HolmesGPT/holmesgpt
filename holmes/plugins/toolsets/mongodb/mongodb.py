@@ -157,6 +157,9 @@ class MongoDBToolset(Toolset):
             MongoDBAggregate(self, tool_prefix),
             MongoDBListCollections(self, tool_prefix),
             MongoDBCollectionSchema(self, tool_prefix),
+            MongoDBListDatabases(self, tool_prefix),
+            MongoDBServerStatus(self, tool_prefix),
+            MongoDBCurrentOp(self, tool_prefix),
         ]
         self._load_llm_instructions_from_file(
             os.path.dirname(__file__), "instructions.jinja2"
@@ -355,6 +358,88 @@ class MongoDBToolset(Toolset):
 
             if isinstance(value, dict):
                 self._extract_field_types(value, field_types, full_key)
+
+    def get_server_status(self, sections: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Run serverStatus and return selected sections for diagnostics."""
+        client = self._create_client()
+        try:
+            status = client.admin.command("serverStatus")
+            # Always include these overview fields
+            result: Dict[str, Any] = {
+                "host": status.get("host"),
+                "version": status.get("version"),
+                "uptime_seconds": status.get("uptimeEstimate", status.get("uptime")),
+            }
+
+            # Default sections that are most useful for performance diagnostics
+            default_sections = [
+                "connections", "opcounters", "mem", "locks",
+                "globalLock", "network", "wiredTiger",
+            ]
+            requested = sections or default_sections
+            for section in requested:
+                if section in status:
+                    result[section] = status[section]
+
+            # Include replication info if available
+            if "repl" in status:
+                result["repl"] = status["repl"]
+
+            return _serialize_value(result)
+        finally:
+            client.close()
+
+    def get_current_op(
+        self,
+        min_duration_ms: Optional[int] = None,
+        active_only: bool = True,
+    ) -> Dict[str, Any]:
+        """Run currentOp to find active/slow operations."""
+        client = self._create_client()
+        try:
+            filter_doc: Dict[str, Any] = {}
+            if active_only:
+                filter_doc["active"] = True
+            if min_duration_ms is not None:
+                filter_doc["microsecs_running"] = {"$gte": min_duration_ms * 1000}
+
+            result = client.admin.command("currentOp", **filter_doc)
+            ops = result.get("inprog", [])
+
+            # Limit output to prevent token overflow
+            max_ops = self.mongodb_config.max_documents
+            truncated = len(ops) > max_ops
+            if truncated:
+                ops = ops[:max_ops]
+
+            return {
+                "operations": _serialize_value(ops),
+                "count": len(ops),
+                "truncated": truncated,
+            }
+        finally:
+            client.close()
+
+    def get_list_databases(self) -> Dict[str, Any]:
+        """List all databases with their sizes."""
+        client = self._create_client()
+        try:
+            result = client.admin.command("listDatabases")
+            databases = []
+            for db_info in result.get("databases", []):
+                databases.append({
+                    "name": db_info.get("name"),
+                    "sizeOnDisk": db_info.get("sizeOnDisk"),
+                    "sizeOnDisk_mb": round(db_info.get("sizeOnDisk", 0) / (1024 * 1024), 2),
+                    "empty": db_info.get("empty", False),
+                })
+            return {
+                "databases": databases,
+                "totalSize_mb": round(result.get("totalSize", 0) / (1024 * 1024), 2),
+                "total_count": len(databases),
+            }
+        finally:
+            client.close()
 
 
 class BaseMongoDBTool(Tool, ABC):
@@ -625,3 +710,137 @@ class MongoDBCollectionSchema(BaseMongoDBTool):
     def get_parameterized_one_liner(self, params: Dict) -> str:
         collection = params.get("collection", "unknown")
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Schema of {collection}"
+
+
+class MongoDBListDatabases(BaseMongoDBTool):
+    """List all databases on the MongoDB server with their sizes."""
+
+    def __init__(self, toolset: MongoDBToolset, tool_prefix: str):
+        super().__init__(
+            toolset=toolset,
+            name=f"{tool_prefix}_list_databases",
+            description="List all databases on the MongoDB server with their sizes.",
+            parameters={},
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            data = self._toolset.get_list_databases()
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.SUCCESS,
+                data=data,
+                params=params,
+            )
+        except Exception as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Failed to list databases: {e}",
+                params=params,
+            )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: List databases"
+
+
+class MongoDBServerStatus(BaseMongoDBTool):
+    """Get MongoDB server status for performance diagnostics."""
+
+    def __init__(self, toolset: MongoDBToolset, tool_prefix: str):
+        super().__init__(
+            toolset=toolset,
+            name=f"{tool_prefix}_server_status",
+            description=(
+                "Get MongoDB server status including connections, memory usage, opcounters, "
+                "lock statistics, WiredTiger cache stats, and replication info. "
+                "Use this to diagnose performance issues like high connection counts, "
+                "memory pressure, lock contention, or replication lag."
+            ),
+            parameters={
+                "sections": ToolParameter(
+                    description=(
+                        "Comma-separated list of serverStatus sections to include. "
+                        "Available sections: connections, opcounters, mem, locks, globalLock, "
+                        "network, wiredTiger, metrics, opLatencies, tcmalloc, flowControl. "
+                        "Defaults to: connections, opcounters, mem, locks, globalLock, network, wiredTiger."
+                    ),
+                    type="string",
+                    required=False,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            sections = None
+            if params.get("sections"):
+                sections = [s.strip() for s in params["sections"].split(",")]
+            data = self._toolset.get_server_status(sections=sections)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.SUCCESS,
+                data=data,
+                params=params,
+            )
+        except Exception as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Failed to get server status: {e}",
+                params=params,
+            )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        sections = params.get("sections", "default")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: serverStatus({sections})"
+
+
+class MongoDBCurrentOp(BaseMongoDBTool):
+    """Get currently running operations on the MongoDB server."""
+
+    def __init__(self, toolset: MongoDBToolset, tool_prefix: str):
+        super().__init__(
+            toolset=toolset,
+            name=f"{tool_prefix}_current_op",
+            description=(
+                "Get currently running operations on the MongoDB server. "
+                "Use this to find slow queries, blocked operations, or long-running tasks. "
+                "Can filter by minimum duration to find only slow operations."
+            ),
+            parameters={
+                "min_duration_ms": ToolParameter(
+                    description=(
+                        "Minimum operation duration in milliseconds to filter by. "
+                        "For example, 1000 returns only operations running longer than 1 second. "
+                        "Omit to return all active operations."
+                    ),
+                    type="integer",
+                    required=False,
+                ),
+                "active_only": ToolParameter(
+                    description="If true (default), only return active operations. Set to false to include idle connections.",
+                    type="boolean",
+                    required=False,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            data = self._toolset.get_current_op(
+                min_duration_ms=params.get("min_duration_ms"),
+                active_only=params.get("active_only", True),
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.SUCCESS,
+                data=data,
+                params=params,
+            )
+        except Exception as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Failed to get current operations: {e}",
+                params=params,
+            )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        min_dur = params.get("min_duration_ms")
+        suffix = f" (>{min_dur}ms)" if min_dur else ""
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: currentOp{suffix}"

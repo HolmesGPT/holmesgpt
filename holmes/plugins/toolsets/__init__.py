@@ -117,7 +117,6 @@ def load_python_toolsets(
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
         DatabaseToolset(),
-        MongoDBToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
     ]
