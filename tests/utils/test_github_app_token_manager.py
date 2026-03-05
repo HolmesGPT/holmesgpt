@@ -1,15 +1,14 @@
 import os
 import time
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from holmes.utils.github_app_token_manager import (
-    TOKEN_REFRESH_BUFFER_SECONDS,
     GitHubAppTokenManager,
     ensure_github_app_token_env,
 )
@@ -29,8 +28,6 @@ def rsa_private_key():
 @pytest.fixture
 def rsa_public_key(rsa_private_key):
     """Derive the public key for JWT verification."""
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
-
     key = load_pem_private_key(rsa_private_key.encode(), password=None)
     return key.public_key()
 
@@ -52,6 +49,19 @@ def reset_singleton():
     GitHubAppTokenManager._instance = None
 
 
+@pytest.fixture
+def env_without_token():
+    """Provide an environment with AUTO_GENERATED_GITHUB_TOKEN removed but GitHub App env vars present."""
+    env = {k: v for k, v in os.environ.items() if k != "AUTO_GENERATED_GITHUB_TOKEN"}
+    env.update({
+        "GITHUB_APP_ID": "12345",
+        "GITHUB_APP_INSTALLATION_ID": "67890",
+        "GITHUB_APP_PRIVATE_KEY": "dummy-key",
+    })
+    with patch.dict(os.environ, env, clear=True):
+        yield
+
+
 class TestGitHubAppTokenManager:
     def test_generate_jwt(self, token_manager, rsa_public_key):
         encoded = token_manager._generate_jwt()
@@ -63,54 +73,28 @@ class TestGitHubAppTokenManager:
         assert decoded["exp"] > now
 
     @patch("holmes.utils.github_app_token_manager.requests.post")
-    def test_get_token(self, mock_post, token_manager):
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    def test_refresh_token(self, mock_post, token_manager):
         mock_post.return_value = MagicMock(
             status_code=200,
-            json=lambda: {"token": "ghs_testtoken123", "expires_at": expires_at},
+            json=lambda: {"token": "ghs_testtoken123", "expires_at": "2099-01-01T00:00:00Z"},
         )
 
-        token = token_manager.get_token()
+        token = token_manager.refresh_token()
         assert token == "ghs_testtoken123"
         mock_post.assert_called_once()
 
     @patch("holmes.utils.github_app_token_manager.requests.post")
-    def test_token_caching(self, mock_post, token_manager):
-        """Token should be cached and not re-fetched on second call."""
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    def test_refresh_token_always_fetches(self, mock_post, token_manager):
+        """Each call to refresh_token should make a new API call."""
         mock_post.return_value = MagicMock(
             status_code=200,
-            json=lambda: {"token": "ghs_cached", "expires_at": expires_at},
+            json=lambda: {"token": "ghs_fresh", "expires_at": "2099-01-01T00:00:00Z"},
         )
 
-        token1 = token_manager.get_token()
-        token2 = token_manager.get_token()
+        token1 = token_manager.refresh_token()
+        token2 = token_manager.refresh_token()
 
-        assert token1 == token2 == "ghs_cached"
-        assert mock_post.call_count == 1
-
-    @patch("holmes.utils.github_app_token_manager.requests.post")
-    def test_token_refresh_when_near_expiry(self, mock_post, token_manager):
-        """Token should be refreshed when close to expiry."""
-        # First call: token expires soon (within buffer)
-        near_expiry = datetime.now(timezone.utc) + timedelta(
-            seconds=TOKEN_REFRESH_BUFFER_SECONDS - 10
-        )
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"token": "ghs_first", "expires_at": near_expiry.isoformat()},
-        )
-        token1 = token_manager.get_token()
-        assert token1 == "ghs_first"
-
-        # Second call: should refresh because token is near expiry
-        far_expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"token": "ghs_second", "expires_at": far_expiry},
-        )
-        token2 = token_manager.get_token()
-        assert token2 == "ghs_second"
+        assert token1 == token2 == "ghs_fresh"
         assert mock_post.call_count == 2
 
     def test_from_env_returns_none_when_not_configured(self):
@@ -146,54 +130,38 @@ class TestEnsureGitHubAppTokenEnv:
             assert os.environ["AUTO_GENERATED_GITHUB_TOKEN"] == "existing_token"
 
     @patch("holmes.utils.github_app_token_manager.GitHubAppTokenManager.get_instance")
-    def test_sets_token_from_github_app(self, mock_get_instance):
+    def test_sets_token_from_github_app(self, mock_get_instance, env_without_token):
         mock_manager = MagicMock()
-        mock_manager.get_token.return_value = "ghs_generated"
+        mock_manager.refresh_token.return_value = "ghs_generated"
         mock_get_instance.return_value = mock_manager
 
-        env = {
-            k: v for k, v in os.environ.items() if k != "AUTO_GENERATED_GITHUB_TOKEN"
-        }
-        with patch.dict(os.environ, env, clear=True):
-            ensure_github_app_token_env()
-            assert os.environ["AUTO_GENERATED_GITHUB_TOKEN"] == "ghs_generated"
+        ensure_github_app_token_env()
+        assert os.environ["AUTO_GENERATED_GITHUB_TOKEN"] == "ghs_generated"
 
     @patch("holmes.utils.github_app_token_manager.GitHubAppTokenManager.get_instance")
-    def test_handles_failure_gracefully(self, mock_get_instance):
+    def test_handles_failure_gracefully(self, mock_get_instance, env_without_token):
         mock_manager = MagicMock()
-        mock_manager.get_token.side_effect = Exception("API error")
+        mock_manager.refresh_token.side_effect = Exception("API error")
         mock_get_instance.return_value = mock_manager
 
-        env = {
-            k: v for k, v in os.environ.items() if k != "AUTO_GENERATED_GITHUB_TOKEN"
-        }
-        with patch.dict(os.environ, env, clear=True):
-            ensure_github_app_token_env()
-            assert "AUTO_GENERATED_GITHUB_TOKEN" not in os.environ
+        ensure_github_app_token_env()
+        assert "AUTO_GENERATED_GITHUB_TOKEN" not in os.environ
 
     @patch("holmes.utils.github_app_token_manager.GitHubAppTokenManager.get_instance")
-    def test_noop_when_no_github_app_configured(self, mock_get_instance):
+    def test_noop_when_no_github_app_configured(self, mock_get_instance, env_without_token):
         mock_get_instance.return_value = None
 
-        env = {
-            k: v for k, v in os.environ.items() if k != "AUTO_GENERATED_GITHUB_TOKEN"
-        }
-        with patch.dict(os.environ, env, clear=True):
-            ensure_github_app_token_env()
-            assert "AUTO_GENERATED_GITHUB_TOKEN" not in os.environ
+        ensure_github_app_token_env()
+        assert "AUTO_GENERATED_GITHUB_TOKEN" not in os.environ
 
 
 class TestBackgroundRefresh:
     @patch("holmes.utils.github_app_token_manager.GitHubAppTokenManager.get_instance")
-    def test_ensure_starts_background_thread(self, mock_get_instance):
+    def test_ensure_starts_background_thread(self, mock_get_instance, env_without_token):
         """ensure_github_app_token_env should start the background refresh thread."""
         mock_manager = MagicMock()
-        mock_manager.get_token.return_value = "ghs_generated"
+        mock_manager.refresh_token.return_value = "ghs_generated"
         mock_get_instance.return_value = mock_manager
 
-        env = {
-            k: v for k, v in os.environ.items() if k != "AUTO_GENERATED_GITHUB_TOKEN"
-        }
-        with patch.dict(os.environ, env, clear=True):
-            ensure_github_app_token_env()
-            mock_manager.start_background_refresh.assert_called_once()
+        ensure_github_app_token_env()
+        mock_manager.start_background_refresh.assert_called_once()

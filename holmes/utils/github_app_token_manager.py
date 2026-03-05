@@ -2,7 +2,6 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timezone
 from typing import Optional
 
 import jwt
@@ -10,9 +9,10 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# Refresh token before expiry. Configurable via GITHUB_APP_TOKEN_REFRESH_BUFFER_SECONDS env var.
-TOKEN_REFRESH_BUFFER_SECONDS = int(
-    os.environ.get("GITHUB_APP_TOKEN_REFRESH_BUFFER_SECONDS", "300")
+# How often to refresh the token (seconds). Default: 30 minutes.
+# Configurable via GITHUB_APP_TOKEN_REFRESH_INTERVAL_SECONDS env var.
+TOKEN_REFRESH_INTERVAL_SECONDS = int(
+    os.environ.get("GITHUB_APP_TOKEN_REFRESH_INTERVAL_SECONDS", "1800")
 )
 
 
@@ -24,17 +24,13 @@ def _mask_token(token: str) -> str:
 
 
 class GitHubAppTokenManager:
-    """Manages GitHub App installation tokens with automatic caching and refresh.
+    """Manages GitHub App installation tokens with automatic refresh.
 
     Generates short-lived installation tokens from GitHub App credentials
-    (APP_ID, INSTALLATION_ID, PRIVATE_KEY) and caches them until they are
-    close to expiring.
-
-    Runs a background daemon thread that periodically refreshes the token
-    and updates os.environ["AUTO_GENERATED_GITHUB_TOKEN"] so that Jinja2
-    templates (e.g. extra_headers) always read a valid token.
-
-    Thread-safe: concurrent callers will not trigger duplicate token refreshes.
+    (APP_ID, INSTALLATION_ID, PRIVATE_KEY). A background daemon thread
+    refreshes the token at a fixed interval and updates
+    os.environ["AUTO_GENERATED_GITHUB_TOKEN"] so that the relevant mcp servers
+    (e.g. extra_headers) always read a valid token.
     """
 
     _instance: Optional["GitHubAppTokenManager"] = None
@@ -44,10 +40,15 @@ class GitHubAppTokenManager:
         self._app_id = app_id
         self._installation_id = installation_id
         self._private_key = private_key
-        self._token: Optional[str] = None
-        self._expiry: float = 0.0
-        self._refresh_lock = threading.Lock()
         self._refresh_thread_started = False
+
+    @staticmethod
+    def has_github_app_env_vars() -> bool:
+        """Check if all required GitHub App environment variables are set."""
+        return all(
+            os.environ.get(k)
+            for k in ("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY")
+        )
 
     @classmethod
     def from_env(cls) -> Optional["GitHubAppTokenManager"]:
@@ -72,10 +73,13 @@ class GitHubAppTokenManager:
     @classmethod
     def get_instance(cls) -> Optional["GitHubAppTokenManager"]:
         """Get or create the singleton instance. Returns None if env vars are not set."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls.from_env()
+        if cls._instance is not None:
+            return cls._instance
+        if not cls.has_github_app_env_vars():
+            return None
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls.from_env()
         return cls._instance
 
     def _generate_jwt(self) -> str:
@@ -88,7 +92,7 @@ class GitHubAppTokenManager:
         }
         return jwt.encode(payload, self._private_key, algorithm="RS256")
 
-    def _refresh_token(self) -> None:
+    def refresh_token(self) -> str:
         """Exchange a JWT for a GitHub installation access token."""
         encoded_jwt = self._generate_jwt()
 
@@ -103,36 +107,14 @@ class GitHubAppTokenManager:
         response.raise_for_status()
 
         data = response.json()
-        self._token = data["token"]
-
-        # Parse expiry from ISO format (e.g. "2024-01-01T12:00:00Z")
-        expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
-        self._expiry = expires_at.timestamp()
+        token = data["token"]
 
         logger.info(
             "GitHub App installation token refreshed (%s), expires at %s",
-            _mask_token(self._token),
-            data["expires_at"],
+            _mask_token(token),
+            data.get("expires_at", "unknown"),
         )
-
-    def get_token(self) -> str:
-        """Get a valid installation token, refreshing if necessary.
-
-        Thread-safe: only one thread will perform the refresh.
-        """
-        if self._token and time.time() < self._expiry - TOKEN_REFRESH_BUFFER_SECONDS:
-            return self._token
-
-        with self._refresh_lock:
-            # Double-check after acquiring lock
-            if (
-                self._token
-                and time.time() < self._expiry - TOKEN_REFRESH_BUFFER_SECONDS
-            ):
-                return self._token
-            self._refresh_token()
-
-        return self._token  # type: ignore[return-value]
+        return token
 
     def start_background_refresh(self) -> None:
         """Start a daemon thread that periodically refreshes the token and updates os.environ."""
@@ -146,23 +128,15 @@ class GitHubAppTokenManager:
     def _background_refresh_loop(self) -> None:
         """Periodically refresh the token and update os.environ."""
         while True:
-            # Sleep until the token needs refreshing
-            now = time.time()
-            sleep_until = self._expiry - TOKEN_REFRESH_BUFFER_SECONDS
-            sleep_seconds = max(sleep_until - now, 60)  # At least 60s between checks
             logger.debug(
-                "GitHub App token refresh thread sleeping for %.0fs", sleep_seconds
+                "GitHub App token refresh thread sleeping for %ds",
+                TOKEN_REFRESH_INTERVAL_SECONDS,
             )
-            time.sleep(sleep_seconds)
+            time.sleep(TOKEN_REFRESH_INTERVAL_SECONDS)
 
             try:
-                token = self.get_token()
+                token = self.refresh_token()
                 os.environ["AUTO_GENERATED_GITHUB_TOKEN"] = token
-                logger.info(
-                    "Background refresh: updated AUTO_GENERATED_GITHUB_TOKEN (%s), expires at %s",
-                    _mask_token(token),
-                    datetime.fromtimestamp(self._expiry, tz=timezone.utc).isoformat(),
-                )
             except Exception:
                 logger.warning(
                     "Background refresh: failed to refresh GitHub App token",
@@ -178,6 +152,10 @@ def ensure_github_app_token_env() -> None:
     This should be called early in the application lifecycle, before
     environment variable substitution resolves MCP configs.
     """
+    # Skip if GitHub App env vars are not configured
+    if not GitHubAppTokenManager.has_github_app_env_vars():
+        return
+
     # Don't override an existing token
     if os.environ.get("AUTO_GENERATED_GITHUB_TOKEN"):
         return
@@ -187,9 +165,9 @@ def ensure_github_app_token_env() -> None:
         return
 
     try:
-        token = manager.get_token()
+        token = manager.refresh_token()
         os.environ["AUTO_GENERATED_GITHUB_TOKEN"] = token
-        logger.info(
+        logger.debug(
             "Set AUTO_GENERATED_GITHUB_TOKEN (%s) from GitHub App installation token",
             _mask_token(token),
         )

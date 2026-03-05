@@ -426,7 +426,7 @@ Find the **App ID** on the App's settings page (under "About").
     3. Sets `AUTO_GENERATED_GITHUB_TOKEN` in the environment
     4. Runs a background thread that refreshes the token before it expires
 
-    The refresh buffer defaults to 5 minutes before expiry. Override with `GITHUB_APP_TOKEN_REFRESH_BUFFER_SECONDS`.
+    The refresh interval defaults to 30 minutes. Override with `GITHUB_APP_TOKEN_REFRESH_INTERVAL_SECONDS`.
 
 ## Available Tools
 

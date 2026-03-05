@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import logging
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
 
+import holmes.utils.env as env_utils
 from holmes.core.tools import (
     StructuredToolResultStatus,
     ToolInvokeContext,
@@ -1716,13 +1718,9 @@ class TestMCPExtraHeadersPreservedDuringEnvResolution:
         # load_toolsets_from_config will fail to connect to the MCP server,
         # but we only care about the config resolution, not the connection.
         # Catch the validation error and inspect the config dict directly.
-        import copy
-
         config = copy.deepcopy(toolsets_config["github"])
 
         # Simulate the pop/restore logic from load_toolsets_from_config
-        import holmes.utils.env as env_utils
-
         saved_extra_headers = config["config"].pop("extra_headers", None)
         config = env_utils.replace_env_vars_values(config)
 
