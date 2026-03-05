@@ -1632,7 +1632,8 @@ class TestRequestContextPassthrough:
 
         dumped = context.model_dump()
         assert "request_context" in dumped
-        assert dumped["request_context"]["headers"] == "***REDACTED***"
+        # Header names are preserved but values are individually redacted
+        assert dumped["request_context"]["headers"] == {"Authorization": "***REDACTED***"}
 
     def test_tool_invoke_context_str_hides_values(self):
         context = ToolInvokeContext.model_construct(

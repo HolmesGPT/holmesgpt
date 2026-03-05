@@ -53,7 +53,7 @@ class SimpleConfig(ToolsetConfig):
     rate_limit: float = Field(default=1.5, title="Rate Limit")
 
 
-class NestedLabelsConfig(ToolsetConfig):
+class NestedLabelsConfig(BaseModel):
     pod: str = Field(default="k8s.pod.name", title="Pod Label")
     namespace: str = Field(default="k8s.namespace.name", title="Namespace Label")
 

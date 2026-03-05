@@ -196,7 +196,8 @@ class ToolInvokeContext(BaseModel):
         """Override to exclude sensitive context from serialization"""
         data = super().model_dump(**kwargs)
         if data.get("request_context"):
-            # Sanitize: show header names but redact values
+            # Only redact header values (which may contain auth tokens/API keys).
+            # Other request_context fields (e.g. base_url) are kept for debugging.
             ctx = data["request_context"]
             if isinstance(ctx.get("headers"), dict):
                 ctx["headers"] = {
