@@ -1,7 +1,0 @@
-expected_output:
-  - HTTP requests to the `/checkout` endpoint in the `customer-orders` application which are taking longer than 3 seconds to complete
-before_test: kubectl apply -f ./helm/manifest.yaml
-after_test: kubectl delete -f ./helm/manifest.yaml
-evaluation:
-  correctness: 1
-# Success rate 100% / 100 evals

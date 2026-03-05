@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
-from holmes.core.investigation_structured_output import InputSectionsDataType
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
@@ -90,31 +89,6 @@ def format_tool_result_data(
             + tool_response
         )
     return tool_response
-
-
-class InvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    sections: Optional[Dict[str, Union[str, None]]] = None
-    tool_calls: List[ToolCallResult] = []
-    num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
-    instructions: List[str] = []
-    metadata: Optional[Dict[Any, Any]] = None
-
-
-class InvestigateRequest(BaseModel):
-    source: str  # "prometheus" etc
-    title: str
-    description: str
-    subject: dict
-    context: Dict[str, Any]
-    source_instance_id: str = "ApiRequest"
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
-    prompt_template: str = "builtin://generic_investigation.jinja2"
-    sections: Optional[InputSectionsDataType] = None
-    model: Optional[str] = None
-    # TODO in the future
-    # response_handler: ...
 
 
 class PendingToolApproval(BaseModel):

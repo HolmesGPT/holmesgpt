@@ -12,7 +12,6 @@ class TestAISafetyPromptInclusion:
         "template_path",
         [
             "builtin://generic_ask.jinja2",
-            "builtin://generic_ask_for_issue_conversation.jinja2",
             "builtin://generic_investigation.jinja2",
         ],
     )

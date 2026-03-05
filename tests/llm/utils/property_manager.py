@@ -116,7 +116,7 @@ def update_test_results(
         output: The test output string
         tools_called: List of tools called or a string description
         scores: Dictionary of scores (e.g., correctness). If None and test_case is provided, will calculate
-        result: Optional result object (LLMResult or InvestigationResult) containing cost info
+        result: Optional result object (LLMResult) containing cost info
         test_case: Optional test case for score calculation
         eval_span: Optional Braintrust span for evaluation
         caplog: Optional caplog for evaluation
