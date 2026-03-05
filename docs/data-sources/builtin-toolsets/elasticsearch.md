@@ -153,18 +153,16 @@ For Elasticsearch clusters that require client certificate authentication (commo
           api_url: "https://elasticsearch.jaeger.svc:9200"
           client_cert: "/path/to/client.crt"
           client_key: "/path/to/client.key"
-          ca_cert: "/path/to/ca.crt"
     ```
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret containing the client certificates:
+    Create a Kubernetes secret containing the client certificates:
 
     ```bash
     kubectl create secret generic elasticsearch-client-certs \
       --from-file=tls.crt=/path/to/client.crt \
-      --from-file=tls.key=/path/to/client.key \
-      --from-file=ca.crt=/path/to/ca.crt
+      --from-file=tls.key=/path/to/client.key
     ```
 
     Then mount the secret into the Holmes container using `additionalVolumes` and `additionalVolumeMounts`:
@@ -191,18 +189,16 @@ For Elasticsearch clusters that require client certificate authentication (commo
           api_url: "{{ env.ELASTICSEARCH_URL }}"
           client_cert: "/etc/elasticsearch/certs/tls.crt"
           client_key: "/etc/elasticsearch/certs/tls.key"
-          ca_cert: "/etc/elasticsearch/certs/ca.crt"
     ```
 
 === "Robusta Helm Chart"
 
-    First, create a Kubernetes secret containing the client certificates:
+    Create a Kubernetes secret containing the client certificates:
 
     ```bash
     kubectl create secret generic elasticsearch-client-certs \
       --from-file=tls.crt=/path/to/client.crt \
-      --from-file=tls.key=/path/to/client.key \
-      --from-file=ca.crt=/path/to/ca.crt
+      --from-file=tls.key=/path/to/client.key
     ```
 
     Then add to your Robusta Helm values:
@@ -230,15 +226,15 @@ For Elasticsearch clusters that require client certificate authentication (commo
             api_url: "{{ env.ELASTICSEARCH_URL }}"
             client_cert: "/etc/elasticsearch/certs/tls.crt"
             client_key: "/etc/elasticsearch/certs/tls.key"
-            ca_cert: "/etc/elasticsearch/certs/ca.crt"
     ```
+
+If Elasticsearch uses a private CA, use the global [`certificate`](../../reference/helm-configuration.md) Helm value (or `CERTIFICATE` env var for CLI) to trust it. This applies to all outbound HTTPS requests, not just Elasticsearch. See [Environment Variables](../../reference/environment-variables.md#certificate) for details.
 
 ### Other Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `verify_ssl` | `true` | Verify SSL certificates (ignored if `ca_cert` is set) |
-| `ca_cert` | - | Path to CA certificate for server verification (PEM format) |
+| `verify_ssl` | `true` | Verify SSL certificates. For custom CAs, use the global `CERTIFICATE` env var instead. |
 | `timeout_seconds` | `10` | Request timeout in seconds |
 
 ## Tools

@@ -1,6 +1,5 @@
 """Tests for Elasticsearch mTLS (mutual TLS) configuration."""
 
-import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,11 +19,9 @@ class TestElasticsearchMTLSConfig:
             api_url="https://es:9200",
             client_cert="/path/to/client.crt",
             client_key="/path/to/client.key",
-            ca_cert="/path/to/ca.crt",
         )
         assert config.client_cert == "/path/to/client.crt"
         assert config.client_key == "/path/to/client.key"
-        assert config.ca_cert == "/path/to/ca.crt"
 
     def test_mtls_config_cert_without_key_fails(self):
         """Test that client_cert without client_key raises error."""
@@ -42,13 +39,13 @@ class TestElasticsearchMTLSConfig:
                 client_key="/path/to/client.key",
             )
 
-    def test_ca_cert_only(self):
-        """Test that ca_cert can be used alone (custom CA without mTLS)."""
+    def test_ca_cert_accepted_but_ignored(self):
+        """Test that ca_cert is accepted for backwards compat but ignored."""
         config = ElasticsearchConfig(
             api_url="https://es:9200",
             ca_cert="/path/to/ca.crt",
         )
-        assert config.ca_cert == "/path/to/ca.crt"
+        assert not hasattr(config, "ca_cert") or config.model_fields.get("ca_cert") is None
         assert config.client_cert is None
 
     def test_config_without_mtls(self):
@@ -59,7 +56,6 @@ class TestElasticsearchMTLSConfig:
         )
         assert config.client_cert is None
         assert config.client_key is None
-        assert config.ca_cert is None
 
 
 class TestElasticsearchMTLSRequest:
@@ -85,17 +81,8 @@ class TestElasticsearchMTLSRequest:
         )
         assert toolset._get_client_cert() is None
 
-    def test_get_verify_with_ca_cert(self):
-        """Test that _get_verify returns ca_cert path when set."""
-        toolset = ElasticsearchClusterToolset()
-        toolset.config = ElasticsearchConfig(
-            api_url="https://es:9200",
-            ca_cert="/path/to/ca.crt",
-        )
-        assert toolset._get_verify() == "/path/to/ca.crt"
-
-    def test_get_verify_without_ca_cert(self):
-        """Test that _get_verify returns verify_ssl boolean when ca_cert not set."""
+    def test_get_verify_returns_bool(self):
+        """Test that _get_verify returns verify_ssl boolean."""
         toolset = ElasticsearchClusterToolset()
         toolset.config = ElasticsearchConfig(
             api_url="https://es:9200",
@@ -103,15 +90,13 @@ class TestElasticsearchMTLSRequest:
         )
         assert toolset._get_verify() is False
 
-    def test_get_verify_ca_cert_overrides_verify_ssl(self):
-        """Test that ca_cert takes precedence over verify_ssl."""
+    def test_get_verify_defaults_true(self):
+        """Test that _get_verify defaults to True."""
         toolset = ElasticsearchClusterToolset()
         toolset.config = ElasticsearchConfig(
             api_url="https://es:9200",
-            ca_cert="/path/to/ca.crt",
-            verify_ssl=False,
         )
-        assert toolset._get_verify() == "/path/to/ca.crt"
+        assert toolset._get_verify() is True
 
     @patch("holmes.plugins.toolsets.elasticsearch.elasticsearch.requests.request")
     def test_make_request_passes_mtls_params(self, mock_request):
@@ -126,7 +111,6 @@ class TestElasticsearchMTLSRequest:
             api_url="https://es:9200",
             client_cert="/path/to/client.crt",
             client_key="/path/to/client.key",
-            ca_cert="/path/to/ca.crt",
         )
 
         toolset._make_request("GET", "_cluster/health")
@@ -134,7 +118,7 @@ class TestElasticsearchMTLSRequest:
         mock_request.assert_called_once()
         call_kwargs = mock_request.call_args[1]
         assert call_kwargs["cert"] == ("/path/to/client.crt", "/path/to/client.key")
-        assert call_kwargs["verify"] == "/path/to/ca.crt"
+        assert call_kwargs["verify"] is True
 
     @patch("holmes.plugins.toolsets.elasticsearch.elasticsearch.requests.request")
     def test_make_request_without_mtls(self, mock_request):

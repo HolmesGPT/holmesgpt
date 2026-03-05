@@ -1,6 +1,6 @@
 import json
 from abc import ABC
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
 from pydantic import ConfigDict, Field, model_validator
@@ -41,13 +41,13 @@ class ElasticsearchConfig(ToolsetConfig):
     api_url: "https://your-cluster:9200"
     client_cert: "/path/to/client.crt"
     client_key: "/path/to/client.key"
-    ca_cert: "/path/to/ca.crt"
     ```
     """
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
         "url": "api_url",
         "timeout": "timeout_seconds",
+        "ca_cert": None,
     }
 
     api_url: str = Field(
@@ -83,16 +83,10 @@ class ElasticsearchConfig(ToolsetConfig):
         description="Path to client private key file for mTLS authentication (PEM format)",
         examples=["/path/to/client.key", "{{ env.ELASTICSEARCH_CLIENT_KEY }}"],
     )
-    ca_cert: Optional[str] = Field(
-        default=None,
-        title="CA Certificate",
-        description="Path to CA certificate file for server verification (PEM format). When set, overrides verify_ssl.",
-        examples=["/path/to/ca.crt", "{{ env.ELASTICSEARCH_CA_CERT }}"],
-    )
     verify_ssl: bool = Field(
         default=True,
         title="Verify SSL",
-        description="Whether to verify SSL certificates. Ignored if ca_cert is set.",
+        description="Whether to verify SSL certificates. For custom CAs, use the global CERTIFICATE env var instead.",
     )
     timeout_seconds: int = Field(
         default=10,
@@ -169,7 +163,7 @@ class ElasticsearchBaseToolset(Toolset):
                     False,
                     f"Elasticsearch SSL/TLS error: {error_msg}. "
                     "If the server requires mTLS, configure client_cert and client_key. "
-                    "If using a private CA, configure ca_cert.",
+                    "If using a private CA, set the CERTIFICATE env var (base64-encoded CA cert).",
                 )
             return False, f"Elasticsearch SSL error: {error_msg}"
         except requests.exceptions.ConnectionError:
@@ -214,10 +208,8 @@ class ElasticsearchBaseToolset(Toolset):
             )
         return None
 
-    def _get_verify(self) -> Union[bool, str]:
-        """Return SSL verification setting. Uses ca_cert path if set, otherwise verify_ssl boolean."""
-        if self.elasticsearch_config.ca_cert:
-            return self.elasticsearch_config.ca_cert
+    def _get_verify(self) -> bool:
+        """Return SSL verification setting."""
         return self.elasticsearch_config.verify_ssl
 
     def _make_request(
