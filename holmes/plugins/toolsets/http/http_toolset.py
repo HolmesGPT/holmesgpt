@@ -88,7 +88,7 @@ class HttpToolsetConfig(BaseModel):
     extra_headers: Optional[Dict[str, str]] = Field(
         default=None,
         description="Extra HTTP headers rendered via Jinja2 templates. "
-        "Supports request context (e.g. {{ headers.X_Tenant_Id }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
+        "Supports request context (e.g. {{ request_context.headers['X-Tenant-Id'] }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
     )
 
 

@@ -60,7 +60,7 @@ class ServiceNowTablesConfig(ToolsetConfig):
         default=None,
         title="Extra Headers",
         description="Optional extra HTTP headers rendered via Jinja2 templates. "
-        "Supports request context (e.g. {{ headers.X_Tenant_Id }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
+        "Supports request context (e.g. {{ request_context.headers['X-Tenant-Id'] }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
         examples=[{"X-Custom-Header": "{{ env.MY_TOKEN }}"}],
     )
 
