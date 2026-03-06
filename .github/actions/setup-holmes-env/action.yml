@@ -23,7 +23,7 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    - name: Install Python dependencies and Poetry
+    - name: Install Poetry
       shell: bash
       run: |
         python -m pip install --upgrade pip setuptools pyinstaller
@@ -36,6 +36,17 @@ runs:
 
         # Configure Poetry to not create virtualenvs (we use system Python in CI)
         $HOME/.local/bin/poetry config virtualenvs.create false
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pip
+          ~/.cache/pypoetry
+        # hashFiles is relative to GITHUB_WORKSPACE
+        key: poetry-deps-${{ inputs.python-version }}-${{ hashFiles(format('{0}/poetry.lock', inputs.working-directory)) }}
+        restore-keys: |
+          poetry-deps-${{ inputs.python-version }}-
 
     - name: Install project dependencies
       shell: bash

@@ -594,7 +594,143 @@ jobs:
               core.setOutput('is_persistent', 'false');
             }
 
-      # Reordered: Setup HolmesGPT first (needed for pytest), then collect evals, then KIND
+      # Write KIND setup script to a file, then run it in background
+      # This runs in parallel with HolmesGPT environment setup, saving ~70s
+      - name: Start KIND cluster setup (background)
+        if: steps.check-tests.outputs.should-run == 'true'
+        shell: bash
+        run: |
+          # Write the setup script to a file to avoid heredoc/indentation issues
+          cat > /tmp/kind-setup.sh << 'SCRIPT_EOF'
+          #!/bin/bash
+          set -e
+
+          # Install KIND
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+          # Create KIND cluster config
+          cat > /tmp/kind-config.yaml << 'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+          nodes:
+          - role: control-plane
+            extraPortMappings:
+            - containerPort: 30000
+              hostPort: 30000
+              protocol: TCP
+            - containerPort: 30001
+              hostPort: 30001
+              protocol: TCP
+            kubeadmConfigPatches:
+            - |
+              kind: InitConfiguration
+              nodeRegistration:
+                kubeletExtraArgs:
+                  max-pods: "300"
+            - |
+              kind: KubeProxyConfiguration
+              metricsBindAddress: "0.0.0.0:10249"
+            - |
+              kind: KubeletConfiguration
+              maxPods: 300
+          EOF
+
+          kind create cluster --name kind --config /tmp/kind-config.yaml
+          kubectl cluster-info --context kind-kind
+
+          # Install Calico CNI (reduced wait intervals: 2s instead of 5s)
+          CALICO_VERSION="v3.31.3"
+          kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+
+          for i in $(seq 1 90); do
+            kubectl get pods -n tigera-operator --no-headers 2>/dev/null | grep -q "tigera-operator" && break
+            sleep 2
+          done
+          kubectl wait --for=condition=Ready --timeout=300s -n tigera-operator pods --all
+
+          for i in $(seq 1 90); do
+            kubectl get crd installations.operator.tigera.io 2>/dev/null && break
+            sleep 2
+          done
+          kubectl wait --for=condition=Established --timeout=120s crd/installations.operator.tigera.io
+
+          # Create Calico installation
+          cat << 'EOF' | kubectl create -f -
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            calicoNetwork:
+              ipPools:
+              - blockSize: 26
+                cidr: 10.244.0.0/16
+                encapsulation: IPIP
+                natOutgoing: Enabled
+                nodeSelector: all()
+          EOF
+
+          for i in $(seq 1 90); do
+            kubectl get pods -n calico-system --no-headers 2>/dev/null | grep -q "calico" && break
+            sleep 2
+          done
+          kubectl wait --for=condition=Ready --timeout=300s -n calico-system pods --all
+
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+
+          # Install Helm
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+          # Install kube-prometheus-stack and metrics-server in parallel
+          (
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+            helm repo update
+            helm install robusta prometheus-community/kube-prometheus-stack \
+              --version 72.6.2 \
+              --namespace default \
+              --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+              --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+              --set prometheus.prometheusSpec.scrapeInterval=15s \
+              --set prometheus.prometheusSpec.resources.requests.memory=256Mi \
+              --set prometheus.prometheusSpec.resources.requests.cpu=100m \
+              --set prometheus.prometheusSpec.resources.limits.memory=512Mi \
+              --set prometheus.prometheusSpec.resources.limits.cpu=500m \
+              --set alertmanager.enabled=false \
+              --set grafana.enabled=false \
+              --set kubeStateMetrics.enabled=true \
+              --set nodeExporter.enabled=true \
+              --wait \
+              --timeout 5m
+            kubectl wait --for=condition=Ready pods -l app.kubernetes.io/name=prometheus -n default --timeout=300s
+          ) &
+          PROM_PID=$!
+
+          (
+            kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+            kubectl patch deployment metrics-server -n kube-system \
+              --type='json' \
+              -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+            kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=120s
+          ) &
+          METRICS_PID=$!
+
+          wait $PROM_PID
+          wait $METRICS_PID
+          echo "KIND_SETUP_COMPLETE"
+          SCRIPT_EOF
+
+          chmod +x /tmp/kind-setup.sh
+          # Run in background, log to file
+          /tmp/kind-setup.sh > /tmp/kind-setup.log 2>&1 &
+          echo $! > /tmp/kind-setup-pid
+          echo "KIND cluster setup started in background (PID: $(cat /tmp/kind-setup-pid))"
+
       - name: Setup HolmesGPT environment
         if: steps.check-tests.outputs.should-run == 'true'
         uses: ./code/.github/actions/setup-holmes-env
@@ -741,12 +877,31 @@ jobs:
               body: body
             });
 
-      - name: Setup KIND cluster
+      - name: Wait for KIND cluster setup
         if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./code/.github/actions/setup-kind-cluster
-        with:
-          cluster-name: 'kind'
-          wait-for-ready: 'true'
+        shell: bash
+        run: |
+          echo "Waiting for background KIND cluster setup to complete..."
+          KIND_PID=$(cat /tmp/kind-setup-pid)
+          # Poll until the background process finishes (can't use wait across shell invocations)
+          while kill -0 "$KIND_PID" 2>/dev/null; do
+            sleep 5
+          done
+          # Check exit status via the log sentinel
+          if grep -q "KIND_SETUP_COMPLETE" /tmp/kind-setup.log; then
+            echo "KIND cluster setup completed successfully"
+          else
+            echo "KIND cluster setup FAILED. Full logs:"
+            cat /tmp/kind-setup.log
+            exit 1
+          fi
+          # Show summary
+          echo "=== KIND setup log (last 20 lines) ==="
+          tail -20 /tmp/kind-setup.log
+          echo "=== Cluster status ==="
+          kubectl get nodes
+          kubectl get pods -n kube-system --no-headers | head -5
+          kubectl get pods -n calico-system --no-headers
 
       - name: Update progress - KIND ready, starting evals
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
@@ -849,7 +1004,14 @@ jobs:
 
           START_TIME=$(date +%s)
 
-          PYTEST_ARGS=(--no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m "$EVAL_MARKER_EXPR")
+          # Scale parallelism with test count (min 6, max 20, capped at nproc)
+          TEST_COUNT=${{ steps.test-preview.outputs.test_count || '10' }}
+          NPROC=$(nproc)
+          N_WORKERS=$((TEST_COUNT < 6 ? 6 : (TEST_COUNT > 20 ? 20 : TEST_COUNT)))
+          N_WORKERS=$((N_WORKERS > NPROC ? NPROC : N_WORKERS))
+          echo "Running $TEST_COUNT tests with $N_WORKERS parallel workers"
+
+          PYTEST_ARGS=(--no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n"$N_WORKERS" -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           poetry run pytest "${PYTEST_ARGS[@]}" || true
 
