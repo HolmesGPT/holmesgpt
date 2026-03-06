@@ -925,6 +925,7 @@ class ToolCallingLLM:
                     user_approved=False,
                     tool_number=tool_number,
                     tool_call_id=tool_call_result.tool_call_id,
+                    request_context=request_context,
                 )
                 ToolCallingLLM._log_tool_call_result(tool_span, tool_call_result)
             return tool_call_result

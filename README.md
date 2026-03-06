@@ -8,7 +8,8 @@
   </p>
 </div>
 
-Open-source AI agent for investigating production incidents and finding root causes. A [CNCF Sandbox project](./ADOPTERS.md) by [Robusta.Dev](https://home.robusta.dev/).
+Open-source AI agent for investigating production incidents and finding root causes. We are a [Cloud Native Computing Foundation](https://www.cncf.io/) sandbox project. Originally created by [Robusta.Dev](http://robusta.dev), with major contributions from [Microsoft](https://microsoft.com/).
+
 
 - **Petabyte-scale data**: Server-side filtering, JSON tree traversal, and tool output transformers keep large payloads out of context windows
 - **[Deep integrations](https://holmesgpt.dev/data-sources/builtin-toolsets/)**: Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any [REST API](https://holmesgpt.dev/data-sources/api-toolsets/)

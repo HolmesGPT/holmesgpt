@@ -103,6 +103,7 @@ nav:
           - "HTTP Connectors": data-sources/api-toolsets.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
+          - "HTTP Header Propagation": data-sources/header-propagation.md
     - Benchmarks:
           - "Overview": development/evaluations/index.md
           - "Latest Results": development/evaluations/latest-results.md
