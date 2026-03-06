@@ -141,7 +141,7 @@ class ServiceNowTablesToolset(Toolset):
         endpoint: str,
         query_params: Optional[Dict] = None,
         timeout: int = 30,
-        extra_headers: Optional[Dict[str, str]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """Make a GET request to ServiceNow API and return JSON data and headers.
 
@@ -149,8 +149,7 @@ class ServiceNowTablesToolset(Toolset):
             endpoint: API endpoint path (e.g., "api/now/v2/table/incident")
             query_params: Optional query parameters for the request
             timeout: Request timeout in seconds
-            extra_headers: Optional extra headers to merge into the request
-                (e.g., from toolset-level extra_headers rendered with request_context)
+            request_context: Optional request context for rendering extra_headers templates
 
         Returns:
             Tuple of (parsed JSON response data, response headers dict)
@@ -171,6 +170,7 @@ class ServiceNowTablesToolset(Toolset):
             "Content-Type": "application/json",
         }
 
+        extra_headers = self.render_extra_headers(request_context)
         if extra_headers:
             headers.update(extra_headers)
 
@@ -192,18 +192,18 @@ class BaseServiceNowTool(Tool, ABC):
         self,
         endpoint: str,
         params: dict,
+        context: ToolInvokeContext,
         query_params: Optional[Dict] = None,
         timeout: int = 30,
-        extra_headers: Optional[Dict[str, str]] = None,
     ) -> StructuredToolResult:
         """Make a GET request to ServiceNow API and return structured result.
 
         Args:
             endpoint: API endpoint path (e.g., "/api/now/v2/table/incident")
             params: Original parameters passed to the tool
+            context: Tool invocation context (used for request_context header rendering)
             query_params: Optional query parameters for the request
             timeout: Request timeout in seconds
-            extra_headers: Optional extra headers to merge into the request
 
         Returns:
             StructuredToolResult with the API response data
@@ -215,7 +215,7 @@ class BaseServiceNowTool(Tool, ABC):
             endpoint=endpoint,
             query_params=query_params,
             timeout=timeout,
-            extra_headers=extra_headers,
+            request_context=context.request_context,
         )
 
         return StructuredToolResult(
@@ -355,7 +355,7 @@ class GetRecords(BaseServiceNowTool):
             endpoint=endpoint,
             query_params=query_params,
             timeout=30,
-            extra_headers=self._toolset.render_extra_headers(context.request_context) or None,
+            request_context=context.request_context,
         )
 
         # Create the response with records and relevant headers
@@ -454,9 +454,7 @@ class GetRecord(BaseServiceNowTool):
             query_params["sysparm_view"] = params["sysparm_view"]
 
         endpoint = f"/api/now/v2/table/{table_name}/{sys_id}"
-        return self._make_servicenow_request(
-            endpoint, params, query_params, extra_headers=self._toolset.render_extra_headers(context.request_context) or None
-        )
+        return self._make_servicenow_request(endpoint, params, context, query_params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         table_name = params.get("table_name", "unknown")

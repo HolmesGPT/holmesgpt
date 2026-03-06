@@ -28,40 +28,12 @@ from holmes.core.tools import (
     YAMLTool,
     YAMLToolset,
 )
-from requests.structures import CaseInsensitiveDict
-
 from holmes.utils.header_rendering import render_template_headers
 
 
 # ---------------------------------------------------------------------------
 # Shared utility tests
 # ---------------------------------------------------------------------------
-
-class TestCaseInsensitiveDict:
-    def test_case_insensitive_lookup(self):
-        d = CaseInsensitiveDict({"X-Tenant-Id": "abc"})
-        assert d["x-tenant-id"] == "abc"
-        assert d["X-TENANT-ID"] == "abc"
-        assert d["X-Tenant-Id"] == "abc"
-
-    def test_missing_key_raises(self):
-        d = CaseInsensitiveDict({"Foo": "bar"})
-        with pytest.raises(KeyError):
-            _ = d["Missing"]
-
-    def test_contains_case_insensitive(self):
-        d = CaseInsensitiveDict({"X-Tenant-Id": "abc"})
-        assert "x-tenant-id" in d
-        assert "X-TENANT-ID" in d
-        assert "missing" not in d
-
-    def test_get_case_insensitive(self):
-        d = CaseInsensitiveDict({"X-Tenant-Id": "abc"})
-        assert d.get("x-tenant-id") == "abc"
-        assert d.get("X-TENANT-ID") == "abc"
-        assert d.get("missing") is None
-        assert d.get("missing", "default") == "default"
-
 
 class TestRenderTemplateHeaders:
     def test_static_value(self):

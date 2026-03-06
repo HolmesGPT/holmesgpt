@@ -822,23 +822,16 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
-    def _get_extra_headers_template(self) -> Optional[Dict[str, str]]:
-        """Return the raw extra_headers template dict from config, or None.
-
-        Subclasses can override for non-standard config key names (e.g.
-        YAMLToolset uses ``extra_env_vars`` instead of ``extra_headers``).
-        """
-        if self.config is None:
-            return None
-        if isinstance(self.config, dict):
-            return self.config.get("extra_headers")
-        return getattr(self.config, "extra_headers", None)
-
     def render_extra_headers(
         self, request_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
         """Render extra_headers templates from config with request context and env vars."""
-        extra_headers = self._get_extra_headers_template()
+        if self.config is None:
+            return {}
+        extra_headers = (
+            self.config.get("extra_headers") if isinstance(self.config, dict)
+            else getattr(self.config, "extra_headers", None)
+        )
         if not extra_headers:
             return {}
         return render_template_headers(
