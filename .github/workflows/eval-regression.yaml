@@ -594,8 +594,18 @@ jobs:
               core.setOutput('is_persistent', 'false');
             }
 
+      # Cache KIND infrastructure: binaries, Docker images, Helm charts, manifests
+      - name: Cache KIND infrastructure
+        if: steps.check-tests.outputs.should-run == 'true'
+        uses: actions/cache@v4
+        id: kind-cache
+        with:
+          path: ~/kind-cache
+          key: kind-infra-v1-kind0.31.0-calico3.31.3-prom72.6.2-metrics0.7.2
+
       # Write KIND setup script to a file, then run it in background
       # This runs in parallel with HolmesGPT environment setup, saving ~70s
+      # Caching saves an additional ~60s on subsequent runs
       - name: Start KIND cluster setup (background)
         if: steps.check-tests.outputs.should-run == 'true'
         shell: bash
@@ -605,13 +615,34 @@ jobs:
           #!/bin/bash
           set -e
 
-          # Install KIND
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          CACHE_DIR="$HOME/kind-cache"
+          mkdir -p "$CACHE_DIR/bin" "$CACHE_DIR/manifests" "$CACHE_DIR/images" "$CACHE_DIR/helm-cache" "$CACHE_DIR/helm-data"
+
+          # Use cached Helm repository and chart data
+          export HELM_CACHE_HOME="$CACHE_DIR/helm-cache"
+          export HELM_DATA_HOME="$CACHE_DIR/helm-data"
+
+          # === Install KIND binary (cached or download) ===
+          if [ -f "$CACHE_DIR/bin/kind" ]; then
+            echo "Using cached KIND binary"
+            sudo cp "$CACHE_DIR/bin/kind" /usr/local/bin/kind
+            sudo chmod +x /usr/local/bin/kind
+          else
+            echo "Downloading KIND binary"
+            curl -sLo "$CACHE_DIR/bin/kind" https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
+            chmod +x "$CACHE_DIR/bin/kind"
+            sudo cp "$CACHE_DIR/bin/kind" /usr/local/bin/kind
+          fi
           kind version
 
-          # Create KIND cluster config
+          # === Load cached KIND node image if available ===
+          KIND_NODE_IMAGE="kindest/node:v1.35.0"
+          if [ -f "$CACHE_DIR/images/kind-node.tar" ]; then
+            echo "Loading cached KIND node image"
+            docker load -i "$CACHE_DIR/images/kind-node.tar"
+          fi
+
+          # === Create KIND cluster ===
           cat > /tmp/kind-config.yaml << 'EOF'
           kind: Cluster
           apiVersion: kind.x-k8s.io/v1alpha4
@@ -640,12 +671,31 @@ jobs:
               maxPods: 300
           EOF
 
-          kind create cluster --name kind --config /tmp/kind-config.yaml
+          kind create cluster --name kind --config /tmp/kind-config.yaml --image "$KIND_NODE_IMAGE"
           kubectl cluster-info --context kind-kind
 
-          # Install Calico CNI (reduced wait intervals: 2s instead of 5s)
+          # Save KIND node image in background for cache (first run only)
+          if [ ! -f "$CACHE_DIR/images/kind-node.tar" ]; then
+            echo "Saving KIND node image for cache"
+            docker save "$KIND_NODE_IMAGE" -o "$CACHE_DIR/images/kind-node.tar" &
+            SAVE_NODE_PID=$!
+          fi
+
+          # === Load cached workload images into KIND (Calico, Prometheus, etc.) ===
+          if [ -f "$CACHE_DIR/images/workload-images.tar" ]; then
+            echo "Loading cached workload images into KIND"
+            kind load image-archive "$CACHE_DIR/images/workload-images.tar" --name kind
+            echo "Cached workload images loaded"
+          fi
+
+          # === Install Calico CNI ===
           CALICO_VERSION="v3.31.3"
-          kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+          CALICO_MANIFEST="$CACHE_DIR/manifests/calico-operator-${CALICO_VERSION}.yaml"
+          if [ ! -f "$CALICO_MANIFEST" ]; then
+            echo "Downloading Calico operator manifest"
+            curl -sLo "$CALICO_MANIFEST" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+          fi
+          kubectl create -f "$CALICO_MANIFEST"
 
           for i in $(seq 1 90); do
             kubectl get pods -n tigera-operator --no-headers 2>/dev/null | grep -q "tigera-operator" && break
@@ -684,10 +734,24 @@ jobs:
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
           kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
 
-          # Install Helm
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          # === Install Helm (cached or download) ===
+          if [ -f "$CACHE_DIR/bin/helm" ]; then
+            echo "Using cached Helm binary"
+            sudo cp "$CACHE_DIR/bin/helm" /usr/local/bin/helm
+            sudo chmod +x /usr/local/bin/helm
+          else
+            echo "Downloading Helm"
+            curl -sL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+            cp "$(which helm)" "$CACHE_DIR/bin/helm"
+          fi
 
-          # Install kube-prometheus-stack and metrics-server in parallel
+          # === Install kube-prometheus-stack and metrics-server in parallel ===
+          METRICS_MANIFEST="$CACHE_DIR/manifests/metrics-server-v0.7.2.yaml"
+          if [ ! -f "$METRICS_MANIFEST" ]; then
+            echo "Downloading metrics-server manifest"
+            curl -sLo "$METRICS_MANIFEST" "https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml"
+          fi
+
           (
             helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
             helm repo update
@@ -712,7 +776,7 @@ jobs:
           PROM_PID=$!
 
           (
-            kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+            kubectl apply -f "$METRICS_MANIFEST"
             kubectl patch deployment metrics-server -n kube-system \
               --type='json' \
               -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
@@ -722,6 +786,26 @@ jobs:
 
           wait $PROM_PID
           wait $METRICS_PID
+
+          # === Save workload images from KIND for cache (first run only) ===
+          if [ ! -f "$CACHE_DIR/images/workload-images.tar" ]; then
+            echo "Saving workload images for cache (first run only)"
+            IMAGES=$(docker exec kind-control-plane crictl images -o json \
+              | jq -r '.images[].repoTags[]' \
+              | grep -v '<none>' \
+              | grep -v 'kindest' \
+              | sort)
+            if [ -n "$IMAGES" ]; then
+              docker exec kind-control-plane ctr -n k8s.io images export /tmp/workload-images.tar $IMAGES
+              docker cp kind-control-plane:/tmp/workload-images.tar "$CACHE_DIR/images/workload-images.tar"
+              docker exec kind-control-plane rm -f /tmp/workload-images.tar
+              echo "Saved $(echo "$IMAGES" | wc -l) workload images for cache"
+            fi
+          fi
+
+          # Wait for background KIND node image save
+          [ -n "${SAVE_NODE_PID:-}" ] && wait $SAVE_NODE_PID || true
+
           echo "KIND_SETUP_COMPLETE"
           SCRIPT_EOF
 
