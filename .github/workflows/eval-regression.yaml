@@ -900,8 +900,8 @@ jobs:
           tail -20 /tmp/kind-setup.log
           echo "=== Cluster status ==="
           kubectl get nodes
-          kubectl get pods -n kube-system --no-headers | head -5
-          kubectl get pods -n calico-system --no-headers
+          kubectl get pods -n kube-system --no-headers | head -5 || true
+          kubectl get pods -n calico-system --no-headers || true
 
       - name: Update progress - KIND ready, starting evals
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
