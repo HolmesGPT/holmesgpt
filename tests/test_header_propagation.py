@@ -156,6 +156,22 @@ class TestYAMLToolTemplateContext:
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "Bearer secret"
 
+    def test_command_renders_case_insensitive_header(self):
+        """Header lookups in YAML templates are case-insensitive."""
+        tool = YAMLTool(
+            name="t",
+            description="t",
+            command="echo {{ request_context.headers['x-tenant-id'] }}",
+        )
+        ctx = ToolInvokeContext.model_construct(
+            tool_number=1, user_approved=False, llm=Mock(),
+            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            request_context={"headers": {"X-Tenant-Id": "tenant-abc"}},
+        )
+        result = tool._invoke({}, ctx)
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "tenant-abc"
+
 
 # ---------------------------------------------------------------------------
 # ToolInvokeContext tests

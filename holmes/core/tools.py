@@ -26,6 +26,7 @@ from typing import (
 )
 
 from jinja2 import Template
+from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -498,9 +499,11 @@ class YAMLTool(Tool, BaseModel):
         context: Dict[str, Any] = {**params}
         context["env"] = os.environ
         if request_context:
-            context["request_context"] = request_context
+            ctx_copy = dict(request_context)
+            ctx_copy["headers"] = CaseInsensitiveDict(ctx_copy.get("headers") or {})
+            context["request_context"] = ctx_copy
         else:
-            context["request_context"] = {"headers": {}}
+            context["request_context"] = {"headers": CaseInsensitiveDict()}
         return context
 
     def _get_status(
