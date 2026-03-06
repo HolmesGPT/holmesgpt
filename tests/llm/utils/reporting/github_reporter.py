@@ -227,15 +227,18 @@ def generate_markdown_report(
         markdown += "\n"
 
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Tokens | Cached | Non-cached | Compactions |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Input | Output | Cached | Non-cached | Reasoning | Max output | Compactions |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
     total_cost = 0.0
-    total_tokens_sum = 0
+    total_prompt_tokens_sum = 0
+    total_completion_tokens_sum = 0
     total_cached_tokens_sum = 0
     total_non_cached_tokens_sum = 0
+    total_reasoning_tokens_sum = 0
+    max_completion_per_call_max = 0
     total_compactions = 0
     total_turns = 0
     total_tools = 0
@@ -291,13 +294,21 @@ def generate_markdown_report(
         if cost and cost > 0:
             total_cost += cost
 
-        # Format total tokens
-        tokens = result.get("total_tokens", 0)
-        if tokens and tokens > 0:
-            tokens_str = f"{tokens:,}"
-            total_tokens_sum += tokens
+        # Format input tokens (prompt_tokens summed across all calls)
+        prompt_tokens = result.get("prompt_tokens", 0)
+        if prompt_tokens and prompt_tokens > 0:
+            input_str = f"{prompt_tokens:,}"
+            total_prompt_tokens_sum += prompt_tokens
         else:
-            tokens_str = "—"
+            input_str = "—"
+
+        # Format output tokens (completion_tokens summed across all calls)
+        completion_tokens = result.get("completion_tokens", 0)
+        if completion_tokens and completion_tokens > 0:
+            output_str = f"{completion_tokens:,}"
+            total_completion_tokens_sum += completion_tokens
+        else:
+            output_str = "—"
 
         # Format cached tokens
         cached_tokens = result.get("cached_tokens", 0)
@@ -308,14 +319,30 @@ def generate_markdown_report(
             cached_tokens_str = "—"
 
         # Format non-cached tokens (prompt_tokens - cached_tokens)
-        prompt_tokens = result.get("prompt_tokens", 0) or 0
+        prompt_for_calc = prompt_tokens or 0
         cached_for_calc = cached_tokens or 0
-        non_cached_tokens = prompt_tokens - cached_for_calc
+        non_cached_tokens = prompt_for_calc - cached_for_calc
         if non_cached_tokens > 0:
             non_cached_tokens_str = f"{non_cached_tokens:,}"
             total_non_cached_tokens_sum += non_cached_tokens
         else:
             non_cached_tokens_str = "—"
+
+        # Format reasoning tokens
+        reasoning_tokens = result.get("reasoning_tokens", 0)
+        if reasoning_tokens and reasoning_tokens > 0:
+            reasoning_str = f"{reasoning_tokens:,}"
+            total_reasoning_tokens_sum += reasoning_tokens
+        else:
+            reasoning_str = "—"
+
+        # Format max completion tokens per call
+        max_completion = result.get("max_completion_tokens_per_call", 0)
+        if max_completion and max_completion > 0:
+            max_completion_str = f"{max_completion:,}"
+            max_completion_per_call_max = max(max_completion_per_call_max, max_completion)
+        else:
+            max_completion_str = "—"
 
         # Format compactions
         num_compactions = result.get("num_compactions", 0)
@@ -325,18 +352,21 @@ def generate_markdown_report(
         else:
             compactions_str = "—"
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {tokens_str} | {cached_tokens_str} | {non_cached_tokens_str} | {compactions_str} |\n"
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {input_str} | {output_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {max_completion_str} | {compactions_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
     avg_turns_str = f"{total_turns / turns_count:.1f}" if turns_count > 0 else "—"
     avg_tools_str = f"{total_tools / tools_count:.1f}" if tools_count > 0 else "—"
     total_cost_str = f"${total_cost:.4f}" if total_cost > 0 else "—"
-    total_tokens_str = f"{total_tokens_sum:,}" if total_tokens_sum > 0 else "—"
+    total_prompt_str = f"{total_prompt_tokens_sum:,}" if total_prompt_tokens_sum > 0 else "—"
+    total_completion_str = f"{total_completion_tokens_sum:,}" if total_completion_tokens_sum > 0 else "—"
     total_cached_tokens_str = f"{total_cached_tokens_sum:,}" if total_cached_tokens_sum > 0 else "—"
     total_non_cached_tokens_str = f"{total_non_cached_tokens_sum:,}" if total_non_cached_tokens_sum > 0 else "—"
+    total_reasoning_str = f"{total_reasoning_tokens_sum:,}" if total_reasoning_tokens_sum > 0 else "—"
+    max_completion_max_str = f"{max_completion_per_call_max:,}" if max_completion_per_call_max > 0 else "—"
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_compactions_str}** |\n"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_prompt_str}** | **{total_completion_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{max_completion_max_str}** | **{total_compactions_str}** |\n"
 
     # Add footer explaining historical comparison status
     if historical and comparison_map:

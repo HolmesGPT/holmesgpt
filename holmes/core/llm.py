@@ -678,9 +678,22 @@ def get_llm_usage(
         and hasattr(llm_response, "usage")
         and llm_response.usage
     ):  # type: ignore
-        usage["prompt_tokens"] = llm_response.usage.prompt_tokens  # type: ignore
-        usage["completion_tokens"] = llm_response.usage.completion_tokens  # type: ignore
-        usage["total_tokens"] = llm_response.usage.total_tokens  # type: ignore
+        resp_usage = llm_response.usage  # type: ignore
+        usage["prompt_tokens"] = resp_usage.prompt_tokens
+        usage["completion_tokens"] = resp_usage.completion_tokens
+        usage["total_tokens"] = resp_usage.total_tokens
+
+        prompt_details = getattr(resp_usage, "prompt_tokens_details", None)
+        if prompt_details:
+            cached = getattr(prompt_details, "cached_tokens", None)
+            if cached:
+                usage["cached_tokens"] = cached
+
+        completion_details = getattr(resp_usage, "completion_tokens_details", None)
+        if completion_details:
+            reasoning = getattr(completion_details, "reasoning_tokens", None)
+            if reasoning:
+                usage["reasoning_tokens"] = reasoning
     elif isinstance(llm_response, CustomStreamWrapper):
         complete_response = litellm.stream_chunk_builder(chunks=llm_response)  # type: ignore
         if complete_response:

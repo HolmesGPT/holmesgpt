@@ -157,6 +157,8 @@ class LLMCosts(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    reasoning_tokens: int = 0
+    max_completion_tokens_per_call: int = 0
     num_compactions: int = 0
 
 
@@ -202,6 +204,10 @@ def _process_cost_info(
                 costs.completion_tokens += raw.completion_tokens
                 costs.total_tokens += raw.total_tokens
                 costs.cached_tokens += raw.cached_tokens
+                costs.reasoning_tokens += raw.reasoning_tokens
+                costs.max_completion_tokens_per_call = max(
+                    costs.max_completion_tokens_per_call, raw.completion_tokens
+                )
         elif raw.cost > 0:
             cost_logger.debug(
                 f"{log_prefix} cost: ${raw.cost:.6f} | Token usage not available"

@@ -14,6 +14,7 @@ class LLMResponseUsage(NamedTuple):
     prompt_tokens: int
     completion_tokens: int
     cached_tokens: int
+    reasoning_tokens: int
 
 
 def extract_usage_from_response(response: ModelResponse) -> LLMResponseUsage:
@@ -33,6 +34,7 @@ def extract_usage_from_response(response: ModelResponse) -> LLMResponseUsage:
     prompt_tokens = 0
     completion_tokens = 0
     cached_tokens = 0
+    reasoning_tokens = 0
 
     try:
         cost_value = (
@@ -56,6 +58,12 @@ def extract_usage_from_response(response: ModelResponse) -> LLMResponseUsage:
                     cached_tokens = prompt_details.get("cached_tokens", 0) or 0
                 else:
                     cached_tokens = getattr(prompt_details, "cached_tokens", 0) or 0
+            completion_details = usage.get("completion_tokens_details", None)
+            if completion_details:
+                if isinstance(completion_details, dict):
+                    reasoning_tokens = completion_details.get("reasoning_tokens", 0) or 0
+                else:
+                    reasoning_tokens = getattr(completion_details, "reasoning_tokens", 0) or 0
     except (AttributeError, TypeError, KeyError):
         logging.debug("Could not extract token usage from LLM response")
 
@@ -65,4 +73,5 @@ def extract_usage_from_response(response: ModelResponse) -> LLMResponseUsage:
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cached_tokens=cached_tokens,
+        reasoning_tokens=reasoning_tokens,
     )
