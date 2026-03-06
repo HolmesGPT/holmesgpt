@@ -245,7 +245,7 @@ class DefaultLLM(LLM):
                     import boto3
                     session = boto3.Session()
                     credentials = session.get_credentials()
-                    if credentials is not None and credentials.resolve() is not None:
+                    if credentials is not None:
                         model_requirements = {"keys_in_environment": True, "missing_keys": []}
                     else:
                         model_requirements = litellm.validate_environment(
