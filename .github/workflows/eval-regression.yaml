@@ -788,6 +788,8 @@ jobs:
           wait $METRICS_PID
 
           # === Save workload images from KIND for cache (first run only) ===
+          # ctr export doesn't work in KIND (content digest errors on manifest lists),
+          # so we pull images on the host Docker daemon and use docker save instead.
           if [ ! -f "$CACHE_DIR/images/workload-images.tar" ]; then
             echo "Saving workload images for cache (first run only)"
             IMAGES=$(docker exec kind-control-plane crictl images -o json \
@@ -796,37 +798,24 @@ jobs:
               | grep -v 'kindest' \
               | sort)
             if [ -n "$IMAGES" ]; then
-              # Use --platform to avoid exporting multi-arch manifest lists
-              # that reference content not pulled for this platform
-              docker exec kind-control-plane ctr -n k8s.io images export \
-                --platform linux/amd64 /tmp/workload-images.tar $IMAGES || {
-                echo "Warning: bulk image export failed, trying individual export"
-                # Fall back to exporting images one by one, skipping failures
-                > /tmp/image-list-ok.txt
-                for img in $IMAGES; do
-                  if docker exec kind-control-plane ctr -n k8s.io images export \
-                    --platform linux/amd64 /tmp/img-single.tar "$img" 2>/dev/null; then
-                    echo "$img" >> /tmp/image-list-ok.txt
-                  else
-                    echo "  Skipping $img (export failed)"
-                  fi
-                  docker exec kind-control-plane rm -f /tmp/img-single.tar
-                done
-                OK_IMAGES=$(cat /tmp/image-list-ok.txt | tr '\n' ' ')
-                if [ -n "$OK_IMAGES" ]; then
-                  docker exec kind-control-plane ctr -n k8s.io images export \
-                    --platform linux/amd64 /tmp/workload-images.tar $OK_IMAGES
+              echo "Pulling $(echo "$IMAGES" | wc -l) images on host for caching..."
+              for img in $IMAGES; do
+                docker pull "$img" >/dev/null 2>&1 &
+              done
+              wait
+              # Save only images that were successfully pulled
+              SAVE_LIST=""
+              for img in $IMAGES; do
+                if docker image inspect "$img" >/dev/null 2>&1; then
+                  SAVE_LIST="$SAVE_LIST $img"
                 fi
-              }
-              if docker exec kind-control-plane test -f /tmp/workload-images.tar; then
-                docker cp kind-control-plane:/tmp/workload-images.tar "$CACHE_DIR/images/workload-images.tar"
-                docker exec kind-control-plane rm -f /tmp/workload-images.tar
+              done
+              if [ -n "$SAVE_LIST" ]; then
+                docker save $SAVE_LIST -o "$CACHE_DIR/images/workload-images.tar"
                 echo "Saved workload images for cache"
-              else
-                echo "Warning: no workload images saved for cache"
               fi
             fi
-          fi
+          fi || true  # Never fail the build for caching
 
           # Wait for background KIND node image save
           [ -n "${SAVE_NODE_PID:-}" ] && wait $SAVE_NODE_PID || true
