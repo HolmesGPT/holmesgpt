@@ -84,7 +84,11 @@ class HttpToolsetConfig(BaseModel):
     verify_ssl: bool = True
     timeout_seconds: int = 30
     default_headers: Dict[str, str] = Field(default_factory=dict)
-    extra_headers: Optional[Dict[str, str]] = None
+    extra_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Extra HTTP headers rendered via Jinja2 templates. "
+        "Supports request context (e.g. {{ headers.X_Tenant_Id }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
+    )
 
 
 class HttpToolset(Toolset):

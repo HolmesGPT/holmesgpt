@@ -816,23 +816,23 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
+    def _get_extra_headers_template(self) -> Optional[Dict[str, str]]:
+        """Return the raw extra_headers template dict from config, or None.
+
+        Subclasses can override for non-standard config key names (e.g.
+        YAMLToolset uses ``extra_env_vars`` instead of ``extra_headers``).
+        """
+        if self.config is None:
+            return None
+        if isinstance(self.config, dict):
+            return self.config.get("extra_headers")
+        return getattr(self.config, "extra_headers", None)
+
     def render_extra_headers(
         self, request_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
-        """Render extra_headers templates from config with request context and env vars.
-
-        Reads ``extra_headers`` from ``self.config``.  Handles both Pydantic model
-        configs (attribute access) and plain dict configs (key access).
-
-        Returns an empty dict if no extra_headers are configured.
-        """
-        extra_headers: Optional[Dict[str, str]] = None
-        if self.config is not None:
-            if isinstance(self.config, dict):
-                extra_headers = self.config.get("extra_headers")
-            else:
-                extra_headers = getattr(self.config, "extra_headers", None)
-
+        """Render extra_headers templates from config with request context and env vars."""
+        extra_headers = self._get_extra_headers_template()
         if not extra_headers:
             return {}
         return render_template_headers(
@@ -1033,29 +1033,11 @@ class YAMLToolset(Toolset):
         if self.llm_instructions:
             self._load_llm_instructions(self.llm_instructions)
 
-    def render_extra_headers(
-        self, request_context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, str]:
-        """YAML toolsets use ``extra_env_vars`` instead of ``extra_headers``.
-
-        The values are ultimately injected as ``HOLMES_HEADER_*`` environment
-        variables into the bash subprocess, so ``extra_env_vars`` is a more
-        accurate name for this config key.
-        """
-        extra_env_vars: Optional[Dict[str, str]] = None
-        if self.config is not None:
-            if isinstance(self.config, dict):
-                extra_env_vars = self.config.get("extra_env_vars")
-            else:
-                extra_env_vars = getattr(self.config, "extra_env_vars", None)
-
-        if not extra_env_vars:
-            return {}
-        return render_template_headers(
-            extra_headers=extra_env_vars,
-            request_context=request_context,
-            source_name=self.name,
-        )
+    def _get_extra_headers_template(self) -> Optional[Dict[str, str]]:
+        """YAML toolsets use ``extra_env_vars`` instead of ``extra_headers``."""
+        if isinstance(self.config, dict):
+            return self.config.get("extra_env_vars")
+        return None
 
     def prepare_invoke_context(self, context: "ToolInvokeContext") -> None:
         """Render extra_env_vars and convert to HOLMES_HEADER_* env vars."""
