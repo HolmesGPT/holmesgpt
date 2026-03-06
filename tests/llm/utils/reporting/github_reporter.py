@@ -319,19 +319,20 @@ def generate_markdown_report(
         else:
             output_str = "—"
 
-        # Format cached tokens
-        cached_tokens = result.get("cached_tokens", 0)
-        if cached_tokens and cached_tokens > 0:
+        # Format cached tokens (None = unavailable, 0 = real zero)
+        cached_tokens = result.get("cached_tokens")
+        if cached_tokens is not None:
             cached_tokens_str = f"{cached_tokens:,}"
             total_cached_tokens_sum += cached_tokens
         else:
             cached_tokens_str = "—"
 
         # Format non-cached tokens (prompt_tokens - cached_tokens)
+        # Show "—" only when prompt_tokens is missing; show "0" when fully cached
         prompt_for_calc = prompt_tokens or 0
-        cached_for_calc = cached_tokens or 0
+        cached_for_calc = cached_tokens if cached_tokens is not None else 0
         non_cached_tokens = prompt_for_calc - cached_for_calc
-        if non_cached_tokens > 0:
+        if prompt_for_calc > 0:
             non_cached_tokens_str = f"{non_cached_tokens:,}"
             total_non_cached_tokens_sum += non_cached_tokens
         else:
