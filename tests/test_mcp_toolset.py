@@ -118,7 +118,9 @@ class TestMCPGeneral:
             "qty": ToolParameter(
                 type="integer", required=True, description="example for description"
             ),
-            "side": ToolParameter(type="string", required=True),
+            "side": ToolParameter(
+                type="string", required=True, enum=["buy", "sell"]
+            ),
             "limit_price": ToolParameter(type="number", required=False),
         }
 
@@ -173,6 +175,119 @@ class TestMCPGeneral:
         )
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_array_with_items_schema_parsed_correctly(self) -> None:
+        """Test that array parameters with items schemas are recursively parsed.
+
+        This ensures MCP tools that define array parameters with nested object
+        schemas (e.g., Conviva API filters) have their full structure preserved
+        in the ToolParameter, so the LLM receives accurate type information.
+        """
+        mcp_tool = Tool(
+            name="query_metrics",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filters": {
+                        "type": "array",
+                        "description": "Filters to apply",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "dimension": {"type": "string"},
+                                "operator": {
+                                    "type": "string",
+                                    "enum": ["in", "not_in"],
+                                },
+                                "values": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                            },
+                            "required": ["dimension", "operator", "values"],
+                        },
+                    },
+                    "metrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Metrics to query",
+                    },
+                },
+                "required": ["filters", "metrics"],
+            },
+            description="Query metrics with filters",
+            annotations=None,
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        # Verify filters parameter has nested items schema
+        filters_param = tool.parameters["filters"]
+        assert filters_param.type == "array"
+        assert filters_param.required is True
+        assert filters_param.items is not None
+        assert filters_param.items.type == "object"
+        assert filters_param.items.properties is not None
+        assert "dimension" in filters_param.items.properties
+        assert filters_param.items.properties["dimension"].type == "string"
+        assert filters_param.items.properties["operator"].enum == ["in", "not_in"]
+        # Verify nested array within the object
+        values_param = filters_param.items.properties["values"]
+        assert values_param.type == "array"
+        assert values_param.items is not None
+        assert values_param.items.type == "string"
+
+        # Verify metrics parameter
+        metrics_param = tool.parameters["metrics"]
+        assert metrics_param.type == "array"
+        assert metrics_param.items is not None
+        assert metrics_param.items.type == "string"
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_object_with_properties_schema_parsed_correctly(self) -> None:
+        """Test that object parameters with nested properties are recursively parsed."""
+        mcp_tool = Tool(
+            name="create_filter",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "type": "object",
+                        "description": "Configuration object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "enabled": {"type": "boolean"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+                "required": ["config"],
+            },
+            description="Create a filter",
+            annotations=None,
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        config_param = tool.parameters["config"]
+        assert config_param.type == "object"
+        assert config_param.properties is not None
+        assert "name" in config_param.properties
+        assert config_param.properties["name"].type == "string"
+        assert config_param.properties["name"].required is True
+        assert config_param.properties["enabled"].type == "boolean"
+        assert config_param.properties["enabled"].required is False
 
     def test_unreachable_server_returns_error(self, suppress_migration_warnings):
         mcp_toolset = RemoteMCPToolset(
