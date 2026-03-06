@@ -365,6 +365,21 @@ class DefaultLLM(LLM):
         else:
             return self.model
 
+    @staticmethod
+    def _is_openai_proxy_to_anthropic(model_name: str) -> bool:
+        """
+        Detect if the model is routing through an OpenAI-compatible proxy to an Anthropic model.
+
+        When using 'openai/claude-*' with a custom base URL (e.g., a LiteLLM proxy),
+        litellm's OpenAI provider strips cache_control from messages before sending.
+        In these cases we need to forward cache_control_injection_points via extra_body
+        so the proxy can apply caching when forwarding to the actual provider (e.g., Bedrock).
+        """
+        if not model_name.startswith("openai/"):
+            return False
+        model_suffix = model_name.split("/", 1)[1].lower()
+        return "claude" in model_suffix or "anthropic" in model_suffix
+
     def completion(
         self,
         messages: List[Dict[str, Any]],
@@ -409,6 +424,23 @@ class DefaultLLM(LLM):
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
+
+        cache_control_points = [
+            {
+                "location": "message",
+                "index": -1,  # -1 targets the last message.
+            }
+        ]
+
+        # When routing through an OpenAI-compatible proxy (e.g., LiteLLM proxy) to an
+        # Anthropic model, litellm's OpenAI provider strips cache_control from messages
+        # in transform_request(). Forward cache_control_injection_points via extra_body
+        # so the proxy can process it and enable caching when forwarding to Bedrock/Anthropic.
+        if self._is_openai_proxy_to_anthropic(litellm_model_name):
+            extra_body = self.args.get("extra_body", {})
+            extra_body["cache_control_injection_points"] = cache_control_points
+            self.args["extra_body"] = extra_body
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
@@ -422,12 +454,7 @@ class DefaultLLM(LLM):
             timeout=LLM_REQUEST_TIMEOUT,
             **tools_args,
             **self.args,
-            cache_control_injection_points=[
-                {
-                    "location": "message",
-                    "index": -1,  # -1 targets the last message.
-                }
-            ],
+            cache_control_injection_points=cache_control_points,
         )
 
         if isinstance(result, ModelResponse):
