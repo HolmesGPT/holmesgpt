@@ -191,19 +191,16 @@ class ToolInvokeContext(BaseModel):
         str
     ] = []  # Bash prefixes approved during this session
     request_context: Optional[Dict[str, Any]] = None
+    extra_env: Optional[Dict[str, str]] = None  # Extra env vars injected by toolset (e.g. rendered headers)
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""
         data = super().model_dump(**kwargs)
         if data.get("request_context"):
-            # Only redact header values (which may contain auth tokens/API keys).
-            # Other request_context fields (e.g. base_url) are kept for debugging.
-            ctx = data["request_context"]
-            if isinstance(ctx.get("headers"), dict):
-                ctx["headers"] = {
-                    k: "***REDACTED***" for k in ctx["headers"].keys()
-                }
-            data["request_context"] = ctx
+            # Sanitize: show keys but not values
+            data["request_context"] = {
+                k: "***REDACTED***" for k in data["request_context"].keys()
+            }
         return data
 
     def __str__(self):
@@ -468,7 +465,6 @@ class Tool(ABC, BaseModel):
 class YAMLTool(Tool, BaseModel):
     command: Optional[str] = None
     script: Optional[str] = None
-    _toolset: Optional["YAMLToolset"] = PrivateAttr(default=None)
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -517,8 +513,7 @@ class YAMLTool(Tool, BaseModel):
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        rendered_headers = self._toolset.render_extra_headers(context.request_context) if self._toolset else {}
-        extra_env = self._build_header_env_vars(rendered_headers)
+        extra_env = context.extra_env
         if self.command is not None:
             raw_output, return_code, invocation = self.__invoke_command(params, extra_env)
         else:
@@ -541,7 +536,7 @@ class YAMLTool(Tool, BaseModel):
         )
 
     @staticmethod
-    def _build_header_env_vars(rendered_extra_headers: Dict[str, str]) -> Dict[str, str]:
+    def build_header_env_vars(rendered_extra_headers: Dict[str, str]) -> Dict[str, str]:
         """Convert rendered extra_headers to environment variables.
 
         Header names are uppercased and non-alphanumeric characters are replaced
@@ -839,6 +834,14 @@ class Toolset(BaseModel):
             source_name=self.name,
         )
 
+    def prepare_invoke_context(self, context: "ToolInvokeContext") -> None:
+        """Hook for toolsets to enrich the invoke context before a tool runs.
+
+        Called by the tool executor after creating the context and before
+        calling ``tool.invoke()``.  Subclasses can override to inject
+        toolset-specific data (e.g. extra env vars for YAML subprocess tools).
+        """
+
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
 
@@ -1020,8 +1023,6 @@ class YAMLToolset(Toolset):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        for tool in self.tools:
-            tool._toolset = self
         if self.llm_instructions:
             self._load_llm_instructions(self.llm_instructions)
 
@@ -1048,6 +1049,12 @@ class YAMLToolset(Toolset):
             request_context=request_context,
             source_name=self.name,
         )
+
+    def prepare_invoke_context(self, context: "ToolInvokeContext") -> None:
+        """Render extra_env_vars and convert to HOLMES_HEADER_* env vars."""
+        rendered_headers = self.render_extra_headers(context.request_context)
+        if rendered_headers:
+            context.extra_env = YAMLTool.build_header_env_vars(rendered_headers)
 
 
 class ToolsetYamlFromConfig(Toolset):
