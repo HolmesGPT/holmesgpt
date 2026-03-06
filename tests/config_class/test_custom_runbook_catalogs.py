@@ -22,7 +22,7 @@ def test_config_custom_runbook_catalogs_from_file(tmp_path):
     # Create a config file
     config_file = tmp_path / "config.yaml"
     config_content = f"""
-model: "gpt-4"
+model: "anthropic/claude-sonnet-4-5-20250929"
 custom_runbook_catalogs:
   - {custom_catalog_file}
 """
@@ -58,7 +58,7 @@ def test_config_custom_runbook_catalogs_multiple(tmp_path):
     # Create a config file
     config_file = tmp_path / "config.yaml"
     config_content = f"""
-model: "gpt-4"
+model: "anthropic/claude-sonnet-4-5-20250929"
 custom_runbook_catalogs:
   - {catalog_files[0]}
   - {catalog_files[1]}
@@ -79,7 +79,7 @@ def test_config_custom_runbook_catalogs_empty(tmp_path):
     # Create a config file with empty list
     config_file = tmp_path / "config.yaml"
     config_content = """
-model: "gpt-4"
+model: "anthropic/claude-sonnet-4-5-20250929"
 custom_runbook_catalogs: []
 """
     config_file.write_text(config_content)
@@ -96,7 +96,7 @@ def test_config_custom_runbook_catalogs_not_specified(tmp_path):
     # Create a config file without custom_runbook_catalogs
     config_file = tmp_path / "config.yaml"
     config_content = """
-model: "gpt-4"
+model: "anthropic/claude-sonnet-4-5-20250929"
 """
     config_file.write_text(config_content)
 
@@ -126,7 +126,7 @@ def test_config_custom_runbook_catalogs_passed_to_toolset_manager(tmp_path):
     # Create a config file
     config_file = tmp_path / "config.yaml"
     config_content = f"""
-model: "gpt-4"
+model: "anthropic/claude-sonnet-4-5-20250929"
 custom_runbook_catalogs:
   - {custom_catalog_file}
 """
@@ -163,7 +163,7 @@ def test_config_get_runbook_catalog_with_custom_catalogs(tmp_path):
     # Create a config file
     config_file = tmp_path / "config.yaml"
     config_content = f"""
-model: "gpt-4"
+model: "anthropic/claude-sonnet-4-5-20250929"
 custom_runbook_catalogs:
   - {custom_catalog_file}
 """
@@ -179,3 +179,51 @@ custom_runbook_catalogs:
     # Should have both builtin and custom runbooks
     runbook_links = [r.link for r in runbook_catalog.catalog]
     assert "test_custom.md" in runbook_links
+
+
+def test_load_from_env_custom_runbook_catalogs(tmp_path, monkeypatch):
+    """Test that custom_runbook_catalogs can be set via CUSTOM_RUNBOOK_CATALOGS env var."""
+    # Create a custom catalog file
+    custom_catalog_file = tmp_path / "catalog.json"
+    catalog_data = {
+        "catalog": [
+            {
+                "id": "env-test-runbook",
+                "update_date": "2023-01-01",
+                "description": "Test runbook from env",
+                "link": "test_env.md",
+            }
+        ]
+    }
+    custom_catalog_file.write_text(json.dumps(catalog_data))
+
+    monkeypatch.setenv("CUSTOM_RUNBOOK_CATALOGS", json.dumps([str(custom_catalog_file)]))
+    config = Config.load_from_env()
+
+    assert len(config.custom_runbook_catalogs) == 1
+    assert str(config.custom_runbook_catalogs[0]) == str(custom_catalog_file)
+
+
+def test_load_from_env_custom_runbook_catalogs_invalid_json(monkeypatch):
+    """Test graceful handling of invalid JSON in CUSTOM_RUNBOOK_CATALOGS env var."""
+    monkeypatch.setenv("CUSTOM_RUNBOOK_CATALOGS", "not-valid-json")
+    config = Config.load_from_env()
+
+    # Should fall back to default empty list
+    assert config.custom_runbook_catalogs == []
+
+
+def test_load_from_env_custom_runbook_catalogs_not_a_list(monkeypatch):
+    """Test graceful handling of non-list JSON in CUSTOM_RUNBOOK_CATALOGS env var."""
+    monkeypatch.setenv("CUSTOM_RUNBOOK_CATALOGS", '"just-a-string"')
+    config = Config.load_from_env()
+
+    # Should fall back to default empty list
+    assert config.custom_runbook_catalogs == []
+
+
+def test_load_from_env_custom_runbook_catalogs_not_set(monkeypatch):
+    """Test that unset env var defaults to empty list."""
+    monkeypatch.delenv("CUSTOM_RUNBOOK_CATALOGS", raising=False)
+    config = Config.load_from_env()
+    assert config.custom_runbook_catalogs == []

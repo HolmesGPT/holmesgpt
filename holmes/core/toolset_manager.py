@@ -13,7 +13,10 @@ from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
 from holmes.utils.config_hash import check_and_update_config_hashes
-from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
+from holmes.utils.definitions import (
+    CUSTOM_RUNBOOK_CATALOGS_LOCATION,
+    CUSTOM_TOOLSET_LOCATION,
+)
 
 if TYPE_CHECKING:
     pass
@@ -80,6 +83,17 @@ class ToolsetManager:
             if self.custom_toolsets is None:
                 self.custom_toolsets = []
             self.custom_toolsets.append(FilePath(CUSTOM_TOOLSET_LOCATION))
+
+        # holmes container uses CUSTOM_RUNBOOK_CATALOGS_LOCATION to auto-discover custom runbook catalogs
+        if os.path.isdir(CUSTOM_RUNBOOK_CATALOGS_LOCATION):
+            catalog_file = os.path.join(CUSTOM_RUNBOOK_CATALOGS_LOCATION, "catalog.json")
+            if os.path.isfile(catalog_file):
+                if self.custom_runbook_catalogs is None:
+                    self.custom_runbook_catalogs = []
+                # Dedupe: avoid adding the same catalog twice (e.g. if also set via CUSTOM_RUNBOOK_CATALOGS env var)
+                existing_paths = {os.path.realpath(str(p)) for p in self.custom_runbook_catalogs}
+                if os.path.realpath(catalog_file) not in existing_paths:
+                    self.custom_runbook_catalogs.append(catalog_file)
 
         self.custom_toolsets_from_cli = custom_toolsets_from_cli
         self.toolset_status_location = toolset_status_location

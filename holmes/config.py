@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import os.path
@@ -218,12 +219,32 @@ class Config(RobustaBaseConfig):
             "github_repository",
             "github_pat",
             "github_query",
-            # TODO
-            # custom_runbooks
+            # Note: custom_runbooks is deprecated in favor of custom_runbook_catalogs.
+            # List-type fields (custom_runbook_catalogs) are handled separately below.
         ]:
             val = os.getenv(field_name.upper(), None)
             if val is not None:
                 kwargs[field_name] = val
+
+        # List-type fields that need JSON parsing
+        for field_name in [
+            "custom_runbook_catalogs",
+        ]:
+            val = os.getenv(field_name.upper(), None)
+            if val is not None:
+                try:
+                    parsed = json.loads(val)
+                    if isinstance(parsed, list):
+                        kwargs[field_name] = parsed
+                    else:
+                        logging.warning(
+                            f"Environment variable {field_name.upper()} must be a JSON list, got: {type(parsed).__name__}"
+                        )
+                except json.JSONDecodeError:
+                    logging.warning(
+                        f"Failed to parse {field_name.upper()} as JSON: {val}"
+                    )
+
         kwargs["cluster_name"] = Config.__get_cluster_name()
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
