@@ -796,10 +796,35 @@ jobs:
               | grep -v 'kindest' \
               | sort)
             if [ -n "$IMAGES" ]; then
-              docker exec kind-control-plane ctr -n k8s.io images export /tmp/workload-images.tar $IMAGES
-              docker cp kind-control-plane:/tmp/workload-images.tar "$CACHE_DIR/images/workload-images.tar"
-              docker exec kind-control-plane rm -f /tmp/workload-images.tar
-              echo "Saved $(echo "$IMAGES" | wc -l) workload images for cache"
+              # Use --platform to avoid exporting multi-arch manifest lists
+              # that reference content not pulled for this platform
+              docker exec kind-control-plane ctr -n k8s.io images export \
+                --platform linux/amd64 /tmp/workload-images.tar $IMAGES || {
+                echo "Warning: bulk image export failed, trying individual export"
+                # Fall back to exporting images one by one, skipping failures
+                > /tmp/image-list-ok.txt
+                for img in $IMAGES; do
+                  if docker exec kind-control-plane ctr -n k8s.io images export \
+                    --platform linux/amd64 /tmp/img-single.tar "$img" 2>/dev/null; then
+                    echo "$img" >> /tmp/image-list-ok.txt
+                  else
+                    echo "  Skipping $img (export failed)"
+                  fi
+                  docker exec kind-control-plane rm -f /tmp/img-single.tar
+                done
+                OK_IMAGES=$(cat /tmp/image-list-ok.txt | tr '\n' ' ')
+                if [ -n "$OK_IMAGES" ]; then
+                  docker exec kind-control-plane ctr -n k8s.io images export \
+                    --platform linux/amd64 /tmp/workload-images.tar $OK_IMAGES
+                fi
+              }
+              if docker exec kind-control-plane test -f /tmp/workload-images.tar; then
+                docker cp kind-control-plane:/tmp/workload-images.tar "$CACHE_DIR/images/workload-images.tar"
+                docker exec kind-control-plane rm -f /tmp/workload-images.tar
+                echo "Saved workload images for cache"
+              else
+                echo "Warning: no workload images saved for cache"
+              fi
             fi
           fi
 
