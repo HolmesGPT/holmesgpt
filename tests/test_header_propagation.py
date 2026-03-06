@@ -4,7 +4,7 @@ Verifies that extra_headers configured in toolset config sections are rendered
 with request_context and propagated to:
 1. Shared header rendering utility
 2. HTTP toolset (merged into outgoing requests)
-3. YAML toolset (exposed as environment variables)
+3. YAML toolset (request_context available in Jinja2 command templates)
 4. MCP toolset (merged with static headers)
 5. ToolInvokeContext (pre-rendered headers)
 """
@@ -19,7 +19,6 @@ from holmes.core.tools import (
     StructuredToolResultStatus,
     ToolInvokeContext,
     YAMLTool,
-    YAMLToolset,
 )
 from holmes.utils.header_rendering import render_header_templates
 
@@ -90,72 +89,72 @@ class TestRenderTemplateHeaders:
 
 
 # ---------------------------------------------------------------------------
-# YAML toolset injects extra_env_vars template into tools at init
+# YAML tool Jinja2 template context (request_context + env)
 # ---------------------------------------------------------------------------
 
-class TestYAMLToolsetExtraEnvVars:
-    def test_no_template_when_no_config(self):
-        ts = YAMLToolset(
-            name="test",
-            description="test",
-            tools=[YAMLTool(name="t", description="t", command="echo hi")],
-        )
-        assert ts.tools[0]._extra_env_vars_template is None
-
-    def test_no_template_when_config_has_no_extra_env_vars(self):
-        ts = YAMLToolset(
-            name="test",
-            description="test",
-            tools=[YAMLTool(name="t", description="t", command="echo hi")],
-            config={"some_other_key": "val"},
-        )
-        assert ts.tools[0]._extra_env_vars_template is None
-
-    def test_template_set_from_extra_env_vars(self):
-        ts = YAMLToolset(
-            name="test",
-            description="test",
-            tools=[YAMLTool(name="t", description="t", command="echo hi")],
-            config={"extra_env_vars": {"X-Custom": "static-value"}},
-        )
-        assert ts.tools[0]._extra_env_vars_template == {"X-Custom": "static-value"}
-        assert ts.tools[0]._toolset_name == "test"
-
-    def test_tool_renders_with_request_context(self):
-        ts = YAMLToolset(
-            name="test",
-            description="test",
-            tools=[YAMLTool(name="t", description="t", command='echo "$HOLMES_HEADER_X_TENANT"')],
-            config={
-                "extra_env_vars": {
-                    "X-Tenant": "{{ request_context.headers['X-Tenant-Id'] }}"
-                }
-            },
+class TestYAMLToolTemplateContext:
+    def test_command_renders_request_context_header(self):
+        """request_context.headers is available in command Jinja2 templates."""
+        tool = YAMLTool(
+            name="t",
+            description="t",
+            command="echo {{ request_context.headers['X-Tenant-Id'] }}",
         )
         ctx = ToolInvokeContext.model_construct(
             tool_number=1, user_approved=False, llm=Mock(),
             max_token_count=1000, tool_call_id="c1", tool_name="t",
             request_context={"headers": {"X-Tenant-Id": "tenant-abc"}},
         )
-        result = ts.tools[0]._invoke({}, ctx)
+        result = tool._invoke({}, ctx)
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "tenant-abc"
 
-    def test_tool_renders_with_env(self, monkeypatch):
+    def test_command_renders_env_var(self, monkeypatch):
+        """env vars are available in command Jinja2 templates."""
         monkeypatch.setenv("MY_TOKEN", "tok-123")
-        ts = YAMLToolset(
-            name="test",
-            description="test",
-            tools=[YAMLTool(name="t", description="t", command='echo "$HOLMES_HEADER_AUTHORIZATION"')],
-            config={
-                "extra_env_vars": {"Authorization": "Bearer {{ env.MY_TOKEN }}"}
-            },
+        tool = YAMLTool(
+            name="t",
+            description="t",
+            command="echo Bearer {{ env.MY_TOKEN }}",
         )
         ctx = ToolInvokeContext.model_construct(
             tool_number=1, user_approved=False, llm=Mock(),
             max_token_count=1000, tool_call_id="c1", tool_name="t",
         )
-        result = ts.tools[0]._invoke({}, ctx)
+        result = tool._invoke({}, ctx)
+        assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "Bearer tok-123"
+
+    def test_command_works_without_request_context(self):
+        """Commands work fine when no request_context is provided."""
+        tool = YAMLTool(
+            name="t",
+            description="t",
+            command="echo hello",
+        )
+        ctx = ToolInvokeContext.model_construct(
+            tool_number=1, user_approved=False, llm=Mock(),
+            max_token_count=1000, tool_call_id="c1", tool_name="t",
+        )
+        result = tool._invoke({}, ctx)
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "hello"
+
+    def test_script_renders_request_context_header(self):
+        """request_context.headers is available in script Jinja2 templates."""
+        tool = YAMLTool(
+            name="t",
+            description="t",
+            script="#!/bin/bash\necho {{ request_context.headers['X-Auth'] }}",
+        )
+        ctx = ToolInvokeContext.model_construct(
+            tool_number=1, user_approved=False, llm=Mock(),
+            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            request_context={"headers": {"X-Auth": "Bearer secret"}},
+        )
+        result = tool._invoke({}, ctx)
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "Bearer secret"
 
 
 # ---------------------------------------------------------------------------
@@ -178,87 +177,6 @@ class TestToolInvokeContextHeaders:
         assert dumped["request_context"] == {"headers": "***REDACTED***"}
 
 
-# ---------------------------------------------------------------------------
-# YAML tool environment variable propagation tests
-# ---------------------------------------------------------------------------
-
-class TestYAMLToolHeaderEnvVars:
-    def test_yaml_tool_command_with_header_env_var(self):
-        """Verify that extra_env_vars_template on tool produces env vars in bash commands."""
-        tool = YAMLTool(
-            name="test_echo",
-            description="Echo a header value",
-            command='echo "$HOLMES_HEADER_X_TOKEN"',
-        )
-        tool._extra_env_vars_template = {"X-Token": "my-secret-token"}
-        tool._toolset_name = "test"
-        context = ToolInvokeContext.model_construct(
-            tool_number=1,
-            user_approved=False,
-            llm=Mock(),
-            max_token_count=1000,
-            tool_call_id="call-1",
-            tool_name="test_echo",
-        )
-        result = tool._invoke({}, context)
-        assert result.status == StructuredToolResultStatus.SUCCESS
-        assert result.data == "my-secret-token"
-
-    def test_yaml_tool_script_with_header_env_var(self):
-        """Verify that extra_env_vars_template on tool produces env vars in bash scripts."""
-        tool = YAMLTool(
-            name="test_script",
-            description="Script using a header",
-            script='#!/bin/bash\necho "$HOLMES_HEADER_AUTHORIZATION"',
-        )
-        tool._extra_env_vars_template = {"Authorization": "Bearer tok-456"}
-        tool._toolset_name = "test"
-        context = ToolInvokeContext.model_construct(
-            tool_number=1,
-            user_approved=False,
-            llm=Mock(),
-            max_token_count=1000,
-            tool_call_id="call-1",
-            tool_name="test_script",
-        )
-        result = tool._invoke({}, context)
-        assert result.status == StructuredToolResultStatus.SUCCESS
-        assert result.data == "Bearer tok-456"
-
-    def test_yaml_tool_no_extra_headers(self):
-        """Verify YAML tools still work when no template is set."""
-        tool = YAMLTool(
-            name="test_echo",
-            description="Simple echo",
-            command="echo hello",
-        )
-        context = ToolInvokeContext.model_construct(
-            tool_number=1,
-            user_approved=False,
-            llm=Mock(),
-            max_token_count=1000,
-            tool_call_id="call-1",
-            tool_name="test_echo",
-        )
-        result = tool._invoke({}, context)
-        assert result.status == StructuredToolResultStatus.SUCCESS
-        assert result.data == "hello"
-
-    def test_yaml_toolset_injects_template_into_tools(self):
-        """Verify YAMLToolset passes extra_env_vars template to its tools at init."""
-        toolset = YAMLToolset(
-            name="test_yaml",
-            description="Test",
-            docs_url="",
-            icon_url="",
-            tools=[
-                YAMLTool(name="t1", description="t1", command="echo hi"),
-            ],
-            config={"extra_env_vars": {"X-Token": "static-val"}},
-        )
-        tool = toolset.tools[0]
-        assert tool._extra_env_vars_template == {"X-Token": "static-val"}
-        assert tool._toolset_name == "test_yaml"
 
 
 # ---------------------------------------------------------------------------

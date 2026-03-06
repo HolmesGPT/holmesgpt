@@ -19,7 +19,7 @@ Header propagation is supported across all toolset types: [MCP servers](remote-m
 The config key is placed inside the `config` section of each toolset and accepts a dictionary of names mapped to [Jinja2](https://jinja.palletsprojects.com/) template strings:
 
 - **`extra_headers`** -- for MCP servers, HTTP connectors, and Python toolsets (values become HTTP headers)
-- **`extra_env_vars`** -- for custom (YAML) toolsets (values become `HOLMES_HEADER_*` environment variables)
+- For custom (YAML) toolsets, `request_context` and `env` are available directly in Jinja2 command/script templates — no extra config key needed
 
 Templates can reference:
 
@@ -145,7 +145,7 @@ See [HTTP Connectors](api-toolsets.md) for the full HTTP connector configuration
 
 ### Custom (YAML) Toolsets
 
-YAML tools run as bash subprocesses, so Holmes cannot inject HTTP headers directly. Instead, YAML toolsets use **`extra_env_vars`** (not `extra_headers`). Each rendered value is exposed as an environment variable prefixed with `HOLMES_HEADER_`. Your command then references these env vars to pass the values wherever they're needed (e.g., as `curl -H` flags). Header names are uppercased and non-alphanumeric characters become underscores.
+YAML tool commands and scripts are Jinja2 templates. The variables `request_context` and `env` are available directly — no extra config key needed. Use `request_context.headers['Header-Name']` to access incoming request headers and `env.VAR_NAME` to access environment variables.
 
 === "Holmes CLI"
 
@@ -155,13 +155,10 @@ YAML tools run as bash subprocesses, so Holmes cannot inject HTTP headers direct
     toolsets:
       internal-api:
         name: "internal-api"
-        config:
-          extra_env_vars:
-            X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
         tools:
           - name: "fetch_data"
             description: "Fetch data from internal API"
-            command: 'curl -s -H "X-Auth-Token: $HOLMES_HEADER_X_AUTH_TOKEN" https://internal-api.corp.net/data'
+            command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
     ```
 
     ```bash
@@ -177,25 +174,11 @@ YAML tools run as bash subprocesses, so Holmes cannot inject HTTP headers direct
       customToolsets:
         internal-api:
           name: "internal-api"
-          config:
-            extra_env_vars:
-              X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
           tools:
             - name: "fetch_data"
               description: "Fetch data from internal API"
-              command: 'curl -s -H "X-Auth-Token: $HOLMES_HEADER_X_AUTH_TOKEN" https://internal-api.corp.net/data'
+              command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
     ```
-
-**Examples** of how `extra_env_vars` keys are transformed into environment variable names:
-
-| extra_env_vars key | Environment variable |
-|---|---|
-| `X-Auth-Token` | `$HOLMES_HEADER_X_AUTH_TOKEN` |
-| `Authorization` | `$HOLMES_HEADER_AUTHORIZATION` |
-| `X-Tenant-Id` | `$HOLMES_HEADER_X_TENANT_ID` |
-
-!!! tip
-    If your toolset calls HTTP APIs, consider using an [HTTP connector](api-toolsets.md) instead. HTTP connectors and Python toolsets merge `extra_headers` into outgoing requests automatically, without env var wiring.
 
 See [Custom Toolsets](custom-toolsets.md) for the full YAML toolset reference.
 

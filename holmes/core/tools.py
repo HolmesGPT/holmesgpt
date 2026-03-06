@@ -46,7 +46,6 @@ from holmes.core.transformers import (
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
-from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
 from holmes.utils.pydantic_utils import build_config_example
 
@@ -463,8 +462,6 @@ class Tool(ABC, BaseModel):
 class YAMLTool(Tool, BaseModel):
     command: Optional[str] = None
     script: Optional[str] = None
-    _extra_env_vars_template: Optional[Dict[str, str]] = PrivateAttr(default=None)
-    _toolset_name: str = PrivateAttr(default="")
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -494,9 +491,16 @@ class YAMLTool(Tool, BaseModel):
             template = Template(cmd_or_script)  # type: ignore
         return template.render(params)
 
-    def _build_context(self, params):
+    def _build_context(
+        self, params: dict, request_context: Optional[Dict[str, Any]] = None
+    ) -> dict:
         params = sanitize_params(params)
-        context = {**params}
+        context: Dict[str, Any] = {**params}
+        context["env"] = os.environ
+        if request_context:
+            context["request_context"] = request_context
+        else:
+            context["request_context"] = {"headers": {}}
         return context
 
     def _get_status(
@@ -513,23 +517,14 @@ class YAMLTool(Tool, BaseModel):
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        extra_env: Optional[Dict[str, str]] = None
-        if self._extra_env_vars_template:
-            rendered = render_header_templates(
-                extra_headers=self._extra_env_vars_template,
-                request_context=context.request_context,
-                source_name=self._toolset_name,
-            )
-            if rendered:
-                extra_env = {
-                    "HOLMES_HEADER_" + re.sub(r"[^A-Za-z0-9]", "_", name).upper(): value
-                    for name, value in rendered.items()
-                }
-
         if self.command is not None:
-            raw_output, return_code, invocation = self.__invoke_command(params, extra_env)
+            raw_output, return_code, invocation = self.__invoke_command(
+                params, context.request_context
+            )
         else:
-            raw_output, return_code, invocation = self.__invoke_script(params, extra_env)
+            raw_output, return_code, invocation = self.__invoke_script(
+                params, context.request_context
+            )
 
         error = (
             None
@@ -548,19 +543,23 @@ class YAMLTool(Tool, BaseModel):
         )
 
     def __invoke_command(
-        self, params: dict, extra_env: Optional[Dict[str, str]] = None
+        self,
+        params: dict,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, int, str]:
-        context = self._build_context(params)
+        context = self._build_context(params, request_context)
         command = os.path.expandvars(self.command)  # type: ignore
         template = Template(command)  # type: ignore
         rendered_command = template.render(context)
-        output, return_code = self.__execute_subprocess(rendered_command, extra_env)
+        output, return_code = self.__execute_subprocess(rendered_command)
         return output, return_code, rendered_command
 
     def __invoke_script(
-        self, params: dict, extra_env: Optional[Dict[str, str]] = None
+        self,
+        params: dict,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, int, str]:
-        context = self._build_context(params)
+        context = self._build_context(params, request_context)
         script = os.path.expandvars(self.script)  # type: ignore
         template = Template(script)  # type: ignore
         rendered_script = template.render(context)
@@ -573,7 +572,7 @@ class YAMLTool(Tool, BaseModel):
         subprocess.run(["chmod", "+x", temp_script_path], check=True)
 
         try:
-            output, return_code = self.__execute_subprocess(temp_script_path, extra_env)
+            output, return_code = self.__execute_subprocess(temp_script_path)
         finally:
             try:
                 os.remove(temp_script_path)
@@ -581,17 +580,10 @@ class YAMLTool(Tool, BaseModel):
                 pass
         return output, return_code, rendered_script
 
-    def __execute_subprocess(
-        self, cmd: str, extra_env: Optional[Dict[str, str]] = None
-    ) -> Tuple[str, int]:
+    def __execute_subprocess(self, cmd: str) -> Tuple[str, int]:
         try:
             logger.debug(f"Running `{cmd}`")
             protected_cmd = get_ulimit_prefix() + cmd
-
-            # Merge extra headers as env vars into the subprocess environment
-            env = None
-            if extra_env:
-                env = {**os.environ, **extra_env}
 
             result = subprocess.run(
                 protected_cmd,
@@ -601,7 +593,6 @@ class YAMLTool(Tool, BaseModel):
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                env=env,
             )
 
             output = result.stdout.strip()
@@ -993,12 +984,6 @@ class YAMLToolset(Toolset):
         super().__init__(**kwargs)
         if self.llm_instructions:
             self._load_llm_instructions(self.llm_instructions)
-
-        extra_env_vars = self.config.get("extra_env_vars") if isinstance(self.config, dict) else None
-        if extra_env_vars:
-            for tool in self.tools:
-                tool._extra_env_vars_template = extra_env_vars
-                tool._toolset_name = self.name
 
 
 class ToolsetYamlFromConfig(Toolset):
