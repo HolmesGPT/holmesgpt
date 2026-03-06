@@ -16,6 +16,7 @@ from holmes.core.tools import (
     Toolset,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -170,9 +171,14 @@ class ServiceNowTablesToolset(Toolset):
             "Content-Type": "application/json",
         }
 
-        extra_headers = self.render_extra_headers(request_context)
-        if extra_headers:
-            headers.update(extra_headers)
+        if self.servicenow_config.extra_headers:
+            rendered = render_header_templates(
+                extra_headers=self.servicenow_config.extra_headers,
+                request_context=request_context,
+                source_name=self.name,
+            )
+            if rendered:
+                headers.update(rendered)
 
         response = requests.get(
             url, headers=headers, params=query_params, timeout=timeout

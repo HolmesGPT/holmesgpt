@@ -24,6 +24,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
 )
+from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
@@ -373,7 +374,7 @@ class RemoteMCPToolset(Toolset):
 
         Process:
         1. Start with 'headers' field (backward compatibility, passed as-is)
-        2. Render config-level 'extra_headers' via base Toolset.render_extra_headers()
+        2. Render 'extra_headers' via Jinja2 templates
         3. Merge them (later layers take precedence)
 
         Returns:
@@ -388,9 +389,14 @@ class RemoteMCPToolset(Toolset):
             final_headers.update(self._mcp_config.headers)
 
         # Render and merge config-level extra_headers
-        rendered = super().render_extra_headers(request_context)
-        if rendered:
-            final_headers.update(rendered)
+        if self._mcp_config.extra_headers:
+            rendered = render_header_templates(
+                extra_headers=self._mcp_config.extra_headers,
+                request_context=request_context,
+                source_name=self.name,
+            )
+            if rendered:
+                final_headers.update(rendered)
 
         return final_headers if final_headers else None
 

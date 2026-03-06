@@ -3,11 +3,10 @@
 Verifies that extra_headers configured in toolset config sections are rendered
 with request_context and propagated to:
 1. Shared header rendering utility
-2. Toolset base class (render_extra_headers reads from config)
-3. HTTP toolset (merged into outgoing requests)
-4. YAML toolset (exposed as environment variables)
-5. MCP toolset (merged with static headers)
-6. ToolInvokeContext (pre-rendered headers)
+2. HTTP toolset (merged into outgoing requests)
+3. YAML toolset (exposed as environment variables)
+4. MCP toolset (merged with static headers)
+5. ToolInvokeContext (pre-rendered headers)
 """
 
 import os
@@ -16,15 +15,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from holmes.utils.pydantic_utils import ToolsetConfig
-
 from holmes.core.tools import (
-    StructuredToolResult,
     StructuredToolResultStatus,
-    Tool,
     ToolInvokeContext,
-    ToolParameter,
-    Toolset,
     YAMLTool,
     YAMLToolset,
 )
@@ -163,27 +156,6 @@ class TestYAMLToolsetExtraEnvVars:
         )
         result = ts.tools[0]._invoke({}, ctx)
         assert result.data == "Bearer tok-123"
-
-
-# ---------------------------------------------------------------------------
-# Base Toolset extra_headers (used by HTTP/Python toolsets, NOT YAML)
-# ---------------------------------------------------------------------------
-
-class _ConfigWithExtraHeaders(ToolsetConfig):
-    extra_headers: Optional[Dict[str, str]] = None
-
-
-class TestToolsetExtraHeaders:
-    def test_render_extra_headers_from_pydantic_config(self):
-        """Verify render_extra_headers works with a Pydantic model config (attribute access)."""
-        config = _ConfigWithExtraHeaders(extra_headers={"X-From-Model": "pydantic-value"})
-        from holmes.core.tools import ToolsetYamlFromConfig
-
-        ts = ToolsetYamlFromConfig(
-            name="test",
-            config=config,
-        )
-        assert ts.render_extra_headers() == {"X-From-Model": "pydantic-value"}
 
 
 # ---------------------------------------------------------------------------
@@ -447,24 +419,6 @@ class TestMCPConfigExtraHeaders:
         assert rendered is not None
         assert rendered["X-Static"] == "static-value"
         assert rendered["X-Dynamic"] == "dynamic-value"
-
-    def test_render_extra_headers_falls_through_to_base(self):
-        """MCP toolsets no longer override render_extra_headers — the base Toolset
-        implementation renders extra_headers from config normally.  The actual
-        merging with static 'headers' happens in _render_headers() at connection time."""
-        from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
-
-        mcp_toolset = RemoteMCPToolset(
-            name="test_mcp",
-            description="Test toolset",
-            config={
-                "url": "http://localhost:1234",
-                "extra_headers": {"X-Dynamic": "value"},
-            },
-        )
-        # Base class renders extra_headers normally (no override blocking it)
-        result = mcp_toolset.render_extra_headers({"headers": {"X-Foo": "bar"}})
-        assert result == {"X-Dynamic": "value"}
 
     def test_extra_headers_override_static_headers(self):
         """extra_headers should take precedence over static headers."""

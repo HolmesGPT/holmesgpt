@@ -810,24 +810,6 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
-    def render_extra_headers(
-        self, request_context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, str]:
-        """Render extra_headers templates from config with request context and env vars."""
-        if self.config is None:
-            return {}
-        extra_headers = (
-            self.config.get("extra_headers") if isinstance(self.config, dict)
-            else getattr(self.config, "extra_headers", None)
-        )
-        if not extra_headers:
-            return {}
-        return render_header_templates(
-            extra_headers=extra_headers,
-            request_context=request_context,
-            source_name=self.name,
-        )
-
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
 
