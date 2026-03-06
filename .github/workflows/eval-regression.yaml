@@ -1135,3 +1135,4 @@ jobs:
           else
             echo "✅ All tests passed."
           fi
+# CI speed optimizations
