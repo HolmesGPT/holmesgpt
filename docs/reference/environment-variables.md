@@ -65,15 +65,24 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the certificate is appended to the default CA bundle so that HolmesGPT trusts your private CA for all connections (LLM APIs, Elasticsearch, Prometheus, etc.).
 
-```bash
-export CERTIFICATE="$(base64 -w0 /path/to/ca.crt)"
-```
+=== "Holmes CLI"
 
-In Helm deployments, use the `certificate` value instead:
+    ```bash
+    export CERTIFICATE="$(base64 -w0 /path/to/ca.crt)"
+    ```
 
-```yaml
-certificate: "<base64-encoded CA cert>"
-```
+=== "Holmes Helm Chart"
+
+    ```yaml
+    certificate: "<base64-encoded CA cert>"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      certificate: "<base64-encoded CA cert>"
+    ```
 
 ## HolmesGPT Configuration
 
