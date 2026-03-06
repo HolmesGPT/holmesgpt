@@ -123,6 +123,7 @@ nav:
           - "Overview": development/index.md
           - "Tool Output Transformers": development/transformers.md
     - Reference:
+          - "Python SDK": reference/python-sdk.md
           - "Environment Variables": reference/environment-variables.md
           - "Helm Configuration": reference/helm-configuration.md
           - "Kubernetes Permissions": reference/kubernetes-permissions.md
@@ -141,6 +142,7 @@ theme:
         - content.action.view
         - content.code.annotate
         - content.code.copy
+        - content.tabs.link
         - content.tooltips
         - navigation.footer
         - navigation.indexes

@@ -1,4 +1,5 @@
 nav:
+  - Python SDK: python-sdk.md
   - Environment Variables: environment-variables.md
   - Helm Configuration: helm-configuration.md
   - Kubernetes Permissions: kubernetes-permissions.md

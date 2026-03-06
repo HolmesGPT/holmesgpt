@@ -308,13 +308,48 @@ class RemoteMCPTool(Tool):
         schema_params = input_schema.get("properties", {})
         parameters = {}
         for key, val in schema_params.items():
-            parameters[key] = ToolParameter(
-                description=val.get("description"),
-                type=val.get("type", "string"),
-                required=key in required_list,
+            parameters[key] = cls._parse_tool_parameter(
+                val, required=key in required_list
             )
 
         return parameters
+
+    @classmethod
+    def _parse_tool_parameter(
+        cls, schema: dict[str, Any], required: bool = True
+    ) -> ToolParameter:
+        """Recursively parse a JSON Schema property into a ToolParameter.
+
+        This preserves nested items, properties, and enum from MCP tool schemas
+        so that the OpenAI-formatted schema sent to the LLM accurately describes
+        complex parameter types (arrays, objects).
+        """
+        param_type = schema.get("type", "string")
+
+        items = None
+        if "items" in schema and isinstance(schema["items"], dict):
+            items = cls._parse_tool_parameter(schema["items"], required=True)
+
+        properties = None
+        if "properties" in schema and isinstance(schema["properties"], dict):
+            nested_required = schema.get("required", [])
+            properties = {
+                name: cls._parse_tool_parameter(
+                    prop, required=name in nested_required
+                )
+                for name, prop in schema["properties"].items()
+            }
+
+        enum = schema.get("enum")
+
+        return ToolParameter(
+            description=schema.get("description"),
+            type=param_type,
+            required=required,
+            items=items,
+            properties=properties,
+            enum=enum,
+        )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         # AWS MCP cli_command

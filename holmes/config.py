@@ -18,6 +18,7 @@ from pydantic import (
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
+from holmes.core.tools import Toolset
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.plugins.runbooks import (
@@ -102,6 +103,7 @@ class Config(RobustaBaseConfig):
 
     toolsets: Optional[dict[str, dict[str, Any]]] = None
     mcp_servers: Optional[dict[str, dict[str, Any]]] = None
+    additional_toolsets: Optional[List[Toolset]] = None
 
     _server_tool_executor: Optional[ToolExecutor] = None
     _agui_tool_executor: Optional[ToolExecutor] = None
@@ -123,6 +125,7 @@ class Config(RobustaBaseConfig):
                 global_fast_model=self.fast_model,
                 custom_runbook_catalogs=self.custom_runbook_catalogs,
                 config_file_path=self._config_file_path,
+                additional_toolsets=self.additional_toolsets,
             )
         return self._toolset_manager
 
