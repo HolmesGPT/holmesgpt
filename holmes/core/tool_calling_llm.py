@@ -162,18 +162,6 @@ class LLMCosts(BaseModel):
     num_compactions: int = 0
 
 
-def _extract_cost_from_response(full_response) -> float:
-    """Extract cost value from LLM response.
-
-    Args:
-        full_response: The raw LLM response object
-
-    Returns:
-        The cost as a float, or 0.0 if not available
-    """
-    return extract_usage_from_response(full_response).cost
-
-
 def _process_cost_info(
     full_response, costs: Optional[LLMCosts] = None, log_prefix: str = "LLM call"
 ) -> None:

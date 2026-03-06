@@ -3,7 +3,7 @@ import logging
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, List
+from typing import Any, List
 from unittest.mock import patch
 
 import litellm
@@ -12,6 +12,7 @@ import pytest
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.llm import DefaultLLM
+from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from tests.llm.utils.mock_dal import load_test_dal
@@ -21,36 +22,12 @@ from tests.llm.utils.test_case_utils import get_models
 logger = logging.getLogger(__name__)
 
 
-def extract_cached_tokens_from_dict(usage: Dict[str, Any]) -> int:
-    prompt_details = usage.get("prompt_tokens_details", {})
-    return prompt_details.get("cached_tokens", 0)
-
-
-def extract_cached_tokens_from_object(usage: Any) -> int:
-    if not hasattr(usage, "prompt_tokens_details"):
-        return 0
-    prompt_details = usage.prompt_tokens_details
-    if not hasattr(prompt_details, "cached_tokens"):
-        return 0
-    return prompt_details.cached_tokens or 0
-
-
 def get_cached_tokens(raw_response: Any) -> int:
-    if not hasattr(raw_response, "usage") or not raw_response.usage:
-        return 0
-    usage = raw_response.usage
-    if isinstance(usage, dict):
-        return extract_cached_tokens_from_dict(usage)
-    return extract_cached_tokens_from_object(usage)
+    return extract_usage_from_response(raw_response).cached_tokens or 0
 
 
 def get_prompt_tokens(raw_response: Any) -> int:
-    if not hasattr(raw_response, "usage") or not raw_response.usage:
-        return 0
-    usage = raw_response.usage
-    if isinstance(usage, dict):
-        return usage.get("prompt_tokens", 0)
-    return getattr(usage, "prompt_tokens", 0)
+    return extract_usage_from_response(raw_response).prompt_tokens
 
 
 def extract_cached_tokens_list(raw_responses: List[Any]) -> List[int]:
