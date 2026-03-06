@@ -1004,14 +1004,7 @@ jobs:
 
           START_TIME=$(date +%s)
 
-          # Scale parallelism with test count (min 6, max 20, capped at nproc)
-          TEST_COUNT=${{ steps.test-preview.outputs.test_count || '10' }}
-          NPROC=$(nproc)
-          N_WORKERS=$((TEST_COUNT < 6 ? 6 : (TEST_COUNT > 20 ? 20 : TEST_COUNT)))
-          N_WORKERS=$((N_WORKERS > NPROC ? NPROC : N_WORKERS))
-          echo "Running $TEST_COUNT tests with $N_WORKERS parallel workers"
-
-          PYTEST_ARGS=(--no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n"$N_WORKERS" -m "$EVAL_MARKER_EXPR")
+          PYTEST_ARGS=(--no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n20 -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           poetry run pytest "${PYTEST_ARGS[@]}" || true
 
