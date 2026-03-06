@@ -28,7 +28,7 @@ from holmes.core.tools import (
     YAMLTool,
     YAMLToolset,
 )
-from holmes.utils.header_rendering import render_template_headers
+from holmes.utils.header_rendering import render_header_templates
 
 
 # ---------------------------------------------------------------------------
@@ -37,19 +37,19 @@ from holmes.utils.header_rendering import render_template_headers
 
 class TestRenderTemplateHeaders:
     def test_static_value(self):
-        result = render_template_headers({"X-Static": "hello"})
+        result = render_header_templates({"X-Static": "hello"})
         assert result == {"X-Static": "hello"}
 
     def test_env_var(self, monkeypatch):
         monkeypatch.setenv("TEST_HEADER_VAR", "from-env")
-        result = render_template_headers(
+        result = render_header_templates(
             {"X-Env": "{{ env.TEST_HEADER_VAR }}"}
         )
         assert result == {"X-Env": "from-env"}
 
     def test_request_context_header(self):
         ctx = {"headers": {"X-Tenant": "t-123"}}
-        result = render_template_headers(
+        result = render_header_templates(
             {"X-Forwarded-Tenant": "{{ request_context.headers['X-Tenant'] }}"},
             request_context=ctx,
         )
@@ -57,7 +57,7 @@ class TestRenderTemplateHeaders:
 
     def test_case_insensitive_request_context(self):
         ctx = {"headers": {"X-Token": "secret"}}
-        result = render_template_headers(
+        result = render_header_templates(
             {"Auth": "{{ request_context.headers['x-token'] }}"},
             request_context=ctx,
         )
@@ -65,7 +65,7 @@ class TestRenderTemplateHeaders:
 
     def test_missing_header_renders_empty(self):
         ctx = {"headers": {}}
-        result = render_template_headers(
+        result = render_header_templates(
             {"X-Missing": "{{ request_context.headers['X-Nope'] }}"},
             request_context=ctx,
         )
@@ -74,7 +74,7 @@ class TestRenderTemplateHeaders:
         assert result["X-Missing"] == ""
 
     def test_no_request_context(self):
-        result = render_template_headers(
+        result = render_header_templates(
             {"X-Static": "val"},
             request_context=None,
         )
@@ -83,7 +83,7 @@ class TestRenderTemplateHeaders:
     def test_mixed_templates(self, monkeypatch):
         monkeypatch.setenv("API_SECRET", "s3cr3t")
         ctx = {"headers": {"X-Org": "org-42"}}
-        result = render_template_headers(
+        result = render_header_templates(
             {
                 "Authorization": "Bearer {{ env.API_SECRET }}",
                 "X-Org-Id": "{{ request_context.headers['X-Org'] }}",
@@ -211,23 +211,6 @@ class TestToolInvokeContextHeaders:
 # ---------------------------------------------------------------------------
 
 class TestYAMLToolHeaderEnvVars:
-    def test_build_header_env_vars_basic(self):
-        env_vars = YAMLTool.build_header_env_vars(
-            {"X-Custom-Token": "abc123", "Authorization": "Bearer xyz"}
-        )
-        assert env_vars == {
-            "HOLMES_HEADER_X_CUSTOM_TOKEN": "abc123",
-            "HOLMES_HEADER_AUTHORIZATION": "Bearer xyz",
-        }
-
-    def test_build_header_env_vars_empty(self):
-        assert YAMLTool.build_header_env_vars({}) == {}
-
-    def test_build_header_env_vars_special_chars(self):
-        env_vars = YAMLTool.build_header_env_vars({"X.Dotted.Header": "val"})
-        assert "HOLMES_HEADER_X_DOTTED_HEADER" in env_vars
-        assert env_vars["HOLMES_HEADER_X_DOTTED_HEADER"] == "val"
-
     def test_yaml_tool_command_with_header_env_var(self):
         """Verify that extra_env_vars_template on tool produces env vars in bash commands."""
         tool = YAMLTool(

@@ -14,7 +14,7 @@ from requests.structures import CaseInsensitiveDict
 logger = logging.getLogger(__name__)
 
 
-def render_template_headers(
+def render_header_templates(
     extra_headers: Dict[str, str],
     request_context: Optional[Dict[str, Any]] = None,
     source_name: str = "unknown",

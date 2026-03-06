@@ -46,7 +46,7 @@ from holmes.core.transformers import (
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
-from holmes.utils.header_rendering import render_template_headers
+from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
 from holmes.utils.pydantic_utils import build_config_example
 
@@ -508,22 +508,24 @@ class YAMLTool(Tool, BaseModel):
             return StructuredToolResultStatus.NO_DATA
         return StructuredToolResultStatus.SUCCESS
 
-    def _render_extra_env(self, request_context: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
-        if not self._extra_env_vars_template:
-            return None
-        rendered = render_template_headers(
-            extra_headers=self._extra_env_vars_template,
-            request_context=request_context,
-            source_name=self._toolset_name,
-        )
-        return self.build_header_env_vars(rendered) if rendered else None
-
     def _invoke(
         self,
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        extra_env = self._render_extra_env(context.request_context)
+        extra_env: Optional[Dict[str, str]] = None
+        if self._extra_env_vars_template:
+            rendered = render_header_templates(
+                extra_headers=self._extra_env_vars_template,
+                request_context=context.request_context,
+                source_name=self._toolset_name,
+            )
+            if rendered:
+                extra_env = {
+                    "HOLMES_HEADER_" + re.sub(r"[^A-Za-z0-9]", "_", name).upper(): value
+                    for name, value in rendered.items()
+                }
+
         if self.command is not None:
             raw_output, return_code, invocation = self.__invoke_command(params, extra_env)
         else:
@@ -544,20 +546,6 @@ class YAMLTool(Tool, BaseModel):
             params=params,
             invocation=invocation,
         )
-
-    @staticmethod
-    def build_header_env_vars(rendered_extra_headers: Dict[str, str]) -> Dict[str, str]:
-        """Convert rendered extra_headers to environment variables.
-
-        Header names are uppercased and non-alphanumeric characters are replaced
-        with underscores, prefixed with ``HOLMES_HEADER_``.
-        For example, ``X-Custom-Token`` becomes ``HOLMES_HEADER_X_CUSTOM_TOKEN``.
-        """
-        env_vars: Dict[str, str] = {}
-        for header_name, header_value in rendered_extra_headers.items():
-            env_name = "HOLMES_HEADER_" + re.sub(r"[^A-Za-z0-9]", "_", header_name).upper()
-            env_vars[env_name] = header_value
-        return env_vars
 
     def __invoke_command(
         self, params: dict, extra_env: Optional[Dict[str, str]] = None
@@ -834,7 +822,7 @@ class Toolset(BaseModel):
         )
         if not extra_headers:
             return {}
-        return render_template_headers(
+        return render_header_templates(
             extra_headers=extra_headers,
             request_context=request_context,
             source_name=self.name,
