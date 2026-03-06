@@ -191,7 +191,6 @@ class ToolInvokeContext(BaseModel):
         str
     ] = []  # Bash prefixes approved during this session
     request_context: Optional[Dict[str, Any]] = None
-    extra_env: Optional[Dict[str, str]] = None  # Extra env vars injected by toolset (e.g. rendered headers)
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""
@@ -200,17 +199,12 @@ class ToolInvokeContext(BaseModel):
             data["request_context"] = {
                 k: "***REDACTED***" for k in data["request_context"].keys()
             }
-        if data.get("extra_env"):
-            data["extra_env"] = {
-                k: "***REDACTED***" for k in data["extra_env"].keys()
-            }
         return data
 
     def __str__(self):
         """Override to prevent accidental context leakage in logs"""
         context_keys = list((self.request_context or {}).keys())
-        env_keys = list((self.extra_env or {}).keys())
-        return f"ToolInvokeContext(tool_number={self.tool_number}, user_approved={self.user_approved}, context_keys={context_keys}, extra_env_keys={env_keys})"
+        return f"ToolInvokeContext(tool_number={self.tool_number}, user_approved={self.user_approved}, context_keys={context_keys})"
 
 
 class Tool(ABC, BaseModel):
@@ -469,6 +463,8 @@ class Tool(ABC, BaseModel):
 class YAMLTool(Tool, BaseModel):
     command: Optional[str] = None
     script: Optional[str] = None
+    _extra_env_vars_template: Optional[Dict[str, str]] = PrivateAttr(default=None)
+    _toolset_name: str = PrivateAttr(default="")
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -512,12 +508,22 @@ class YAMLTool(Tool, BaseModel):
             return StructuredToolResultStatus.NO_DATA
         return StructuredToolResultStatus.SUCCESS
 
+    def _render_extra_env(self, request_context: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
+        if not self._extra_env_vars_template:
+            return None
+        rendered = render_template_headers(
+            extra_headers=self._extra_env_vars_template,
+            request_context=request_context,
+            source_name=self._toolset_name,
+        )
+        return self.build_header_env_vars(rendered) if rendered else None
+
     def _invoke(
         self,
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        extra_env = context.extra_env
+        extra_env = self._render_extra_env(context.request_context)
         if self.command is not None:
             raw_output, return_code, invocation = self.__invoke_command(params, extra_env)
         else:
@@ -841,14 +847,6 @@ class Toolset(BaseModel):
             source_name=self.name,
         )
 
-    def prepare_invoke_context(self, context: "ToolInvokeContext") -> None:
-        """Hook for toolsets to enrich the invoke context before a tool runs.
-
-        Called by the tool executor after creating the context and before
-        calling ``tool.invoke()``.  Subclasses can override to inject
-        toolset-specific data (e.g. extra env vars for YAML subprocess tools).
-        """
-
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
 
@@ -1033,17 +1031,11 @@ class YAMLToolset(Toolset):
         if self.llm_instructions:
             self._load_llm_instructions(self.llm_instructions)
 
-    def _get_extra_headers_template(self) -> Optional[Dict[str, str]]:
-        """YAML toolsets use ``extra_env_vars`` instead of ``extra_headers``."""
-        if isinstance(self.config, dict):
-            return self.config.get("extra_env_vars")
-        return None
-
-    def prepare_invoke_context(self, context: "ToolInvokeContext") -> None:
-        """Render extra_env_vars and convert to HOLMES_HEADER_* env vars."""
-        rendered_headers = self.render_extra_headers(context.request_context)
-        if rendered_headers:
-            context.extra_env = YAMLTool.build_header_env_vars(rendered_headers)
+        extra_env_vars = self.config.get("extra_env_vars") if isinstance(self.config, dict) else None
+        if extra_env_vars:
+            for tool in self.tools:
+                tool._extra_env_vars_template = extra_env_vars
+                tool._toolset_name = self.name
 
 
 class ToolsetYamlFromConfig(Toolset):

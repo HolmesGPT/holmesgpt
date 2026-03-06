@@ -698,12 +698,6 @@ class ToolCallingLLM:
                 session_approved_prefixes=session_approved_prefixes or [],
                 request_context=request_context,
             )
-
-            # Let the toolset enrich the context (e.g. YAML toolsets inject extra env vars)
-            toolset = self.tool_executor.get_toolset_for_tool(tool_name)
-            if toolset:
-                toolset.prepare_invoke_context(invoke_context)
-
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
             # Track runbook usage - if fetch_runbook is called successfully,
