@@ -8,7 +8,6 @@ exclude_docs: |
     _*
     snippets/
     README.md
-    cncf-self-assesment.md
     data-sources/permissions.md
 
 nav:
@@ -33,7 +32,6 @@ nav:
           - "Health Checks": operator/health-checks.md
           - "Scheduled Health Checks": operator/scheduled-health-checks.md
           - "Configuration": operator/configuration.md
-          - "Architecture": adr/operator-initial-architecture.md
           - "Development Guide": operator/development.md
     - "AI Providers":
           - "Overview": ai-providers/index.md
@@ -132,7 +130,6 @@ nav:
           - "Slash Commands": reference/slash-commands.md
           - "Troubleshooting": reference/troubleshooting.md
     - Community: community.md
-    - "CNCF Self Assessment": cncf-self-assesment.md
 
 theme:
     name: material

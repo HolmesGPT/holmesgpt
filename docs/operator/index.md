@@ -158,7 +158,7 @@ The Holmes Operator follows the Kubernetes Job/CronJob pattern:
 - **Operator**: Watches CRDs and orchestrates check execution
 - **Holmes API**: Executes the actual health check logic using LLM
 
-For detailed architecture information, see the [architecture documentation](../adr/operator-initial-architecture.md).
+The operator uses a distributed architecture: a lightweight kopf-based controller handles CRD orchestration and scheduling, while stateless Holmes API servers execute the actual checks.
 
 ## Need Help?
 

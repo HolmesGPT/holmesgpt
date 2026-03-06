@@ -353,4 +353,3 @@ See the main [CLAUDE.md](../../CLAUDE.md) for full contribution guidelines.
 ## Next Steps
 
 - [Configuration](configuration.md) - Understand operator configuration options
-- [Architecture Documentation](../adr/operator-initial-architecture.md) - Detailed design decisions
