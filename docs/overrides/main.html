@@ -14,8 +14,17 @@
       You're viewing the <strong>development</strong> version of the docs (unreleased changes).
       <a href="/latest/">
         <span class="twemoji">{% include ".icons/material/arrow-right.svg" %}</span>
-        <strong>Switch to the latest stable release</strong>
+        <strong>Switch to <span id="latest-version-label">the latest stable release</span></strong>
       </a>
     </div>
   </div>
+  <script>
+    fetch("/versions.json").then(function(r){ return r.json() }).then(function(versions){
+      var latest = versions.find(function(v){ return v.aliases.indexOf("latest") !== -1 });
+      if (latest) {
+        var el = document.getElementById("latest-version-label");
+        if (el) el.textContent = latest.version;
+      }
+    }).catch(function(){});
+  </script>
 {% endblock %}
