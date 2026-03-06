@@ -1634,6 +1634,21 @@ class TestRequestContextPassthrough:
         assert "request_context" in dumped
         assert dumped["request_context"]["headers"] == "***REDACTED***"
 
+    def test_tool_invoke_context_sanitizes_extra_env(self):
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="test-id",
+            tool_name="test-tool",
+            extra_env={"HOLMES_HEADER_AUTHORIZATION": "Bearer secret"},
+        )
+
+        dumped = context.model_dump()
+        assert "extra_env" in dumped
+        assert dumped["extra_env"]["HOLMES_HEADER_AUTHORIZATION"] == "***REDACTED***"
+
     def test_tool_invoke_context_str_hides_values(self):
         context = ToolInvokeContext.model_construct(
             tool_number=1,

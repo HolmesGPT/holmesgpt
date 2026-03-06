@@ -197,16 +197,20 @@ class ToolInvokeContext(BaseModel):
         """Override to exclude sensitive context from serialization"""
         data = super().model_dump(**kwargs)
         if data.get("request_context"):
-            # Sanitize: show keys but not values
             data["request_context"] = {
                 k: "***REDACTED***" for k in data["request_context"].keys()
+            }
+        if data.get("extra_env"):
+            data["extra_env"] = {
+                k: "***REDACTED***" for k in data["extra_env"].keys()
             }
         return data
 
     def __str__(self):
         """Override to prevent accidental context leakage in logs"""
         context_keys = list((self.request_context or {}).keys())
-        return f"ToolInvokeContext(tool_number={self.tool_number}, user_approved={self.user_approved}, context_keys={context_keys})"
+        env_keys = list((self.extra_env or {}).keys())
+        return f"ToolInvokeContext(tool_number={self.tool_number}, user_approved={self.user_approved}, context_keys={context_keys}, extra_env_keys={env_keys})"
 
 
 class Tool(ABC, BaseModel):
@@ -577,7 +581,10 @@ class YAMLTool(Tool, BaseModel):
         try:
             output, return_code = self.__execute_subprocess(temp_script_path, extra_env)
         finally:
-            subprocess.run(["rm", temp_script_path])
+            try:
+                os.remove(temp_script_path)
+            except FileNotFoundError:
+                pass
         return output, return_code, rendered_script
 
     def __execute_subprocess(
