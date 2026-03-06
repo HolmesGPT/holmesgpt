@@ -34,25 +34,26 @@ runs:
         # Add Poetry to PATH
         echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-        # Configure Poetry to not create virtualenvs (we use system Python in CI)
-        $HOME/.local/bin/poetry config virtualenvs.create false
+        # Use in-project virtualenv for efficient caching
+        $HOME/.local/bin/poetry config virtualenvs.in-project true
 
-    - name: Cache Python dependencies
+    - name: Cache Python virtualenv
       uses: actions/cache@v4
       with:
-        path: |
-          ~/.cache/pip
-          ~/.cache/pypoetry
-        # hashFiles is relative to GITHUB_WORKSPACE
-        key: poetry-deps-${{ inputs.python-version }}-${{ hashFiles(format('{0}/poetry.lock', inputs.working-directory)) }}
-        restore-keys: |
-          poetry-deps-${{ inputs.python-version }}-
+        path: ${{ inputs.working-directory }}/.venv
+        key: venv-${{ inputs.python-version }}-${{ hashFiles(format('{0}/poetry.lock', inputs.working-directory)) }}
 
     - name: Install project dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
         poetry install --no-root --with dev
+
+    - name: Add virtualenv to PATH
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
 
     - name: Install kubectl
       if: inputs.install-kubectl == 'true'
