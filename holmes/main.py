@@ -159,10 +159,7 @@ def _investigate_issue(
     config: Config,
 ) -> LLMResult:
     """Investigate an issue using the standard ask system prompt with investigation additions."""
-    investigation_additions = load_and_render_prompt(
-        "builtin://_investigation_additions.jinja2",
-        {"issue": issue},
-    )
+    investigation_additions = f"Provide a terse analysis of the following {issue.source_type} alert/issue and why it is firing."
     system_prompt = build_system_prompt(
         toolsets=ai.tool_executor.toolsets,
         runbooks=None,
