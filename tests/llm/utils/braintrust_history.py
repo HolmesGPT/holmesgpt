@@ -54,6 +54,8 @@ class BenchmarkMetrics:
     duration: Optional[float] = None
     cost: Optional[float] = None
     tool_call_count: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
 
 
 
@@ -219,6 +221,7 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
     """Extract metrics from an eval span."""
     metadata = span.get("metadata") or {}
     scores = span.get("scores") or {}
+    metrics = span.get("metrics") or {}
 
     test_id = metadata.get("eval_id") or metadata.get("test_id", "")
     model = metadata.get("model", "")
@@ -231,13 +234,22 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
     correctness = scores.get("correctness")
     passed = int(correctness) == 1 if correctness is not None else False
 
+    # Cost from metrics (logged by Braintrust SDK) or metadata (logged by us)
+    cost = metrics.get("cost") or metadata.get("cost")
+
+    # Token data from metadata (logged by us via eval span)
+    total_tokens = metadata.get("total_tokens")
+    cached_tokens = metadata.get("cached_tokens")
+
     return BenchmarkMetrics(
         test_id=test_id,
         model=model,
         passed=passed,
         duration=float(duration) if duration is not None else None,
-        cost=None,  # Cost is in metrics.cost but not always present
+        cost=float(cost) if cost is not None else None,
         tool_call_count=int(tool_calls) if tool_calls is not None else None,
+        total_tokens=int(total_tokens) if total_tokens is not None else None,
+        cached_tokens=int(cached_tokens) if cached_tokens is not None else None,
     )
 
 

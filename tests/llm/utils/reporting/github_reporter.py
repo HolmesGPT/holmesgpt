@@ -24,53 +24,142 @@ def _fmt_tokens(value: Optional[int]) -> str:
     return "—"
 
 
-def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
-    """Format a diff percentage as an indicator string, bold if >25%."""
-    if diff is None or sample_count < 1:
-        return ""
+def _format_diff_pct(diff: Optional[float]) -> str:
+    """Format a diff percentage with arrow indicator, bold if >25%."""
+    if diff is None:
+        return "—"
     if abs(diff) < 10:
-        return " ±0%"
+        return "±0%"
     bold = abs(diff) > 25
     arrow = "↑" if diff > 0 else "↓"
     indicator = f"{arrow}{abs(diff):.0f}%"
-    return f" **{indicator}**" if bold else f" {indicator}"
+    return f"**{indicator}**" if bold else indicator
 
 
-def _format_time_with_comparison(
-    exec_time: Optional[float],
-    comparison: Optional[HistoricalComparison],
+def _calc_diff_pct(current: Optional[float], baseline: Optional[float]) -> Optional[float]:
+    """Calculate percentage difference: positive = current is higher."""
+    if not current or not baseline or baseline == 0:
+        return None
+    return (current - baseline) / baseline * 100
+
+
+def _generate_comparison_tables(
+    sorted_results: List[dict],
+    comparison_map: Dict[str, HistoricalComparison],
+    benchmark: Dict[str, BenchmarkMetrics],
 ) -> str:
-    """Format execution time with optional historical comparison indicator."""
-    if not exec_time or exec_time <= 0:
-        return "—"
-    base = f"{exec_time:.1f}s"
-    if comparison and comparison.duration_diff_pct is not None:
-        return base + _format_diff_indicator(
-            comparison.duration_diff_pct, comparison.sample_count
-        )
-    return base
+    """Generate separate comparison tables for time, cost, tokens, and cached tokens.
+
+    Each table has columns: Test case | This branch | master | Diff
+    """
+    lines: List[str] = []
+
+    # Build rows with data for all metrics
+    rows: List[dict] = []
+    for result in sorted_results:
+        test_name = result.get("test_case_name", "")
+        model = result.get("model", "")
+        key = f"{test_name}:{model}"
+        comparison = comparison_map.get(key)
+        baseline = benchmark.get(key)
+
+        rows.append({
+            "name": f"{test_name} ({model})" if model else test_name,
+            "current_time": result.get("holmes_duration"),
+            "baseline_time": baseline.duration if baseline else None,
+            "current_cost": result.get("cost"),
+            "baseline_cost": baseline.cost if baseline else None,
+            "current_total_tokens": result.get("total_tokens", 0) or 0,
+            "baseline_total_tokens": baseline.total_tokens if baseline else None,
+            "current_cached_tokens": result.get("cached_tokens"),
+            "baseline_cached_tokens": baseline.cached_tokens if baseline else None,
+        })
+
+    # --- Time comparison table ---
+    has_time_data = any(r["baseline_time"] is not None for r in rows)
+    if has_time_data:
+        lines.append("\n**Time comparison (seconds):**\n")
+        lines.append("| Test case | This branch | master | Diff |")
+        lines.append("| --- | --- | --- | --- |")
+        for r in rows:
+            cur = f"{r['current_time']:.1f}s" if r["current_time"] else "—"
+            base = f"{r['baseline_time']:.1f}s" if r["baseline_time"] else "—"
+            diff = _format_diff_pct(_calc_diff_pct(r["current_time"], r["baseline_time"]))
+            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
+        lines.append("")
+
+    # --- Cost comparison table ---
+    has_cost_data = any(r["baseline_cost"] is not None for r in rows)
+    if has_cost_data:
+        lines.append("\n**Cost comparison:**\n")
+        lines.append("| Test case | This branch | master | Diff |")
+        lines.append("| --- | --- | --- | --- |")
+        for r in rows:
+            cur = f"${r['current_cost']:.4f}" if r["current_cost"] else "—"
+            base = f"${r['baseline_cost']:.4f}" if r["baseline_cost"] else "—"
+            diff = _format_diff_pct(_calc_diff_pct(r["current_cost"], r["baseline_cost"]))
+            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
+        lines.append("")
+
+    # --- Total tokens comparison table ---
+    has_token_data = any(r["baseline_total_tokens"] is not None for r in rows)
+    if has_token_data:
+        lines.append("\n**Total tokens comparison:**\n")
+        lines.append("| Test case | This branch | master | Diff |")
+        lines.append("| --- | --- | --- | --- |")
+        for r in rows:
+            cur_val = r["current_total_tokens"]
+            cur = f"{cur_val:,}" if cur_val else "—"
+            base_val = r["baseline_total_tokens"]
+            base = f"{base_val:,}" if base_val else "—"
+            diff = _format_diff_pct(
+                _calc_diff_pct(
+                    float(cur_val) if cur_val else None,
+                    float(base_val) if base_val else None,
+                )
+            )
+            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
+        lines.append("")
+
+    # --- Cached tokens comparison table ---
+    has_cached_data = any(r["baseline_cached_tokens"] is not None for r in rows)
+    if has_cached_data:
+        lines.append("\n**Cached tokens comparison:**\n")
+        lines.append("| Test case | This branch | master | Diff |")
+        lines.append("| --- | --- | --- | --- |")
+        for r in rows:
+            cur_val = r["current_cached_tokens"]
+            cur = f"{cur_val:,}" if cur_val is not None else "—"
+            base_val = r["baseline_cached_tokens"]
+            base = f"{base_val:,}" if base_val is not None else "—"
+            diff = _format_diff_pct(
+                _calc_diff_pct(
+                    float(cur_val) if cur_val is not None else None,
+                    float(base_val) if base_val is not None else None,
+                )
+            )
+            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
+        lines.append("")
+
+    if not lines:
+        lines.append("\n_No benchmark data available for comparison._\n")
+
+    return "\n".join(lines)
 
 
-def _format_cost_with_comparison(
-    cost: Optional[float],
-    comparison: Optional[HistoricalComparison],
+def _generate_historical_details_section(
+    details: HistoricalComparisonDetails,
+    sorted_results: Optional[List[dict]] = None,
+    comparison_map: Optional[Dict[str, HistoricalComparison]] = None,
+    benchmark: Optional[Dict[str, BenchmarkMetrics]] = None,
 ) -> str:
-    """Format cost with optional historical comparison indicator."""
-    if not cost or cost <= 0:
-        return "—"
-    base = f"${cost:.4f}"
-    if comparison and comparison.cost_diff_pct is not None:
-        return base + _format_diff_indicator(
-            comparison.cost_diff_pct, comparison.sample_count
-        )
-    return base
-
-
-def _generate_historical_details_section(details: HistoricalComparisonDetails) -> str:
-    """Generate a collapsible details section for historical comparison transparency.
+    """Generate a collapsible details section with benchmark comparison tables.
 
     Args:
         details: HistoricalComparisonDetails with experiment info
+        sorted_results: Current test results for comparison tables
+        comparison_map: Map of test:model to comparison data
+        benchmark: Map of test:model to benchmark metrics
 
     Returns:
         Markdown string with collapsible details section
@@ -97,6 +186,12 @@ def _generate_historical_details_section(details: HistoricalComparisonDetails) -
             created_info = f" (created: {exp.created[:10]})" if exp.created else ""
             lines.append(f"- [{exp.name}]({exp_url}){created_info}")
         lines.append("")
+
+    # Comparison tables
+    if sorted_results and comparison_map and benchmark:
+        lines.append(
+            _generate_comparison_tables(sorted_results, comparison_map, benchmark)
+        )
 
     # Errors
     if details.errors:
@@ -263,13 +358,9 @@ def generate_markdown_report(
 
         status = TestStatus(result)
 
-        # Get historical comparison for this test/model
-        comparison_key = f"{result.get('test_case_name', '')}:{model}"
-        comparison = comparison_map.get(comparison_key)
-
-        # Format time with historical comparison
+        # Format time (plain, no inline comparison)
         exec_time = result.get("holmes_duration")
-        time_str = _format_time_with_comparison(exec_time, comparison)
+        time_str = f"{exec_time:.1f}s" if exec_time and exec_time > 0 else "—"
         if exec_time and exec_time > 0:
             total_time += exec_time
             time_count += 1
@@ -292,9 +383,9 @@ def generate_markdown_report(
         else:
             tools_str = "—"
 
-        # Format cost with historical comparison
+        # Format cost (plain, no inline comparison)
         cost = result.get("cost", 0)
-        cost_str = _format_cost_with_comparison(cost, comparison)
+        cost_str = f"${cost:.4f}" if cost and cost > 0 else "—"
         if cost and cost > 0:
             total_cost += cost
 
@@ -359,16 +450,19 @@ def generate_markdown_report(
     markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{total_completion_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{max_completion_max_str}** | **{total_compactions_str}** |\n"
 
     # Add footer explaining benchmark comparison status
-    if benchmark and comparison_map:
-        markdown += "\n_Time/Cost columns show % change vs weekly benchmark (↑slower/costlier, ↓faster/cheaper). Changes under 10% shown as ±0%._\n"
-    elif historical_details and historical_details.status:
+    if not benchmark and historical_details and historical_details.status:
         markdown += (
             f"\n_Benchmark comparison unavailable: {historical_details.status}_\n"
         )
 
-    # Add collapsible details section for historical comparison transparency
+    # Add collapsible details section with comparison tables
     if historical_details:
-        markdown += _generate_historical_details_section(historical_details)
+        markdown += _generate_historical_details_section(
+            historical_details,
+            sorted_results=sorted_results if comparison_map else None,
+            comparison_map=comparison_map or None,
+            benchmark=benchmark or None,
+        )
 
     return (
         markdown,
