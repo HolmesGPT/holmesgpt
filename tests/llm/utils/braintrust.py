@@ -279,6 +279,16 @@ def log_to_braintrust(
         metadata["tools_used"] = list({tc.tool_name for tc in result.tool_calls})
         # Note: holmes_duration is logged separately directly to eval_span in ask_holmes()
 
+    # Add token and cost data for benchmark comparison
+    if result and hasattr(result, "total_tokens"):
+        metadata["total_tokens"] = result.total_tokens
+        metadata["prompt_tokens"] = result.prompt_tokens
+        metadata["completion_tokens"] = result.completion_tokens
+        if result.cached_tokens is not None:
+            metadata["cached_tokens"] = result.cached_tokens
+    if result and hasattr(result, "total_cost") and result.total_cost:
+        metadata["cost"] = result.total_cost
+
     # Add compaction-specific metrics if available
     if isinstance(result, CompactionResult):
         metadata["test_type"] = "compaction"
