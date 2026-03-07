@@ -7,7 +7,6 @@ total: one to find the benchmark experiment, and 1-2 to paginate its eval spans.
 
 import logging
 import os
-import re
 import traceback
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -183,63 +182,31 @@ def _find_latest_benchmark_experiment(
 ) -> Optional[Dict[str, Any]]:
     """Find the most recent ci-benchmark root experiment.
 
-    Uses GitHub Actions API to get the latest benchmark run ID, then does an
-    exact name lookup in Braintrust (2 API calls total). Falls back to paginated
-    scan if GitHub API is unavailable.
+    Queries GitHub Actions API for the latest successful benchmark workflow run ID,
+    then does an exact name lookup in Braintrust via experiment_name filter.
+    Total: 1 GitHub API call + 1 Braintrust API call.
     """
-    # Fast path: get run ID from GitHub, then exact Braintrust lookup
     run_id = _find_latest_benchmark_run_id()
-    if run_id:
-        experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
-        result = _make_api_request(
-            "/experiment",
-            params={
-                "project_id": project_id,
-                "experiment_name": experiment_name,
-            },
-        )
-        if result:
-            objects = result.get("objects", [])
-            if objects:
-                logging.info(f"Found benchmark experiment via GitHub API: {experiment_name}")
-                return objects[0]
-        logging.warning(
-            f"Benchmark experiment '{experiment_name}' not found in Braintrust, falling back to scan"
-        )
+    if not run_id:
+        return None
 
-    # Fallback: paginate through experiments (slow but reliable)
-    root_pattern = re.compile(r"^ci-benchmark-\d+$")
-    cursor: Optional[str] = None
-    for _ in range(20):  # Safety limit: scan up to 2000 experiments
-        params: Dict[str, Any] = {
+    experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
+    result = _make_api_request(
+        "/experiment",
+        params={
             "project_id": project_id,
-            "limit": 100,
-        }
-        if cursor:
-            params["starting_after"] = cursor
+            "experiment_name": experiment_name,
+        },
+    )
+    if not result:
+        return None
 
-        result = _make_api_request("/experiment", params=params)
-        if not result or "objects" not in result:
-            return None
+    objects = result.get("objects", [])
+    if objects:
+        logging.info(f"Found benchmark experiment: {experiment_name}")
+        return objects[0]
 
-        objects = result.get("objects", [])
-        if not objects:
-            return None
-
-        for exp in objects:
-            name = exp.get("name", "")
-            if root_pattern.match(name):
-                return exp
-
-        for exp in objects:
-            name = exp.get("name", "")
-            if name.startswith(BENCHMARK_EXPERIMENT_PREFIX):
-                return exp
-
-        cursor = objects[-1].get("id")
-        if not cursor:
-            break
-
+    logging.warning(f"Benchmark experiment '{experiment_name}' not found in Braintrust")
     return None
 
 
