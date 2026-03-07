@@ -4,7 +4,6 @@ import logging
 import re
 import textwrap
 import threading
-import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
@@ -556,9 +555,7 @@ class ToolCallingLLM:
                 )
 
             if not tools_to_call:
-                t_tc = time.monotonic()
                 tokens = self.llm.count_tokens(messages=messages, tools=tools)
-                logging.debug(f"messages_call final count_tokens: {(time.monotonic() - t_tc) * 1000:.1f}ms")
 
                 add_token_count_to_metadata(
                     tokens=tokens,
@@ -637,9 +634,7 @@ class ToolCallingLLM:
                     tool_calls.append(tool_result_response_dict)
                     all_tool_calls.append(tool_result_response_dict)
                     messages.append(tool_call_result.as_tool_call_message())
-                    t_tc = time.monotonic()
                     tokens = self.llm.count_tokens(messages=messages, tools=tools)
-                    logging.debug(f"messages_call per-tool count_tokens: {(time.monotonic() - t_tc) * 1000:.1f}ms ({len(messages)} msgs)")
 
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
@@ -1097,9 +1092,7 @@ class ToolCallingLLM:
                 )
             )
 
-            t_tc = time.monotonic()
             tokens = self.llm.count_tokens(messages=messages, tools=tools)
-            logging.debug(f"call_stream count_tokens: {(time.monotonic() - t_tc) * 1000:.1f}ms ({len(messages)} msgs)")
             add_token_count_to_metadata(
                 tokens=tokens,
                 full_llm_response=full_response,
@@ -1207,6 +1200,18 @@ class ToolCallingLLM:
                             event=StreamEvents.TOOL_RESULT,
                             data=tool_call_result.as_streaming_tool_result_response(),
                         )
+
+                # Emit updated token counts after tool results
+                tokens = self.llm.count_tokens(messages=messages, tools=tools)
+                add_token_count_to_metadata(
+                    tokens=tokens,
+                    full_llm_response=full_response,
+                    max_context_size=limit_result.max_context_size,
+                    maximum_output_token=limit_result.maximum_output_token,
+                    metadata=metadata,
+                )
+                metadata["costs"] = costs.model_dump()
+                yield build_stream_event_token_count(metadata=metadata)
 
                 # If we have approval required tools, end the stream with pending approvals
                 if pending_approvals:
