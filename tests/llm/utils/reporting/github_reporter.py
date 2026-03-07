@@ -144,6 +144,20 @@ def _generate_comparison_tables(
     if not lines:
         lines.append("\n_No benchmark data available for comparison._\n")
 
+    # Note missing tables
+    missing = []
+    if not has_cost_data:
+        missing.append("cost")
+    if not has_token_data:
+        missing.append("total tokens")
+    if not has_cached_data:
+        missing.append("cached tokens")
+    if missing:
+        lines.append(
+            f"_Benchmark has no {', '.join(missing)} data. "
+            "Will appear after the next weekly benchmark run._\n"
+        )
+
     return "\n".join(lines)
 
 
