@@ -558,6 +558,101 @@ def check_llm_api_with_test_call():
     return True, None
 
 
+def _warm_prompt_cache() -> None:
+    """Prime Anthropic's prompt cache with default tools + system prompt.
+
+    Runs a single LLM call (max_tokens=1) with the full default toolset and
+    system prompt so that the cache_write completes before parallel eval workers
+    start.  Without this, all workers start simultaneously and all cache-miss on
+    the system prompt (~9k tokens), wasting tokens and money.
+
+    Uses create_eval_llm() to resolve the model through the model registry,
+    ensuring the same api_key/api_base/api_version as real eval tests (critical
+    for CI where MODEL_LIST_FILE_LOCATION configures Bedrock credentials).
+
+    Uses a real test fixture folder (one without custom toolsets.yaml) so the
+    tools match what most eval tests load.
+
+    The warmup is best-effort – failures are logged but never block the test run.
+    """
+    import litellm
+
+    from holmes.core.llm import DefaultLLM
+    from holmes.core.prompt import build_initial_ask_messages
+    from holmes.core.tools_utils.tool_executor import ToolExecutor
+    from holmes.plugins.runbooks import load_runbook_catalog
+    from tests.llm.utils.test_case_utils import create_eval_llm
+    from tests.llm.utils.test_toolset import TestToolsetManager
+
+    try:
+        models = [m.strip() for m in MODEL.split(",") if m.strip()]
+        model = models[0] if models else DEFAULT_MODEL
+        print(f"  🔥 Warmup: model={model}")
+
+        # Resolve model through model registry to get proper auth params.
+        # In CI, MODEL_LIST_FILE_LOCATION provides api_key/api_base for Bedrock.
+        # Without this, the warmup hits the wrong endpoint and the cache is
+        # never primed for the actual provider the eval tests use.
+        llm = create_eval_llm(model)
+        litellm_model = llm.get_litellm_corrected_name_for_robusta_ai()
+        print(f"  🔥 Warmup: resolved model={litellm_model}, api_base={llm.api_base}")
+
+        # Use a real test fixture folder so we load the same default toolsets
+        # as most eval tests.  Folder 43 has no custom toolsets.yaml and is
+        # always present.
+        fixture_folder = os.path.join(
+            os.path.dirname(__file__),
+            "fixtures",
+            "test_ask_holmes",
+            "43_current_datetime_from_prompt",
+        )
+        toolset_manager = TestToolsetManager(
+            test_case_folder=fixture_folder,
+            allow_toolset_failures=True,
+        )
+        tool_executor = ToolExecutor(toolset_manager.toolsets)
+        runbooks = load_runbook_catalog()
+
+        messages = build_initial_ask_messages(
+            initial_user_prompt="hello",
+            file_paths=None,
+            tool_executor=tool_executor,
+            runbooks=runbooks,
+        )
+        tools = tool_executor.get_all_tools_openai_format(target_model=model)
+        print(f"  🔥 Warmup: {len(tools)} tools, {len(messages)} messages, system_prompt_len={len(messages[0]['content']) if messages else 0}")
+
+        # Add cache_control to last tool (same as DefaultLLM.completion)
+        if tools:
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
+
+        # Call litellm directly (DefaultLLM.completion doesn't accept max_tokens)
+        # but use the resolved LLM's auth params so we hit the same endpoint.
+        response = litellm.completion(
+            model=litellm_model,
+            api_key=llm.api_key,
+            base_url=llm.api_base,
+            api_version=llm.api_version,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=1,
+            cache_control_injection_points=DefaultLLM._build_cache_control_injection_points(),
+        )
+        # Report cache statistics from the warmup call itself
+        usage = getattr(response, "usage", None)
+        if usage:
+            cache_creation = getattr(usage, "cache_creation_input_tokens", 0) or 0
+            cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            print(f"  ✅ Warmup done: prompt_tokens={prompt_tokens}, cache_creation={cache_creation}, cache_read={cache_read}")
+        else:
+            print("  ✅ Warmup done (no usage data in response)")
+    except Exception as exc:
+        print(f"  ❌ Warmup FAILED: {type(exc).__name__}: {exc}")
+        logging.warning("Prompt cache warmup failed (non-fatal): %s", exc, exc_info=True)
+
+
 def pytest_collection_modifyitems(config, items):
     """
     Hook to modify test collection. Runs BEFORE any tests start.
@@ -582,6 +677,11 @@ def pytest_collection_modifyitems(config, items):
         # Store the result in config to avoid re-checking later
         config._llm_api_available = api_available
         config._llm_api_error_msg = error_msg
+
+        if api_available:
+            # Prime Anthropic prompt cache before parallel workers start.
+            # This ensures the tools + system prompt are cached for all workers.
+            _warm_prompt_cache()
 
         if not api_available:
             # Print skip message immediately

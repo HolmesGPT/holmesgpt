@@ -382,6 +382,14 @@ class DefaultLLM(LLM):
         if tools and len(tools) > 0 and tool_choice == "auto":
             tools_args["tools"] = tools
             tools_args["tool_choice"] = tool_choice  # type: ignore
+            # Add cache_control to the last tool definition so Anthropic can cache
+            # the tools prefix independently of system/messages. Without this, different
+            # prompts sharing the same toolset (e.g. scheduled reports) get no cache hits
+            # for the tool definitions. Anthropic's cache hierarchy: tools → system → messages.
+            # Uses default 5min TTL (refreshed on each cache hit). Extended TTL (1h) is not
+            # used because litellm doesn't reliably strip TTL from tools/system on Bedrock
+            # for non-Claude-4.5 models, causing 400 errors.
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
 
         if THINKING:
             self.args.setdefault("thinking", json.loads(THINKING))
@@ -423,12 +431,7 @@ class DefaultLLM(LLM):
             timeout=LLM_REQUEST_TIMEOUT,
             **tools_args,
             **self.args,
-            cache_control_injection_points=[
-                {
-                    "location": "message",
-                    "index": -1,  # -1 targets the last message.
-                }
-            ],
+            cache_control_injection_points=self._build_cache_control_injection_points(),
         )
 
         if isinstance(result, ModelResponse):
@@ -437,6 +440,27 @@ class DefaultLLM(LLM):
             return result
         else:
             raise Exception(f"Unexpected type returned by the LLM {type(result)}")
+
+    @staticmethod
+    def _build_cache_control_injection_points() -> list:
+        """Build cache control injection points for Anthropic prompt caching.
+
+        Sets cache breakpoints on the system message and the last message.
+        The system prompt + tools prefix is stable across requests and benefits
+        from caching (default 5min TTL, refreshed on each hit).
+        The last-message breakpoint caches the full conversation prefix for
+        multi-turn conversations.
+        """
+        return [
+            {
+                "location": "message",
+                "role": "system",
+            },
+            {
+                "location": "message",
+                "index": -1,
+            },
+        ]
 
     def get_maximum_output_token(self) -> int:
         max_output_tokens = floor(min(64000, self.get_context_window_size() / 5))
