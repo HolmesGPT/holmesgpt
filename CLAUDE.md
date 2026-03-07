@@ -495,6 +495,10 @@ When asked about content from the HolmesGPT documentation website (https://holme
 - Toolset documentation: `docs/data-sources/builtin-toolsets/`
 - API reference: `docs/reference/`
 
+## MkDocs Navigation
+
+The docs site uses the `awesome-nav` plugin. Navigation is controlled by `.nav.yml` files in each `docs/` subdirectory, **not** by the `nav:` section in `mkdocs.yml`. When adding a new docs page, you must add it to the `.nav.yml` file in the corresponding directory (e.g., `docs/reference/.nav.yml` for reference pages).
+
 ## MkDocs Formatting Notes
 
 When writing documentation in the `docs/` directory:
