@@ -39,7 +39,6 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           poetry run mike deploy --push --update-aliases $VERSION latest
-          poetry run mike set-default --push latest
       # Deploy dev docs on master push (set as default so users see latest content)
       - name: Deploy dev docs (master)
         if: github.ref == 'refs/heads/master'
