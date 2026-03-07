@@ -417,13 +417,24 @@ class DefaultLLM(LLM):
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
+        # Strip internal fields (e.g. token_count cache) so provider APIs only
+        # receive valid message schema fields.  Shallow-copy only when needed to
+        # avoid mutating the caller's dicts (which would invalidate the cache).
+        _INTERNAL_FIELDS = {"token_count"}
+        sanitized_messages: List[Dict[str, Any]] = [
+            {k: v for k, v in m.items() if k not in _INTERNAL_FIELDS}
+            if m.keys() & _INTERNAL_FIELDS
+            else m
+            for m in messages
+        ]
+
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
             base_url=self.api_base,
             api_version=self.api_version,
-            messages=messages,
+            messages=sanitized_messages,
             response_format=response_format,
             drop_params=drop_params,
             allowed_openai_params=allowed_openai_params,
