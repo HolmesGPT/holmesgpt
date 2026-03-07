@@ -214,11 +214,11 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - **NEVER run `pre-commit`, `ruff`, or `mypy` unless the user explicitly asks you to**. These tools are triggered by commit hooks which are not installed on all machines, and running them causes widespread formatting/type changes to files unrelated to your task. Only lint/format files you are actively editing, and only if asked.
 
 **Documentation Examples**:
-- **ALWAYS use Anthropic Claude models** in code examples and documentation:
+- **Primary examples should use the latest Anthropic Claude models**:
   - Recommended: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101`
-  - Use the latest Claude 4.5 family models (Sonnet or Opus)
+  - Use the latest Claude 4.5 family models (Sonnet or Opus) as the default/primary examples
+- You may include other providers (OpenAI, Gemini, etc.) where it would be useful for users, such as in model listing sections or provider-specific documentation
 - Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
-- Do NOT use GPT-4o or Gemini models in documentation examples
 
 **Testing Requirements**:
 - All new features require unit tests

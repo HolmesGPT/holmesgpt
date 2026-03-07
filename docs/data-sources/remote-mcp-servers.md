@@ -350,11 +350,11 @@ The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically appe
 
 **Dynamic Headers with Request Context**
 
-MCP servers can use dynamic headers populated from the incoming HTTP request. This is useful for passing per-request authentication tokens.
+MCP servers can forward HTTP headers from the incoming request to the MCP backend. Use `extra_headers` with Jinja2 templates referencing `request_context.headers`. Header lookups are case-insensitive. You can also use environment variables (`{{ env.MY_VAR }}`) or combine them (`Bearer {{ request_context.headers['token'] }}`).
 
 === "Holmes CLI"
 
-    Not applicable - request context is only available when running Holmes as a server.
+    Not applicable — request context is only available when running Holmes as a server.
 
 === "Holmes Helm Chart"
 
@@ -385,16 +385,7 @@ MCP servers can use dynamic headers populated from the incoming HTTP request. Th
           llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
     ```
 
-When making requests to HolmesGPT, include the required header:
-
-```bash
-curl -X POST http://holmes-server/api/investigate \
-  -H "X-Auth-Token: your-auth-token-here" \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Check system status"}'
-```
-
-Header lookups are case-insensitive. You can also use environment variables (`{{ env.MY_VAR }}`) or combine them (`Bearer {{ request_context.headers['token'] }}`).
+For full details on template syntax, blocked headers, precedence rules, and examples for other toolset types, see [HTTP Header Propagation](header-propagation.md).
 
 ## Configuration Format Migration
 

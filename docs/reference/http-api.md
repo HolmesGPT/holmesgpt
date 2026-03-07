@@ -130,8 +130,8 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 
 **Example without Structured Output:**
 
-```bash
 <!-- test: status=200, has_fields=analysis|conversation_history, id=chat_basic -->
+```bash
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -362,8 +362,8 @@ data: {"sections": {"Alert Explanation": ...}}
 - `tools` (list, optional): Tools used/results
 
 **Example**
-```bash
 <!-- test: status=200, has_fields=analysis|conversation_history, id=issue_chat_basic -->
+```bash
 curl -X POST http://<HOLMES-URL>/api/issue_chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -399,8 +399,8 @@ curl -X POST http://<HOLMES-URL>/api/issue_chat \
 **Description:** Returns a list of available AI models that can be used for investigations and chat.
 
 **Example**
-```bash
 <!-- test: status=200, has_fields=model_name, id=model_list -->
+```bash
 curl http://<HOLMES-URL>/api/model
 ```
 

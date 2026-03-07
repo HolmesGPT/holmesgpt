@@ -30,6 +30,7 @@ from holmes.common.env_vars import (
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT,
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS,
 )
+from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
@@ -669,20 +670,27 @@ class LLMModelRegistry:
 def get_llm_usage(
     llm_response: Union[ModelResponse, CustomStreamWrapper, TextCompletionResponse],
 ) -> dict:
-    usage: dict = {}
-    if (
-        (
-            isinstance(llm_response, ModelResponse)
-            or isinstance(llm_response, TextCompletionResponse)
-        )
-        and hasattr(llm_response, "usage")
-        and llm_response.usage
-    ):  # type: ignore
-        usage["prompt_tokens"] = llm_response.usage.prompt_tokens  # type: ignore
-        usage["completion_tokens"] = llm_response.usage.completion_tokens  # type: ignore
-        usage["total_tokens"] = llm_response.usage.total_tokens  # type: ignore
-    elif isinstance(llm_response, CustomStreamWrapper):
+    if isinstance(llm_response, CustomStreamWrapper):
         complete_response = litellm.stream_chunk_builder(chunks=llm_response)  # type: ignore
         if complete_response:
             return get_llm_usage(complete_response)
+        return {}
+
+    if not (
+        isinstance(llm_response, (ModelResponse, TextCompletionResponse))
+        and hasattr(llm_response, "usage")
+        and llm_response.usage
+    ):
+        return {}
+
+    raw = extract_usage_from_response(llm_response)  # type: ignore[arg-type]
+    usage: dict = {
+        "prompt_tokens": raw.prompt_tokens,
+        "completion_tokens": raw.completion_tokens,
+        "total_tokens": raw.total_tokens,
+    }
+    if raw.cached_tokens is not None:
+        usage["cached_tokens"] = raw.cached_tokens
+    if raw.reasoning_tokens:
+        usage["reasoning_tokens"] = raw.reasoning_tokens
     return usage
