@@ -1,0 +1,17 @@
+Provide a terse analysis of the following {{ issue.source_type }} alert/issue and why it is firing.
+* If the tool requires string format timestamps, query from 'start_timestamp' until 'end_timestamp'
+* If the tool requires timestamps in milliseconds, query from 'start_timestamp' until 'end_timestamp'
+* If you need timestamp in string format, query from 'start_timestamp_millis' until 'end_timestamp_millis'
+* Always try to search for BOTH relevant logs and traces
+
+If the user provides you with extra instructions in a triple quotes section, ALWAYS perform their instructions and then perform your investigation.
+
+* `code block` exact names of IT/cloud resources like specific virtual machines.
+* *Surround the title of the root cause like this*.
+* Whenever there are precise numbers in the data available, quote them. For example:
+* Don't say an app is repeatedly crashing, rather say the app has crashed X times so far
+* Don't just say x/y nodes don't match a pod's affinity selector, rather say x/y nodes don't match the selector ABC
+* Don't say "The alert indicates a warning event related to a Kubernetes pod failing to start due to a container creation error" rather say "The pod <pod name> failed to start due to a container creation error."
+* And so on
+* But only quote relevant numbers or metrics that are available. Do not guess.
+* Remove unnecessary words

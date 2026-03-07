@@ -44,7 +44,6 @@ from holmes.plugins.destinations import DestinationType
 from holmes.plugins.interfaces import Issue
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
-from holmes.utils.console.consts import system_prompt_help
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
@@ -157,17 +156,20 @@ def parse_documents(documents: Optional[str]) -> List[ResourceInstructionDocumen
 def _investigate_issue(
     ai: ToolCallingLLM,
     issue: Issue,
-    system_prompt_template: str,
     config: Config,
 ) -> LLMResult:
-    """Investigate an issue by rendering a prompt template and calling the LLM."""
-    system_prompt = load_and_render_prompt(
-        system_prompt_template,
-        {
-            "issue": issue,
-            "toolsets": ai.tool_executor.toolsets,
-            "cluster_name": config.cluster_name,
-        },
+    """Investigate an issue using the standard ask system prompt with investigation additions."""
+    investigation_additions = load_and_render_prompt(
+        "builtin://_investigation_additions.jinja2",
+        {"issue": issue},
+    )
+    system_prompt = build_system_prompt(
+        toolsets=ai.tool_executor.toolsets,
+        runbooks=None,
+        system_prompt_additions=investigation_additions,
+        cluster_name=config.cluster_name,
+        ask_user_enabled=False,
+        prompt_component_overrides={},
     )
     user_prompt = generate_user_prompt(
         f"\n #This is context from the issue:\n{issue.raw}",
@@ -443,9 +445,6 @@ def alertmanager(
     slack_token: Optional[str] = opt_slack_token,
     slack_channel: Optional[str] = opt_slack_channel,
     json_output_file: Optional[str] = opt_json_output_file,
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a Prometheus/Alertmanager alert
@@ -498,7 +497,7 @@ def alertmanager(
             console.print(
                 f"[bold yellow]Analyzing issue {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
-            result = _investigate_issue(ai, issue, system_prompt, config)  # type: ignore
+            result = _investigate_issue(ai, issue, config)
             results.append({"issue": issue.model_dump(), "result": result.model_dump()})
             handle_result(result, console, destination, config, issue, False, True)  # type: ignore
 
@@ -570,10 +569,6 @@ def jira(
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     json_output_file: Optional[str] = opt_json_output_file,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a Jira ticket
@@ -609,7 +604,7 @@ def jira(
             console.print(
                 f"[bold yellow]Analyzing Jira ticket {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
-            result = _investigate_issue(ai, issue, system_prompt, config)  # type: ignore
+            result = _investigate_issue(ai, issue, config)
 
             console.print(Rule())
             console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
@@ -763,10 +758,6 @@ def github(
 
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a GitHub issue
@@ -802,7 +793,7 @@ def github(
                 f"[bold yellow]Analyzing GitHub issue {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
 
-            result = _investigate_issue(ai, issue, system_prompt, config)  # type: ignore
+            result = _investigate_issue(ai, issue, config)
 
             console.print(Rule())
             console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
@@ -843,10 +834,6 @@ def pagerduty(
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     json_output_file: Optional[str] = opt_json_output_file,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a PagerDuty incident
@@ -882,7 +869,7 @@ def pagerduty(
                 f"[bold yellow]Analyzing PagerDuty incident {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
 
-            result = _investigate_issue(ai, issue, system_prompt, config)  # type: ignore
+            result = _investigate_issue(ai, issue, config)
 
             console.print(Rule())
             console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
@@ -922,10 +909,6 @@ def opsgenie(
 
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
     documents: Optional[str] = opt_documents,
 ):
     """
@@ -959,7 +942,7 @@ def opsgenie(
             console.print(
                 f"[bold yellow]Analyzing OpsGenie alert {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
-            result = _investigate_issue(ai, issue, system_prompt, config)  # type: ignore
+            result = _investigate_issue(ai, issue, config)
 
             console.print(Rule())
             console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
