@@ -27,23 +27,6 @@
   text-decoration: underline;
 }
 
-/* Version-aware banner (dev / stable / outdated) — neutral dark style */
-.md-banner--version {
-  background: #1a1a1a;
-  color: #e0e0e0;
-  font-size: 0.85rem;
-  padding: 0.4rem 1rem;
-}
-
-.md-banner--version a {
-  color: #00d4aa;
-  font-weight: 600;
-}
-
-.md-banner--version a:hover {
-  color: #00bfa5;
-  text-decoration: underline;
-}
 
 /* Community meetup countdown in header */
 .md-header__meetup {
