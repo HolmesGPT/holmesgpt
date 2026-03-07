@@ -661,7 +661,12 @@ jobs:
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
 
-          PYTEST_ARGS=(--collect-only -q tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -m "$EVAL_MARKER_EXPR")
+          # Collect test files dynamically (test_investigate.py was removed)
+          TEST_FILES=()
+          for f in tests/llm/test_ask_holmes.py tests/llm/test_holmes_checks.py; do
+            [[ -f "$f" ]] && TEST_FILES+=("$f")
+          done
+          PYTEST_ARGS=(--collect-only -q "${TEST_FILES[@]}" -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
 
           # Collect test names
@@ -849,7 +854,12 @@ jobs:
 
           START_TIME=$(date +%s)
 
-          PYTEST_ARGS=(--no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m "$EVAL_MARKER_EXPR")
+          # Collect test files dynamically (test_investigate.py was removed)
+          TEST_FILES=()
+          for f in tests/llm/test_ask_holmes.py tests/llm/test_holmes_checks.py; do
+            [[ -f "$f" ]] && TEST_FILES+=("$f")
+          done
+          PYTEST_ARGS=(--no-cov "${TEST_FILES[@]}" -s -n10 -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           poetry run pytest "${PYTEST_ARGS[@]}" || true
 
