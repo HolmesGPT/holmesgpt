@@ -153,31 +153,46 @@ def _find_latest_benchmark_experiment(
     on the master branch. The Braintrust SDK may also create per-model sub-experiments
     with a hash suffix (e.g., 'ci-benchmark-12345-abc123'). The root experiment
     (without suffix) contains all eval spans across all models, so we prefer it.
+
+    Paginates through experiments (sorted newest-first) since benchmark experiments
+    may be buried under many PR experiments.
     """
     # Pattern for root experiments: ci-benchmark- followed by only digits
     root_pattern = re.compile(r"^ci-benchmark-\d+$")
 
-    result = _make_api_request(
-        "/experiment",
-        params={
+    cursor: Optional[str] = None
+    for _ in range(20):  # Safety limit: scan up to 2000 experiments
+        params: Dict[str, Any] = {
             "project_id": project_id,
             "limit": 100,
-        },
-    )
-    if not result or "objects" not in result:
-        return None
+        }
+        if cursor:
+            params["starting_after"] = cursor
 
-    # First pass: find the most recent root experiment (without hash suffix)
-    for exp in result.get("objects", []):
-        name = exp.get("name", "")
-        if root_pattern.match(name):
-            return exp
+        result = _make_api_request("/experiment", params=params)
+        if not result or "objects" not in result:
+            return None
 
-    # Fallback: any ci-benchmark experiment (in case naming changes)
-    for exp in result.get("objects", []):
-        name = exp.get("name", "")
-        if name.startswith(BENCHMARK_EXPERIMENT_PREFIX):
-            return exp
+        objects = result.get("objects", [])
+        if not objects:
+            return None
+
+        # First pass: find a root experiment (without hash suffix)
+        for exp in objects:
+            name = exp.get("name", "")
+            if root_pattern.match(name):
+                return exp
+
+        # Second pass: any ci-benchmark experiment (in case naming changes)
+        for exp in objects:
+            name = exp.get("name", "")
+            if name.startswith(BENCHMARK_EXPERIMENT_PREFIX):
+                return exp
+
+        # Paginate using the last experiment's ID
+        cursor = objects[-1].get("id")
+        if not cursor:
+            break
 
     return None
 
