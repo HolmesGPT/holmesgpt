@@ -386,7 +386,7 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 def extract_passthrough_headers(request: Request) -> dict:
     """
     Extract pass-through headers from the request, excluding sensitive auth headers.
-    These headers are forwarded to MCP servers for authentication and context.
+    These headers are forwarded to all toolset types (MCP, HTTP, YAML, Python) for authentication and context.
 
     The blocked headers can be configured via the HOLMES_PASSTHROUGH_BLOCKED_HEADERS
     environment variable (comma-separated list). Defaults to "authorization,cookie,set-cookie".

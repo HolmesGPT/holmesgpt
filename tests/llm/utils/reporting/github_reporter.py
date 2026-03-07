@@ -17,6 +17,13 @@ from tests.llm.utils.braintrust_history import (
 from tests.llm.utils.test_results import TestStatus
 
 
+def _fmt_tokens(value: Optional[int]) -> str:
+    """Format a token count: comma-separated if present, dash if absent/zero."""
+    if value is not None and value > 0:
+        return f"{value:,}"
+    return "—"
+
+
 def _format_diff_indicator(diff: Optional[float], sample_count: int) -> str:
     """Format a diff percentage as an indicator string, bold if >25%."""
     if diff is None or sample_count < 3:
@@ -227,13 +234,19 @@ def generate_markdown_report(
         markdown += "\n"
 
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Tokens | Compactions |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Output | Cached | Non-cached | Reasoning | Max output | Compactions |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
     total_cost = 0.0
     total_tokens_sum = 0
+    total_prompt_tokens_sum = 0
+    total_completion_tokens_sum = 0
+    total_cached_tokens_sum = 0
+    total_non_cached_tokens_sum = 0
+    total_reasoning_tokens_sum = 0
+    max_completion_per_call_max = 0
     total_compactions = 0
     total_turns = 0
     total_tools = 0
@@ -289,32 +302,65 @@ def generate_markdown_report(
         if cost and cost > 0:
             total_cost += cost
 
-        # Format total tokens
-        tokens = result.get("total_tokens", 0)
-        if tokens and tokens > 0:
-            tokens_str = f"{tokens:,}"
-            total_tokens_sum += tokens
-        else:
-            tokens_str = "—"
+        # Extract token counts
+        total_tokens = result.get("total_tokens", 0) or 0
+        prompt_tokens = result.get("prompt_tokens", 0) or 0
+        completion_tokens = result.get("completion_tokens", 0) or 0
+        cached_tokens = result.get("cached_tokens")
+        reasoning_tokens = result.get("reasoning_tokens", 0) or 0
+        max_completion = result.get("max_completion_tokens_per_call", 0) or 0
+        num_compactions = result.get("num_compactions", 0) or 0
 
-        # Format compactions
-        num_compactions = result.get("num_compactions", 0)
-        if num_compactions and num_compactions > 0:
-            compactions_str = str(num_compactions)
-            total_compactions += num_compactions
-        else:
-            compactions_str = "—"
+        # Compute total_tokens from parts if not reported directly
+        if total_tokens == 0:
+            total_tokens = prompt_tokens + completion_tokens
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {tokens_str} | {compactions_str} |\n"
+        # Non-cached = prompt - cached (only meaningful when both are known)
+        if prompt_tokens > 0 and cached_tokens is not None:
+            non_cached_tokens = prompt_tokens - cached_tokens
+        elif prompt_tokens > 0:
+            non_cached_tokens = None  # cached unknown, can't compute
+        else:
+            non_cached_tokens = None
+
+        # Accumulate totals
+        total_tokens_sum += total_tokens
+        total_prompt_tokens_sum += prompt_tokens
+        total_completion_tokens_sum += completion_tokens
+        if cached_tokens is not None:
+            total_cached_tokens_sum += cached_tokens
+        if non_cached_tokens is not None:
+            total_non_cached_tokens_sum += non_cached_tokens
+        total_reasoning_tokens_sum += reasoning_tokens
+        max_completion_per_call_max = max(max_completion_per_call_max, max_completion)
+        total_compactions += num_compactions
+
+        # Format for display
+        total_tokens_str = _fmt_tokens(total_tokens)
+        input_str = _fmt_tokens(prompt_tokens)
+        output_str = _fmt_tokens(completion_tokens)
+        cached_tokens_str = f"{cached_tokens:,}" if cached_tokens is not None else "—"
+        non_cached_tokens_str = f"{non_cached_tokens:,}" if non_cached_tokens is not None else "—"
+        reasoning_str = _fmt_tokens(reasoning_tokens)
+        max_completion_str = _fmt_tokens(max_completion)
+        compactions_str = str(num_compactions) if num_compactions > 0 else "—"
+
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {output_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {max_completion_str} | {compactions_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
     avg_turns_str = f"{total_turns / turns_count:.1f}" if turns_count > 0 else "—"
     avg_tools_str = f"{total_tools / tools_count:.1f}" if tools_count > 0 else "—"
     total_cost_str = f"${total_cost:.4f}" if total_cost > 0 else "—"
-    total_tokens_str = f"{total_tokens_sum:,}" if total_tokens_sum > 0 else "—"
+    total_tokens_total_str = _fmt_tokens(total_tokens_sum)
+    total_prompt_str = _fmt_tokens(total_prompt_tokens_sum)
+    total_completion_str = _fmt_tokens(total_completion_tokens_sum)
+    total_cached_tokens_str = _fmt_tokens(total_cached_tokens_sum)
+    total_non_cached_tokens_str = _fmt_tokens(total_non_cached_tokens_sum)
+    total_reasoning_str = _fmt_tokens(total_reasoning_tokens_sum)
+    max_completion_max_str = _fmt_tokens(max_completion_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_str}** | **{total_compactions_str}** |\n"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{total_completion_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{max_completion_max_str}** | **{total_compactions_str}** |\n"
 
     # Add footer explaining historical comparison status
     if historical and comparison_map:

@@ -156,19 +156,10 @@ class LLMCosts(BaseModel):
     total_tokens: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cached_tokens: Optional[int] = None
+    reasoning_tokens: int = 0
+    max_completion_tokens_per_call: int = 0
     num_compactions: int = 0
-
-
-def _extract_cost_from_response(full_response) -> float:
-    """Extract cost value from LLM response.
-
-    Args:
-        full_response: The raw LLM response object
-
-    Returns:
-        The cost as a float, or 0.0 if not available
-    """
-    return extract_usage_from_response(full_response).cost
 
 
 def _process_cost_info(
@@ -200,6 +191,12 @@ def _process_cost_info(
                 costs.prompt_tokens += raw.prompt_tokens
                 costs.completion_tokens += raw.completion_tokens
                 costs.total_tokens += raw.total_tokens
+                if raw.cached_tokens is not None:
+                    costs.cached_tokens = (costs.cached_tokens or 0) + raw.cached_tokens
+                costs.reasoning_tokens += raw.reasoning_tokens
+                costs.max_completion_tokens_per_call = max(
+                    costs.max_completion_tokens_per_call, raw.completion_tokens
+                )
         elif raw.cost > 0:
             cost_logger.debug(
                 f"{log_prefix} cost: ${raw.cost:.6f} | Token usage not available"
@@ -925,6 +922,7 @@ class ToolCallingLLM:
                     user_approved=False,
                     tool_number=tool_number,
                     tool_call_id=tool_call_result.tool_call_id,
+                    request_context=request_context,
                 )
                 ToolCallingLLM._log_tool_call_result(tool_span, tool_call_result)
             return tool_call_result
