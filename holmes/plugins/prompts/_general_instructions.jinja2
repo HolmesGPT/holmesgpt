@@ -1,4 +1,8 @@
+{% if todowrite_enabled %}
+{% include 'investigation_procedure.jinja2' %}
+{% else %}
 {% include '_runbooks_instructions.jinja2' %}
+{% endif %}
 
 {% if ai_safety_enabled %}
 {% include '_ai_safety.jinja2' %}
