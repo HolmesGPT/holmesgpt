@@ -245,6 +245,18 @@ def update_test_results(
             request.node.user_properties.append(
                 ("completion_tokens", result.completion_tokens)
             )
+        if hasattr(result, "cached_tokens"):
+            request.node.user_properties.append(
+                ("cached_tokens", result.cached_tokens)
+            )
+        if hasattr(result, "reasoning_tokens"):
+            request.node.user_properties.append(
+                ("reasoning_tokens", result.reasoning_tokens)
+            )
+        if hasattr(result, "max_completion_tokens_per_call"):
+            request.node.user_properties.append(
+                ("max_completion_tokens_per_call", result.max_completion_tokens_per_call)
+            )
         if hasattr(result, "num_compactions"):
             request.node.user_properties.append(
                 ("num_compactions", result.num_compactions)

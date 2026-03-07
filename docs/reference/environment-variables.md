@@ -93,6 +93,19 @@ export HOLMES_LOG_LEVEL="DEBUG"
 ### HOLMES_CACHE_DIR
 Directory for caching HolmesGPT data and temporary files.
 
+### HOLMES_PASSTHROUGH_BLOCKED_HEADERS
+**Default:** `"authorization,cookie,set-cookie"`
+
+Comma-separated list of HTTP header names that should **not** be forwarded from incoming requests to toolsets via `request_context`. Case-insensitive.
+
+**Example:**
+```bash
+# Also block a custom internal header
+export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-internal-only"
+```
+
+See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
+
 ## Data Source Configuration
 
 ### Prometheus

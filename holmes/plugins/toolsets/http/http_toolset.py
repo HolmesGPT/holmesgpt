@@ -19,6 +19,7 @@ from holmes.core.tools import (
     Toolset,
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
+from holmes.utils.header_rendering import render_header_templates
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,11 @@ class HttpToolsetConfig(BaseModel):
     verify_ssl: bool = True
     timeout_seconds: int = 30
     default_headers: Dict[str, str] = Field(default_factory=dict)
+    extra_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Extra HTTP headers rendered via Jinja2 templates. "
+        "Supports request context (e.g. {{ request_context.headers['X-Tenant-Id'] }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
+    )
 
 
 class HttpToolset(Toolset):
@@ -432,6 +438,16 @@ class HttpRequest(Tool, JsonFilterMixin):
                 )
 
         headers = self._toolset.build_headers(endpoint, extra_headers)
+
+        # Merge rendered toolset-level extra_headers
+        if self._toolset.http_config.extra_headers:
+            rendered_extra = render_header_templates(
+                extra_headers=self._toolset.http_config.extra_headers,
+                request_context=context.request_context,
+                source_name=self._toolset.name,
+            )
+            if rendered_extra:
+                headers.update(rendered_extra)
         basic_auth = self._toolset.get_basic_auth(endpoint)
         timeout = self._toolset.http_config.timeout_seconds
         verify_ssl = self._toolset.http_config.verify_ssl

@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -33,9 +34,11 @@ def prevent_overly_big_tool_response(
 
     Returns the token count of the original message.
     """
+    t0 = time.monotonic()
     message = tool_call_result.as_tool_call_message()
     messages_token = llm.count_tokens(messages=[message]).total_tokens
     max_tokens_allowed = llm.get_max_token_count_for_single_tool()
+    logging.debug(f"prevent_overly_big_tool_response: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)")
 
     if tool_call_result.result.status != StructuredToolResultStatus.SUCCESS:
         return messages_token

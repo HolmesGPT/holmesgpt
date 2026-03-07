@@ -53,6 +53,7 @@ toolsets:
 - **Multiple Authentication Methods**: Support for Basic Auth, Bearer tokens, and custom headers
 - **Multi-Instance Support**: Configure multiple instances of the same API with different credentials
 - **Custom Instructions**: Provide API-specific guidance to improve LLM tool usage
+- **[Header Propagation](header-propagation.md)**: Forward HTTP headers from incoming requests to backend APIs using `extra_headers` templates
 
 
 ### Configuration Fields
