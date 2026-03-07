@@ -59,16 +59,6 @@ from holmes.toolset_config_tui import run_toolset_config_tui
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
 
 
-def _warn_deprecated_custom_runbooks(custom_runbooks: Optional[List[Path]]) -> None:
-    """Warn user about deprecated --custom-runbooks CLI flag."""
-    if custom_runbooks:
-        logging.warning(
-            "The --custom-runbooks (-r) flag is deprecated. "
-            "HolmesGPT now uses a more powerful catalog-based runbook system where the LLM can intelligently "
-            "fetch relevant runbooks on-demand. Please use the 'custom_runbook_catalogs' config field in "
-            "~/.holmes/config.yaml instead to specify runbook catalog files."
-        )
-
 
 investigate_app = typer.Typer(
     add_completion=False,
@@ -106,12 +96,6 @@ opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     "--custom-toolsets",
     "-t",
     help="Path to a custom toolsets. The status of the custom toolsets specified here won't be cached (can specify -t multiple times to add multiple toolsets)",
-)
-opt_custom_runbooks: Optional[List[Path]] = typer.Option(
-    [],
-    "--custom-runbooks",
-    "-r",
-    help="[DEPRECATED] Replaced by the more powerful 'custom_runbook_catalogs' config field, which enables intelligent on-demand runbook fetching.",
 )
 opt_max_steps: Optional[int] = typer.Option(
     40,
@@ -428,7 +412,7 @@ def alertmanager(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     # advanced options for this command
@@ -444,7 +428,7 @@ def alertmanager(
     Investigate a Prometheus/Alertmanager alert
     """
     console = init_logging(verbose)
-    _warn_deprecated_custom_runbooks(custom_runbooks)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -562,7 +546,7 @@ def jira(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     json_output_file: Optional[str] = opt_json_output_file,
@@ -575,7 +559,7 @@ def jira(
     Investigate a Jira ticket
     """
     console = init_logging(verbose)
-    _warn_deprecated_custom_runbooks(custom_runbooks)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -758,7 +742,7 @@ def github(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     # advanced options for this command
@@ -770,7 +754,7 @@ def github(
     Investigate a GitHub issue
     """
     console = init_logging(verbose)  # type: ignore
-    _warn_deprecated_custom_runbooks(custom_runbooks)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -840,7 +824,7 @@ def pagerduty(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     json_output_file: Optional[str] = opt_json_output_file,
@@ -853,7 +837,7 @@ def pagerduty(
     Investigate a PagerDuty incident
     """
     console = init_logging(verbose)
-    _warn_deprecated_custom_runbooks(custom_runbooks)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -923,7 +907,7 @@ def opsgenie(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     # advanced options for this command
@@ -936,7 +920,7 @@ def opsgenie(
     Investigate an OpsGenie alert
     """
     console = init_logging(verbose)  # type: ignore
-    _warn_deprecated_custom_runbooks(custom_runbooks)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,

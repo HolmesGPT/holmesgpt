@@ -13,7 +13,6 @@ from pydantic import (
     FilePath,
     PrivateAttr,
     SecretStr,
-    model_validator,
 )
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
@@ -89,7 +88,6 @@ class Config(RobustaBaseConfig):
     opsgenie_team_integration_key: Optional[SecretStr] = None
     opsgenie_query: Optional[str] = None
 
-    custom_runbooks: List[FilePath] = []
     custom_runbook_catalogs: List[Union[str, FilePath]] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
@@ -141,16 +139,7 @@ class Config(RobustaBaseConfig):
             self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
         return self._llm_model_registry
 
-    @model_validator(mode="after")
-    def _warn_deprecated_custom_runbooks(self) -> "Config":
-        if self.custom_runbooks:
-            logging.warning(
-                "The 'custom_runbooks' config field is deprecated. "
-                "HolmesGPT now uses a more powerful catalog-based runbook system where the LLM can intelligently "
-                "fetch relevant runbooks on-demand. Please remove 'custom_runbooks' from your config file "
-                "(~/.holmes/config.yaml) and use 'custom_runbook_catalogs' instead to specify runbook catalog files."
-            )
-        return self
+
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
@@ -218,8 +207,6 @@ class Config(RobustaBaseConfig):
             "github_repository",
             "github_pat",
             "github_query",
-            # TODO
-            # custom_runbooks
         ]:
             val = os.getenv(field_name.upper(), None)
             if val is not None:
@@ -604,7 +591,6 @@ class SourceFactory(BaseModel):
                 jira_api_key=ticket_api_key,
                 jira_query=None,
                 custom_toolsets=None,
-                custom_runbooks=None,
             )
 
             if not (
@@ -637,7 +623,6 @@ class SourceFactory(BaseModel):
                 pagerduty_user_email=ticket_username,
                 pagerduty_incident_key=None,
                 custom_toolsets=None,
-                custom_runbooks=None,
             )
 
             if not (
