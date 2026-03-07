@@ -128,6 +128,7 @@ nav:
           - "Helm Configuration": reference/helm-configuration.md
           - "Kubernetes Permissions": reference/kubernetes-permissions.md
           - "HTTP API": reference/http-api.md
+          - "Runbooks": reference/runbooks.md
           - "Slash Commands": reference/slash-commands.md
           - "Troubleshooting": reference/troubleshooting.md
     - Community: community.md
