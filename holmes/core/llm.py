@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import threading
+import time
 from abc import abstractmethod
 from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
@@ -298,23 +299,28 @@ class DefaultLLM(LLM):
     def count_tokens(
         self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
     ) -> TokenCountMetadata:
-        # TODO: Add a recount:bool flag to save time. When the flag is false, reuse 'message["token_count"]' for individual messages.
-        # It's only necessary to recount message tokens at the beginning of a session because the LLM model may have changed.
-        # Changing the model requires recounting tokens because the tokenizer may be different
-        total_tokens = 0
+        t0 = time.monotonic()
         tools_tokens = 0
         system_tokens = 0
         assistant_tokens = 0
         user_tokens = 0
         other_tokens = 0
         tools_to_call_tokens = 0
+        cached_count = 0
+        counted_count = 0
         for message in messages:
-            # count message tokens individually because it gives us fine grain information about each tool call/message etc.
-            # However be aware that the sum of individual message tokens is not equal to the overall messages token
-            token_count = litellm.token_counter(  # type: ignore
-                model=self.model, messages=[message]
-            )
-            message["token_count"] = token_count
+            # Reuse cached per-message token counts when available.
+            # The cache is invalidated (key removed) whenever a message is modified (e.g. truncation).
+            cached = message.get("token_count")
+            if cached is not None:
+                token_count = cached
+                cached_count += 1
+            else:
+                token_count = litellm.token_counter(  # type: ignore
+                    model=self.model, messages=[message]
+                )
+                message["token_count"] = token_count
+                counted_count += 1
             role = message.get("role")
             if role == "system":
                 system_tokens += token_count
@@ -325,9 +331,6 @@ class DefaultLLM(LLM):
             elif role == "assistant":
                 assistant_tokens += token_count
             else:
-                # although this should not be needed,
-                # it is defensive code so that all tokens are accounted for
-                # and can potentially make debugging easier
                 other_tokens += token_count
 
         messages_token_count_without_tools = litellm.token_counter(  # type: ignore
@@ -340,6 +343,11 @@ class DefaultLLM(LLM):
             tools=tools,  # type: ignore
         )
         tools_to_call_tokens = max(0, total_tokens - messages_token_count_without_tools)
+
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        logging.debug(
+            f"count_tokens: {elapsed_ms:.1f}ms | {len(messages)} msgs ({cached_count} cached, {counted_count} counted) | total={total_tokens}"
+        )
 
         return TokenCountMetadata(
             total_tokens=total_tokens,
@@ -409,13 +417,24 @@ class DefaultLLM(LLM):
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
+        # Strip internal fields (e.g. token_count cache) so provider APIs only
+        # receive valid message schema fields.  Shallow-copy only when needed to
+        # avoid mutating the caller's dicts (which would invalidate the cache).
+        _INTERNAL_FIELDS = {"token_count"}
+        sanitized_messages: List[Dict[str, Any]] = [
+            {k: v for k, v in m.items() if k not in _INTERNAL_FIELDS}
+            if m.keys() & _INTERNAL_FIELDS
+            else m
+            for m in messages
+        ]
+
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
             base_url=self.api_base,
             api_version=self.api_version,
-            messages=messages,
+            messages=sanitized_messages,
             response_format=response_format,
             drop_params=drop_params,
             allowed_openai_params=allowed_openai_params,
