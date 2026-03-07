@@ -658,11 +658,15 @@ jobs:
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
 
-          # Collect test files dynamically (test_investigate.py was removed)
+          # Collect test files dynamically
           TEST_FILES=()
           for f in tests/llm/test_ask_holmes.py tests/llm/test_holmes_checks.py; do
             [[ -f "$f" ]] && TEST_FILES+=("$f")
           done
+          if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
+            echo "❌ No test files found"
+            exit 1
+          fi
           PYTEST_ARGS=(--collect-only -q "${TEST_FILES[@]}" -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
 
@@ -851,11 +855,15 @@ jobs:
 
           START_TIME=$(date +%s)
 
-          # Collect test files dynamically (test_investigate.py was removed)
+          # Collect test files dynamically
           TEST_FILES=()
           for f in tests/llm/test_ask_holmes.py tests/llm/test_holmes_checks.py; do
             [[ -f "$f" ]] && TEST_FILES+=("$f")
           done
+          if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
+            echo "❌ No test files found"
+            exit 1
+          fi
           PYTEST_ARGS=(--no-cov "${TEST_FILES[@]}" -s -n10 -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           poetry run pytest "${PYTEST_ARGS[@]}" || true

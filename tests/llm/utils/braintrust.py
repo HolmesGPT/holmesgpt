@@ -8,6 +8,7 @@ from braintrust import Dataset, Experiment, ReadonlyExperiment, Span
 from pydantic import BaseModel
 
 from holmes.core.llm import TokenCountMetadata
+from holmes.core.tool_calling_llm import LLMResult
 from holmes.core.tracing import (
     BRAINTRUST_API_KEY,
     BRAINTRUST_ORG,
@@ -16,7 +17,7 @@ from holmes.core.tracing import (
     get_experiment_name,
     get_machine_state_tags,
 )
-from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore
+from tests.llm.utils.test_case_utils import AskHolmesTestCase, HolmesTestCase  # type: ignore
 
 braintrust_enabled = False
 if BRAINTRUST_API_KEY:
@@ -185,21 +186,23 @@ def log_to_braintrust(
     eval_span,
     test_case: HolmesTestCase,
     model: str,
-    result: Optional[Any] = None,  # LLMResult
+    result: Optional[Union[LLMResult, CompactionResult]] = None,
     scores: Optional[dict] = None,
     error: Optional[Exception] = None,
 ) -> None:
-    """Shared function to log evaluation data to Braintrust.
+    """Log evaluation data to Braintrust.
+
+    Handles both ask_holmes tests (LLMResult) and compaction tests
+    (CompactionResult), logging appropriate metrics for each.
 
     Args:
         eval_span: The Braintrust evaluation span
-        test_case: The test case being evaluated (AskHolmesTestCase)
+        test_case: The test case being evaluated
         model: The model being tested
-        result: The result object (LLMResult)
+        result: LLMResult for ask_holmes tests, CompactionResult for compaction tests
         scores: Dictionary of scores (e.g., correctness)
         error: Exception if the test failed
     """
-    from tests.llm.utils.test_case_utils import AskHolmesTestCase
 
     # Prepare tags
     tags = (test_case.tags or []).copy()
@@ -334,9 +337,6 @@ def get_braintrust_url(
     """Generate Braintrust URL for a test.
 
     Args:
-        test_suite: e.g. "ask_holmes"
-        test_id: Test ID like "01"
-        test_name: Test name like "how_many_pods"
         span_id: Optional span ID for direct linking
         root_span_id: Optional root span ID for direct linking
 
