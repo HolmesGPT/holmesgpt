@@ -137,10 +137,12 @@ The key sections are:
 === "Python SDK"
 
     ```python
+    from pathlib import Path
+
     from holmes.config import Config
 
     config = Config.load_from_file(
-        config_file="~/.holmes/config.yaml",
+        config_file=Path("~/.holmes/config.yaml").expanduser(),
     )
     # custom_runbook_catalogs is read from the config file
     catalog = config.get_runbook_catalog()
