@@ -334,7 +334,7 @@ def get_braintrust_url(
     """Generate Braintrust URL for a test.
 
     Args:
-        test_suite: Either "ask_holmes" or "investigate"
+        test_suite: e.g. "ask_holmes"
         test_id: Test ID like "01"
         test_name: Test name like "how_many_pods"
         span_id: Optional span ID for direct linking

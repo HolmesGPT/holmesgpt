@@ -91,7 +91,6 @@ jobs:
 
             // Collect eval names from fixture directories
             const askHolmesPath = 'tests/llm/fixtures/test_ask_holmes';
-            const investigatePath = 'tests/llm/fixtures/test_investigate';
 
             const getEvalNames = (dir) => {
               try {
@@ -106,12 +105,10 @@ jobs:
             };
 
             const askHolmesEvals = getEvalNames(askHolmesPath);
-            const investigateEvals = getEvalNames(investigatePath);
 
             const body = `## 📋 Available Eval Names\n\n` +
               `Use these with \`filter:\` in your \`/eval\` command.\n\n` +
-              `**test_ask_holmes:**\n${askHolmesEvals}\n\n` +
-              `**test_investigate:**\n${investigateEvals}`;
+              `**test_ask_holmes:**\n${askHolmesEvals}`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,

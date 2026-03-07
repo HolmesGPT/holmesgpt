@@ -203,7 +203,7 @@ def update_test_results(
         )
         scores["correctness"] = correctness_eval.score
 
-        # Evaluate sections if applicable (for investigate tests)
+        # Evaluate sections if applicable
         if hasattr(test_case, "expected_sections") and test_case.expected_sections:
             sections = {
                 key: bool(value) for key, value in test_case.expected_sections.items()
