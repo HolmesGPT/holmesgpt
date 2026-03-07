@@ -1201,6 +1201,18 @@ class ToolCallingLLM:
                             data=tool_call_result.as_streaming_tool_result_response(),
                         )
 
+                # Emit updated token counts after tool results
+                tokens = self.llm.count_tokens(messages=messages, tools=tools)
+                add_token_count_to_metadata(
+                    tokens=tokens,
+                    full_llm_response=full_response,
+                    max_context_size=limit_result.max_context_size,
+                    maximum_output_token=limit_result.maximum_output_token,
+                    metadata=metadata,
+                )
+                metadata["costs"] = costs.model_dump()
+                yield build_stream_event_token_count(metadata=metadata)
+
                 # If we have approval required tools, end the stream with pending approvals
                 if pending_approvals:
                     # Add assistant message with pending tool calls
