@@ -59,42 +59,30 @@
     </a>
     <script>
       (function() {
-        // Meetings are typically the 2nd Thursday of each month
-        // Past: Jan 15, Feb 12, Mar 12 2026
-        function getSecondThursday(year, month) {
-          var d = new Date(year, month, 1);
-          var day = d.getDay();
-          // Days until first Thursday: (4 - day + 7) % 7
-          var firstThurs = 1 + ((4 - day + 7) % 7);
-          return new Date(year, month, firstThurs + 7);
-        }
+        // Meetings are every 4 weeks (28 days) on Thursdays
+        // Known dates: Jan 15, Feb 12, Mar 12 2026
+        var ANCHOR = new Date(2026, 2, 12); // Mar 12, 2026 (month is 0-indexed)
+        var CYCLE = 28; // days
 
         function update() {
           var now = new Date();
           var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-          // Find the next meetup: check this month, then next months
-          var meetup = null;
-          for (var i = 0; i < 3; i++) {
-            var m = new Date(today.getFullYear(), today.getMonth() + i, 1);
-            var candidate = getSecondThursday(m.getFullYear(), m.getMonth());
-            if (candidate >= today) {
-              meetup = candidate;
-              break;
-            }
-          }
+          // Calculate days since anchor, find next occurrence
+          var diff = Math.floor((today - ANCHOR) / (1000 * 60 * 60 * 24));
+          var remainder = ((diff % CYCLE) + CYCLE) % CYCLE; // handle dates before anchor too
+          var daysUntil = remainder === 0 ? 0 : CYCLE - remainder;
 
           var el = document.getElementById("meetup-countdown");
-          if (!el || !meetup) return;
+          if (!el) return;
 
-          var diff = Math.ceil((meetup - today) / (1000 * 60 * 60 * 24));
           var text;
-          if (diff === 0) {
+          if (daysUntil === 0) {
             text = "Community meetup today!";
-          } else if (diff === 1) {
+          } else if (daysUntil === 1) {
             text = "1 day until community meetup";
           } else {
-            text = diff + " days until community meetup";
+            text = daysUntil + " days until community meetup";
           }
           el.textContent = text;
         }
