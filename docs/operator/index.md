@@ -158,7 +158,14 @@ The Holmes Operator follows the Kubernetes Job/CronJob pattern:
 - **Operator**: Watches CRDs and orchestrates check execution
 - **Holmes API**: Executes the actual health check logic using LLM
 
-For detailed architecture information, see the [architecture documentation](../adr/operator-initial-architecture.md).
+The operator uses a distributed architecture: a lightweight kopf-based controller handles CRD orchestration and scheduling, while stateless Holmes API servers execute the actual checks.
+
+### Key Design Decisions
+
+- **Job/CronJob pattern**: Separate HealthCheck and ScheduledHealthCheck CRDs provide clear semantics — one-time checks give immediate feedback, scheduled checks manage recurrence. This mirrors the familiar Kubernetes Job/CronJob model.
+- **Distributed operator + API servers**: The operator is a lightweight controller that delegates check execution to stateless Holmes API servers via HTTP. This allows API servers to scale horizontally and isolates scheduling concerns from execution.
+- **APScheduler over CronJobs**: Scheduling uses APScheduler within the operator rather than Kubernetes CronJobs. This is more efficient for frequent checks and avoids pod startup overhead per execution.
+- **HealthCheck resources as history**: ScheduledHealthCheck creates HealthCheck resources for each run, providing a natural audit trail queryable with standard kubectl commands.
 
 ## Need Help?
 

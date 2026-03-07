@@ -8,7 +8,7 @@ exclude_docs: |
     _*
     snippets/
     README.md
-    cncf-self-assesment.md
+    data-sources/permissions.md
 
 nav:
     - Home: index.md
@@ -32,7 +32,6 @@ nav:
           - "Health Checks": operator/health-checks.md
           - "Scheduled Health Checks": operator/scheduled-health-checks.md
           - "Configuration": operator/configuration.md
-          - "Troubleshooting": operator/troubleshooting.md
           - "Development Guide": operator/development.md
     - "AI Providers":
           - "Overview": ai-providers/index.md
@@ -104,6 +103,7 @@ nav:
           - "HTTP Connectors": data-sources/api-toolsets.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
+          - "HTTP Header Propagation": data-sources/header-propagation.md
     - Benchmarks:
           - "Overview": development/evaluations/index.md
           - "Latest Results": development/evaluations/latest-results.md
@@ -131,7 +131,6 @@ nav:
           - "Slash Commands": reference/slash-commands.md
           - "Troubleshooting": reference/troubleshooting.md
     - Community: community.md
-    - "CNCF Self Assessment": cncf-self-assesment.md
 
 theme:
     name: material
