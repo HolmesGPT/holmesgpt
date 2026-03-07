@@ -25,5 +25,6 @@ tags:
   - compaction
   - counting
   - easy
+  - regression
 
 setup_timeout: 120

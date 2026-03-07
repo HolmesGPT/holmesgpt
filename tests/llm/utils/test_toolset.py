@@ -22,11 +22,13 @@ class ToolsetPrerequisiteError(Exception):
     it indicates infrastructure issues, not LLM evaluation issues.
     """
 
-    def __init__(self, toolset_name: str, error_detail: str):
+    def __init__(self, toolset_name: str, error_detail: str, test_id: str = ""):
         self.toolset_name = toolset_name
         self.error_detail = error_detail
+        self.test_id = test_id
+        prefix = f"[EVAL {test_id}] " if test_id else ""
         message = (
-            f"Toolset '{toolset_name}' was explicitly enabled in toolsets.yaml "
+            f"{prefix}Toolset '{toolset_name}' was explicitly enabled in toolsets.yaml "
             f"but failed prerequisites check: {error_detail}"
         )
         super().__init__(message)

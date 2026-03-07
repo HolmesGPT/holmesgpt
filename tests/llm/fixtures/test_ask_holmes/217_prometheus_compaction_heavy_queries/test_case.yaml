@@ -1,0 +1,95 @@
+user_prompt: >
+  Do a comprehensive resource analysis for the app-217 namespace.
+  First query Prometheus for CPU usage rate per pod over the last 30 minutes,
+  then query memory usage per pod over the last 30 minutes,
+  then query network receive bytes per pod over the last 30 minutes,
+  then query network transmit bytes per pod over the last 30 minutes,
+  then query filesystem usage per pod.
+  After collecting all this data, tell me which deployment is consuming
+  the most CPU overall and how many pods it has.
+
+expected_output:
+  - "Must identify payment-processor pods as the highest CPU consumers"
+  - "Must mention that the payment-processors deployment has 5 pods/replicas"
+
+tags:
+  - prometheus
+  - compaction
+  - regression
+  - kubernetes
+
+test_env_vars:
+  # Use a small context window so that multiple prometheus range queries
+  # naturally fill it up and trigger compaction at the default 95% threshold.
+  OVERRIDE_MAX_CONTEXT_SIZE: "30000"
+
+assert_compaction: true
+
+port_forwards:
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 10217
+    remote_port: 9090
+
+setup_timeout: 480
+
+before_test: |
+  # Verify Prometheus is available in the cluster
+  [ "$(kubectl get svc robusta-kube-prometheus-st-prometheus -n default -o jsonpath='{.spec.ports[?(@.port==9090)].port}' 2>/dev/null)" = "9090" ] \
+  || { echo "❌ Prometheus Service missing or port 9090 not found"; exit 1; }
+
+  kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n default --timeout=60s || true
+
+  # Deploy workloads
+  kubectl apply -f ./manifest.yaml
+
+  # Wait for all pods to be running
+  POD_READY=false
+  for attempt in {1..120}; do
+    RUNNING_COUNT=$(kubectl get pods -n app-217 --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+    echo "⏳ Attempt $attempt/120: $RUNNING_COUNT/35 pods running..."
+    if [ "$RUNNING_COUNT" -ge 35 ]; then
+      echo "✅ All pods are running!"
+      POD_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Not all pods became ready"
+    kubectl get pods -n app-217
+    exit 1
+  fi
+
+  # Wait for CPU metrics to accumulate
+  echo "Waiting 3 minutes for metrics to accumulate..."
+  sleep 180
+
+  # Verify metrics are available using kubectl exec on an existing pod
+  WORKER_POD=$(kubectl get pods -n app-217 -l app=api-worker -o jsonpath='{.items[0].metadata.name}')
+  METRICS_CHECK=false
+  for i in {1..10}; do
+    METRICS_OUTPUT=$(kubectl exec -n app-217 "$WORKER_POD" -- \
+      wget -q -O- "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/query?query=count(rate(container_cpu_usage_seconds_total\{namespace=%22app-217%22\}[2m]))" 2>&1) || true
+
+    if echo "$METRICS_OUTPUT" | grep -q '"status":"success"'; then
+      if ! echo "$METRICS_OUTPUT" | grep -q '"result":\[\]'; then
+        echo "✅ CPU metrics available for app-217"
+        METRICS_CHECK=true
+        break
+      fi
+    fi
+    echo "⏳ Metrics check attempt $i/10..."
+    sleep 10
+  done
+
+  if [ "$METRICS_CHECK" = false ]; then
+    echo "❌ No CPU metrics found for app-217 after retries"
+    echo "Last response: $METRICS_OUTPUT"
+    exit 1
+  fi
+
+  echo "✅ Setup complete! Metrics available for app-217."
+
+after_test: kubectl delete namespace app-217 --ignore-not-found=true

@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-217
+---
+# ConfigMap with CPU load script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cpu-script
+  namespace: app-217
+data:
+  cpu-load.sh: |
+    #!/bin/sh
+    CPU_PERCENT=${CPU_PERCENT:-10}
+    BUSY_TIME=$(echo "scale=3; $CPU_PERCENT / 100" | bc)
+    IDLE_TIME=$(echo "scale=3; 1 - $BUSY_TIME" | bc)
+    while true; do
+      timeout ${BUSY_TIME}s sh -c 'while true; do echo "scale=5000; 4*a(1)" | bc -l > /dev/null; done' 2>/dev/null
+      sleep ${IDLE_TIME}
+    done
+---
+# 20 low-CPU pods to generate many series in prometheus
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-workers
+  namespace: app-217
+spec:
+  replicas: 20
+  selector:
+    matchLabels:
+      app: api-worker
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: api-worker
+        tier: backend
+    spec:
+      containers:
+      - name: worker
+        image: busybox:1.36
+        command: ["/bin/sh", "-c", "while true; do sleep 5; done"]
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "32Mi"
+          limits:
+            memory: "64Mi"
+---
+# 5 high-CPU pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-processors
+  namespace: app-217
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: payment-processor
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: payment-processor
+        tier: backend
+    spec:
+      containers:
+      - name: processor
+        image: alpine:3.20
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          apk add --no-cache bc >/dev/null 2>&1
+          while true; do
+            timeout 0.7s sh -c 'while true; do echo "scale=5000; 4*a(1)" | bc -l > /dev/null; done' 2>/dev/null
+            sleep 0.3
+          done
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "32Mi"
+          limits:
+            cpu: "500m"
+            memory: "64Mi"
+---
+# 10 medium-CPU pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-handlers
+  namespace: app-217
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: order-handler
+      tier: middleware
+  template:
+    metadata:
+      labels:
+        app: order-handler
+        tier: middleware
+    spec:
+      containers:
+      - name: handler
+        image: alpine:3.20
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          apk add --no-cache bc >/dev/null 2>&1
+          while true; do
+            timeout 0.3s sh -c 'while true; do echo "scale=5000; 4*a(1)" | bc -l > /dev/null; done' 2>/dev/null
+            sleep 0.7
+          done
+        resources:
+          requests:
+            cpu: "30m"
+            memory: "32Mi"
+          limits:
+            cpu: "300m"
+            memory: "64Mi"

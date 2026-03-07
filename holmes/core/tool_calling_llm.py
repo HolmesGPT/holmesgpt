@@ -456,10 +456,12 @@ class ToolCallingLLM:
             tool_choice = "auto" if tools else None
 
             limit_result = limit_input_context_window(
-                llm=self.llm, messages=messages, tools=tools
+                llm=self.llm, messages=messages, tools=tools, trace_span=trace_span
             )
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
+            if limit_result.conversation_history_compacted:
+                metadata["conversation_history_compacted"] = True
 
             # Always accumulate compaction tokens/cost when a compaction LLM call
             # was attempted, even if it didn't reduce token count
@@ -1010,6 +1012,8 @@ class ToolCallingLLM:
             yield from limit_result.events
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
+            if limit_result.conversation_history_compacted:
+                metadata["conversation_history_compacted"] = True
 
             # Accumulate compaction costs (mirrors call() logic)
             compaction = limit_result.compaction_usage

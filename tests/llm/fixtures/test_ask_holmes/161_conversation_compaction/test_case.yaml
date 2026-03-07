@@ -21,5 +21,7 @@ test_type: server
 
 tags:
   - kubernetes
+  - compaction
+  - regression
 
 setup_timeout: 600

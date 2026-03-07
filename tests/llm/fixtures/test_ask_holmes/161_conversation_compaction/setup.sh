@@ -228,7 +228,7 @@ spec:
         memory: "512Mi"
 EOF
 
-# Pod 8: Very high CPU (300m)
+# Pod 8: Very high CPU (150m request)
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Pod
@@ -252,14 +252,14 @@ spec:
         done
     resources:
       requests:
-        cpu: "300m"
-        memory: "512Mi"
+        cpu: "150m"
+        memory: "128Mi"
       limits:
-        cpu: "500m"
-        memory: "1Gi"
+        cpu: "300m"
+        memory: "256Mi"
 EOF
 
-# Pod 9: Extremely high CPU (400m)
+# Pod 9: Extremely high CPU (200m request)
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Pod
@@ -283,14 +283,14 @@ spec:
         done
     resources:
       requests:
-        cpu: "400m"
-        memory: "1Gi"
+        cpu: "200m"
+        memory: "128Mi"
       limits:
-        cpu: "600m"
-        memory: "2Gi"
+        cpu: "400m"
+        memory: "256Mi"
 EOF
 
-# Pod 10: Maximum CPU (500m)
+# Pod 10: Maximum CPU (250m request)
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Pod
@@ -314,11 +314,11 @@ spec:
         done
     resources:
       requests:
-        cpu: "500m"
-        memory: "1Gi"
+        cpu: "250m"
+        memory: "128Mi"
       limits:
-        cpu: "800m"
-        memory: "2Gi"
+        cpu: "500m"
+        memory: "256Mi"
 EOF
 
 echo "Waiting for all pods to be running..."

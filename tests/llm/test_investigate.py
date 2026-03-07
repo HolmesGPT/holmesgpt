@@ -219,6 +219,7 @@ def test_investigate(
             model=model,
             result=result,
         )
+        e.add_note(f"[EVAL {test_case.id}] (model={model})")
         raise
 
     tools_called = [t.tool_name for t in result.tool_calls] if result.tool_calls else []

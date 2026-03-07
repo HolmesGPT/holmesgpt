@@ -32,7 +32,8 @@ class SetupFailureError(Exception):
         command: Optional[str] = None,
         output: Optional[str] = None,
     ):
-        super().__init__(message)
+        full_message = f"[EVAL {test_id}] Setup failure:\n{message}"
+        super().__init__(full_message)
         self.test_id = test_id
         self.command = command
         self.output = output
@@ -138,6 +139,9 @@ class HolmesTestCase(BaseModel):
     toolsets: Optional[Dict[str, Any]] = None
     port_forwards: Optional[List[Dict[str, Any]]] = (
         None  # Port forwarding configurations
+    )
+    assert_compaction: Optional[bool] = (
+        None  # If True, assert that conversation history compaction occurred during the test
     )
     toolsets_matrix: Optional[List[str]] = (
         None  # List of toolset config filenames for matrix expansion
