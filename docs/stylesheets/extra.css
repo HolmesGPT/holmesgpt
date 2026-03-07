@@ -27,34 +27,79 @@
   text-decoration: underline;
 }
 
-/* Dev version warning banner */
-.md-banner--warning {
-  background: #f59e0b;
-  color: #1a1a1a;
+/* Version-aware banner (dev / stable / outdated) */
+.md-banner--version {
   font-size: 0.85rem;
   padding: 0.4rem 1rem;
 }
 
-.md-banner--warning a {
-  color: #1a1a1a;
+.md-banner--version a {
   font-weight: 600;
   margin-left: 0.5rem;
 }
 
-.md-banner--warning a:hover {
-  color: #000;
+.md-banner--version a:hover {
   text-decoration: underline;
 }
 
-.md-banner--warning .twemoji {
-  vertical-align: middle;
-  margin-right: 0.15rem;
+/* Dev: amber warning */
+.md-banner--version[data-version-type="dev"] {
+  background: #f59e0b;
+  color: #1a1a1a;
 }
 
-.md-banner--warning .twemoji svg {
-  width: 1em;
-  height: 1em;
-  fill: currentcolor;
+.md-banner--version[data-version-type="dev"] a {
+  color: #1a1a1a;
+}
+
+.md-banner--version[data-version-type="dev"] a:hover {
+  color: #000;
+}
+
+/* Stable: subtle info */
+.md-banner--version[data-version-type="stable"] {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.md-banner--version[data-version-type="stable"] a {
+  color: #1b5e20;
+}
+
+.md-banner--version[data-version-type="stable"] a:hover {
+  color: #0a3d0a;
+}
+
+[data-md-color-scheme="slate"] .md-banner--version[data-version-type="stable"] {
+  background: #1b3a1f;
+  color: #81c784;
+}
+
+[data-md-color-scheme="slate"] .md-banner--version[data-version-type="stable"] a {
+  color: #a5d6a7;
+}
+
+/* Outdated: red warning */
+.md-banner--version[data-version-type="outdated"] {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.md-banner--version[data-version-type="outdated"] a {
+  color: #b71c1c;
+}
+
+.md-banner--version[data-version-type="outdated"] a:hover {
+  color: #7f0000;
+}
+
+[data-md-color-scheme="slate"] .md-banner--version[data-version-type="outdated"] {
+  background: #3e1a1a;
+  color: #ef9a9a;
+}
+
+[data-md-color-scheme="slate"] .md-banner--version[data-version-type="outdated"] a {
+  color: #ef9a9a;
 }
 
 /* Community meetup countdown in header */

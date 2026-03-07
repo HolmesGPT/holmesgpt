@@ -249,6 +249,7 @@ extra_css:
 
 extra_javascript:
     - javascripts/tabsync.js
+    - javascripts/version-banner.js
 
 extra:
     version:

@@ -1,17 +1,16 @@
 {% extends "base.html" %}
 
 {% block outdated %}
-{% if config.extra.version %}
-  <div data-md-color-scheme="slate" data-md-component="outdated" hidden>
-    <div class="md-banner md-banner--warning">
-      <div class="md-banner__inner md-typeset">
-        You're viewing the <strong>development</strong> version of the docs. Some features may not be released yet.
-        <a href="{{ '../' ~ base_url }}">
-          <strong>Switch to the latest stable version.</strong>
-        </a>
-      </div>
-    </div>
-  </div>
-{% endif %}
+  <!-- Replaced by custom version banner below -->
 {% endblock %}
 
+{% block announce %}
+  {% if config.extra.version %}
+    <div id="version-banner" class="md-banner md-banner--version" hidden>
+      <div class="md-banner__inner md-typeset">
+        <span id="version-banner-text"></span>
+      </div>
+    </div>
+  {% endif %}
+  {{ super() }}
+{% endblock %}
