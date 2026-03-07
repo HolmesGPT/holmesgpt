@@ -144,22 +144,71 @@ def _get_project_id() -> Optional[str]:
     return None
 
 
+# GitHub repo for the benchmark workflow (used to find latest run ID)
+GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "robusta-dev/holmesgpt")
+BENCHMARK_WORKFLOW = "eval-benchmarks.yaml"
+
+
+def _find_latest_benchmark_run_id() -> Optional[int]:
+    """Query GitHub Actions API for the latest successful benchmark workflow run.
+
+    Returns the run_id which maps to the Braintrust experiment name
+    'ci-benchmark-{run_id}'.
+    """
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{BENCHMARK_WORKFLOW}/runs"
+    try:
+        response = requests.get(
+            url,
+            params={"status": "completed", "conclusion": "success", "per_page": 1},
+            timeout=15,
+        )
+        if response.status_code != 200:
+            logging.warning(
+                f"GitHub Actions API returned {response.status_code}: {response.text[:200]}"
+            )
+            return None
+
+        runs = response.json().get("workflow_runs", [])
+        if not runs:
+            return None
+
+        return runs[0]["id"]
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"GitHub Actions API request failed: {e}")
+        return None
+
+
 def _find_latest_benchmark_experiment(
     project_id: str,
 ) -> Optional[Dict[str, Any]]:
     """Find the most recent ci-benchmark root experiment.
 
-    The weekly benchmark workflow creates experiments named 'ci-benchmark-{run_id}'
-    on the master branch. The Braintrust SDK may also create per-model sub-experiments
-    with a hash suffix (e.g., 'ci-benchmark-12345-abc123'). The root experiment
-    (without suffix) contains all eval spans across all models, so we prefer it.
-
-    Paginates through experiments (sorted newest-first) since benchmark experiments
-    may be buried under many PR experiments.
+    Uses GitHub Actions API to get the latest benchmark run ID, then does an
+    exact name lookup in Braintrust (2 API calls total). Falls back to paginated
+    scan if GitHub API is unavailable.
     """
-    # Pattern for root experiments: ci-benchmark- followed by only digits
-    root_pattern = re.compile(r"^ci-benchmark-\d+$")
+    # Fast path: get run ID from GitHub, then exact Braintrust lookup
+    run_id = _find_latest_benchmark_run_id()
+    if run_id:
+        experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
+        result = _make_api_request(
+            "/experiment",
+            params={
+                "project_id": project_id,
+                "experiment_name": experiment_name,
+            },
+        )
+        if result:
+            objects = result.get("objects", [])
+            if objects:
+                logging.info(f"Found benchmark experiment via GitHub API: {experiment_name}")
+                return objects[0]
+        logging.warning(
+            f"Benchmark experiment '{experiment_name}' not found in Braintrust, falling back to scan"
+        )
 
+    # Fallback: paginate through experiments (slow but reliable)
+    root_pattern = re.compile(r"^ci-benchmark-\d+$")
     cursor: Optional[str] = None
     for _ in range(20):  # Safety limit: scan up to 2000 experiments
         params: Dict[str, Any] = {
@@ -177,19 +226,16 @@ def _find_latest_benchmark_experiment(
         if not objects:
             return None
 
-        # First pass: find a root experiment (without hash suffix)
         for exp in objects:
             name = exp.get("name", "")
             if root_pattern.match(name):
                 return exp
 
-        # Second pass: any ci-benchmark experiment (in case naming changes)
         for exp in objects:
             name = exp.get("name", "")
             if name.startswith(BENCHMARK_EXPERIMENT_PREFIX):
                 return exp
 
-        # Paginate using the last experiment's ID
         cursor = objects[-1].get("id")
         if not cursor:
             break
