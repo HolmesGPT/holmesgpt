@@ -649,6 +649,7 @@ def ticket(
         None,
         help="ticket ID to investigate (e.g., 'KAN-1')",
     ),
+    update: Optional[bool] = typer.Option(False, help="Update ticket with AI results"),
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     model: Optional[str] = opt_model,
 ):
@@ -721,8 +722,13 @@ def ticket(
         console.print(result.result.replace("\n", "\n\n"), style="bold green")  # type: ignore
         console.print(Rule())
 
-        ticket_source.source.write_back_result(issue_to_investigate.id, result)
-        console.print(f"[bold]Updated ticket {issue_to_investigate.url}.[/bold]")
+        if update:
+            ticket_source.source.write_back_result(issue_to_investigate.id, result)
+            console.print(f"[bold]Updated ticket {issue_to_investigate.url}.[/bold]")
+        else:
+            console.print(
+                f"[bold]Not updating ticket {issue_to_investigate.url}. Use the --update option to do so.[/bold]"
+            )
 
 
 @investigate_app.command()
