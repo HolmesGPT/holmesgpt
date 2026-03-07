@@ -1,44 +1,66 @@
-"""Fetch historical data from Braintrust for comparison with current eval results."""
+"""Fetch the latest weekly benchmark results from Braintrust for comparison.
+
+Compares current eval results against the most recent ci-benchmark experiment
+(the weekly scheduled benchmark run on master). This requires only 2-3 API calls
+total: one to find the benchmark experiment, and 1-2 to paginate its eval spans.
+"""
 
 import logging
+import os
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
 
-from holmes.core.tracing import (
-    BRAINTRUST_API_KEY,
-    BRAINTRUST_ORG,
-    BRAINTRUST_PROJECT,
-    get_active_branch_name,
-)
+from holmes.core.tracing import BRAINTRUST_ORG, BRAINTRUST_PROJECT
 
 # Braintrust API base URL
 BRAINTRUST_API_URL = "https://api.braintrust.dev/v1"
 
-# Number of historical runs to fetch for comparison
-DEFAULT_HISTORY_LIMIT = 10
+# CI benchmark experiment name prefix (set by eval-benchmarks.yaml workflow)
+BENCHMARK_EXPERIMENT_PREFIX = "ci-benchmark-"
+
+__all__ = [
+    "BRAINTRUST_ORG",
+    "BRAINTRUST_PROJECT",
+    "BenchmarkMetrics",
+    "HistoricalComparison",
+    "HistoricalComparisonDetails",
+    "ExperimentInfo",
+    "get_benchmark_baseline",
+    "compare_with_benchmark",
+]
+
+
+def _get_api_key() -> Optional[str]:
+    """Get the Braintrust API key from environment.
+
+    Checks BRAINTRUST_API_KEY first, then falls back to BRAINTRUST_SERVICE_TOKEN.
+    """
+    return os.environ.get("BRAINTRUST_API_KEY") or os.environ.get(
+        "BRAINTRUST_SERVICE_TOKEN"
+    )
 
 
 @dataclass
-class HistoricalMetrics:
-    """Historical metrics for a specific test case."""
+class BenchmarkMetrics:
+    """Metrics for a single test case from the benchmark run."""
 
     test_id: str
     model: str
-    avg_duration: Optional[float] = None
-    avg_cost: Optional[float] = None
-    avg_turns: Optional[float] = None
-    avg_tools: Optional[float] = None
-    sample_count: int = 0
-    durations: List[float] = field(default_factory=list)
-    costs: List[float] = field(default_factory=list)
+    passed: bool = False
+    duration: Optional[float] = None
+    cost: Optional[float] = None
+    tool_call_count: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+
 
 
 @dataclass
 class HistoricalComparison:
-    """Comparison data between current and historical metrics."""
+    """Comparison data between current and benchmark metrics."""
 
     test_id: str
     model: str
@@ -48,12 +70,14 @@ class HistoricalComparison:
     current_cost: Optional[float] = None
     historical_avg_cost: Optional[float] = None
     cost_diff_pct: Optional[float] = None
-    sample_count: int = 0
+    current_passed: Optional[bool] = None
+    benchmark_passed: Optional[bool] = None
+    sample_count: int = 1
 
 
 @dataclass
 class ExperimentInfo:
-    """Information about an experiment used for historical comparison."""
+    """Information about a benchmark experiment."""
 
     id: str
     name: str
@@ -63,7 +87,7 @@ class ExperimentInfo:
 
 @dataclass
 class HistoricalComparisonDetails:
-    """Detailed information about the historical comparison."""
+    """Details about the benchmark comparison for transparency."""
 
     experiments: List[ExperimentInfo] = field(default_factory=list)
     filter_description: str = ""
@@ -79,24 +103,14 @@ def _make_api_request(
     params: Optional[Dict[str, Any]] = None,
     json_data: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Make an authenticated request to the Braintrust API.
-
-    Args:
-        endpoint: API endpoint path (e.g., "/project")
-        method: HTTP method
-        params: Query parameters
-        json_data: JSON body for POST requests
-
-    Returns:
-        JSON response or None if request failed
-    """
-    if not BRAINTRUST_API_KEY:
-        logging.debug("Braintrust API key not configured")
+    """Make an authenticated request to the Braintrust API."""
+    api_key = _get_api_key()
+    if not api_key:
         return None
 
     url = f"{BRAINTRUST_API_URL}{endpoint}"
     headers = {
-        "Authorization": f"Bearer {BRAINTRUST_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
@@ -108,7 +122,6 @@ def _make_api_request(
                 url, headers=headers, params=params, json=json_data, timeout=30
             )
         else:
-            logging.error(f"Unsupported HTTP method: {method}")
             return None
 
         response.raise_for_status()
@@ -118,13 +131,8 @@ def _make_api_request(
         return None
 
 
-def get_project_id() -> Optional[str]:
-    """Get the Braintrust project ID for the configured project.
-
-    Returns:
-        Project ID string or None if not found
-    """
-    # List projects and find the one matching BRAINTRUST_PROJECT
+def _get_project_id() -> Optional[str]:
+    """Get the Braintrust project ID for the configured project."""
     result = _make_api_request("/project", params={"org_name": BRAINTRUST_ORG})
     if not result or "objects" not in result:
         return None
@@ -132,255 +140,229 @@ def get_project_id() -> Optional[str]:
     for project in result.get("objects", []):
         if project.get("name") == BRAINTRUST_PROJECT:
             return project.get("id")
-
     return None
 
 
-def list_historical_experiments(
-    project_id: str, limit: int = DEFAULT_HISTORY_LIMIT
-) -> tuple[List[Dict[str, Any]], str]:
-    """List recent experiments, excluding the current branch.
+# GitHub repo for the benchmark workflow (used to find latest run ID)
+GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "robusta-dev/holmesgpt")
+BENCHMARK_WORKFLOW = "eval-benchmarks.yaml"
 
-    Args:
-        project_id: Braintrust project ID
-        limit: Maximum number of experiments to return
 
-    Returns:
-        Tuple of (list of experiment objects, filter description for display)
+def _find_latest_benchmark_run_id() -> Optional[int]:
+    """Query GitHub Actions API for the latest successful benchmark workflow run.
+
+    Returns the run_id which maps to the Braintrust experiment name
+    'ci-benchmark-{run_id}'.
     """
-    current_branch = get_active_branch_name()
-    filter_desc = f"excluding branch '{current_branch}'"
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{BENCHMARK_WORKFLOW}/runs"
+    try:
+        response = requests.get(
+            url,
+            params={"status": "completed", "conclusion": "success", "per_page": 1},
+            timeout=15,
+        )
+        if response.status_code != 200:
+            logging.warning(
+                f"GitHub Actions API returned {response.status_code}: {response.text[:200]}"
+            )
+            return None
 
-    # Fetch experiments for the project
+        runs = response.json().get("workflow_runs", [])
+        if not runs:
+            return None
+
+        return runs[0]["id"]
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"GitHub Actions API request failed: {e}")
+        return None
+
+
+def _find_latest_benchmark_experiment(
+    project_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Find the most recent ci-benchmark root experiment.
+
+    Queries GitHub Actions API for the latest successful benchmark workflow run ID,
+    then does an exact name lookup in Braintrust via experiment_name filter.
+    Total: 1 GitHub API call + 1 Braintrust API call.
+    """
+    run_id = _find_latest_benchmark_run_id()
+    if not run_id:
+        return None
+
+    experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
     result = _make_api_request(
         "/experiment",
         params={
             "project_id": project_id,
-            "limit": limit * 3,  # Fetch more to filter by branch
+            "experiment_name": experiment_name,
         },
     )
-
-    if not result or "objects" not in result:
-        return [], filter_desc
-
-    # Filter to exclude current branch
-    # Include "Unknown" branches as valid historical data (from before branch tracking fix)
-    filtered_experiments = []
-    for exp in result.get("objects", []):
-        metadata = exp.get("metadata", {})
-        branch = metadata.get("branch", "")
-        # Exclude experiments from the current branch, but include Unknown branches
-        if branch == "Unknown" or (branch and branch != current_branch):
-            filtered_experiments.append(exp)
-            if len(filtered_experiments) >= limit:
-                break
-
-    return filtered_experiments, filter_desc
-
-
-def fetch_experiment_spans(
-    experiment_id: str, limit: int = 1000
-) -> List[Dict[str, Any]]:
-    """Fetch spans from a specific experiment.
-
-    Args:
-        experiment_id: Braintrust experiment ID
-        limit: Maximum number of spans to fetch
-
-    Returns:
-        List of span objects with metrics
-    """
-    result = _make_api_request(
-        f"/experiment/{experiment_id}/fetch",
-        method="POST",
-        json_data={
-            "limit": limit,
-            "filters": [
-                # Only fetch top-level eval spans (not nested LLM calls)
-                {
-                    "type": "span_type",
-                    "path": ["span_attributes", "type"],
-                    "value": "eval",
-                }
-            ],
-        },
-    )
-
-    if not result or "events" not in result:
-        return []
-
-    return result.get("events", [])
-
-
-def extract_span_metrics(span: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Extract relevant metrics from a span.
-
-    Args:
-        span: Braintrust span object
-
-    Returns:
-        Dictionary with extracted metrics, or None if span is invalid
-    """
-    if span is None:
+    if not result:
         return None
+
+    objects = result.get("objects", [])
+    if objects:
+        logging.info(f"Found benchmark experiment: {experiment_name}")
+        return objects[0]
+
+    logging.warning(f"Benchmark experiment '{experiment_name}' not found in Braintrust")
+    return None
+
+
+def _fetch_all_eval_spans(experiment_id: str) -> List[Dict[str, Any]]:
+    """Fetch all eval-type spans from an experiment, handling pagination."""
+    all_eval_spans: List[Dict[str, Any]] = []
+    cursor = None
+
+    for _ in range(20):  # Safety limit on pagination
+        body: Dict[str, Any] = {"limit": 100}
+        if cursor:
+            body["cursor"] = cursor
+
+        result = _make_api_request(
+            f"/experiment/{experiment_id}/fetch",
+            method="POST",
+            json_data=body,
+        )
+        if not result:
+            break
+
+        events = result.get("events", [])
+        if not events:
+            break
+
+        # Filter for eval spans client-side (more reliable than server-side filter)
+        for event in events:
+            span_attrs = event.get("span_attributes") or {}
+            if span_attrs.get("type") == "eval":
+                all_eval_spans.append(event)
+
+        cursor = result.get("cursor")
+        if not cursor:
+            break
+
+    return all_eval_spans
+
+
+def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
+    """Extract metrics from an eval span."""
     metadata = span.get("metadata") or {}
+    scores = span.get("scores") or {}
     metrics = span.get("metrics") or {}
 
-    # Extract test_id from metadata or span name
     test_id = metadata.get("eval_id") or metadata.get("test_id", "")
-    if not test_id:
-        # Try to extract from span name (format: "test_id[model]")
-        span_attrs = span.get("span_attributes") or {}
-        name = span_attrs.get("name", "")
-        if "[" in name:
-            test_id = name.split("[")[0]
+    model = metadata.get("model", "")
 
-    scores = span.get("scores") or {}
-    return {
-        "test_id": test_id,
-        "model": metadata.get("model", ""),
-        "holmes_duration": metadata.get("holmes_duration"),
-        "cost": metrics.get("cost"),
-        "tool_call_count": metadata.get("tool_call_count"),
-        "passed": int(scores.get("correctness", 0)) == 1,
-    }
+    if not test_id or not model:
+        return None
 
+    duration = metadata.get("holmes_duration")
+    tool_calls = metadata.get("tool_call_count")
+    correctness = scores.get("correctness")
+    passed = int(correctness) == 1 if correctness is not None else False
 
-def build_historical_metrics(
-    experiments: List[Dict[str, Any]],
-) -> Dict[str, HistoricalMetrics]:
-    """Build historical metrics from a list of experiments.
+    # Cost from metrics (logged by Braintrust SDK) or metadata (logged by us)
+    cost = metrics.get("cost") or metadata.get("cost")
 
-    Args:
-        experiments: List of experiment objects
+    # Token data from metadata (logged by us via eval span)
+    total_tokens = metadata.get("total_tokens")
+    cached_tokens = metadata.get("cached_tokens")
 
-    Returns:
-        Dictionary mapping "test_id:model" to HistoricalMetrics
-    """
-    metrics_map: Dict[str, HistoricalMetrics] = {}
-
-    for exp in experiments:
-        exp_id = exp.get("id")
-        if not exp_id:
-            continue
-
-        spans = fetch_experiment_spans(exp_id)
-        for span in spans:
-            span_metrics = extract_span_metrics(span)
-            if span_metrics is None:
-                continue
-            test_id = span_metrics.get("test_id", "")
-            model = span_metrics.get("model", "")
-
-            if not test_id or not model:
-                continue
-
-            # Only include passing tests for fair comparison
-            if not span_metrics.get("passed", False):
-                continue
-
-            key = f"{test_id}:{model}"
-            if key not in metrics_map:
-                metrics_map[key] = HistoricalMetrics(test_id=test_id, model=model)
-
-            hist = metrics_map[key]
-
-            # Collect duration
-            duration = span_metrics.get("holmes_duration")
-            if duration and duration > 0:
-                hist.durations.append(duration)
-
-            # Collect cost
-            cost = span_metrics.get("cost")
-            if cost and cost > 0:
-                hist.costs.append(cost)
-
-            hist.sample_count += 1
-
-    # Calculate averages
-    for hist in metrics_map.values():
-        if hist.durations:
-            hist.avg_duration = sum(hist.durations) / len(hist.durations)
-        if hist.costs:
-            hist.avg_cost = sum(hist.costs) / len(hist.costs)
-
-    return metrics_map
+    return BenchmarkMetrics(
+        test_id=test_id,
+        model=model,
+        passed=passed,
+        duration=float(duration) if duration is not None else None,
+        cost=float(cost) if cost is not None else None,
+        tool_call_count=int(tool_calls) if tool_calls is not None else None,
+        total_tokens=int(total_tokens) if total_tokens is not None else None,
+        cached_tokens=int(cached_tokens) if cached_tokens is not None else None,
+    )
 
 
-def get_historical_metrics(
-    limit: int = DEFAULT_HISTORY_LIMIT,
-) -> tuple[Dict[str, HistoricalMetrics], HistoricalComparisonDetails]:
-    """Fetch historical metrics from recent experiments (excluding current branch).
-
-    Args:
-        limit: Number of recent experiments to analyze
+def get_benchmark_baseline() -> (
+    Tuple[Dict[str, BenchmarkMetrics], HistoricalComparisonDetails]
+):
+    """Fetch metrics from the latest weekly benchmark run.
 
     Returns:
         Tuple of (metrics_dict, details)
-        - metrics_dict: Dictionary mapping "test_id:model" to HistoricalMetrics
-        - details: HistoricalComparisonDetails with experiment info and status
+        - metrics_dict: Maps "test_id:model" to BenchmarkMetrics
+        - details: HistoricalComparisonDetails with experiment info
     """
-    details = HistoricalComparisonDetails()
+    details = HistoricalComparisonDetails(
+        filter_description="latest ci-benchmark experiment on master"
+    )
 
     try:
-        if not BRAINTRUST_API_KEY:
-            details.status = "BRAINTRUST_API_KEY not configured"
+        api_key = _get_api_key()
+        if not api_key:
+            details.status = "No Braintrust API key (BRAINTRUST_API_KEY or BRAINTRUST_SERVICE_TOKEN)"
             return {}, details
 
-        project_id = get_project_id()
+        project_id = _get_project_id()
         if not project_id:
             details.status = f"Braintrust project '{BRAINTRUST_PROJECT}' not found"
             return {}, details
-
         details.project_id = project_id
-        experiments, filter_desc = list_historical_experiments(project_id, limit=limit)
-        details.filter_description = filter_desc
 
-        if not experiments:
-            details.status = f"No experiments found ({filter_desc})"
+        benchmark_exp = _find_latest_benchmark_experiment(project_id)
+        if not benchmark_exp:
+            details.status = "No ci-benchmark experiments found"
             return {}, details
 
-        # Extract experiment info for transparency
-        for exp in experiments:
-            metadata = exp.get("metadata") or {}
-            details.experiments.append(
-                ExperimentInfo(
-                    id=exp.get("id", ""),
-                    name=exp.get("name", ""),
-                    branch=metadata.get("branch", "Unknown"),
-                    created=exp.get("created"),
-                )
-            )
+        exp_metadata = benchmark_exp.get("metadata") or {}
+        exp_info = ExperimentInfo(
+            id=benchmark_exp.get("id", ""),
+            name=benchmark_exp.get("name", ""),
+            branch=exp_metadata.get("branch", "unknown"),
+            created=benchmark_exp.get("created"),
+        )
+        details.experiments.append(exp_info)
 
         logging.info(
-            f"Fetching historical metrics from {len(experiments)} experiments ({filter_desc})"
+            f"Using benchmark baseline: {exp_info.name} (created {exp_info.created})"
         )
-        metrics = build_historical_metrics(experiments)
 
-        if not metrics:
-            details.status = f"No historical metrics found (no passing tests with duration data, {filter_desc})"
+        # Fetch all eval spans from this experiment
+        eval_spans = _fetch_all_eval_spans(benchmark_exp["id"])
+        if not eval_spans:
+            details.status = f"No eval spans found in experiment '{exp_info.name}'"
             return {}, details
 
-        details.metrics_count = len(metrics)
-        return metrics, details
+        # Build metrics map
+        metrics_map: Dict[str, BenchmarkMetrics] = {}
+        for span in eval_spans:
+            metrics = _extract_metrics(span)
+            if metrics is None:
+                continue
+            key = f"{metrics.test_id}:{metrics.model}"
+            metrics_map[key] = metrics
+
+        details.metrics_count = len(metrics_map)
+        logging.info(
+            f"Loaded {len(metrics_map)} test/model results from benchmark '{exp_info.name}'"
+        )
+        return metrics_map, details
+
     except Exception as e:
-        # Get the full traceback to identify exact location
         tb = traceback.format_exc()
-        logging.error(f"Error in get_historical_metrics: {e}\n{tb}")
+        logging.error(f"Error fetching benchmark baseline: {e}\n{tb}")
         details.status = f"Error: {e}"
         details.errors.append(f"{e}\n{tb}")
         return {}, details
 
 
-def compare_with_historical(
+def compare_with_benchmark(
     current_results: List[Dict[str, Any]],
-    historical: Dict[str, HistoricalMetrics],
+    benchmark: Dict[str, BenchmarkMetrics],
 ) -> Dict[str, HistoricalComparison]:
-    """Compare current test results with historical metrics.
+    """Compare current test results with benchmark baseline.
 
     Args:
         current_results: List of current test result dictionaries
-        historical: Historical metrics from get_historical_metrics()
+        benchmark: Benchmark metrics from get_benchmark_baseline()
 
     Returns:
         Dict mapping "test_id:model" to HistoricalComparison
@@ -397,31 +379,32 @@ def compare_with_historical(
             continue
 
         key = f"{test_id}:{model}"
-        hist = historical.get(key)
+        baseline = benchmark.get(key)
 
         comparison = HistoricalComparison(
             test_id=test_id,
             model=model,
             current_duration=result.get("holmes_duration"),
             current_cost=result.get("cost"),
+            current_passed=result.get("passed"),
         )
 
-        if hist and hist.sample_count > 0:
-            comparison.historical_avg_duration = hist.avg_duration
-            comparison.historical_avg_cost = hist.avg_cost
-            comparison.sample_count = hist.sample_count
+        if baseline:
+            comparison.benchmark_passed = baseline.passed
+            comparison.historical_avg_duration = baseline.duration
+            comparison.historical_avg_cost = baseline.cost
 
-            # Calculate percentage differences
-            if comparison.current_duration and hist.avg_duration:
+            # Calculate percentage differences (only for passing tests)
+            if comparison.current_duration and baseline.duration:
                 comparison.duration_diff_pct = (
-                    (comparison.current_duration - hist.avg_duration)
-                    / hist.avg_duration
+                    (comparison.current_duration - baseline.duration)
+                    / baseline.duration
                     * 100
                 )
 
-            if comparison.current_cost and hist.avg_cost:
+            if comparison.current_cost and baseline.cost:
                 comparison.cost_diff_pct = (
-                    (comparison.current_cost - hist.avg_cost) / hist.avg_cost * 100
+                    (comparison.current_cost - baseline.cost) / baseline.cost * 100
                 )
 
         comparisons[key] = comparison
