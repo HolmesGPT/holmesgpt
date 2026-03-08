@@ -2,7 +2,7 @@
 
 When running HolmesGPT as a server, HTTP headers from incoming requests can be forwarded to toolsets when they make outgoing API calls. This is useful for passing per-request authentication tokens, tenant identifiers, or other contextual headers through to backend services.
 
-Header propagation is supported across all toolset types: [MCP servers](remote-mcp-servers.md), [HTTP connectors](api-toolsets.md), [custom (YAML) toolsets](custom-toolsets.md), and built-in Python toolsets.
+Header propagation is supported across all toolset types: [MCP servers](remote-mcp-servers.md), [HTTP connectors](http-connectors/index.md), [custom (YAML) toolsets](custom-toolsets.md), and built-in Python toolsets.
 
 !!! note
     Header propagation is only available when running Holmes as a server (Helm deployment). It does not apply when using the CLI directly.
@@ -141,7 +141,7 @@ See [MCP Servers -- Dynamic Headers](remote-mcp-servers.md#advanced-configuratio
 
 The rendered headers are merged into every outgoing request after the endpoint's own authentication headers, so they can override defaults when needed.
 
-See [HTTP Connectors](api-toolsets.md) for the full HTTP connector configuration reference.
+See [HTTP Connectors](http-connectors/index.md) for the full HTTP connector configuration reference.
 
 ### Custom (YAML) Toolsets
 

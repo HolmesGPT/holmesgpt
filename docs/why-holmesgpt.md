@@ -49,7 +49,7 @@ See the [Operator documentation](operator/index.md) for installation and configu
 
 ## 3. Connect Any API as a Data Source
 
-HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](data-sources/api-toolsets.md) to turn any REST API into an LLM-friendly data source through YAML alone.
+HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](data-sources/http-connectors/index.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
 - **Metrics**: Prometheus, Datadog, Coralogix, NewRelic
 - **Logs**: Loki, Elasticsearch/OpenSearch, Datadog, Coralogix, Splunk
@@ -74,7 +74,7 @@ Instead of every engineer connecting their local AI tools to production with per
 
 ### Raw HTTP Endpoints as LLM-Friendly Tools
 
-When you need to integrate a service that doesn't have a built-in toolset, the [HTTP connector](data-sources/api-toolsets.md) turns raw HTTP endpoints into LLM-friendly tools through YAML configuration—no MCP servers or custom code required:
+When you need to integrate a service that doesn't have a built-in toolset, the [HTTP connector](data-sources/http-connectors/index.md) turns raw HTTP endpoints into LLM-friendly tools through YAML configuration—no MCP servers or custom code required:
 
 ```yaml
 toolsets:
