@@ -88,13 +88,18 @@ data:
     {{- $mcpServers = merge $mcpServers $gcpMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.github.enabled }}
+    {{- $githubConfig := dict "icon_url" "https://cdn.simpleicons.org/github/181717" }}
+    {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+    {{- $_ := set $githubConfig "url" .Values.mcpAddons.github.auth.githubApp.url }}
+    {{- $_ := set $githubConfig "mode" .Values.mcpAddons.github.auth.githubApp.mode }}
+    {{- $_ := set $githubConfig "extra_headers" (dict "Authorization" "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}") }}
+    {{- else }}
+    {{- $_ := set $githubConfig "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace) }}
+    {{- $_ := set $githubConfig "mode" "sse" }}
+    {{- end }}
     {{- $githubMcpServers := dict "github" (dict
         "description" "GitHub MCP Server - access repositories, pull requests, issues, and GitHub Actions. Debug CI failures, search code, and delegate tasks to Copilot."
-        "config" (dict
-          "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
-          "mode" "sse"
-          "icon_url" "https://cdn.simpleicons.org/github/181717"
-        )
+        "config" $githubConfig
         "llm_instructions" (include "holmes.githubMcp.llmInstructions" . | trim)
       )
     }}

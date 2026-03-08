@@ -1,4 +1,4 @@
-{{- if .Values.mcpAddons.github.enabled }}
+{{- if and .Values.mcpAddons.github.enabled (not .Values.mcpAddons.github.auth.githubApp.secretName) }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -77,7 +77,7 @@ spec:
         - name: GITHUB_PERSONAL_ACCESS_TOKEN
           valueFrom:
             secretKeyRef:
-              name: {{ required "mcpAddons.github.auth.secretName is required" .Values.mcpAddons.github.auth.secretName }}
+              name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
               key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
         {{- if .Values.mcpAddons.github.config.toolsets }}
         - name: GITHUB_TOOLSETS
