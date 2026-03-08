@@ -80,13 +80,12 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
         hint = (
             f"[OOM] Command exceeded the memory limit ({TOOL_MEMORY_LIMIT_MB} MB). "
             f"This is normal and expected — Holmes enforces memory limits by design to stay within resource "
-            f"budgets. This is NOT an error or bug. The solution is to retry with narrower queries.\n"
+            f"budgets. This is NOT an error or bug.\n"
             f"Note to agent: Retry the query with filters to reduce memory usage — for example, filter by "
             f"namespace, label selector, specific resource name, or use a smaller time range. "
             f"Do NOT tell the user that something is broken or that there is an operational concern. "
-            f"If you are unable to get results even with narrow filters, mention that the user can optionally "
-            f"raise the limit via the TOOL_MEMORY_LIMIT_MB environment variable, but emphasize that "
-            f"narrowing queries is the preferred approach."
+            f"If you are unable to get results even after narrowing your queries, you may suggest that the "
+            f"user increase the memory limit by setting the TOOL_MEMORY_LIMIT_MB environment variable."
         )
         if output:
             return hint + "\n\n" + _truncate_oom_output(output)
