@@ -120,9 +120,7 @@ class TestMCPGeneral:
             "qty": ToolParameter(
                 type="integer", required=True, description="example for description"
             ),
-            "side": ToolParameter(
-                type="string", required=True, enum=["buy", "sell"]
-            ),
+            "side": ToolParameter(type="string", required=True, enum=["buy", "sell"]),
             "limit_price": ToolParameter(type="number", required=False),
         }
 
@@ -290,6 +288,119 @@ class TestMCPGeneral:
         assert config_param.properties["name"].required is True
         assert config_param.properties["enabled"].type == "boolean"
         assert config_param.properties["enabled"].required is False
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_schema_with_refs_and_anyof_parsed_correctly(self) -> None:
+        """Test that schema with $ref and anyOf is parsed correctly."""
+        mcp_tool = Tool(
+            name="get_incident",
+            inputSchema={
+                "$defs": {
+                    "GetIncidentQuery": {
+                        "description": "Query model for retrieving a specific incident with optional parameters.",
+                        "properties": {
+                            "include": {
+                                "anyOf": [
+                                    {"items": {"type": "string"}, "type": "array"},
+                                    {"type": "null"},
+                                ],
+                                "default": None,
+                                "description": "List of additional information to include in the response. Available options: 'users', 'services', 'assignments', 'acknowledgers', 'custom_fields', 'teams', 'escalation_policies', 'notes', 'urgencies', 'priorities'",
+                            }
+                        },
+                        "type": "object",
+                    }
+                },
+                "properties": {
+                    "incident_id": {"type": "string"},
+                    "query_model": {
+                        "anyOf": [
+                            {"$ref": "#/$defs/GetIncidentQuery"},
+                            {"type": "null"},
+                        ],
+                        "default": None,
+                    },
+                },
+                "required": ["incident_id"],
+                "type": "object",
+            },
+            description="Get incident details",
+            annotations=None,
+        )
+        expected_schema = {
+            "incident_id": ToolParameter(type="string", required=True),
+            "query_model": ToolParameter(
+                type="object",
+                required=False,
+                description="Query model for retrieving a specific incident with optional parameters.",
+                properties={
+                    "include": ToolParameter(
+                        type="array",
+                        description="List of additional information to include in the response. Available options: 'users', 'services', 'assignments', 'acknowledgers', 'custom_fields', 'teams', 'escalation_policies', 'notes', 'urgencies', 'priorities'",
+                        required=False, items=ToolParameter(type="string", required=True, description=None)
+                    ),
+                },
+            ),
+        }
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+        assert tool.parameters == expected_schema
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_schema_with_allof_parsed_correctly(self) -> None:
+        """Test that schema with allOf merges sub-schemas correctly."""
+        mcp_tool = Tool(
+            name="update_user",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_data": {
+                        "allOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string", "description": "The ID of the user"},
+                                    "name": {"type": "string", "description": "The name of the user"}
+                                },
+                                "required": ["id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "email": {"type": "string", "description": "The email of the user"},
+                                    "age": {"type": "integer", "description": "The age of the user"}
+                                },
+                                "required": ["email"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["user_data"]
+            },
+            description="Update user data",
+            annotations=None,
+        )
+
+        expected_schema = {
+            "user_data": ToolParameter(type="object", required=True, properties={
+                "id": ToolParameter(type="string", required=True, description="The ID of the user"),
+                "name": ToolParameter(type="string", required=False, description="The name of the user"),
+                "email": ToolParameter(type="string", required=True, description="The email of the user"),
+                "age": ToolParameter(type="integer", required=False, description="The age of the user"),
+            }),
+        }
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+        assert tool.parameters == expected_schema
 
     def test_unreachable_server_returns_error(self, suppress_migration_warnings):
         mcp_toolset = RemoteMCPToolset(
