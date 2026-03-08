@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any, Optional
 
 import sentry_sdk
@@ -100,11 +101,13 @@ def truncate_messages_to_fit_context(
         max_context_size - message_size_without_tools - reserved_for_output_tokens
     )
     remaining_space = available_space
+    t_sort = time.monotonic()
     tool_call_messages.sort(
-        key=lambda x: count_tokens_fn(
+        key=lambda x: x.get("token_count") or count_tokens_fn(
             [{"role": "tool", "content": x["content"]}]
         ).total_tokens
     )
+    logging.debug(f"truncate_messages: sort {len(tool_call_messages)} tool msgs took {(time.monotonic() - t_sort) * 1000:.1f}ms")
 
     truncations = []
 
@@ -114,7 +117,7 @@ def truncate_messages_to_fit_context(
     for i, msg in enumerate(tool_call_messages):
         remaining_tools = len(tool_call_messages) - i
         max_allocation = remaining_space // remaining_tools
-        needed_space = count_tokens_fn(
+        needed_space = msg.get("token_count") or count_tokens_fn(
             [{"role": "tool", "content": msg["content"]}]
         ).total_tokens
         allocated_space = min(needed_space, max_allocation)
@@ -148,6 +151,7 @@ class ContextWindowLimiterOutput(BaseModel):
 def limit_input_context_window(
     llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]]
 ) -> ContextWindowLimiterOutput:
+    t0 = time.monotonic()
     events = []
     metadata = {}
     initial_tokens = llm.count_tokens(messages=messages, tools=tools)  # type: ignore
@@ -210,6 +214,9 @@ def limit_input_context_window(
         tokens = llm.count_tokens(messages=messages, tools=tools)  # type: ignore
     else:
         metadata["truncations"] = []
+
+    elapsed_ms = (time.monotonic() - t0) * 1000
+    logging.debug(f"limit_input_context_window: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")
 
     return ContextWindowLimiterOutput(
         events=events,
