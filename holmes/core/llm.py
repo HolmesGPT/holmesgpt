@@ -225,12 +225,8 @@ class DefaultLLM(LLM):
             if (
                 os.environ.get("AWS_PROFILE")
                 or os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-                # IRSA (IAM Roles for Service Accounts) on EKS or custom OIDC clusters
-                or (
-                    os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
-                    and os.environ.get("AWS_ROLE_ARN")
-                )
-            ):
+                or (os.environ.get("AWS_ROLE_ARN") and os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE"))
+                ):
                 model_requirements = {"keys_in_environment": True, "missing_keys": []}
             elif args.get("aws_access_key_id") and args.get("aws_secret_access_key"):
                 return  # break fast.
