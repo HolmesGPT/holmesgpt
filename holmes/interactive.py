@@ -40,6 +40,7 @@ from rich.console import Console
 from rich.markdown import Markdown, Panel
 from rich.markup import escape
 
+from holmes.config import Config
 from holmes.core.config import config_path_dir
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
@@ -70,6 +71,7 @@ from holmes.utils.colors import (
     TOOLS_COLOR,
     USER_COLOR,
 )
+from holmes.toolset_config_tui import run_toolset_config_tui
 from holmes.utils.console.consts import agent_name
 from holmes.utils.file_utils import write_json_file
 from holmes.version import check_version_async
@@ -93,6 +95,7 @@ class SlashCommands(Enum):
     CONTEXT = ("/context", "Show conversation context size and token count")
     SHOW = ("/show", "Show specific tool output in scrollable view")
     FEEDBACK = ("/feedback", "Provide feedback on the agent's response")
+    CONFIG = ("/config", "Open interactive toolset configuration editor")
 
     def __init__(self, command, description):
         self.command = command
@@ -1167,6 +1170,8 @@ def run_interactive_loop(
     bash_always_deny: bool = False,
     bash_always_allow: bool = False,
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
+    config: Optional[Config] = None,
+    config_file_path: Optional[Path] = None,
 ) -> None:
     # Enable CLI mode for bash prefix loading (server mode doesn't call this)
     enable_cli_mode()
@@ -1411,6 +1416,20 @@ def run_interactive_loop(
                     if shared_input is None:
                         continue  # User chose not to share or no output, continue to next input
                     user_input = shared_input
+                elif command == SlashCommands.CONFIG.command:
+                    if config is not None:
+                        run_toolset_config_tui(
+                            config,
+                            config_file_path,
+                            console,
+                            preloaded_toolsets=ai.tool_executor.toolsets,
+                        )
+                    else:
+                        console.print(
+                            "[bold red]Config not available in this session. "
+                            "Use 'holmes toolset config' from the CLI instead.[/bold red]"
+                        )
+                    continue
                 elif (
                     command == SlashCommands.FEEDBACK.command
                     and feedback_callback is not None
