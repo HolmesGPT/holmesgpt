@@ -10,6 +10,7 @@ import io
 import logging
 import traceback
 import types
+import webbrowser
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -462,6 +463,10 @@ def _run_selection_menu(
 # ── Screen 1: select toolset ─────────────────────────────────────────
 
 
+_MCP_SERVER_DOCS_URL = "https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/"
+_MCP_SELECTED_SENTINEL = object()
+
+
 def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolset]:
     """Screen 1 – let the user pick a toolset to configure."""
     if not toolsets:
@@ -471,10 +476,19 @@ def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolse
         return None
 
     items: List[str] = []
+    items.append(f"Add MCP Server - {_MCP_SERVER_DOCS_URL}")
     for t in toolsets:
-        status_tag = t.status.value if t.status else "disabled"
-        has_config = "configured" if t.config else "unconfigured"
-        items.append(f"{t.name:<35} [{status_tag}] ({has_config})")
+        raw_status = t.status.value if t.status else "disabled"
+        is_configured = getattr(t, "enabled", False)
+        if raw_status == "enabled":
+            merged_status = "enabled"
+        elif raw_status == "failed" and not is_configured:
+            merged_status = "unconfigured"
+        elif raw_status == "failed" and is_configured:
+            merged_status = "failed"
+        else:
+            merged_status = raw_status
+        items.append(f"{t.name:<35} [{merged_status}]")
 
     idx = _run_selection_menu(
         items,
@@ -483,7 +497,10 @@ def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolse
     )
     if idx is None:
         return None
-    return toolsets[idx]
+    if idx == 0:
+        webbrowser.open(_MCP_SERVER_DOCS_URL)
+        return _MCP_SELECTED_SENTINEL
+    return toolsets[idx - 1]
 
 
 # ── Screen 2: tree editor ─────────────────────────────────────────────
@@ -1096,6 +1113,12 @@ def run_toolset_config_tui(
 
     toolsets = [t for t in toolsets if t.config_classes and t.type != ToolsetType.MCP]
     selected = select_toolset(toolsets, console)
+    if selected is _MCP_SELECTED_SENTINEL:
+        console.print(
+            f"[bold {STATUS_COLOR}]Opened MCP Documentation: "
+            f"[link={_MCP_SERVER_DOCS_URL}]{_MCP_SERVER_DOCS_URL}[/link][/bold {STATUS_COLOR}]"
+        )
+        return
     if selected is None:
         console.print(f"[bold {STATUS_COLOR}]No toolset selected.[/bold {STATUS_COLOR}]")
         return

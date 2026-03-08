@@ -397,8 +397,7 @@ class DefaultLLM(LLM):
         if EXTRA_HEADERS:
             self.args.setdefault("extra_headers", json.loads(EXTRA_HEADERS))
 
-        if self.args.get("thinking", None):
-            litellm.modify_params = True
+        litellm.modify_params = True
 
         if REASONING_EFFORT:
             self.args.setdefault("reasoning_effort", REASONING_EFFORT)
