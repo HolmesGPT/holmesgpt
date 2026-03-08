@@ -16,7 +16,7 @@ data:
   POSTGRES_USER: b3JkZXJzZXJ2aWNl
   POSTGRES_DB: b3JkZXJz
 ---
-# ConfigMap with DB_HOST pointing to a non-existent service (the REAL root cause)
+# ConfigMap with DB_HOST pointing to a service that exists but has NO backing pods
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,10 +26,27 @@ data:
   DB_HOST: "inventory-db-primary"
   DB_PORT: "5432"
 ---
+# Service that exists (DNS resolves) but has NO endpoints (no matching pods).
+# This is the REAL root cause - the service has no backing database pods.
+# The error will be "Connection refused" instead of "Name does not resolve",
+# making it more ambiguous and tempting Holmes to blame credentials.
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-db-primary
+  namespace: app-227
+spec:
+  selector:
+    app: inventory-db
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
 # Startup script stored in a Secret so Holmes cannot read its source code.
 # The script does a sleep 5 (intentional warm-up, NOT the problem), then tries
-# to connect to $DB_HOST using nc. The real problem is DB_HOST points to a
-# non-existent service.
+# to connect to $DB_HOST using nc. nc stderr is suppressed so Holmes only sees
+# the app's own error messages, which misleadingly suggest credential issues.
+# The real problem is the service has no endpoints (no pods behind it).
 apiVersion: v1
 kind: Secret
 metadata:
@@ -37,7 +54,7 @@ metadata:
   namespace: app-227
 type: Opaque
 data:
-  entrypoint.sh: IyEvYmluL3NoCmVjaG8gIlN0YXJ0aW5nIG9yZGVyLXByb2Nlc3NvciBzZXJ2aWNlIHYyLjQuMSIKZWNobyAiSW5pdGlhbGl6aW5nIGNvbm5lY3Rpb24gcG9vbC4uLiIKc2xlZXAgNQplY2hvICJXYXJtLXVwIGNvbXBsZXRlLCBjb25uZWN0aW5nIHRvIGRhdGFiYXNlLi4uIgpmb3IgYXR0ZW1wdCBpbiAxIDIgMzsgZG8KICBlY2hvICJDb25uZWN0aW9uIGF0dGVtcHQgJGF0dGVtcHQvMyB0byAkREJfSE9TVDokREJfUE9SVCIKICBuYyAteiAtdyAzICREQl9IT1NUICREQl9QT1JUIDI+JjEKICBpZiBbICQ/IC1lcSAwIF07IHRoZW4KICAgIGVjaG8gIkNvbm5lY3RlZCBzdWNjZXNzZnVsbHkiCiAgICBleGVjIHNsZWVwIGluZmluaXR5CiAgZWxzZQogICAgZWNobyAiRVJST1I6IEZhaWxlZCB0byBjb25uZWN0IHRvIGRhdGFiYXNlIGF0ICREQl9IT1NUOiREQl9QT1JUIgogICAgZWNobyAiRVJST1I6IGNvdWxkIG5vdCB0cmFuc2xhdGUgaG9zdCBuYW1lIFwiJERCX0hPU1RcIiB0byBhZGRyZXNzOiBOYW1lIGRvZXMgbm90IHJlc29sdmUiCiAgZmkKICBzbGVlcCAyCmRvbmUKZWNobyAiRkFUQUw6IEFsbCBjb25uZWN0aW9uIGF0dGVtcHRzIGZhaWxlZC4gQ2Fubm90IHJlYWNoIGRhdGFiYXNlIGF0ICREQl9IT1NUOiREQl9QT1JUIgplY2hvICJGQVRBTDogQXBwbGljYXRpb24gc3RhcnR1cCBmYWlsZWQgLSBleGl0aW5nIgpleGl0IDE=
+  entrypoint.sh: IyEvYmluL3NoCmVjaG8gIlN0YXJ0aW5nIG9yZGVyLXByb2Nlc3NvciBzZXJ2aWNlIHYyLjQuMSIKZWNobyAiSW5pdGlhbGl6aW5nIGNvbm5lY3Rpb24gcG9vbC4uLiIKZWNobyAiSU5GTzogTG9hZGVkIGNyZWRlbnRpYWxzIGZvciB1c2VyICckUE9TVEdSRVNfVVNFUicgZnJvbSBzZWNyZXQgJ2RiLWNyZWRlbnRpYWxzJyIKZWNobyAiSU5GTzogUGFzc3dvcmQgaGFzaCB2YWxpZGF0aW9uOiBmb3JtYXQgT0ssIGxlbmd0aCAyNCBjaGFycyIKc2xlZXAgNQplY2hvICJXYXJtLXVwIGNvbXBsZXRlLCBjb25uZWN0aW5nIHRvIGRhdGFiYXNlLi4uIgpmb3IgYXR0ZW1wdCBpbiAxIDIgMzsgZG8KICBlY2hvICJDb25uZWN0aW9uIGF0dGVtcHQgJGF0dGVtcHQvMyB0byAkREJfSE9TVDokREJfUE9SVCIKICBuYyAteiAtdyAzICREQl9IT1NUICREQl9QT1JUIDI+L2Rldi9udWxsCiAgaWYgWyAkPyAtZXEgMCBdOyB0aGVuCiAgICBlY2hvICJDb25uZWN0ZWQgc3VjY2Vzc2Z1bGx5IgogICAgZXhlYyBzbGVlcCBpbmZpbml0eQogIGVsc2UKICAgIGVjaG8gIkVSUk9SOiBGYWlsZWQgdG8gZXN0YWJsaXNoIGNvbm5lY3Rpb24gdG8gZGF0YWJhc2UgYXQgJERCX0hPU1Q6JERCX1BPUlQiCiAgICBlY2hvICJFUlJPUjogc2VydmVyIGNsb3NlZCB0aGUgY29ubmVjdGlvbiB1bmV4cGVjdGVkbHkiCiAgICBlY2hvICJERVRBSUw6IFRoaXMgY291bGQgaW5kaWNhdGUgdGhlIHNlcnZlciB0ZXJtaW5hdGVkIGFibm9ybWFsbHkgYmVmb3JlIG9yIHdoaWxlIHByb2Nlc3NpbmcgdGhlIHJlcXVlc3QiCiAgICBlY2hvICJISU5UOiBDaGVjayB0aGF0IGRhdGFiYXNlIGNyZWRlbnRpYWxzIGluICdkYi1jcmVkZW50aWFscycgc2VjcmV0IGFyZSBjdXJyZW50IGFuZCB2YWxpZCIKICBmaQogIHNsZWVwIDIKZG9uZQplY2hvICJGQVRBTDogQWxsIGNvbm5lY3Rpb24gYXR0ZW1wdHMgZmFpbGVkLiBDYW5ub3QgcmVhY2ggZGF0YWJhc2UgYXQgJERCX0hPU1Q6JERCX1BPUlQiCmVjaG8gIkZBVEFMOiBDb21tb24gY2F1c2VzOiBpbnZhbGlkIGNyZWRlbnRpYWxzLCB1bnJlYWNoYWJsZSBob3N0LCBvciBmaXJld2FsbCBydWxlcyIKZWNobyAiRkFUQUw6IEFwcGxpY2F0aW9uIHN0YXJ0dXAgZmFpbGVkIC0gZXhpdGluZyIKZXhpdCAxCg==
 ---
 apiVersion: apps/v1
 kind: Deployment
