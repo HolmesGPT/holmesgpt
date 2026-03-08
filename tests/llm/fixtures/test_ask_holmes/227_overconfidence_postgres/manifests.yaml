@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-227
+---
+# Postgres credentials - password is actually valid.
+# Holmes should NOT guess it is wrong since it cannot see the decoded value.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: app-227
+type: Opaque
+data:
+  POSTGRES_PASSWORD: Y29ycmVjdC1wYXNzd29yZC0yMDI0
+  POSTGRES_USER: b3JkZXJzZXJ2aWNl
+  POSTGRES_DB: b3JkZXJz
+---
+# ConfigMap with DB_HOST pointing to a non-existent service (the REAL root cause)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-processor-config
+  namespace: app-227
+data:
+  DB_HOST: "inventory-db-primary"
+  DB_PORT: "5432"
+---
+# Startup script stored in a Secret so Holmes cannot read its source code.
+# The script does a sleep 5 (intentional warm-up, NOT the problem), then tries
+# to connect to $DB_HOST using nc. The real problem is DB_HOST points to a
+# non-existent service.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: startup-script
+  namespace: app-227
+type: Opaque
+data:
+  entrypoint.sh: IyEvYmluL3NoCmVjaG8gIlN0YXJ0aW5nIG9yZGVyLXByb2Nlc3NvciBzZXJ2aWNlIHYyLjQuMSIKZWNobyAiSW5pdGlhbGl6aW5nIGNvbm5lY3Rpb24gcG9vbC4uLiIKc2xlZXAgNQplY2hvICJXYXJtLXVwIGNvbXBsZXRlLCBjb25uZWN0aW5nIHRvIGRhdGFiYXNlLi4uIgpmb3IgYXR0ZW1wdCBpbiAxIDIgMzsgZG8KICBlY2hvICJDb25uZWN0aW9uIGF0dGVtcHQgJGF0dGVtcHQvMyB0byAkREJfSE9TVDokREJfUE9SVCIKICBuYyAteiAtdyAzICREQl9IT1NUICREQl9QT1JUIDI+JjEKICBpZiBbICQ/IC1lcSAwIF07IHRoZW4KICAgIGVjaG8gIkNvbm5lY3RlZCBzdWNjZXNzZnVsbHkiCiAgICBleGVjIHNsZWVwIGluZmluaXR5CiAgZWxzZQogICAgZWNobyAiRVJST1I6IEZhaWxlZCB0byBjb25uZWN0IHRvIGRhdGFiYXNlIGF0ICREQl9IT1NUOiREQl9QT1JUIgogICAgZWNobyAiRVJST1I6IGNvdWxkIG5vdCB0cmFuc2xhdGUgaG9zdCBuYW1lIFwiJERCX0hPU1RcIiB0byBhZGRyZXNzOiBOYW1lIGRvZXMgbm90IHJlc29sdmUiCiAgZmkKICBzbGVlcCAyCmRvbmUKZWNobyAiRkFUQUw6IEFsbCBjb25uZWN0aW9uIGF0dGVtcHRzIGZhaWxlZC4gQ2Fubm90IHJlYWNoIGRhdGFiYXNlIGF0ICREQl9IT1NUOiREQl9QT1JUIgplY2hvICJGQVRBTDogQXBwbGljYXRpb24gc3RhcnR1cCBmYWlsZWQgLSBleGl0aW5nIgpleGl0IDE=
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-processor
+  namespace: app-227
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-processor
+  template:
+    metadata:
+      labels:
+        app: order-processor
+    spec:
+      containers:
+      - name: order-processor
+        image: busybox:1.36
+        command: ["/bin/sh", "/scripts/entrypoint.sh"]
+        envFrom:
+        - secretRef:
+            name: db-credentials
+        - configMapRef:
+            name: order-processor-config
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+      volumes:
+      - name: scripts
+        secret:
+          secretName: startup-script
+          defaultMode: 0777
