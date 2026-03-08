@@ -137,6 +137,7 @@ class ConfigFieldNode:
     is_header: bool = False
     depth: int = 0
     dict_key: Optional[str] = None  # editable key name for dict children
+    explicitly_set: bool = False  # True when user has edited this field
 
 
 def build_tree_from_schema(
@@ -157,11 +158,12 @@ def build_tree_from_schema(
         description = getattr(field_info, "description", None) or ""
         required = getattr(field_info, "is_required", lambda: False)()
 
-        # Current value
+        # Current value - track whether it was explicitly provided
         cur = current_values.get(field_name)
+        was_explicit = field_name in current_values
 
         # Default fallback
-        if cur is None:
+        if cur is None and not was_explicit:
             default = getattr(field_info, "default", PydanticUndefined)
             default_factory = getattr(field_info, "default_factory", None)
             if default is not PydanticUndefined and default is not None:
@@ -182,6 +184,7 @@ def build_tree_from_schema(
             depth=depth,
             parent=parent,
             is_header=ftype in ("dict", "list", "model"),
+            explicitly_set=was_explicit,
         )
 
         if ftype == "model":
@@ -255,7 +258,7 @@ def tree_to_dict(nodes: List[ConfigFieldNode]) -> Dict[str, Any]:
             elif node.field_type == "model":
                 result[node.key] = {}
         else:
-            if node.value is not None:
+            if node.value is not None or node.explicitly_set:
                 result[node.key] = node.value
     return result
 
@@ -572,9 +575,14 @@ def run_tree_editor(
             type_bracket = "{}" if node.field_type == "dict" else "[]"
             return len(f"{indent}{prefix}{display_name}:{pad} {type_bracket[0]}{count} items{type_bracket[1]}")
 
-        val_display = str(node.value) if node.value is not None else ""
         if node.field_type == "bool":
             val_display = str(node.value).lower() if node.value is not None else "null"
+        elif node.value is None and not node.required:
+            val_display = "<null>"
+        elif node.value == "":
+            val_display = "<empty>"
+        else:
+            val_display = str(node.value) if node.value is not None else ""
 
         return len(f"{indent}{prefix}{display_name}:{pad} {val_display}")
 
@@ -663,7 +671,14 @@ def run_tree_editor(
             val_display = str(node.value) if node.value else "<value>"
             hints = ""
         else:
-            val_display = str(node.value) if node.value is not None else ""
+            if node.value is None and not node.required:
+                val_display = "<null>"
+            elif node.value is None:
+                val_display = ""
+            elif node.value == "":
+                val_display = "<empty>"
+            else:
+                val_display = str(node.value)
             hints = ""
 
         label_prefix = f"{indent}{prefix}{display_name}:{pad} "
@@ -683,7 +698,8 @@ def run_tree_editor(
             row_parts.append(("", "\n"))
             return row_parts
 
-        val_style = "class:dim" if is_list_entry and not node.value else style
+        is_placeholder = (is_list_entry and not node.value) or (node.value is None and not node.required) or node.value == ""
+        val_style = "class:dim" if is_placeholder else style
         row_parts.append((val_style, val_display))
 
         if node.description and comment_col > 0:
@@ -750,7 +766,7 @@ def run_tree_editor(
             parts.extend(status_lines)
 
         # Hint line
-        parts.append(("class:hint", "\n  Up/Down: navigate | Enter: edit/select | Backspace: delete entry | Esc: cancel edit\n"))
+        parts.append(("class:hint", "\n  Up/Down: navigate | Enter: edit/select | Backspace/Del: delete entry or set null | Esc: cancel edit\n"))
         return parts
 
     # ── key bindings ──
@@ -808,12 +824,25 @@ def run_tree_editor(
     @kb.add("c-d")
     @kb.add("delete")
     def _delete_entry(event: Any) -> None:
-        if editing[0]:
-            return
         idx = cursor[0]
         if idx >= len(flat_rows):
             return
         node = flat_rows[idx]
+
+        if editing[0]:
+            buf = edit_buf[0]
+            is_collection_child = node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list")
+            if len(buf.text) == 0 and not node.required and not editing_dict_key[0] and not is_collection_child:
+                # Empty buffer + deletion key → set to <null>
+                node.value = None
+                node.explicitly_set = True
+                editing[0] = False
+                status_lines.clear()
+            else:
+                # Forward-delete
+                buf.delete()
+            return
+
         if node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list"):
             node.parent.children.remove(node)
             for i, child in enumerate(node.parent.children):
@@ -821,6 +850,10 @@ def run_tree_editor(
             _refresh_flat()
             if cursor[0] >= total_items():
                 cursor[0] = max(0, total_items() - 1)
+        elif not node.is_header and not node.required and node.value is not None:
+            # Set optional leaf field to <null>
+            node.value = None
+            node.explicitly_set = True
 
     @kb.add("enter")
     def _enter(event: Any) -> None:
@@ -890,7 +923,8 @@ def run_tree_editor(
                     editing_dict_key[0] = False
                     return
             else:
-                node.value = raw if raw else None
+                node.value = raw
+            node.explicitly_set = True
             editing[0] = False
             editing_dict_key[0] = False
             status_lines = []
@@ -969,7 +1003,20 @@ def run_tree_editor(
     @kb.add("backspace")
     def _backspace(event: Any) -> None:
         if editing[0]:
-            edit_buf[0].delete_before_cursor()
+            buf = edit_buf[0]
+            if len(buf.text) == 0:
+                # Empty buffer + backspace → set to <null> if optional leaf field
+                idx = cursor[0]
+                if idx < len(flat_rows):
+                    node = flat_rows[idx]
+                    is_collection_child = node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list")
+                    if not node.required and not editing_dict_key[0] and not is_collection_child:
+                        node.value = None
+                        node.explicitly_set = True
+                        editing[0] = False
+                        status_lines.clear()
+            else:
+                buf.delete_before_cursor()
         else:
             _delete_entry(event)
 
