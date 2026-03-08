@@ -3,8 +3,33 @@ kind: Namespace
 metadata:
   name: app-227
 ---
-# PostgreSQL server - superuser password is visible but the 'orderservice'
-# user password is set via kubectl exec in before_test (never in any K8s resource).
+# Postgres superuser credentials stored in a Secret so Holmes cannot read
+# POSTGRES_USER=postgres from the pod describe and wrongly infer that
+# 'orderservice' was never created. before_test uses kubectl exec (socket auth)
+# so it never needs to know the superuser password.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-admin
+  namespace: app-227
+type: Opaque
+data:
+  POSTGRES_USER: cG9zdGdyZXM=
+  POSTGRES_PASSWORD: cGctYWRtaW4tc2VjcmV0
+---
+# PVC ensures user data persists if the postgres container restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: inventory-db-data
+  namespace: app-227
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -37,11 +62,19 @@ spec:
         image: postgres:16.1
         env:
         - name: POSTGRES_USER
-          value: postgres
+          valueFrom:
+            secretKeyRef:
+              name: postgres-admin
+              key: POSTGRES_USER
         - name: POSTGRES_PASSWORD
-          value: pg-admin-secret
+          valueFrom:
+            secretKeyRef:
+              name: postgres-admin
+              key: POSTGRES_PASSWORD
         - name: POSTGRES_DB
           value: orders
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
         ports:
         - containerPort: 5432
         readinessProbe:
@@ -49,6 +82,13 @@ spec:
             command: ["pg_isready", "-U", "postgres"]
           initialDelaySeconds: 5
           periodSeconds: 3
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: inventory-db-data
 ---
 # App credentials - Holmes can decode this Secret and see the password 'old-password-2024'.
 # This password is WRONG. The correct orderservice password is only stored inside
@@ -80,6 +120,8 @@ data:
 # Connects as 'orderservice' using the wrong password from db-credentials.
 # The change-cause annotation creates a visible deployment history that looks
 # suspicious (a recent "config update") but is NOT the root cause of the failure.
+# Starts at replicas: 0 so the app never connects before the orderservice user is created.
+# before_test scales it up to 1 after creating the user, keeping postgres logs clean.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -88,7 +130,7 @@ metadata:
   annotations:
     kubernetes.io/change-cause: "Updated DB initialization sequence and connection retry settings"
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: inventory-service
