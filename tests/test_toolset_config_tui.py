@@ -615,6 +615,37 @@ class TestConfigFieldNodeManipulation:
         node.value = not bool(node.value)
         assert node.value is True
 
+    def test_optional_field_set_to_null(self) -> None:
+        """Optional fields can be set to None (displayed as <null>)."""
+        node = ConfigFieldNode(
+            key="api_key", field_type="str", value="secret", required=False, depth=0
+        )
+        node.value = None
+        assert node.value is None
+
+    def test_optional_field_null_in_tree_to_dict(self) -> None:
+        """When an optional field is set to None, tree_to_dict omits it."""
+        node = ConfigFieldNode(
+            key="api_key", field_type="str", value=None, required=False, depth=0
+        )
+        result = tree_to_dict([node])
+        assert "api_key" not in result
+
+    def test_required_field_cannot_be_null_display(self) -> None:
+        """Required fields with None value display as empty, not <null>."""
+        nodes = build_tree_from_schema(SimpleConfig, {})
+        # api_url is required (no default)
+        url_node = next(n for n in nodes if n.key == "api_url")
+        assert url_node.required is True
+        assert url_node.value is None
+
+    def test_optional_field_starts_as_null(self) -> None:
+        """Optional fields with no value should have None."""
+        nodes = build_tree_from_schema(SimpleConfig, {})
+        api_key_node = next(n for n in nodes if n.key == "api_key")
+        assert api_key_node.required is False
+        assert api_key_node.value is None
+
 
 # ── Integration: real Pydantic configs ────────────────────────────────
 

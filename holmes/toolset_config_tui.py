@@ -654,7 +654,12 @@ def run_tree_editor(
             val_display = str(node.value) if node.value else "<value>"
             hints = ""
         else:
-            val_display = str(node.value) if node.value is not None else ""
+            if node.value is not None:
+                val_display = str(node.value)
+            elif not node.required:
+                val_display = "<null>"
+            else:
+                val_display = ""
             hints = ""
 
         label_prefix = f"{indent}{prefix}{display_name}:{pad} "
@@ -674,7 +679,7 @@ def run_tree_editor(
             row_parts.append(("", "\n"))
             return row_parts
 
-        val_style = "class:dim" if is_list_entry and not node.value else style
+        val_style = "class:dim" if (is_list_entry and not node.value) or (node.value is None and not node.required) else style
         row_parts.append((val_style, val_display))
 
         if node.description and comment_col > 0:
@@ -741,7 +746,7 @@ def run_tree_editor(
             parts.extend(status_lines)
 
         # Hint line
-        parts.append(("class:hint", "\n  Up/Down: navigate | Enter: edit/select | Backspace: delete entry | Esc: cancel edit\n"))
+        parts.append(("class:hint", "\n  Up/Down: navigate | Enter: edit/select | Backspace/Del: delete entry or set null | Esc: cancel edit\n"))
         return parts
 
     # ── key bindings ──
@@ -799,12 +804,24 @@ def run_tree_editor(
     @kb.add("c-d")
     @kb.add("delete")
     def _delete_entry(event: Any) -> None:
-        if editing[0]:
-            return
         idx = cursor[0]
         if idx >= len(flat_rows):
             return
         node = flat_rows[idx]
+
+        if editing[0]:
+            buf = edit_buf[0]
+            if len(buf.text) == 0 and not node.required:
+                # Empty buffer + deletion key → set to <null>
+                node.value = None
+                editing[0] = False
+                editing_dict_key[0] = False
+                status_lines.clear()
+            else:
+                # Forward-delete
+                buf.delete()
+            return
+
         if node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list"):
             node.parent.children.remove(node)
             for i, child in enumerate(node.parent.children):
@@ -812,6 +829,9 @@ def run_tree_editor(
             _refresh_flat()
             if cursor[0] >= total_items():
                 cursor[0] = max(0, total_items() - 1)
+        elif not node.is_header and not node.required and node.value is not None:
+            # Set optional leaf field to <null>
+            node.value = None
 
     @kb.add("enter")
     def _enter(event: Any) -> None:
@@ -960,7 +980,19 @@ def run_tree_editor(
     @kb.add("backspace")
     def _backspace(event: Any) -> None:
         if editing[0]:
-            edit_buf[0].delete_before_cursor()
+            buf = edit_buf[0]
+            if len(buf.text) == 0:
+                # Empty buffer + backspace → set to <null> if optional
+                idx = cursor[0]
+                if idx < len(flat_rows):
+                    node = flat_rows[idx]
+                    if not node.required:
+                        node.value = None
+                        editing[0] = False
+                        editing_dict_key[0] = False
+                        status_lines.clear()
+            else:
+                buf.delete_before_cursor()
         else:
             _delete_entry(event)
 
