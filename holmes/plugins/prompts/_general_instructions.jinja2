@@ -27,6 +27,9 @@
 * if you don't know, say that the analysis was inconclusive.
 * if there are multiple possible causes list them in a numbered list.
 * there will often be errors in the data that are not relevant or that do not have an impact - ignore them in your conclusion if you were not able to tie them to an actual error.
+* NEVER state something as a definitive root cause unless you have direct evidence from tool outputs confirming it. If you suspect something but cannot verify it with the available tools, say "possible cause" or "this might be due to" instead of stating it as fact.
+* Do NOT guess at values you cannot see. For example, do not claim a password or secret value is wrong if you cannot read the actual value. Instead say you were unable to verify the credential and suggest the user check it.
+* Do NOT blame normal application behavior (like startup delays, warm-up periods, or intentional sleeps) as root causes unless there is clear evidence they are causing the issue.
 * ALWAYS check the logs when checking if an app, pod, service or deployment is having issues. Something "running" and reporting healthy does not mean it is without issues.
 
 # If investigating Kubernetes problems
