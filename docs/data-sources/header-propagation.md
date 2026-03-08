@@ -141,7 +141,7 @@ See [MCP Servers -- Dynamic Headers](remote-mcp-servers.md#advanced-configuratio
 
 The rendered headers are merged into every outgoing request after the endpoint's own authentication headers, so they can override defaults when needed.
 
-See [HTTP Connectors](http-connectors/index.md) for the full HTTP connector configuration reference.
+See [HTTP Connectors](api-toolsets.md) for the full HTTP connector configuration reference.
 
 ### Custom (YAML) Toolsets
 

@@ -2,7 +2,8 @@ nav:
   - index.md
   - Recommended Setup: recommended-setup.md
   - Built-in Toolsets: builtin-toolsets
-  - HTTP Connectors: http-connectors
+  - HTTP Connectors: api-toolsets.md
+  - Database Connectors: database-connectors.md
   - Custom Toolsets: custom-toolsets.md
   - MCP Servers: remote-mcp-servers.md
   - HTTP Header Propagation: header-propagation.md
