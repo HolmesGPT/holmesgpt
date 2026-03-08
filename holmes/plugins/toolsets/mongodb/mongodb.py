@@ -63,9 +63,16 @@ class MongoDBConfig(ToolsetConfig):
       config:
         connection_url: "mongodb://user:pass@host:27017/orders"
         default_database: "orders"
+        read_only: true
+        verify_ssl: true
+        max_rows: 200
       llm_instructions: "This is the orders database for our e-commerce platform"
     ```
     """
+
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "max_documents": "max_rows",
+    }
 
     connection_url: str = Field(
         title="Connection URL",
@@ -97,9 +104,18 @@ class MongoDBConfig(ToolsetConfig):
         ),
     )
 
-    max_documents: int = Field(
+    verify_ssl: bool = Field(
+        default=True,
+        title="Verify SSL",
+        description=(
+            "When True (default), verify SSL certificates for MongoDB connections. "
+            "Set to False for self-signed certificates or development environments."
+        ),
+    )
+
+    max_rows: int = Field(
         default=200,
-        title="Maximum Documents",
+        title="Maximum Rows",
         description=(
             "Maximum number of documents to return from query results. "
             "Limits result size to prevent token overflow. "
@@ -197,11 +213,18 @@ class MongoDBToolset(Toolset):
             return False, f"MongoDB connection failed: {e}"
 
     def _create_client(self) -> pymongo.MongoClient:
+        kwargs: Dict[str, Any] = {
+            "serverSelectionTimeoutMS": self.mongodb_config.timeout_seconds * 1000,
+            "connectTimeoutMS": self.mongodb_config.timeout_seconds * 1000,
+            "socketTimeoutMS": self.mongodb_config.timeout_seconds * 1000,
+        }
+        if not self.mongodb_config.verify_ssl:
+            kwargs["tls"] = True
+            kwargs["tlsAllowInvalidCertificates"] = True
+
         return pymongo.MongoClient(
             self.mongodb_config.connection_url,
-            serverSelectionTimeoutMS=self.mongodb_config.timeout_seconds * 1000,
-            connectTimeoutMS=self.mongodb_config.timeout_seconds * 1000,
-            socketTimeoutMS=self.mongodb_config.timeout_seconds * 1000,
+            **kwargs,
         )
 
     @property
@@ -226,8 +249,8 @@ class MongoDBToolset(Toolset):
         database: Optional[str] = None,
     ) -> Dict[str, Any]:
         effective_limit = min(
-            limit or self.mongodb_config.max_documents,
-            self.mongodb_config.max_documents,
+            limit or self.mongodb_config.max_rows,
+            self.mongodb_config.max_rows,
         )
 
         client = self._create_client()
@@ -276,7 +299,7 @@ class MongoDBToolset(Toolset):
             coll = db[collection]
             results = list(coll.aggregate(pipeline))
 
-            max_docs = self.mongodb_config.max_documents
+            max_docs = self.mongodb_config.max_rows
             truncated = len(results) > max_docs
             if truncated:
                 results = results[:max_docs]
@@ -407,7 +430,7 @@ class MongoDBToolset(Toolset):
             ops = result.get("inprog", [])
 
             # Limit output to prevent token overflow
-            max_ops = self.mongodb_config.max_documents
+            max_ops = self.mongodb_config.max_rows
             truncated = len(ops) > max_ops
             if truncated:
                 ops = ops[:max_ops]
