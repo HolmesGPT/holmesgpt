@@ -461,6 +461,7 @@ def _run_selection_menu(
 
 
 _MCP_SERVER_DOCS_URL = "https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/"
+_MCP_SELECTED_SENTINEL = object()
 
 
 def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolset]:
@@ -487,7 +488,7 @@ def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolse
         return None
     if idx == 0:
         webbrowser.open(_MCP_SERVER_DOCS_URL)
-        return None
+        return _MCP_SELECTED_SENTINEL
     return toolsets[idx - 1]
 
 
@@ -1057,6 +1058,12 @@ def run_toolset_config_tui(
 
     toolsets = [t for t in toolsets if t.config_classes and t.type != ToolsetType.MCP]
     selected = select_toolset(toolsets, console)
+    if selected is _MCP_SELECTED_SENTINEL:
+        console.print(
+            f"[bold {STATUS_COLOR}]Opened MCP Documentation: "
+            f"[link={_MCP_SERVER_DOCS_URL}]{_MCP_SERVER_DOCS_URL}[/link][/bold {STATUS_COLOR}]"
+        )
+        return
     if selected is None:
         console.print(f"[bold {STATUS_COLOR}]No toolset selected.[/bold {STATUS_COLOR}]")
         return
