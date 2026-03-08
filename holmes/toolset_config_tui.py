@@ -822,12 +822,12 @@ def run_tree_editor(
 
         if editing[0]:
             buf = edit_buf[0]
-            if len(buf.text) == 0 and not node.required:
+            is_collection_child = node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list")
+            if len(buf.text) == 0 and not node.required and not editing_dict_key[0] and not is_collection_child:
                 # Empty buffer + deletion key → set to <null>
                 node.value = None
                 node.explicitly_set = True
                 editing[0] = False
-                editing_dict_key[0] = False
                 status_lines.clear()
             else:
                 # Forward-delete
@@ -996,15 +996,15 @@ def run_tree_editor(
         if editing[0]:
             buf = edit_buf[0]
             if len(buf.text) == 0:
-                # Empty buffer + backspace → set to <null> if optional
+                # Empty buffer + backspace → set to <null> if optional leaf field
                 idx = cursor[0]
                 if idx < len(flat_rows):
                     node = flat_rows[idx]
-                    if not node.required:
+                    is_collection_child = node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list")
+                    if not node.required and not editing_dict_key[0] and not is_collection_child:
                         node.value = None
                         node.explicitly_set = True
                         editing[0] = False
-                        editing_dict_key[0] = False
                         status_lines.clear()
             else:
                 buf.delete_before_cursor()
