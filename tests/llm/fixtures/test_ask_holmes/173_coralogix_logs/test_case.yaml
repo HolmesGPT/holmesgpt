@@ -11,6 +11,10 @@ tags:
   - logs
   - coralogix
 
+toolsets_matrix:
+  - toolsets.yaml
+  - toolsets_mcp.yaml
+
 setup_timeout: 600  # 10 minutes
 
 before_test: |

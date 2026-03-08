@@ -1,0 +1,226 @@
+# Test: Extract data from a table whose cells contain Confluence macros
+# The table uses status lozenges (ac:structured-macro name="status") and inline
+# code tags inside table cells in Confluence storage format (XHTML with ac: elements).
+#
+# Requirements:
+#   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
+
+user_prompt: |
+  Look up the page 'Release Deployment Matrix' in Confluence space 'HOLMES220'.
+  For the service 'payment-gateway', what is the production deployment status
+  and the deployed production version?
+
+expected_output:
+  - "Must report the production deployment status for payment-gateway: ROLLBACK"
+  - "Must report the production version for payment-gateway: v3.14.7"
+
+tags:
+  - confluence
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES220"
+  SPACE_NAME="Holmes Test Space 220"
+  PAGE_TITLE="Release Deployment Matrix"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 220\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif [ "$HTTP_CODE" -eq 409 ]; then
+    echo "Space already exists, reusing."
+  else
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+  sleep 2
+
+  # Table with status lozenges and code tags inside cells.
+  # The payment-gateway row has ROLLBACK (Red) status and v3.14.7 in production.
+  # Other rows use different statuses to ensure Holmes must find the right cell.
+  read -r -d '' PAGE_BODY << 'PAGEEOF' || true
+  <h1>Release Deployment Matrix</h1>
+  <p>This page tracks the deployment status and version of all platform services across environments. Updated automatically by the CI/CD pipeline after each deployment.</p>
+
+  <ac:structured-macro ac:name="info">
+    <ac:rich-text-body>
+      <p>Status legend: <ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro> = healthy, <ac:structured-macro ac:name="status"><ac:parameter ac:name="title">CANARY</ac:parameter><ac:parameter ac:name="colour">Yellow</ac:parameter></ac:structured-macro> = canary in progress, <ac:structured-macro ac:name="status"><ac:parameter ac:name="title">DEPLOYING</ac:parameter><ac:parameter ac:name="colour">Blue</ac:parameter></ac:structured-macro> = rolling out, <ac:structured-macro ac:name="status"><ac:parameter ac:name="title">ROLLBACK</ac:parameter><ac:parameter ac:name="colour">Red</ac:parameter></ac:structured-macro> = rolled back</p>
+    </ac:rich-text-body>
+  </ac:structured-macro>
+
+  <table>
+    <tbody>
+      <tr>
+        <th>Service</th>
+        <th>Dev Version</th>
+        <th>Dev Status</th>
+        <th>Staging Version</th>
+        <th>Staging Status</th>
+        <th>Prod Version</th>
+        <th>Prod Status</th>
+      </tr>
+      <tr>
+        <td>auth-service</td>
+        <td><code>v2.18.0-rc3</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">DEPLOYING</ac:parameter><ac:parameter ac:name="colour">Blue</ac:parameter></ac:structured-macro></td>
+        <td><code>v2.17.4</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v2.17.4</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+      </tr>
+      <tr>
+        <td>payment-gateway</td>
+        <td><code>v3.15.0-rc1</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v3.14.8-rc2</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">CANARY</ac:parameter><ac:parameter ac:name="colour">Yellow</ac:parameter></ac:structured-macro></td>
+        <td><code>v3.14.7</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">ROLLBACK</ac:parameter><ac:parameter ac:name="colour">Red</ac:parameter></ac:structured-macro></td>
+      </tr>
+      <tr>
+        <td>inventory-service</td>
+        <td><code>v1.9.2-rc1</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v1.9.1</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v1.9.1</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+      </tr>
+      <tr>
+        <td>order-processor</td>
+        <td><code>v4.2.0-rc5</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">DEPLOYING</ac:parameter><ac:parameter ac:name="colour">Blue</ac:parameter></ac:structured-macro></td>
+        <td><code>v4.1.3</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v4.1.3</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+      </tr>
+      <tr>
+        <td>notification-service</td>
+        <td><code>v2.5.1-rc2</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v2.5.0</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">CANARY</ac:parameter><ac:parameter ac:name="colour">Yellow</ac:parameter></ac:structured-macro></td>
+        <td><code>v2.4.9</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+      </tr>
+      <tr>
+        <td>search-indexer</td>
+        <td><code>v3.0.0-beta1</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">DEPLOYING</ac:parameter><ac:parameter ac:name="colour">Blue</ac:parameter></ac:structured-macro></td>
+        <td><code>v2.8.7</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v2.8.7</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+      </tr>
+      <tr>
+        <td>recommendation-engine</td>
+        <td><code>v1.12.0-rc1</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v1.11.5</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">LIVE</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td>
+        <td><code>v1.11.4</code></td>
+        <td><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">CANARY</ac:parameter><ac:parameter ac:name="colour">Yellow</ac:parameter></ac:structured-macro></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <ac:structured-macro ac:name="warning">
+    <ac:parameter ac:name="title">Active Rollback</ac:parameter>
+    <ac:rich-text-body>
+      <p>The payment-gateway production deployment of <code>v3.14.8</code> was rolled back to <code>v3.14.7</code> at 2025-01-15T14:23:00Z due to elevated error rates (see incident INC-2025-0142). The canary deployment of <code>v3.14.8-rc2</code> in staging is being investigated.</p>
+    </ac:rich-text-body>
+  </ac:structured-macro>
+  PAGEEOF
+
+  echo "Creating page..."
+  ESCAPED_BODY=$(echo "$PAGE_BODY" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"type\": \"page\",
+      \"title\": \"${PAGE_TITLE}\",
+      \"space\": {
+        \"key\": \"${SPACE_KEY}\"
+      },
+      \"body\": {
+        \"storage\": {
+          \"value\": ${ESCAPED_BODY},
+          \"representation\": \"storage\"
+        }
+      }
+    }")
+
+  PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
+  PAGE_BODY_RESP=$(echo "$PAGE_RESPONSE" | sed '$d')
+
+  if [ "$PAGE_HTTP_CODE" -eq 200 ]; then
+    PAGE_ID=$(echo "$PAGE_BODY_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
+    PAGE_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${PAGE_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PAGE_ID" ]; then
+      echo "Failed to create or find page."
+      exit 1
+    fi
+    echo "Found existing page."
+  fi
+  echo "Page created with ID: ${PAGE_ID}"
+
+  echo "Verifying page content..."
+  VERIFY=$(curl -L -s \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content/${PAGE_ID}?expand=body.storage" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if echo "$VERIFY" | grep -q "v3.14.7"; then
+    echo "Page content verified - target version found"
+  else
+    echo "Page verification failed - target version not found in content"
+    exit 1
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES220"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

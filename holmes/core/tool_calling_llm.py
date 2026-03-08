@@ -2,7 +2,6 @@ import concurrent.futures
 import json
 import logging
 import re
-import textwrap
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
@@ -20,15 +19,9 @@ from holmes.common.env_vars import (
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
 )
-from holmes.core.investigation_structured_output import (
-    DEFAULT_SECTIONS,
-    REQUEST_STRUCTURED_OUTPUT_FROM_LLM,
-    InputSectionsDataType,
-    get_output_format_for_investigation,
-    is_response_an_incorrect_tool_call,
-)
 from holmes.core.issue import Issue
 from holmes.core.llm import LLM
+from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.models import (
     PendingToolApproval,
     ToolApprovalDecision,
@@ -49,14 +42,7 @@ from holmes.core.tracing import DummySpan
 from holmes.core.truncation.input_context_window_limiter import (
     limit_input_context_window,
 )
-from holmes.plugins.prompts import load_and_render_prompt
-from holmes.plugins.runbooks import RunbookCatalog
-from holmes.utils import sentry_helper
 from holmes.utils.colors import AI_COLOR
-from holmes.utils.global_instructions import (
-    Instructions,
-    generate_runbooks_args,
-)
 from holmes.utils.stream import (
     StreamEvents,
     StreamMessage,
@@ -155,27 +141,10 @@ class LLMCosts(BaseModel):
     total_tokens: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
-
-
-def _extract_cost_from_response(full_response) -> float:
-    """Extract cost value from LLM response.
-
-    Args:
-        full_response: The raw LLM response object
-
-    Returns:
-        The cost as a float, or 0.0 if not available
-    """
-    try:
-        cost_value = (
-            full_response._hidden_params.get("response_cost", 0)
-            if hasattr(full_response, "_hidden_params")
-            else 0
-        )
-        # Ensure cost is a float
-        return float(cost_value) if cost_value is not None else 0.0
-    except Exception:
-        return 0.0
+    cached_tokens: Optional[int] = None
+    reasoning_tokens: int = 0
+    max_completion_tokens_per_call: int = 0
+    num_compactions: int = 0
 
 
 def _process_cost_info(
@@ -191,31 +160,35 @@ def _process_cost_info(
         log_prefix: Prefix for logging messages (e.g., "LLM call", "Post-processing")
     """
     try:
-        cost = _extract_cost_from_response(full_response)
-        usage = getattr(full_response, "usage", {})
+        raw = extract_usage_from_response(full_response)
 
-        if usage:
-            if LOG_LLM_USAGE_RESPONSE:  # shows stats on token cache usage
+        if LOG_LLM_USAGE_RESPONSE:
+            usage = getattr(full_response, "usage", None)
+            if usage:
                 logging.info(f"LLM usage response:\n{usage}\n")
-            prompt_toks = usage.get("prompt_tokens", 0)
-            completion_toks = usage.get("completion_tokens", 0)
-            total_toks = usage.get("total_tokens", 0)
+
+        if raw.total_tokens > 0:
             cost_logger.debug(
-                f"{log_prefix} cost: ${cost:.6f} | Tokens: {prompt_toks} prompt + {completion_toks} completion = {total_toks} total"
-            )
-            # Accumulate costs and tokens if costs object provided
-            if costs:
-                costs.total_cost += cost
-                costs.prompt_tokens += prompt_toks
-                costs.completion_tokens += completion_toks
-                costs.total_tokens += total_toks
-        elif cost > 0:
-            cost_logger.debug(
-                f"{log_prefix} cost: ${cost:.6f} | Token usage not available"
+                f"{log_prefix} cost: ${raw.cost:.6f} | Tokens: {raw.prompt_tokens} prompt + {raw.completion_tokens} completion = {raw.total_tokens} total"
             )
             if costs:
-                costs.total_cost += cost
-    except Exception as e:
+                costs.total_cost += raw.cost
+                costs.prompt_tokens += raw.prompt_tokens
+                costs.completion_tokens += raw.completion_tokens
+                costs.total_tokens += raw.total_tokens
+                if raw.cached_tokens is not None:
+                    costs.cached_tokens = (costs.cached_tokens or 0) + raw.cached_tokens
+                costs.reasoning_tokens += raw.reasoning_tokens
+                costs.max_completion_tokens_per_call = max(
+                    costs.max_completion_tokens_per_call, raw.completion_tokens
+                )
+        elif raw.cost > 0:
+            cost_logger.debug(
+                f"{log_prefix} cost: ${raw.cost:.6f} | Token usage not available"
+            )
+            if costs:
+                costs.total_cost += raw.cost
+    except (AttributeError, TypeError, KeyError) as e:
         logging.debug(f"Could not extract cost information: {e}")
 
 
@@ -394,7 +367,6 @@ class ToolCallingLLM:
         system_prompt: str,
         user_prompt: str,
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
-        sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
         request_context: Optional[Dict[str, Any]] = None,
     ) -> LLMResult:
@@ -406,7 +378,6 @@ class ToolCallingLLM:
             messages,
             response_format=response_format,
             user_prompt=user_prompt,
-            sections=sections,
             trace_span=trace_span,
             request_context=request_context,
         )
@@ -442,7 +413,6 @@ class ToolCallingLLM:
         messages: List[Dict[str, str]],
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         user_prompt: Optional[str] = None,
-        sections: Optional[InputSectionsDataType] = None,
         trace_span=DummySpan(),
         tool_number_offset: int = 0,
         request_context: Optional[Dict[str, Any]] = None,
@@ -472,6 +442,16 @@ class ToolCallingLLM:
             )
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
+
+            # Always accumulate compaction tokens/cost when a compaction LLM call
+            # was attempted, even if it didn't reduce token count
+            compaction = limit_result.compaction_usage
+            if compaction.total_tokens > 0:
+                costs.num_compactions += 1
+                costs.total_tokens += compaction.total_tokens
+                costs.prompt_tokens += compaction.prompt_tokens
+                costs.completion_tokens += compaction.completion_tokens
+                costs.total_cost += compaction.cost
 
             if (
                 limit_result.conversation_history_compacted
@@ -523,22 +503,6 @@ class ToolCallingLLM:
             response = full_response.choices[0]  # type: ignore
 
             response_message = response.message  # type: ignore
-            if response_message and response_format:
-                # Litellm API is bugged. Stringify and parsing ensures all attrs of the choice are available.
-                dict_response = json.loads(full_response.to_json())  # type: ignore
-                incorrect_tool_call = is_response_an_incorrect_tool_call(
-                    sections, dict_response.get("choices", [{}])[0]
-                )
-
-                if incorrect_tool_call:
-                    logging.warning(
-                        "Detected incorrect tool call. Structured output will be disabled. This can happen on models that do not support tool calling. For Azure AI, make sure the model name contains 'gpt-4.1' or other structured output compatible models. To disable this holmes behaviour, set REQUEST_STRUCTURED_OUTPUT_FROM_LLM to `false`."
-                    )
-                    # disable structured output going forward and and retry
-                    sentry_helper.capture_structured_output_incorrect_tool_call()
-                    response_format = None
-                    max_steps = max_steps + 1
-                    continue
 
             new_message = response_message.model_dump(
                 exclude_defaults=True, exclude_unset=True, exclude_none=True
@@ -666,6 +630,15 @@ class ToolCallingLLM:
         session_approved_prefixes: Optional[List[str]] = None,
         request_context: Optional[Dict[str, Any]] = None,
     ) -> StructuredToolResult:
+        # Ensure the toolset is initialized (lazy initialization on first use)
+        init_error = self.tool_executor.ensure_toolset_initialized(tool_name)
+        if isinstance(init_error, str):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=init_error,
+                params=tool_params,
+            )
+
         tool = self.tool_executor.get_tool_by_name(tool_name)
         if not tool:
             logging.warning(
@@ -915,6 +888,7 @@ class ToolCallingLLM:
                     user_approved=False,
                     tool_number=tool_number,
                     tool_call_id=tool_call_result.tool_call_id,
+                    request_context=request_context,
                 )
                 ToolCallingLLM._log_tool_call_result(tool_span, tool_call_result)
             return tool_call_result
@@ -956,7 +930,6 @@ class ToolCallingLLM:
         system_prompt: str = "",
         user_prompt: Optional[str] = None,
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
-        sections: Optional[InputSectionsDataType] = None,
         msgs: Optional[list[dict]] = None,
         enable_tool_approval: bool = False,
         tool_decisions: List[ToolApprovalDecision] | None = None,
@@ -985,6 +958,7 @@ class ToolCallingLLM:
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
+        costs = LLMCosts()
         i = 0
         tool_number_offset = 0
 
@@ -1001,6 +975,19 @@ class ToolCallingLLM:
             yield from limit_result.events
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
+
+            # Accumulate compaction costs (mirrors call() logic)
+            compaction = limit_result.compaction_usage
+            if compaction.total_tokens > 0:
+                costs.num_compactions += 1
+                costs.total_tokens += compaction.total_tokens
+                costs.prompt_tokens += compaction.prompt_tokens
+                costs.completion_tokens += compaction.completion_tokens
+                costs.total_cost += compaction.cost
+                cost_logger.debug(
+                    f"Compaction cost (streaming): ${compaction.cost:.6f} | "
+                    f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
+                )
 
             if (
                 limit_result.conversation_history_compacted
@@ -1021,8 +1008,8 @@ class ToolCallingLLM:
                     drop_params=True,
                 )
 
-                # Log cost information for this iteration (no accumulation in streaming)
-                _process_cost_info(full_response, log_prefix="LLM iteration")
+                # Accumulate cost information for this iteration
+                _process_cost_info(full_response, costs, log_prefix="LLM iteration")
 
             # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
             except BadRequestError as e:
@@ -1047,22 +1034,6 @@ class ToolCallingLLM:
                 raise
 
             response_message = full_response.choices[0].message  # type: ignore
-            if response_message and response_format:
-                # Litellm API is bugged. Stringify and parsing ensures all attrs of the choice are available.
-                dict_response = json.loads(full_response.to_json())  # type: ignore
-                incorrect_tool_call = is_response_an_incorrect_tool_call(
-                    sections, dict_response.get("choices", [{}])[0]
-                )
-
-                if incorrect_tool_call:
-                    logging.warning(
-                        "Detected incorrect tool call. Structured output will be disabled. This can happen on models that do not support tool calling. For Azure AI, make sure the model name contains 'gpt-4.1' or other structured output compatible models. To disable this holmes behaviour, set REQUEST_STRUCTURED_OUTPUT_FROM_LLM to `false`."
-                    )
-                    # disable structured output going forward and and retry
-                    sentry_helper.capture_structured_output_incorrect_tool_call()
-                    response_format = None
-                    max_steps = max_steps + 1
-                    continue
 
             messages.append(
                 response_message.model_dump(
@@ -1078,6 +1049,7 @@ class ToolCallingLLM:
                 maximum_output_token=limit_result.maximum_output_token,
                 metadata=metadata,
             )
+            metadata["costs"] = costs.model_dump()
             yield build_stream_event_token_count(metadata=metadata)
 
             tools_to_call = getattr(response_message, "tool_calls", None)
@@ -1178,6 +1150,18 @@ class ToolCallingLLM:
                             data=tool_call_result.as_streaming_tool_result_response(),
                         )
 
+                # Emit updated token counts after tool results
+                tokens = self.llm.count_tokens(messages=messages, tools=tools)
+                add_token_count_to_metadata(
+                    tokens=tokens,
+                    full_llm_response=full_response,
+                    max_context_size=limit_result.max_context_size,
+                    maximum_output_token=limit_result.maximum_output_token,
+                    metadata=metadata,
+                )
+                metadata["costs"] = costs.model_dump()
+                yield build_stream_event_token_count(metadata=metadata)
+
                 # If we have approval required tools, end the stream with pending approvals
                 if pending_approvals:
                     # Add assistant message with pending tool calls
@@ -1231,98 +1215,3 @@ class ToolCallingLLM:
         raise Exception(
             f"Failed to find assistant request for a tool_call in conversation history. tool_call_id={tool_call_id}"
         )
-
-
-# TODO: consider getting rid of this entirely and moving templating into the cmds in holmes_cli.py
-class IssueInvestigator(ToolCallingLLM):
-    """
-    Thin wrapper around ToolCallingLLM which:
-    1) Provides a default prompt for RCA
-    2) Accepts Issue objects
-    """
-
-    def __init__(
-        self,
-        tool_executor: ToolExecutor,
-        max_steps: int,
-        llm: LLM,
-        tool_results_dir: Optional[Path],
-        cluster_name: Optional[str],
-    ):
-        super().__init__(tool_executor, max_steps, llm, tool_results_dir)
-        self.cluster_name = cluster_name
-
-    def investigate(
-        self,
-        issue: Issue,
-        prompt: str,
-        console: Optional[Console] = None,
-        global_instructions: Optional[Instructions] = None,
-        sections: Optional[InputSectionsDataType] = None,
-        trace_span=DummySpan(),
-        runbooks: Optional[RunbookCatalog] = None,
-        request_context: Optional[Dict[str, Any]] = None,
-    ) -> LLMResult:
-        request_structured_output_from_llm = True
-        response_format = None
-
-        # This section is about setting vars to request the LLM to return structured output.
-        # It does not mean that Holmes will not return structured sections for investigation as it is
-        # capable of splitting the markdown into sections
-        if not sections or len(sections) == 0:
-            # If no sections are passed, we will not ask the LLM for structured output
-            sections = DEFAULT_SECTIONS
-            request_structured_output_from_llm = False
-            logging.info(
-                "No section received from the client. Default sections will be used."
-            )
-        elif self.llm.model and self.llm.model.startswith("bedrock"):
-            # Structured output does not work well with Bedrock Anthropic Sonnet 3.5 through litellm
-            request_structured_output_from_llm = False
-
-        if not REQUEST_STRUCTURED_OUTPUT_FROM_LLM:
-            request_structured_output_from_llm = False
-
-        if request_structured_output_from_llm:
-            response_format = get_output_format_for_investigation(sections)
-            logging.info("Structured output is enabled for this request")
-        else:
-            logging.info("Structured output is disabled for this request")
-
-        system_prompt = load_and_render_prompt(
-            prompt,
-            {
-                "issue": issue,
-                "sections": sections,
-                "structured_output": request_structured_output_from_llm,
-                "toolsets": self.tool_executor.toolsets,
-                "cluster_name": self.cluster_name,
-                "runbooks_enabled": True if runbooks else False,
-            },
-        )
-
-        base_user = ""
-        base_user = f"{base_user}\n #This is context from the issue:\n{issue.raw}"
-
-        runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=runbooks,
-            global_instructions=global_instructions,
-        )
-        user_prompt = generate_user_prompt(
-            base_user,
-            runbooks_ctx,
-        )
-        logging.debug(
-            "Rendered system prompt:\n%s", textwrap.indent(system_prompt, "    ")
-        )
-        logging.debug("Rendered user prompt:\n%s", textwrap.indent(user_prompt, "    "))
-
-        res = self.prompt_call(
-            system_prompt,
-            user_prompt,
-            response_format=response_format,
-            sections=sections,
-            trace_span=trace_span,
-            request_context=request_context,
-        )
-        return res

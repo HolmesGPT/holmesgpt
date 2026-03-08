@@ -13,11 +13,11 @@ from pydantic import (
     FilePath,
     PrivateAttr,
     SecretStr,
-    model_validator,
 )
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
+from holmes.core.tools import Toolset
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.plugins.runbooks import (
@@ -27,7 +27,7 @@ from holmes.plugins.runbooks import (
 
 # Source plugin imports moved to their respective create methods to speed up startup
 if TYPE_CHECKING:
-    from holmes.core.tool_calling_llm import IssueInvestigator, ToolCallingLLM
+    from holmes.core.tool_calling_llm import ToolCallingLLM
     from holmes.plugins.destinations.slack import SlackDestination
     from holmes.plugins.sources.github import GitHubSource
     from holmes.plugins.sources.jira import JiraServiceManagementSource, JiraSource
@@ -88,7 +88,6 @@ class Config(RobustaBaseConfig):
     opsgenie_team_integration_key: Optional[SecretStr] = None
     opsgenie_query: Optional[str] = None
 
-    custom_runbooks: List[FilePath] = []
     custom_runbook_catalogs: List[Union[str, FilePath]] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
@@ -102,6 +101,7 @@ class Config(RobustaBaseConfig):
 
     toolsets: Optional[dict[str, dict[str, Any]]] = None
     mcp_servers: Optional[dict[str, dict[str, Any]]] = None
+    additional_toolsets: Optional[List[Toolset]] = None
 
     _server_tool_executor: Optional[ToolExecutor] = None
     _agui_tool_executor: Optional[ToolExecutor] = None
@@ -123,6 +123,7 @@ class Config(RobustaBaseConfig):
                 global_fast_model=self.fast_model,
                 custom_runbook_catalogs=self.custom_runbook_catalogs,
                 config_file_path=self._config_file_path,
+                additional_toolsets=self.additional_toolsets,
             )
         return self._toolset_manager
 
@@ -138,16 +139,7 @@ class Config(RobustaBaseConfig):
             self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
         return self._llm_model_registry
 
-    @model_validator(mode="after")
-    def _warn_deprecated_custom_runbooks(self) -> "Config":
-        if self.custom_runbooks:
-            logging.warning(
-                "The 'custom_runbooks' config field is deprecated. "
-                "HolmesGPT now uses a more powerful catalog-based runbook system where the LLM can intelligently "
-                "fetch relevant runbooks on-demand. Please remove 'custom_runbooks' from your config file "
-                "(~/.holmes/config.yaml) and use 'custom_runbook_catalogs' instead to specify runbook catalog files."
-            )
-        return self
+
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
@@ -215,8 +207,6 @@ class Config(RobustaBaseConfig):
             "github_repository",
             "github_pat",
             "github_query",
-            # TODO
-            # custom_runbooks
         ]:
             val = os.getenv(field_name.upper(), None)
             if val is not None:
@@ -373,41 +363,6 @@ class Config(RobustaBaseConfig):
             self.max_steps,
             self._get_llm(model, tracer),
             tool_results_dir=tool_results_dir,
-        )
-
-    def create_issue_investigator(
-        self,
-        dal: Optional["SupabaseDal"] = None,
-        model: Optional[str] = None,
-        tracer=None,
-        tool_results_dir: Optional[Path] = None,
-    ) -> "IssueInvestigator":
-        tool_executor = self.create_tool_executor(dal)
-        from holmes.core.tool_calling_llm import IssueInvestigator
-
-        return IssueInvestigator(
-            tool_executor=tool_executor,
-            max_steps=self.max_steps,
-            llm=self._get_llm(model, tracer),
-            tool_results_dir=tool_results_dir,
-            cluster_name=self.cluster_name,
-        )
-
-    def create_console_issue_investigator(
-        self,
-        dal: Optional["SupabaseDal"] = None,
-        model_name: Optional[str] = None,
-        tool_results_dir: Optional[Path] = None,
-    ) -> "IssueInvestigator":
-        tool_executor = self.create_console_tool_executor(dal=dal)
-        from holmes.core.tool_calling_llm import IssueInvestigator
-
-        return IssueInvestigator(
-            tool_executor=tool_executor,
-            max_steps=self.max_steps,
-            llm=self._get_llm(model_key=model_name),
-            tool_results_dir=tool_results_dir,
-            cluster_name=self.cluster_name,
         )
 
     def validate_jira_config(self):
@@ -601,7 +556,6 @@ class SourceFactory(BaseModel):
                 jira_api_key=ticket_api_key,
                 jira_query=None,
                 custom_toolsets=None,
-                custom_runbooks=None,
             )
 
             if not (
@@ -634,7 +588,6 @@ class SourceFactory(BaseModel):
                 pagerduty_user_email=ticket_username,
                 pagerduty_incident_key=None,
                 custom_toolsets=None,
-                custom_runbooks=None,
             )
 
             if not (

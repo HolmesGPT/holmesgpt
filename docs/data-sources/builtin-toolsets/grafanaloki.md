@@ -45,9 +45,6 @@ toolsets:
       api_key: <your grafana API key>
       api_url: https://xxxxxxx.grafana.net # Your Grafana cloud account URL
       grafana_datasource_uid: <the UID of the loki data source in Grafana>
-
-  kubernetes/logs:
-    enabled: false # HolmesGPT's default logging mechanism MUST be disabled
 ```
 
 ## Direct Connection
@@ -64,9 +61,6 @@ toolsets:
       api_url: http://loki.logging
       additional_headers:
         X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if loki multitenancy is enabled
-
-  kubernetes/logs:
-    enabled: false # HolmesGPT's default logging mechanism MUST be disabled
 ```
 
 ## Advanced Configuration

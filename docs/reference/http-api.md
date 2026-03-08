@@ -1,7 +1,7 @@
 # HolmesGPT API Reference
 
 ## Overview
-The HolmesGPT API provides endpoints for automated investigations and conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
+The HolmesGPT API provides endpoints for conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
 
 ## Model Parameter Behavior
 
@@ -130,8 +130,8 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 
 **Example without Structured Output:**
 
-```bash
 <!-- test: status=200, has_fields=analysis|conversation_history, id=chat_basic -->
+```bash
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
@@ -229,178 +229,12 @@ For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision D
 
 ---
 
-### `/api/investigate` (POST)
-**Description:** Initiate an automated investigation of an issue or incident.
-
-#### Request Fields
-
-| Field                   | Required | Default                                    | Type      | Description                                      |
-|-------------------------|----------|--------------------------------------------|-----------|--------------------------------------------------|
-| source                  | Yes      |                                            | string    | Source of the issue (e.g., "prometheus")         |
-| title                   | Yes      |                                            | string    | Title of the investigation                       |
-| description             | Yes      |                                            | string    | Description of the issue                         |
-| subject                 | Yes      |                                            | object    | Subject details (e.g., resource info)            |
-| context                 | Yes      |                                            | object    | Additional context                               |
-| source_instance_id      | No       | "ApiRequest"                               | string    | Source instance identifier                       |
-| include_tool_calls      | No       | false                                      | boolean   | Include tool calls in response                   |
-| include_tool_call_results| No      | false                                      | boolean   | Include tool call results in response            |
-| prompt_template         | No       | "builtin://generic_investigation.jinja2"   | string    | Prompt template to use                           |
-| sections                | No       |                                            | object    | Structured output sections                       |
-| model                   | No       |                                            | string    | Model name from your `modelList` configuration  |
-
-**Example**
-```bash
-curl -X POST http://<HOLMES-URL>/api/investigate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source": "prometheus",
-    "title": "Pod CrashLoopBackOff",
-    "description": "Pod is crashing repeatedly",
-    "subject": {"namespace": "default", "pod": "my-pod"},
-    "context": {},
-    "include_tool_calls": true,
-    "model": "claude-sonnet"
-  }'
-```
-
-> **Note:** The `model` value must be a key name from your `modelList` configuration, not a direct model identifier.
-
-**Example** Response
-```json
-{
-  "analysis": "The pod 'my-pod' in namespace 'default' is crashing due to an OOMKilled event. Consider increasing memory limits.",
-  "sections": {
-    "Alert Explanation": "...",
-    "Key Findings": "...",
-    "Conclusions and Possible Root Causes": "...",
-    "Next Steps": "...",
-    "App or Infra?": "...",
-    "External links": "..."
-  },
-  "tool_calls": [
-    {
-      "tool_call_id": "1",
-      "tool_name": "kubectl_logs",
-      "description": "Fetch pod logs",
-      "result": {"logs": "..."}
-    }
-  ],
-  "instructions": [...]
-}
-```
-
----
-
-### `/api/stream/investigate` (POST)
-**Description:** Same as `/api/investigate`, but returns results as a stream for real-time updates.
-
-#### Request Fields
-Same as [`/api/investigate`](#apiinvestigate-post).
-
-**Example**
-```bash
-curl -N -X POST http://<HOLMES-URL>/api/stream/investigate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source": "prometheus",
-    "title": "Pod CrashLoopBackOff",
-    "description": "Pod is crashing repeatedly",
-    "subject": {"namespace": "default", "pod": "my-pod"},
-    "context": {},
-    "include_tool_calls": true,
-    "model": "claude-sonnet"
-  }'
-```
-
-**Example** Response (streamed)
-```bash
-event: start_tool_calling
-data: {"tool_name": "kubectl_describe", "id": "call_0"}
-
-event: start_tool_calling
-data: {"tool_name": "kubectl_logs", "id": "call_1"}
-
-event: start_tool_calling
-data: {"tool_name": "kubectl_previous_logs", "id": "call_2"}
-
-event: start_tool_calling
-data: {"tool_name": "kubectl_memory_requests_namespace", "id": "call_3"}
-
-event: tool_calling_result
-data: {"tool_call_id": "call_3", "role": "tool", "description": "kubectl get pods -n default -o ...", "name": "kubectl_memory_requests_namespace", "result": {...}}
-
-event: tool_calling_result
-data: {"tool_call_id": "call_0", "role": "tool", "description": "kubectl describe pod my-pod -n default", "name": "kubectl_describe", "result": {...}}
-
-event: tool_calling_result
-data: {"tool_call_id": "call_2", "role": "tool", "description": "kubectl logs my-pod -n default --previous", "name": "kubectl_previous_logs", "result": {...}}
-
-event: tool_calling_result
-data: {"tool_call_id": "call_1", "role": "tool", "description": "kubectl logs my-pod -n default", "name": "kubectl_logs", "result": {...}}
-
-event: ai_answer_end
-data: {"sections": {"Alert Explanation": ...}}
-```
-
----
-
-### `/api/issue_chat` (POST)
-**Description:** Conversational interface for discussing a specific issue or incident, with context from a previous investigation.
-
-#### Request Fields
-
-| Field                   | Required | Default | Type      | Description                                      |
-|-------------------------|----------|---------|-----------|--------------------------------------------------|
-| ask                     | Yes      |         | string    | User's question                                  |
-| investigation_result    | Yes      |         | object    | Previous investigation result (see below)        |
-| issue_type              | Yes      |         | string    | Type of issue                                    |
-| conversation_history    | No       |         | list      | Conversation history (first message must be system)|
-| model                   | No       |         | string    | Model name from your `modelList` configuration  |
-
-**investigation_result** object:
-- `result` (string, optional): Previous analysis
-- `tools` (list, optional): Tools used/results
-
-**Example**
-```bash
-<!-- test: status=200, has_fields=analysis|conversation_history, id=issue_chat_basic -->
-curl -X POST http://<HOLMES-URL>/api/issue_chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ask": "How do I fix this issue?",
-    "investigation_result": {
-      "result": "Pod crashed due to OOM.",
-      "tools": []
-    },
-    "issue_type": "CrashLoopBackOff",
-    "conversation_history": [
-      {"role": "system", "content": "You are a helpful assistant."}
-    ]
-  }'
-```
-
-**Example** Response
-```json
-{
-  "analysis": "To fix the CrashLoopBackOff, increase the memory limit for the pod and check for memory leaks in the application.",
-  "conversation_history": [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "How do I fix this issue?"},
-    {"role": "assistant", "content": "To fix the CrashLoopBackOff, increase the memory limit for the pod and check for memory leaks in the application."}
-  ],
-  "tool_calls": [...],
-  "follow_up_actions": [...]
-}
-```
-
----
-
 ### `/api/model` (GET)
-**Description:** Returns a list of available AI models that can be used for investigations and chat.
+**Description:** Returns a list of available AI models that can be used for chat.
 
 **Example**
-```bash
 <!-- test: status=200, has_fields=model_name, id=model_list -->
+```bash
 curl http://<HOLMES-URL>/api/model
 ```
 
@@ -415,7 +249,7 @@ curl http://<HOLMES-URL>/api/model
 
 ## Server-Sent Events (SSE) Reference
 
-All streaming endpoints (`/api/stream/investigate`, `/api/stream/chat`, `/api/stream/issue_chat`, etc.) emit Server-Sent Events (SSE) to provide real-time updates during the investigation or chat process.
+Streaming endpoints (e.g., `/api/chat` with `stream: true`) emit Server-Sent Events (SSE) to provide real-time updates during the chat process.
 
 ### Metadata Object Reference
 
@@ -578,26 +412,9 @@ Emitted when the AI has a text message or reasoning to share (typically before t
 
 #### `ai_answer_end`
 
-Emitted when the investigation or chat is complete. This is the final event in the stream.
+Emitted when the chat is complete. This is the final event in the stream.
 
-**For RCA/Investigation (`/api/stream/investigate`):**
-```json
-{
-  "sections": {
-    "Alert Explanation": "...",
-    "Key Findings": "...",
-    "Conclusions and Possible Root Causes": "...",
-    "Next Steps": "...",
-    "App or Infra?": "...",
-    "External links": "..."
-  },
-  "analysis": "Full analysis text...",
-  "instructions": ["runbook1", "runbook2"],
-  "metadata": {...}
-}
-```
-
-**For Chat (`/api/stream/chat`, `/api/stream/issue_chat`):**
+**Payload:**
 ```json
 {
   "analysis": "The issue can be resolved by...",
@@ -618,18 +435,9 @@ Emitted when the investigation or chat is complete. This is the final event in t
 }
 ```
 
-**Common Fields:**
+**Fields:**
 
 - `metadata` (object): See [Metadata Object Reference](#metadata-object-reference) for complete structure including token usage, truncations, and compaction info
-
-**RCA-Specific Fields:**
-
-- `sections` (object): Structured investigation output with predefined sections (customizable via request)
-- `analysis` (string): Full analysis text (markdown format)
-- `instructions` (array): List of runbooks that were used during investigation
-
-**Chat-Specific Fields:**
-
 - `analysis` (string): The AI's response (markdown format)
 - `conversation_history` (array): Complete conversation history including the latest response
 - `follow_up_actions` (array|null): Optional follow-up actions the user can take
@@ -688,7 +496,7 @@ To continue after approval, send a new request with `tool_decisions`:
 
 #### `token_count`
 
-Emitted periodically to provide token usage updates during the investigation. This event is sent after each LLM iteration to help track resource consumption in real-time.
+Emitted periodically to provide token usage updates during the chat. This event is sent after each LLM iteration to help track resource consumption in real-time.
 
 **Payload:**
 ```json
@@ -699,7 +507,7 @@ Emitted periodically to provide token usage updates during the investigation. Th
 
 **Fields:**
 
-- `metadata` (object): See [Metadata Object Reference](#metadata-object-reference) for complete token usage structure. This event provides the same metadata structure as other events, allowing you to monitor token consumption throughout the investigation
+- `metadata` (object): See [Metadata Object Reference](#metadata-object-reference) for complete token usage structure. This event provides the same metadata structure as other events, allowing you to monitor token consumption throughout the chat
 
 ---
 
@@ -759,20 +567,6 @@ Emitted when an error occurs during processing.
 
 ## Event Flow Examples
 
-### Typical RCA Investigation Flow
-
-```
-1. start_tool_calling (tool 1)
-2. start_tool_calling (tool 2)
-3. tool_calling_result (tool 1)
-4. tool_calling_result (tool 2)
-5. token_count
-6. start_tool_calling (tool 3)
-7. tool_calling_result (tool 3)
-8. token_count
-9. ai_answer_end
-```
-
 ### Chat with Approval Flow
 
 ```
@@ -784,7 +578,7 @@ Emitted when an error occurs during processing.
 6. approval_required
 [Client sends approval decisions]
 1. tool_calling_result (approved tool executed)
-[investigation resumes]
+[chat resumes]
 ```
 
 ### Chat with History Compaction

@@ -1,7 +1,0 @@
-runbooks:
-  - match:
-      issue_name: "(MyAppIsDown)|(MyAppUnhealthy)"
-    instructions: >
-      Analyze pod logs for errors and also read the monogodb logs
-      Correlate between the two logs and try to find the root cause of the issue.
-      Based on the logs, report the session ids of impacted transactions
