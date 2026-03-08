@@ -470,7 +470,7 @@ def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolse
     items: List[str] = []
     for t in toolsets:
         raw_status = t.status.value if t.status else "disabled"
-        is_configured = bool(t.config)
+        is_configured = getattr(t, "enabled", False)
         if raw_status == "enabled":
             merged_status = "enabled"
         elif raw_status == "failed" and not is_configured:
