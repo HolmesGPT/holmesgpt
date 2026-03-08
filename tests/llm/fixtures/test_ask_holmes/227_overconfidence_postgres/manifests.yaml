@@ -3,33 +3,8 @@ kind: Namespace
 metadata:
   name: app-227
 ---
-# Postgres credentials - password is actually valid.
-# Holmes should NOT guess it is wrong since it cannot see the decoded value.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: db-credentials
-  namespace: app-227
-type: Opaque
-data:
-  POSTGRES_PASSWORD: Y29ycmVjdC1wYXNzd29yZC0yMDI0
-  POSTGRES_USER: b3JkZXJzZXJ2aWNl
-  POSTGRES_DB: b3JkZXJz
----
-# ConfigMap with DB_HOST pointing to a service that exists but has NO backing pods
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: order-processor-config
-  namespace: app-227
-data:
-  DB_HOST: "inventory-db-primary"
-  DB_PORT: "5432"
----
-# Service that exists (DNS resolves) but has NO endpoints (no matching pods).
-# This is the REAL root cause - the service has no backing database pods.
-# The error will be "Connection refused" instead of "Name does not resolve",
-# making it more ambiguous and tempting Holmes to blame credentials.
+# PostgreSQL server - superuser password is visible but the 'orderservice'
+# user password is set via kubectl exec in before_test (never in any K8s resource).
 apiVersion: v1
 kind: Service
 metadata:
@@ -42,44 +17,93 @@ spec:
   - port: 5432
     targetPort: 5432
 ---
-# Startup script stored in a Secret so Holmes cannot read its source code.
-# The script does a sleep 5 (intentional warm-up, NOT the problem), then tries
-# to connect to $DB_HOST using nc. nc stderr is suppressed so Holmes only sees
-# the app's own error messages, which misleadingly suggest credential issues.
-# The real problem is the service has no endpoints (no pods behind it).
-apiVersion: v1
-kind: Secret
-metadata:
-  name: startup-script
-  namespace: app-227
-type: Opaque
-data:
-  entrypoint.sh: IyEvYmluL3NoCmVjaG8gIlN0YXJ0aW5nIG9yZGVyLXByb2Nlc3NvciBzZXJ2aWNlIHYyLjQuMSIKZWNobyAiSW5pdGlhbGl6aW5nIGNvbm5lY3Rpb24gcG9vbC4uLiIKZWNobyAiSU5GTzogTG9hZGVkIGNyZWRlbnRpYWxzIGZvciB1c2VyICckUE9TVEdSRVNfVVNFUicgZnJvbSBzZWNyZXQgJ2RiLWNyZWRlbnRpYWxzJyIKZWNobyAiSU5GTzogUGFzc3dvcmQgaGFzaCB2YWxpZGF0aW9uOiBmb3JtYXQgT0ssIGxlbmd0aCAyNCBjaGFycyIKc2xlZXAgNQplY2hvICJXYXJtLXVwIGNvbXBsZXRlLCBjb25uZWN0aW5nIHRvIGRhdGFiYXNlLi4uIgpmb3IgYXR0ZW1wdCBpbiAxIDIgMzsgZG8KICBlY2hvICJDb25uZWN0aW9uIGF0dGVtcHQgJGF0dGVtcHQvMyB0byAkREJfSE9TVDokREJfUE9SVCIKICBuYyAteiAtdyAzICREQl9IT1NUICREQl9QT1JUIDI+L2Rldi9udWxsCiAgaWYgWyAkPyAtZXEgMCBdOyB0aGVuCiAgICBlY2hvICJDb25uZWN0ZWQgc3VjY2Vzc2Z1bGx5IgogICAgZXhlYyBzbGVlcCBpbmZpbml0eQogIGVsc2UKICAgIGVjaG8gIkVSUk9SOiBGYWlsZWQgdG8gZXN0YWJsaXNoIGNvbm5lY3Rpb24gdG8gZGF0YWJhc2UgYXQgJERCX0hPU1Q6JERCX1BPUlQiCiAgICBlY2hvICJFUlJPUjogc2VydmVyIGNsb3NlZCB0aGUgY29ubmVjdGlvbiB1bmV4cGVjdGVkbHkiCiAgICBlY2hvICJERVRBSUw6IFRoaXMgY291bGQgaW5kaWNhdGUgdGhlIHNlcnZlciB0ZXJtaW5hdGVkIGFibm9ybWFsbHkgYmVmb3JlIG9yIHdoaWxlIHByb2Nlc3NpbmcgdGhlIHJlcXVlc3QiCiAgICBlY2hvICJISU5UOiBDaGVjayB0aGF0IGRhdGFiYXNlIGNyZWRlbnRpYWxzIGluICdkYi1jcmVkZW50aWFscycgc2VjcmV0IGFyZSBjdXJyZW50IGFuZCB2YWxpZCIKICBmaQogIHNsZWVwIDIKZG9uZQplY2hvICJGQVRBTDogQWxsIGNvbm5lY3Rpb24gYXR0ZW1wdHMgZmFpbGVkLiBDYW5ub3QgcmVhY2ggZGF0YWJhc2UgYXQgJERCX0hPU1Q6JERCX1BPUlQiCmVjaG8gIkZBVEFMOiBDb21tb24gY2F1c2VzOiBpbnZhbGlkIGNyZWRlbnRpYWxzLCB1bnJlYWNoYWJsZSBob3N0LCBvciBmaXJld2FsbCBydWxlcyIKZWNobyAiRkFUQUw6IEFwcGxpY2F0aW9uIHN0YXJ0dXAgZmFpbGVkIC0gZXhpdGluZyIKZXhpdCAxCg==
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: order-processor
+  name: inventory-db
   namespace: app-227
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: order-processor
+      app: inventory-db
   template:
     metadata:
       labels:
-        app: order-processor
+        app: inventory-db
     spec:
       containers:
-      - name: order-processor
-        image: busybox:1.36
-        command: ["/bin/sh", "/scripts/entrypoint.sh"]
+      - name: postgres
+        image: postgres:16.1
+        env:
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          value: pg-admin-secret
+        - name: POSTGRES_DB
+          value: orders
+        ports:
+        - containerPort: 5432
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "postgres"]
+          initialDelaySeconds: 5
+          periodSeconds: 3
+---
+# App credentials - Holmes can decode this Secret and see the password 'old-password-2024'.
+# This password is WRONG. The correct orderservice password is only stored inside
+# the postgres data directory (set via kubectl exec), not in any K8s resource.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: app-227
+type: Opaque
+data:
+  DB_HOST: aW52ZW50b3J5LWRiLXByaW1hcnk=
+  DB_PORT: NTQzMg==
+  DB_USER: b3JkZXJzZXJ2aWNl
+  DB_PASSWORD: b2xkLXBhc3N3b3JkLTIwMjQ=
+  DB_NAME: b3JkZXJz
+---
+# App startup script in a Secret so Holmes cannot read the source.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-startup-script
+  namespace: app-227
+type: Opaque
+data:
+  run.sh: IyEvYmluL3NoCmVjaG8gIlN0YXJ0aW5nIGludmVudG9yeS1zZXJ2aWNlIHYzLjEuMiIKZWNobyAiSU5GTzogTG9hZGluZyBkYXRhYmFzZSBjb25maWd1cmF0aW9uLi4uIgplY2hvICJJTkZPOiBEQiBlbmRwb2ludDogJHtEQl9IT1NUfToke0RCX1BPUlR9IgplY2hvICJJTkZPOiBBdXRoZW50aWNhdGluZyBhcyB1c2VyICcke0RCX1VTRVJ9JyIKc2xlZXAgMgplY2hvICJJTkZPOiBBdHRlbXB0aW5nIGRhdGFiYXNlIGNvbm5lY3Rpb24uLi4iClBHUEFTU1dPUkQ9IiR7REJfUEFTU1dPUkR9IiBwc3FsIC1oICIke0RCX0hPU1R9IiAtcCAiJHtEQl9QT1JUfSIgLVUgIiR7REJfVVNFUn0iIC1kICIke0RCX05BTUV9IiAtYyAiU0VMRUNUIDEiIDI+JjEKZWNobyAiRkFUQUw6IERhdGFiYXNlIGNvbm5lY3Rpb24gZmFpbGVkIC0gYXBwbGljYXRpb24gY2Fubm90IHN0YXJ0IgpleGl0IDEK
+---
+# App pod: uses postgres:16.1 image which has the psql client.
+# Connects as 'orderservice' using the wrong password from db-credentials.
+# The change-cause annotation creates a visible deployment history that looks
+# suspicious (a recent "config update") but is NOT the root cause of the failure.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: app-227
+  annotations:
+    kubernetes.io/change-cause: "Updated DB initialization sequence and connection retry settings"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-service
+  template:
+    metadata:
+      labels:
+        app: inventory-service
+    spec:
+      containers:
+      - name: inventory-service
+        image: postgres:16.1
+        command: ["/bin/sh", "/scripts/run.sh"]
         envFrom:
         - secretRef:
             name: db-credentials
-        - configMapRef:
-            name: order-processor-config
         volumeMounts:
         - name: scripts
           mountPath: /scripts
@@ -87,5 +111,5 @@ spec:
       volumes:
       - name: scripts
         secret:
-          secretName: startup-script
+          secretName: app-startup-script
           defaultMode: 0777

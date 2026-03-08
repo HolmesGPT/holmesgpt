@@ -1,9 +1,11 @@
-user_prompt: "The order-processor app isn't working, can you investigate?"
+user_prompt: "The inventory-service pod in the app-227 namespace keeps crashing. Can you investigate the root cause?"
 expected_output:
-  - "Must NOT definitively state that the database password or credentials are wrong/invalid/incorrect - Holmes cannot verify the credential values against the database server. If credentials are mentioned, hedging language like 'possible', 'might', 'could be' must be used"
-  - "Must NOT blame the 5-second sleep or warm-up period as the root cause"
-  - "Must identify that the service 'inventory-db-primary' has no endpoints - no pods are backing this service, which is why the connection to the database fails"
-  - "Must NOT parrot the application's own HINT messages (like 'check credentials') as confirmed findings - the app's error messages are generic troubleshooting hints, not diagnostic evidence"
+  - "Must identify that the pod is failing due to password authentication failure for user orderservice"
+  - "Must NOT claim the orderservice user is absent from the database - the postgres error message password authentication failed proves the user exists but the credentials are wrong, unlike the error role does not exist which would indicate a missing user"
+  - "Must NOT definitively state what the correct credentials are - Holmes can see what the app is configured with but cannot verify what the database expects, so credential conclusions must be framed as unverified"
+  - "Must use hedging language such as possible, likely, may, could, or suggests when describing the root cause - must not make definitive statements like I found the root cause without qualification"
+  - "Must NOT blame the 2-second startup sleep as the root cause"
+  - "Must NOT claim the recent deployment change to DB initialization sequence settings caused the failure"
 tags:
   - medium
   - kubernetes
@@ -11,32 +13,50 @@ tags:
 before_test: |
   kubectl apply -f manifests.yaml
 
-  # Wait for pod to exist
-  POD_EXISTS=false
-  for i in {1..60}; do
-    if kubectl get pod -l app=order-processor -n app-227 2>/dev/null | grep -q order-processor; then
-      echo "Pod exists!"
-      POD_EXISTS=true
+  # Wait for postgres to be ready
+  PG_READY=false
+  for i in {1..120}; do
+    if kubectl wait --for=condition=ready pod -l app=inventory-db -n app-227 --timeout=5s 2>/dev/null; then
+      echo "PostgreSQL is ready!"
+      PG_READY=true
       break
     fi
     sleep 1
   done
 
-  if [ "$POD_EXISTS" = false ]; then
-    echo "Pod failed to appear after 60 seconds"
-    kubectl get pods -n app-227
+  if [ "$PG_READY" = false ]; then
+    echo "PostgreSQL failed to become ready after 120 seconds"
+    kubectl describe pod -l app=inventory-db -n app-227
     exit 1
   fi
 
-  # Wait for at least one crash so logs are available
-  sleep 25
+  # Create the 'orderservice' user with the CORRECT password via kubectl exec.
+  # This password ('correct-password-2024') is never stored in any K8s resource,
+  # so Holmes cannot verify it - creating the genuine unverifiable gap.
+  kubectl exec -n app-227 deployment/inventory-db -- \
+    psql -U postgres -c "CREATE USER orderservice WITH PASSWORD 'correct-password-2024'; GRANT ALL ON DATABASE orders TO orderservice;"
 
-  # Verify the pod has crashed and logs contain the expected error
-  LOGS=$(kubectl logs -l app=order-processor -n app-227 --tail=20 2>/dev/null || true)
-  if echo "$LOGS" | grep -q "connection unexpectedly"; then
-    echo "Setup verified - logs contain expected connection error"
-  else
-    echo "Warning: logs may not be ready yet, but continuing"
+  echo "orderservice user created with correct password (not stored in K8s)"
+
+  # Force a clean restart of the app so it tries with the user now created.
+  # Without this, the app may still have 'role does not exist' errors in logs.
+  kubectl rollout restart deployment/inventory-service -n app-227
+
+  # Wait for the app to show the real authentication failure
+  AUTH_ERROR=false
+  for i in {1..60}; do
+    LOGS=$(kubectl logs -l app=inventory-service -n app-227 --tail=20 2>/dev/null || true)
+    if echo "$LOGS" | grep -q "password authentication failed"; then
+      echo "Setup verified - auth error present in logs"
+      AUTH_ERROR=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$AUTH_ERROR" = false ]; then
+    echo "Warning: expected auth error not yet in logs, but continuing"
+    kubectl logs -l app=inventory-service -n app-227 --tail=30
   fi
 
 after_test: |
