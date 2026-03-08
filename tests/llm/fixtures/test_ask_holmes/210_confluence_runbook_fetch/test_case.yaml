@@ -1,8 +1,8 @@
 # Test: Fetch runbook from Confluence (must use Confluence toolset, not internal runbook tool)
 #
 # Requirements:
-#   CONFLUENCE_USER - Email/username for Confluence
-#   CONFLUENCE_API_KEY - Atlassian API token
+#   CONFLUENCE_SA_USER - Service account email for Confluence
+#   CONFLUENCE_SA_API_KEY - Service account API token
 #   CONFLUENCE_BASE_URL - e.g., https://robusta-llm-test.atlassian.net
 
 user_prompt: |

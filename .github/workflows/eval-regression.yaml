@@ -91,7 +91,6 @@ jobs:
 
             // Collect eval names from fixture directories
             const askHolmesPath = 'tests/llm/fixtures/test_ask_holmes';
-            const investigatePath = 'tests/llm/fixtures/test_investigate';
 
             const getEvalNames = (dir) => {
               try {
@@ -106,12 +105,10 @@ jobs:
             };
 
             const askHolmesEvals = getEvalNames(askHolmesPath);
-            const investigateEvals = getEvalNames(investigatePath);
 
             const body = `## 📋 Available Eval Names\n\n` +
               `Use these with \`filter:\` in your \`/eval\` command.\n\n` +
-              `**test_ask_holmes:**\n${askHolmesEvals}\n\n` +
-              `**test_investigate:**\n${investigateEvals}`;
+              `**test_ask_holmes:**\n${askHolmesEvals}`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -594,7 +591,241 @@ jobs:
               core.setOutput('is_persistent', 'false');
             }
 
-      # Reordered: Setup HolmesGPT first (needed for pytest), then collect evals, then KIND
+      # Cache KIND infrastructure: binaries, Docker images, Helm charts, manifests
+      - name: Cache KIND infrastructure
+        if: steps.check-tests.outputs.should-run == 'true'
+        uses: actions/cache@v4
+        id: kind-cache
+        with:
+          path: ~/kind-cache
+          key: kind-infra-v1-kind0.31.0-calico3.31.3-prom72.6.2-metrics0.7.2
+
+      # Write KIND setup script to a file, then run it in background
+      # This runs in parallel with HolmesGPT environment setup, saving ~70s
+      # Caching saves an additional ~60s on subsequent runs
+      - name: Start KIND cluster setup (background)
+        if: steps.check-tests.outputs.should-run == 'true'
+        shell: bash
+        run: |
+          # Write the setup script to a file to avoid heredoc/indentation issues
+          cat > /tmp/kind-setup.sh << 'SCRIPT_EOF'
+          #!/bin/bash
+          set -e
+
+          CACHE_DIR="$HOME/kind-cache"
+          mkdir -p "$CACHE_DIR/bin" "$CACHE_DIR/manifests" "$CACHE_DIR/images" "$CACHE_DIR/helm-cache" "$CACHE_DIR/helm-data"
+
+          # Use cached Helm repository and chart data
+          export HELM_CACHE_HOME="$CACHE_DIR/helm-cache"
+          export HELM_DATA_HOME="$CACHE_DIR/helm-data"
+
+          # === Install KIND binary (cached or download) ===
+          if [ -f "$CACHE_DIR/bin/kind" ]; then
+            echo "Using cached KIND binary"
+            sudo cp "$CACHE_DIR/bin/kind" /usr/local/bin/kind
+            sudo chmod +x /usr/local/bin/kind
+          else
+            echo "Downloading KIND binary"
+            curl -sLo "$CACHE_DIR/bin/kind" https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
+            chmod +x "$CACHE_DIR/bin/kind"
+            sudo cp "$CACHE_DIR/bin/kind" /usr/local/bin/kind
+          fi
+          kind version
+
+          # === Load cached KIND node image if available ===
+          KIND_NODE_IMAGE="kindest/node:v1.35.0"
+          if [ -f "$CACHE_DIR/images/kind-node.tar" ]; then
+            echo "Loading cached KIND node image"
+            docker load -i "$CACHE_DIR/images/kind-node.tar"
+          fi
+
+          # === Create KIND cluster ===
+          cat > /tmp/kind-config.yaml << 'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+          nodes:
+          - role: control-plane
+            extraPortMappings:
+            - containerPort: 30000
+              hostPort: 30000
+              protocol: TCP
+            - containerPort: 30001
+              hostPort: 30001
+              protocol: TCP
+            kubeadmConfigPatches:
+            - |
+              kind: InitConfiguration
+              nodeRegistration:
+                kubeletExtraArgs:
+                  max-pods: "300"
+            - |
+              kind: KubeProxyConfiguration
+              metricsBindAddress: "0.0.0.0:10249"
+            - |
+              kind: KubeletConfiguration
+              maxPods: 300
+          EOF
+
+          kind create cluster --name kind --config /tmp/kind-config.yaml --image "$KIND_NODE_IMAGE"
+          kubectl cluster-info --context kind-kind
+
+          # Save KIND node image in background for cache (first run only)
+          if [ ! -f "$CACHE_DIR/images/kind-node.tar" ]; then
+            echo "Saving KIND node image for cache"
+            docker save "$KIND_NODE_IMAGE" -o "$CACHE_DIR/images/kind-node.tar" &
+            SAVE_NODE_PID=$!
+          fi
+
+          # === Load cached workload images into KIND (Calico, Prometheus, etc.) ===
+          if [ -f "$CACHE_DIR/images/workload-images.tar" ]; then
+            echo "Loading cached workload images into KIND"
+            kind load image-archive "$CACHE_DIR/images/workload-images.tar" --name kind
+            echo "Cached workload images loaded"
+          fi
+
+          # === Install Calico CNI ===
+          CALICO_VERSION="v3.31.3"
+          CALICO_MANIFEST="$CACHE_DIR/manifests/calico-operator-${CALICO_VERSION}.yaml"
+          if [ ! -f "$CALICO_MANIFEST" ]; then
+            echo "Downloading Calico operator manifest"
+            curl -sLo "$CALICO_MANIFEST" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+          fi
+          kubectl create -f "$CALICO_MANIFEST"
+
+          for i in $(seq 1 90); do
+            kubectl get pods -n tigera-operator --no-headers 2>/dev/null | grep -q "tigera-operator" && break
+            sleep 2
+          done
+          kubectl wait --for=condition=Ready --timeout=300s -n tigera-operator pods --all
+
+          for i in $(seq 1 90); do
+            kubectl get crd installations.operator.tigera.io 2>/dev/null && break
+            sleep 2
+          done
+          kubectl wait --for=condition=Established --timeout=120s crd/installations.operator.tigera.io
+
+          # Create Calico installation
+          cat << 'EOF' | kubectl create -f -
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            calicoNetwork:
+              ipPools:
+              - blockSize: 26
+                cidr: 10.244.0.0/16
+                encapsulation: IPIP
+                natOutgoing: Enabled
+                nodeSelector: all()
+          EOF
+
+          for i in $(seq 1 90); do
+            kubectl get pods -n calico-system --no-headers 2>/dev/null | grep -q "calico" && break
+            sleep 2
+          done
+          kubectl wait --for=condition=Ready --timeout=300s -n calico-system pods --all
+
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=300s
+
+          # === Install Helm (cached or download) ===
+          if [ -f "$CACHE_DIR/bin/helm" ]; then
+            echo "Using cached Helm binary"
+            sudo cp "$CACHE_DIR/bin/helm" /usr/local/bin/helm
+            sudo chmod +x /usr/local/bin/helm
+          else
+            echo "Downloading Helm"
+            curl -sL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+            cp "$(which helm)" "$CACHE_DIR/bin/helm"
+          fi
+
+          # === Install kube-prometheus-stack and metrics-server in parallel ===
+          METRICS_MANIFEST="$CACHE_DIR/manifests/metrics-server-v0.7.2.yaml"
+          if [ ! -f "$METRICS_MANIFEST" ]; then
+            echo "Downloading metrics-server manifest"
+            curl -sLo "$METRICS_MANIFEST" "https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml"
+          fi
+
+          (
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+            helm repo update
+            helm install robusta prometheus-community/kube-prometheus-stack \
+              --version 72.6.2 \
+              --namespace default \
+              --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+              --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+              --set prometheus.prometheusSpec.scrapeInterval=15s \
+              --set prometheus.prometheusSpec.resources.requests.memory=256Mi \
+              --set prometheus.prometheusSpec.resources.requests.cpu=100m \
+              --set prometheus.prometheusSpec.resources.limits.memory=512Mi \
+              --set prometheus.prometheusSpec.resources.limits.cpu=500m \
+              --set alertmanager.enabled=false \
+              --set grafana.enabled=false \
+              --set kubeStateMetrics.enabled=true \
+              --set nodeExporter.enabled=true \
+              --wait \
+              --timeout 5m
+            kubectl wait --for=condition=Ready pods -l app.kubernetes.io/name=prometheus -n default --timeout=300s
+          ) &
+          PROM_PID=$!
+
+          (
+            kubectl apply -f "$METRICS_MANIFEST"
+            kubectl patch deployment metrics-server -n kube-system \
+              --type='json' \
+              -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+            kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=120s
+          ) &
+          METRICS_PID=$!
+
+          wait $PROM_PID
+          wait $METRICS_PID
+
+          # === Save workload images from KIND for cache (first run only) ===
+          # ctr export doesn't work in KIND (content digest errors on manifest lists),
+          # so we pull images on the host Docker daemon and use docker save instead.
+          if [ ! -f "$CACHE_DIR/images/workload-images.tar" ]; then
+            echo "Saving workload images for cache (first run only)"
+            IMAGES=$(docker exec kind-control-plane crictl images -o json \
+              | jq -r '.images[].repoTags[]' \
+              | grep -v '<none>' \
+              | grep -v 'kindest' \
+              | sort)
+            if [ -n "$IMAGES" ]; then
+              echo "Pulling $(echo "$IMAGES" | wc -l) images on host for caching..."
+              for img in $IMAGES; do
+                docker pull "$img" >/dev/null 2>&1 &
+              done
+              wait
+              # Save only images that were successfully pulled
+              SAVE_LIST=""
+              for img in $IMAGES; do
+                if docker image inspect "$img" >/dev/null 2>&1; then
+                  SAVE_LIST="$SAVE_LIST $img"
+                fi
+              done
+              if [ -n "$SAVE_LIST" ]; then
+                docker save $SAVE_LIST -o "$CACHE_DIR/images/workload-images.tar"
+                echo "Saved workload images for cache"
+              fi
+            fi
+          fi || true  # Never fail the build for caching
+
+          # Wait for background KIND node image save
+          [ -n "${SAVE_NODE_PID:-}" ] && wait $SAVE_NODE_PID || true
+
+          echo "KIND_SETUP_COMPLETE"
+          SCRIPT_EOF
+
+          chmod +x /tmp/kind-setup.sh
+          # Run in background, log to file
+          /tmp/kind-setup.sh > /tmp/kind-setup.log 2>&1 &
+          echo $! > /tmp/kind-setup-pid
+          echo "KIND cluster setup started in background (PID: $(cat /tmp/kind-setup-pid))"
+
       - name: Setup HolmesGPT environment
         if: steps.check-tests.outputs.should-run == 'true'
         uses: ./code/.github/actions/setup-holmes-env
@@ -661,7 +892,16 @@ jobs:
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
 
-          PYTEST_ARGS=(--collect-only -q tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -m "$EVAL_MARKER_EXPR")
+          # Collect test files dynamically
+          TEST_FILES=()
+          for f in tests/llm/test_ask_holmes.py tests/llm/test_holmes_checks.py; do
+            [[ -f "$f" ]] && TEST_FILES+=("$f")
+          done
+          if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
+            echo "❌ No test files found"
+            exit 1
+          fi
+          PYTEST_ARGS=(--collect-only -q "${TEST_FILES[@]}" -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
 
           # Collect test names
@@ -741,12 +981,31 @@ jobs:
               body: body
             });
 
-      - name: Setup KIND cluster
+      - name: Wait for KIND cluster setup
         if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./code/.github/actions/setup-kind-cluster
-        with:
-          cluster-name: 'kind'
-          wait-for-ready: 'true'
+        shell: bash
+        run: |
+          echo "Waiting for background KIND cluster setup to complete..."
+          KIND_PID=$(cat /tmp/kind-setup-pid)
+          # Poll until the background process finishes (can't use wait across shell invocations)
+          while kill -0 "$KIND_PID" 2>/dev/null; do
+            sleep 5
+          done
+          # Check exit status via the log sentinel
+          if grep -q "KIND_SETUP_COMPLETE" /tmp/kind-setup.log; then
+            echo "KIND cluster setup completed successfully"
+          else
+            echo "KIND cluster setup FAILED. Full logs:"
+            cat /tmp/kind-setup.log
+            exit 1
+          fi
+          # Show summary
+          echo "=== KIND setup log (last 20 lines) ==="
+          tail -20 /tmp/kind-setup.log
+          echo "=== Cluster status ==="
+          kubectl get nodes
+          kubectl get pods -n kube-system --no-headers | head -5 || true
+          kubectl get pods -n calico-system --no-headers || true
 
       - name: Update progress - KIND ready, starting evals
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
@@ -826,9 +1085,11 @@ jobs:
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
-          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_BASE_URL: ${{ vars.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_SA_USER: ${{ secrets.CONFLUENCE_SA_USER }}
+          CONFLUENCE_SA_API_KEY: ${{ secrets.CONFLUENCE_SA_API_KEY }}
+          CONFLUENCE_USER: ${{ secrets.CONFLUENCE_USER }}
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
-          CONFLUENCE_USER_NAME: ${{ secrets.CONFLUENCE_USER_NAME }}
           CORALOGIX_API_KEY: ${{ secrets.CORALOGIX_API_KEY }}
           CORALOGIX_SEND_API_KEY: ${{ secrets.CORALOGIX_SEND_API_KEY }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
@@ -847,7 +1108,16 @@ jobs:
 
           START_TIME=$(date +%s)
 
-          PYTEST_ARGS=(--no-cov tests/llm/test_ask_holmes.py tests/llm/test_investigate.py -s -n10 -m "$EVAL_MARKER_EXPR")
+          # Collect test files dynamically
+          TEST_FILES=()
+          for f in tests/llm/test_ask_holmes.py tests/llm/test_holmes_checks.py; do
+            [[ -f "$f" ]] && TEST_FILES+=("$f")
+          done
+          if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
+            echo "❌ No test files found"
+            exit 1
+          fi
+          PYTEST_ARGS=(--no-cov "${TEST_FILES[@]}" -s -n10 -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           poetry run pytest "${PYTEST_ARGS[@]}" || true
 

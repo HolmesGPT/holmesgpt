@@ -95,9 +95,10 @@ def test_compaction(
             with tracer.start_trace(
                 "Compaction", span_type=SpanType.TASK
             ) as compaction_span:
-                compacted_history = compact_conversation_history(
+                compaction_result = compact_conversation_history(
                     conversation_history, llm
                 )
+                compacted_history = compaction_result.messages_after_compaction
 
             # Extract the summary from compacted history
             # The compacted history should have: [optional system], [optional last user prompt], [summary message], [continuation message]

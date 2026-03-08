@@ -14,6 +14,7 @@ from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetTyp
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
 from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
+from holmes.utils.github_app_token_manager import ensure_github_app_token_env
 
 if TYPE_CHECKING:
     pass
@@ -58,9 +59,11 @@ class ToolsetManager:
         global_fast_model: Optional[str] = None,
         custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
         config_file_path: Optional[Path] = None,
+        additional_toolsets: Optional[List[Toolset]] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
+        self.additional_toolsets = additional_toolsets or []
         self.custom_runbook_catalogs = custom_runbook_catalogs
         if mcp_servers is not None:
             for _, mcp_server in mcp_servers.items():
@@ -112,6 +115,10 @@ class ToolsetManager:
         2. Toolsets defined in self.toolsets can override both built-in and add new custom toolsets
         3. custom toolset from config can override both built-in and add new custom toolsets # for backward compatibility
         """
+        # Ensure GitHub App token is generated and background refresh is running
+        # before any toolset config resolution that may reference AUTO_GENERATED_GITHUB_TOKEN
+        ensure_github_app_token_env()
+
         # Load built-in toolsets
         # Extract search paths from custom catalog files
         additional_search_paths = None
@@ -129,7 +136,13 @@ class ToolsetManager:
 
         if enable_all_toolsets:
             for toolset in toolsets_by_name.values():
-                toolset.enabled = True
+                if toolset.should_auto_enable():
+                    toolset.enabled = True
+                else:
+                    logging.debug(
+                        f"Toolset '{toolset.name}' not auto-enabled: "
+                        f"requires configuration that was not provided"
+                    )
 
         # build-in toolset is enabled when it's explicitly enabled in the toolset or custom toolset config
         if self.toolsets is not None:
@@ -150,6 +163,12 @@ class ToolsetManager:
             custom_toolsets,
             toolsets_by_name,
         )
+
+        # Add additional Python toolsets passed programmatically
+        if self.additional_toolsets:
+            for toolset in self.additional_toolsets:
+                toolset.type = ToolsetType.CUSTOMIZED
+                toolsets_by_name[toolset.name] = toolset
 
         if toolset_tags is not None:
             toolsets_by_name = {
@@ -185,6 +204,17 @@ class ToolsetManager:
 
             for _ in concurrent.futures.as_completed(futures):
                 pass
+
+    @staticmethod
+    def _check_config_prerequisites(toolsets: list[Toolset]) -> None:
+        """Run only fast config-validity checks for lazy-loaded toolsets.
+
+        Validates static flags and environment variables without running
+        callable or command prerequisites. Toolsets that pass config validation
+        are marked for deferred initialization on first tool use.
+        """
+        for toolset in toolsets:
+            toolset.check_config_prerequisites()
 
     def _load_toolsets_from_config(
         self,
@@ -344,7 +374,25 @@ class ToolsetManager:
             ):
                 # MCP servers need to reload their tools even if previously failed, so rerun prerequisites
                 enabled_toolsets_from_cache.append(toolset)
-        self.check_toolset_prerequisites(enabled_toolsets_from_cache)
+
+        if using_cached:
+            # Lazy initialization: only run fast config-validity checks on startup
+            # (static flags and env vars). Callable and command prerequisites are
+            # deferred until the first time the LLM uses a tool from the toolset.
+            lazy_toolsets: List[Toolset] = []
+            eager_toolsets: List[Toolset] = []
+            for toolset in enabled_toolsets_from_cache:
+                if toolset.type == ToolsetType.MCP:
+                    # MCP servers must be eagerly initialized to load tool definitions
+                    eager_toolsets.append(toolset)
+                else:
+                    lazy_toolsets.append(toolset)
+
+            self._check_config_prerequisites(lazy_toolsets)
+            if eager_toolsets:
+                self.check_toolset_prerequisites(eager_toolsets)
+        else:
+            self.check_toolset_prerequisites(enabled_toolsets_from_cache)
 
         # CLI custom toolsets status are not cached, and their prerequisites are always checked whenever the CLI runs.
         custom_toolsets_from_cli = self._load_toolsets_from_paths(
@@ -368,6 +416,23 @@ class ToolsetManager:
         self.check_toolset_prerequisites(enabled_toolsets_from_cli)
 
         all_toolsets_with_status.extend(custom_toolsets_from_cli)
+
+        # Additional Python toolsets passed programmatically are not cached,
+        # so check prerequisites for any that weren't already checked above.
+        if self.additional_toolsets:
+            already_checked_names = {ts.name for ts in enabled_toolsets_from_cache} | {
+                ts.name for ts in enabled_toolsets_from_cli
+            }
+            additional_to_check = [
+                ts
+                for ts in all_toolsets_with_status
+                if ts.name in {ats.name for ats in self.additional_toolsets}
+                and ts.enabled
+                and ts.name not in already_checked_names
+            ]
+            if additional_to_check:
+                self.check_toolset_prerequisites(additional_to_check)
+
         if using_cached:
             num_available_toolsets = len(
                 [toolset for toolset in all_toolsets_with_status if toolset.enabled]

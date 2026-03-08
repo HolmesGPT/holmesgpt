@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any, Optional
 
 import sentry_sdk
@@ -14,7 +15,7 @@ from holmes.core.llm import (
     get_context_window_compaction_threshold_pct,
 )
 from holmes.core.models import TruncationMetadata, TruncationResult
-from holmes.core.truncation.compaction import compact_conversation_history
+from holmes.core.truncation.compaction import CompactionUsage, compact_conversation_history
 from holmes.utils import sentry_helper
 from holmes.utils.stream import StreamEvents, StreamMessage
 
@@ -100,11 +101,13 @@ def truncate_messages_to_fit_context(
         max_context_size - message_size_without_tools - reserved_for_output_tokens
     )
     remaining_space = available_space
+    t_sort = time.monotonic()
     tool_call_messages.sort(
-        key=lambda x: count_tokens_fn(
+        key=lambda x: x.get("token_count") or count_tokens_fn(
             [{"role": "tool", "content": x["content"]}]
         ).total_tokens
     )
+    logging.debug(f"truncate_messages: sort {len(tool_call_messages)} tool msgs took {(time.monotonic() - t_sort) * 1000:.1f}ms")
 
     truncations = []
 
@@ -114,7 +117,7 @@ def truncate_messages_to_fit_context(
     for i, msg in enumerate(tool_call_messages):
         remaining_tools = len(tool_call_messages) - i
         max_allocation = remaining_space // remaining_tools
-        needed_space = count_tokens_fn(
+        needed_space = msg.get("token_count") or count_tokens_fn(
             [{"role": "tool", "content": msg["content"]}]
         ).total_tokens
         allocated_space = min(needed_space, max_allocation)
@@ -141,29 +144,33 @@ class ContextWindowLimiterOutput(BaseModel):
     maximum_output_token: int
     tokens: TokenCountMetadata
     conversation_history_compacted: bool
+    compaction_usage: CompactionUsage = CompactionUsage()
 
 
 @sentry_sdk.trace
 def limit_input_context_window(
     llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]]
 ) -> ContextWindowLimiterOutput:
+    t0 = time.monotonic()
     events = []
     metadata = {}
     initial_tokens = llm.count_tokens(messages=messages, tools=tools)  # type: ignore
     max_context_size = llm.get_context_window_size()
     maximum_output_token = llm.get_maximum_output_token()
     conversation_history_compacted = False
+    compaction_usage = CompactionUsage()
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
-        compacted_messages = compact_conversation_history(
+        compaction_result = compact_conversation_history(
             original_conversation_history=messages, llm=llm
         )
-        compacted_tokens = llm.count_tokens(compacted_messages, tools=tools)
+        compaction_usage = compaction_result.usage
+        compacted_tokens = llm.count_tokens(compaction_result.messages_after_compaction, tools=tools)
         compacted_total_tokens = compacted_tokens.total_tokens
 
         if compacted_total_tokens < initial_tokens.total_tokens:
-            messages = compacted_messages
+            messages = compaction_result.messages_after_compaction
             compaction_message = f"The conversation history has been compacted from {initial_tokens.total_tokens} to {compacted_total_tokens} tokens"
             logging.info(compaction_message)
             conversation_history_compacted = True
@@ -172,7 +179,7 @@ def limit_input_context_window(
                     event=StreamEvents.CONVERSATION_HISTORY_COMPACTED,
                     data={
                         "content": compaction_message,
-                        "messages": compacted_messages,
+                        "messages": compaction_result.messages_after_compaction,
                         "metadata": {
                             "initial_tokens": initial_tokens.total_tokens,
                             "compacted_tokens": compacted_total_tokens,
@@ -208,6 +215,9 @@ def limit_input_context_window(
     else:
         metadata["truncations"] = []
 
+    elapsed_ms = (time.monotonic() - t0) * 1000
+    logging.debug(f"limit_input_context_window: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")
+
     return ContextWindowLimiterOutput(
         events=events,
         messages=messages,
@@ -216,4 +226,5 @@ def limit_input_context_window(
         maximum_output_token=maximum_output_token,
         tokens=tokens,
         conversation_history_compacted=conversation_history_compacted,
+        compaction_usage=compaction_usage,
     )

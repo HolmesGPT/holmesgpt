@@ -6,7 +6,8 @@
  *    to localStorage so it persists across page navigations.
  * 2. On every page load (including instant navigations), the saved
  *    preference is applied to all tab groups on the page.
- * 3. Clicking a tab manually also updates the saved preference.
+ * 3. Clicking a tab manually updates the saved preference and the
+ *    URL query parameter, so the URL can be copied and shared.
  *
  * Tab slugs are lowercase, hyphenated versions of tab labels:
  *   - "Robusta Helm Chart" -> robusta-helm-chart
@@ -31,12 +32,15 @@ function slugify(text) {
 }
 
 function selectTab(targetSlug) {
+  var scrollX = window.scrollX;
+  var scrollY = window.scrollY;
   var labels = document.querySelectorAll(".tabbed-labels > label");
   labels.forEach(function (label) {
     if (slugify(label.textContent) === targetSlug) {
       label.click();
     }
   });
+  window.scrollTo(scrollX, scrollY);
 }
 
 document$.subscribe(function () {
@@ -57,10 +61,14 @@ document$.subscribe(function () {
     } catch (e) {}
   }
 
-  // 3. When user clicks a tab, save their preference
+  // 3. When user clicks a tab, save preference and update URL
   document.querySelectorAll(".tabbed-labels > label").forEach(function (label) {
     label.addEventListener("click", function () {
-      try { localStorage.setItem(STORAGE_KEY, slugify(label.textContent)); } catch (e) {}
+      var slug = slugify(label.textContent);
+      try { localStorage.setItem(STORAGE_KEY, slug); } catch (e) {}
+      var url = new URL(window.location);
+      url.searchParams.set("tab", slug);
+      history.replaceState(null, "", url);
     });
   });
 });

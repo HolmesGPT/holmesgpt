@@ -74,7 +74,7 @@ kubectl delete pod user-profile-import
 
 ## Next Steps
 
-- **[Add integrations](../data-sources/index.md)** - Connect monitoring tools like Prometheus, Grafana, and DataDog
+- **[Recommended Setup](../data-sources/recommended-setup.md)** - Connect metrics, logs, and cloud providers to unlock deeper investigations
 - **[Troubleshooting guide](../reference/troubleshooting.md)** - Common issues and solutions
 - **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
 - **[Request features on GitHub](https://github.com/HolmesGPT/holmesgpt/issues){:target="_blank"}** - Suggest improvements or report bugs

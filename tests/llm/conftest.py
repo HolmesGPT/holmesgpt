@@ -45,7 +45,7 @@ from tests.llm.utils.test_results import TestResult
 
 # Configuration constants
 DEBUG_SEPARATOR = "=" * 80
-LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate"]
+LLM_TEST_TYPES = ["test_ask_holmes"]
 DEFAULT_SYSTEM_PROMPT_URL = (
     "https://platform.robusta.dev/api/additional-system-prompt.json"
 )
@@ -99,12 +99,7 @@ def _has_frontend_tests(session: pytest.Session) -> bool:
 
 def is_llm_test(nodeid: str) -> bool:
     """Check if a test nodeid is for an LLM test."""
-    return any(
-        [
-            "test_ask_holmes" in nodeid,
-            "test_investigate" in nodeid,
-        ]
-    )
+    return "test_ask_holmes" in nodeid
 
 
 @pytest.fixture(scope="session")
@@ -763,8 +758,6 @@ def _collect_test_results_from_stats(terminalreporter):
                 # Extract test type
                 if "test_ask_holmes" in nodeid:
                     test_type = "ask"
-                elif "test_investigate" in nodeid:
-                    test_type = "investigate"
                 else:
                     test_type = "unknown"
 
@@ -874,6 +867,10 @@ def _collect_test_results_from_stats(terminalreporter):
                 "total_tokens": user_props.get("total_tokens", 0),
                 "prompt_tokens": user_props.get("prompt_tokens", 0),
                 "completion_tokens": user_props.get("completion_tokens", 0),
+                "cached_tokens": user_props.get("cached_tokens"),
+                "reasoning_tokens": user_props.get("reasoning_tokens", 0),
+                "max_completion_tokens_per_call": user_props.get("max_completion_tokens_per_call", 0),
+                "num_compactions": user_props.get("num_compactions", 0),
                 # Tag tracking for performance analysis
                 "tags": user_props.get("tags", []),
                 # Error tracking for better reporting
@@ -890,7 +887,7 @@ def _collect_test_results_from_stats(terminalreporter):
     results_with_ids = []
     for result in test_results.values():
         # If we have a clean test case ID from the test, use it
-        # This is set in test_ask_holmes.py and test_investigate.py
+        # This is set in test_ask_holmes.py
         # via: request.node.user_properties.append(("clean_test_case_id", test_case.id))
         # It provides the clean test case ID without model suffixes that pytest adds when
         # parameterizing with multiple models (e.g., "01_how_many_pods" instead of

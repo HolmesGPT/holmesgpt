@@ -20,8 +20,8 @@ before_test: |
 
   echo "Creating Confluence space ${SPACE_KEY}..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
-    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space" \
-    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
       \"key\": \"${SPACE_KEY}\",
@@ -37,20 +37,21 @@ before_test: |
   HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
   BODY=$(echo "$RESPONSE" | sed '$d')
 
-  if [ "$HTTP_CODE" -ne 200 ]; then
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif [ "$HTTP_CODE" -eq 409 ]; then
+    echo "Space already exists, reusing."
+  else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
     exit 1
   fi
-
-  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-  echo "Space created with ID: ${SPACE_ID}"
 
   sleep 2
 
   echo "Creating page with secret text..."
   PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
-    "${CONFLUENCE_BASE_URL}/wiki/rest/api/content" \
-    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}" \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
       \"type\": \"page\",
@@ -69,12 +70,22 @@ before_test: |
   PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
   PAGE_BODY=$(echo "$PAGE_RESPONSE" | sed '$d')
 
-  if [ "$PAGE_HTTP_CODE" -ne 200 ]; then
-    echo "Failed to create page. HTTP ${PAGE_HTTP_CODE}: ${PAGE_BODY}"
-    exit 1
+  if [ "$PAGE_HTTP_CODE" -eq 200 ]; then
+    PAGE_ID=$(echo "$PAGE_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
+    PAGE_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${PAGE_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PAGE_ID" ]; then
+      echo "Failed to create or find page."
+      exit 1
+    fi
+    echo "Found existing page."
   fi
-
-  PAGE_ID=$(echo "$PAGE_BODY" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
   echo "Page created with ID: ${PAGE_ID}"
 
   echo "Waiting for Confluence search indexing..."
@@ -83,8 +94,8 @@ before_test: |
   echo "Verifying page is searchable..."
   for i in $(seq 1 12); do
     SEARCH_RESULT=$(curl -L -s \
-      "${CONFLUENCE_BASE_URL}/wiki/rest/api/content/search?cql=text~\"${SECRET_TEXT}\"" \
-      -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content/search?cql=text~\"${SECRET_TEXT}\"" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
 
     if echo "$SEARCH_RESULT" | grep -q "${PAGE_TITLE}"; then
       echo "Page is searchable (attempt ${i})"
@@ -105,8 +116,8 @@ after_test: |
 
   echo "Deleting space ${SPACE_KEY}..."
   HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
-    "${CONFLUENCE_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
-    -u "${CONFLUENCE_USER}:${CONFLUENCE_API_KEY}")
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
 
   if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
     echo "Cleanup complete"

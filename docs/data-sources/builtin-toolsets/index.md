@@ -27,6 +27,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-elasticsearch:{ .lg .middle } **Elasticsearch / OpenSearch**](elasticsearch.md)
 -   [:simple-splunk:{ .lg .middle } **Splunk (MCP)**](splunk-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
+-   [:material-bug:{ .lg .middle } **Sentry (MCP)**](sentry-mcp.md)
 
 </div>
 
@@ -53,6 +54,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 <div class="grid cards" markdown>
 
 -   [:simple-confluence:{ .lg .middle } **Confluence**](confluence.md)
+-   [:simple-confluence:{ .lg .middle } **Confluence (MCP)**](confluence-mcp.md)
 -   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)
 -   [:simple-notion:{ .lg .middle } **Notion**](notion.md)
 -   [:material-forum:{ .lg .middle } **Slab**](slab.md)
@@ -74,6 +76,15 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes Remediation (MCP)**](kubernetes-remediation-mcp.md)
+
+</div>
+
+### Workflow Orchestration
+
+<div class="grid cards" markdown>
+
+-   [:material-pipe:{ .lg .middle } **Prefect (MCP)**](prefect-mcp.md)
 
 </div>
 

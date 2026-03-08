@@ -116,7 +116,7 @@ def update_test_results(
         output: The test output string
         tools_called: List of tools called or a string description
         scores: Dictionary of scores (e.g., correctness). If None and test_case is provided, will calculate
-        result: Optional result object (LLMResult or InvestigationResult) containing cost info
+        result: Optional result object (LLMResult) containing cost info
         test_case: Optional test case for score calculation
         eval_span: Optional Braintrust span for evaluation
         caplog: Optional caplog for evaluation
@@ -126,7 +126,7 @@ def update_test_results(
     """
     # Calculate scores if not provided but test_case is available
     if scores is None and test_case is not None:
-        from tests.llm.utils.classifiers import evaluate_correctness, evaluate_sections
+        from tests.llm.utils.classifiers import evaluate_correctness
 
         scores = {}
 
@@ -203,16 +203,6 @@ def update_test_results(
         )
         scores["correctness"] = correctness_eval.score
 
-        # Evaluate sections if applicable (for investigate tests)
-        if hasattr(test_case, "expected_sections") and test_case.expected_sections:
-            sections = {
-                key: bool(value) for key, value in test_case.expected_sections.items()
-            }
-            sections_eval = evaluate_sections(
-                sections=sections, output=output, parent_span=eval_span
-            )
-            scores["sections"] = sections_eval.score
-
     # Default scores if still None
     if scores is None:
         scores = {}
@@ -244,6 +234,22 @@ def update_test_results(
         if hasattr(result, "completion_tokens"):
             request.node.user_properties.append(
                 ("completion_tokens", result.completion_tokens)
+            )
+        if hasattr(result, "cached_tokens"):
+            request.node.user_properties.append(
+                ("cached_tokens", result.cached_tokens)
+            )
+        if hasattr(result, "reasoning_tokens"):
+            request.node.user_properties.append(
+                ("reasoning_tokens", result.reasoning_tokens)
+            )
+        if hasattr(result, "max_completion_tokens_per_call"):
+            request.node.user_properties.append(
+                ("max_completion_tokens_per_call", result.max_completion_tokens_per_call)
+            )
+        if hasattr(result, "num_compactions"):
+            request.node.user_properties.append(
+                ("num_compactions", result.num_compactions)
             )
 
     return scores
