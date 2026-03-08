@@ -230,8 +230,6 @@ class DefaultLLM(LLM):
                     os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
                     and os.environ.get("AWS_ROLE_ARN")
                 )
-                # Existing temporary credentials (e.g. from a CronJob refresh)
-                or os.environ.get("AWS_SESSION_TOKEN")
             ):
                 model_requirements = {"keys_in_environment": True, "missing_keys": []}
             elif args.get("aws_access_key_id") and args.get("aws_secret_access_key"):
