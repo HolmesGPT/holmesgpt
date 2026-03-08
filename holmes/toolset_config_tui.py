@@ -157,7 +157,7 @@ def build_tree_from_schema(
         description = getattr(field_info, "description", None) or ""
         required = getattr(field_info, "is_required", lambda: False)()
 
-        # Current value – track whether it was explicitly provided
+        # Current value - track whether it was explicitly provided
         cur = current_values.get(field_name)
         was_explicit = field_name in current_values
 
