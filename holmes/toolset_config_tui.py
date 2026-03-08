@@ -10,6 +10,7 @@ import io
 import logging
 import traceback
 import types
+import webbrowser
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -459,6 +460,9 @@ def _run_selection_menu(
 # ── Screen 1: select toolset ─────────────────────────────────────────
 
 
+_MCP_SERVER_DOCS_URL = "https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/"
+
+
 def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolset]:
     """Screen 1 – let the user pick a toolset to configure."""
     if not toolsets:
@@ -468,6 +472,7 @@ def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolse
         return None
 
     items: List[str] = []
+    items.append(f"Add MCP Server - {_MCP_SERVER_DOCS_URL}")
     for t in toolsets:
         status_tag = t.status.value if t.status else "disabled"
         has_config = "configured" if t.config else "unconfigured"
@@ -480,7 +485,10 @@ def select_toolset(toolsets: List[Toolset], console: Console) -> Optional[Toolse
     )
     if idx is None:
         return None
-    return toolsets[idx]
+    if idx == 0:
+        webbrowser.open(_MCP_SERVER_DOCS_URL)
+        return None
+    return toolsets[idx - 1]
 
 
 # ── Screen 2: tree editor ─────────────────────────────────────────────
