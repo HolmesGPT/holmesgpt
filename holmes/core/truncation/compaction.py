@@ -1,7 +1,6 @@
 import logging
 from typing import Optional
 
-import litellm
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
@@ -76,16 +75,9 @@ def compact_conversation_history(
     )
     conversation_history.append({"role": "user", "content": compaction_instructions})
 
-    # Set modify_params to handle providers like Anthropic that require tools
-    # when conversation history contains tool calls
-    original_modify_params = litellm.modify_params
-    try:
-        litellm.modify_params = True  # necessary when using anthropic
-        response: ModelResponse = llm.completion(
-            messages=conversation_history, drop_params=True
-        )  # type: ignore
-    finally:
-        litellm.modify_params = original_modify_params
+    response: ModelResponse = llm.completion(
+        messages=conversation_history, drop_params=True
+    )  # type: ignore
     compaction_usage = _extract_compaction_usage(response)
 
     response_message = None
