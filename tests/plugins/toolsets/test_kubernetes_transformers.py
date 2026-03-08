@@ -57,33 +57,33 @@ class TestKubernetesYAMLTransformers:
         assert kubectl_describe.transformers[0].name == "llm_summarize"
         assert kubectl_describe.transformers[0].config["input_threshold"] == 1000
 
-        # Test kubectl_get_by_kind_in_namespace has transformer config
-        kubectl_get_namespace = None
+        # Test kubernetes_jq_query has transformer config
+        kubernetes_jq_query = None
         for tool in kubernetes_core.tools:
-            if tool.name == "kubectl_get_by_kind_in_namespace":
-                kubectl_get_namespace = tool
+            if tool.name == "kubernetes_jq_query":
+                kubernetes_jq_query = tool
                 break
 
         assert (
-            kubectl_get_namespace is not None
-        ), "kubectl_get_by_kind_in_namespace tool not found"
-        assert kubectl_get_namespace.transformers is not None
-        assert len(kubectl_get_namespace.transformers) == 1
-        assert kubectl_get_namespace.transformers[0].name == "llm_summarize"
+            kubernetes_jq_query is not None
+        ), "kubernetes_jq_query tool not found"
+        assert kubernetes_jq_query.transformers is not None
+        assert len(kubernetes_jq_query.transformers) == 1
+        assert kubernetes_jq_query.transformers[0].name == "llm_summarize"
 
-        # Test kubectl_get_by_kind_in_cluster has transformer config
-        kubectl_get_cluster = None
+        # Test kubernetes_tabular_query has transformer config
+        kubernetes_tabular_query = None
         for tool in kubernetes_core.tools:
-            if tool.name == "kubectl_get_by_kind_in_cluster":
-                kubectl_get_cluster = tool
+            if tool.name == "kubernetes_tabular_query":
+                kubernetes_tabular_query = tool
                 break
 
         assert (
-            kubectl_get_cluster is not None
-        ), "kubectl_get_by_kind_in_cluster tool not found"
-        assert kubectl_get_cluster.transformers is not None
-        assert len(kubectl_get_cluster.transformers) == 1
-        assert kubectl_get_cluster.transformers[0].name == "llm_summarize"
+            kubernetes_tabular_query is not None
+        ), "kubernetes_tabular_query tool not found"
+        assert kubernetes_tabular_query.transformers is not None
+        assert len(kubernetes_tabular_query.transformers) == 1
+        assert kubernetes_tabular_query.transformers[0].name == "llm_summarize"
 
     def test_load_kubernetes_logs_yaml_with_transformers(self):
         """Test loading the kubernetes_logs.yaml file with transformers."""
@@ -532,20 +532,20 @@ class TestKubernetesTransformerPrompts:
         assert kubectl_describe.transformers is not None
         assert kubectl_describe.transformers[0].config["input_threshold"] == 1000
 
-        # kubectl get tools should have threshold of 1000
-        kubectl_get_ns = next(
+        # kubernetes_jq_query should have threshold of 10000 (handles large JSON output)
+        kubernetes_jq_query = next(
             (
                 tool
                 for tool in kubernetes_core.tools
-                if tool.name == "kubectl_get_by_kind_in_namespace"
+                if tool.name == "kubernetes_jq_query"
             ),
             None,
         )
         assert (
-            kubectl_get_ns is not None
-        ), "kubectl_get_by_kind_in_namespace tool not found"
-        assert kubectl_get_ns.transformers is not None
-        assert kubectl_get_ns.transformers[0].config["input_threshold"] == 1000
+            kubernetes_jq_query is not None
+        ), "kubernetes_jq_query tool not found"
+        assert kubernetes_jq_query.transformers is not None
+        assert kubernetes_jq_query.transformers[0].config["input_threshold"] == 10000
 
         # Test kubernetes logs tools (higher threshold for logs)
         kubernetes_logs_yaml_path = os.path.join(
