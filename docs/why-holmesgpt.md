@@ -10,16 +10,9 @@ Production systems generate enormous amounts of telemetry data. HolmesGPT is des
 - **Traversable JSON trees**: For APIs that return large JSON payloads, Holmes transforms responses into traversable trees with filtering and depth-limiting controls so the LLM can extract data without pulling the entire payload into context
 - **Summarization transformers**: For tools that still return large outputs, HolmesGPT supports transformers that summarize data before it reaches the LLM
 
-## 2. Memory Efficiency and OOM Protection
+## 2. Memory-Safe Execution
 
-When querying large observability backends, a single tool call can return megabytes of data—enough to exhaust memory and trigger an OOM kill. HolmesGPT applies multiple layers of protection so the agent stays within safe limits:
-
-- **Subprocess memory limits**: Every tool runs inside a subprocess with a hard virtual-memory cap (`ulimit -v`). If a tool exceeds the limit, the process is killed cleanly instead of crashing the entire agent
-- **Per-tool output budgets**: Each tool response is capped at a configurable share of the model's context window (default 15%, max 25 000 tokens). Results that exceed the budget are written to disk; the LLM receives a pointer and a preview, then uses `cat`, `grep`, or `jq` to extract what it needs
-- **Conversation history compaction**: As multi-turn investigations grow, prior conversation is automatically summarized to reclaim context space, with fair token allocation across tool messages
-- **OOM-aware error handling**: When a tool is OOM-killed, HolmesGPT detects the signal, truncates the error to avoid dumping large stack traces into context, and prompts the LLM to retry with narrower filters
-
-These safeguards let HolmesGPT query clusters with thousands of shards, dashboards with hundreds of panels, or log backends returning millions of lines—without being OOM-killed.
+Per-tool memory limits, streaming large results to disk, and automatic output budgeting prevent OOM kills when querying large observability datasets.
 
 ## 3. Operator Mode
 
