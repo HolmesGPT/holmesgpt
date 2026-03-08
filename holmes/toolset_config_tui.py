@@ -422,12 +422,13 @@ def _get_existing_config(toolset: Toolset, config: Config) -> Dict[str, Any]:
         ts_entry = config.toolsets[toolset.name]
         if isinstance(ts_entry, dict) and ts_entry.get("config"):
             return dict(ts_entry["config"])
-    # Also check mcp_servers for MCP toolsets
-    mcp_servers = getattr(config, "mcp_servers", None)
-    if mcp_servers and toolset.name in mcp_servers:
-        mcp_entry = mcp_servers[toolset.name]
-        if isinstance(mcp_entry, dict) and mcp_entry.get("config"):
-            return dict(mcp_entry["config"])
+    # Also check mcp_servers, but only for MCP toolsets
+    if toolset.type == ToolsetType.MCP:
+        mcp_servers = getattr(config, "mcp_servers", None)
+        if mcp_servers and toolset.name in mcp_servers:
+            mcp_entry = mcp_servers[toolset.name]
+            if isinstance(mcp_entry, dict) and mcp_entry.get("config"):
+                return dict(mcp_entry["config"])
     return {}
 
 
@@ -997,6 +998,7 @@ def run_tree_editor(
                 event.app.exit(result=("test", config_dict))
                 return
             elif btn_idx == 1:  # Reset
+                _class_config_cache.clear()
                 top_nodes.clear()
                 top_nodes.extend(build_tree_from_schema(config_class, {}))
                 _refresh_flat()

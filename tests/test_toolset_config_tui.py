@@ -974,6 +974,7 @@ class TestSaveMCPConfig:
 class TestGetExistingConfigMCP:
     def test_finds_mcp_config(self) -> None:
         ts = make_toolset("jira_server")
+        ts.type = ToolsetType.MCP
         config = MagicMock()
         config.toolsets = {}
         config.mcp_servers = {
@@ -985,11 +986,22 @@ class TestGetExistingConfigMCP:
 
     def test_prefers_toolsets_over_mcp_servers(self) -> None:
         ts = make_toolset("shared_name")
+        ts.type = ToolsetType.MCP
         config = MagicMock()
         config.toolsets = {"shared_name": {"config": {"api_url": "http://toolset"}}}
         config.mcp_servers = {"shared_name": {"config": {"mode": "stdio"}}}
         result = _get_existing_config(ts, config)
         assert result["api_url"] == "http://toolset"
+
+    def test_non_mcp_toolset_ignores_mcp_servers(self) -> None:
+        ts = make_toolset("jira_server")  # type=None (not MCP)
+        config = MagicMock()
+        config.toolsets = {}
+        config.mcp_servers = {
+            "jira_server": {"config": {"mode": "stdio", "command": "uvx"}}
+        }
+        result = _get_existing_config(ts, config)
+        assert result == {}
 
 
 # ── Per-class config cache (mode cycling) ────────────────────────────
