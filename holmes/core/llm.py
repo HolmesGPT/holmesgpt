@@ -232,8 +232,6 @@ class DefaultLLM(LLM):
                 )
                 # Existing temporary credentials (e.g. from a CronJob refresh)
                 or os.environ.get("AWS_SESSION_TOKEN")
-                # Cross-account role assumption via aws_role_name in modelList
-                or (args and args.get("aws_role_name"))
             ):
                 model_requirements = {"keys_in_environment": True, "missing_keys": []}
             elif args.get("aws_access_key_id") and args.get("aws_secret_access_key"):
