@@ -308,13 +308,16 @@ def _select_config_class(
         return config_classes[0]
 
     first_cls = config_classes[0]
+
+    # Collect shared enum fields that act as discriminators.
+    discriminator_fields: set[str] = set()
     for field_name, field_info in first_cls.model_fields.items():
         annotation = getattr(field_info, "annotation", None)
         if _extract_enum_class(annotation) is None:
             continue
-        # Must exist in all classes to act as discriminator
         if not all(field_name in cls.model_fields for cls in config_classes):
             continue
+        discriminator_fields.add(field_name)
 
         current_value = config_values.get(field_name)
         if current_value is None:
@@ -326,10 +329,22 @@ def _select_config_class(
             cls_default = getattr(cls.model_fields[field_name], "default", None)
             if isinstance(cls_default, Enum) and cls_default.value == current_value:
                 return cls
-        # Value didn't match any default – fall back to first class
-        return first_cls
+        # Value didn't match any default – fall through to field-matching below
+        break
 
-    return first_cls
+    # No discriminator matched – pick the class whose non-discriminator fields
+    # overlap most with the provided config_values.
+    best_cls: Optional[Type[BaseModel]] = None
+    best_count = 0
+    for cls in config_classes:
+        count = sum(
+            1 for k in config_values if k in cls.model_fields and k not in discriminator_fields
+        )
+        if count > best_count:
+            best_count = count
+            best_cls = cls
+
+    return best_cls if best_cls is not None else first_cls
 
 
 # ── Config file save / merge ─────────────────────────────────────────
@@ -379,11 +394,11 @@ def save_config_to_file(
             existing = yaml.safe_load(f) or {}
 
     if is_mcp:
-        if "mcp_servers" not in existing:
+        if not existing.get("mcp_servers"):
             existing["mcp_servers"] = {}
         set_mcp_config(existing["mcp_servers"], toolset_name, config_dict)
     else:
-        if "toolsets" not in existing:
+        if not existing.get("toolsets"):
             existing["toolsets"] = {}
         set_toolset_config(existing["toolsets"], toolset_name, config_dict)
 
@@ -998,7 +1013,7 @@ def run_tree_editor(
         # Enum cycle
         if node.field_type == "enum" and node.enum_class is not None:
             members = list(node.enum_class)
-            current_idx = 0
+            current_idx = -1
             for i, member in enumerate(members):
                 if member.value == node.value:
                     current_idx = i

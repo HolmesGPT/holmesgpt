@@ -452,6 +452,30 @@ class TestSaveConfigToFile:
         assert "toolsets" in saved
         assert saved["toolsets"]["test/toolset"]["config"]["key"] == "val"
 
+    def test_handles_none_toolsets_section(self, tmp_path: Path) -> None:
+        """YAML 'toolsets:' with no value parses as None."""
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump({"toolsets": None}, f)
+
+        ok, _ = save_config_to_file(config_file, "test/toolset", {"key": "val"})
+        assert ok is True
+        with open(config_file) as f:
+            saved = yaml.safe_load(f)
+        assert saved["toolsets"]["test/toolset"]["config"]["key"] == "val"
+
+    def test_handles_none_mcp_servers_section(self, tmp_path: Path) -> None:
+        """YAML 'mcp_servers:' with no value parses as None."""
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump({"mcp_servers": None}, f)
+
+        ok, _ = save_config_to_file(config_file, "jira_server", {"mode": "stdio"}, is_mcp=True)
+        assert ok is True
+        with open(config_file) as f:
+            saved = yaml.safe_load(f)
+        assert saved["mcp_servers"]["jira_server"]["config"]["mode"] == "stdio"
+
     def test_does_not_print_to_stdout(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         config_file = tmp_path / "config.yaml"
         save_config_to_file(config_file, "test/toolset", {"key": "val"})
@@ -808,6 +832,20 @@ class TestSelectConfigClass:
 
     def test_no_value_returns_first(self) -> None:
         result = _select_config_class([EnumConfig, AltEnumConfig], {})
+        assert result is EnumConfig
+
+    def test_field_matching_when_no_discriminator_value(self) -> None:
+        """When discriminator is absent, pick class by matching non-discriminator fields."""
+        # AltEnumConfig has 'extra_field', EnumConfig has 'name'
+        result = _select_config_class(
+            [EnumConfig, AltEnumConfig], {"extra_field": "hello"}
+        )
+        assert result is AltEnumConfig
+
+    def test_field_matching_prefers_higher_overlap(self) -> None:
+        result = _select_config_class(
+            [EnumConfig, AltEnumConfig], {"name": "test"}
+        )
         assert result is EnumConfig
 
     def test_mcp_config_classes(self) -> None:
