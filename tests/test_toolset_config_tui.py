@@ -623,13 +623,45 @@ class TestConfigFieldNodeManipulation:
         node.value = None
         assert node.value is None
 
-    def test_optional_field_null_in_tree_to_dict(self) -> None:
-        """When an optional field is set to None, tree_to_dict omits it."""
+    def test_optional_field_null_not_explicitly_set_omitted(self) -> None:
+        """When an optional field is None and not explicitly set, tree_to_dict omits it."""
         node = ConfigFieldNode(
             key="api_key", field_type="str", value=None, required=False, depth=0
         )
         result = tree_to_dict([node])
         assert "api_key" not in result
+
+    def test_optional_field_null_explicitly_set_saved(self) -> None:
+        """When an optional field is explicitly set to None, tree_to_dict includes it."""
+        node = ConfigFieldNode(
+            key="api_key", field_type="str", value=None, required=False, depth=0,
+            explicitly_set=True,
+        )
+        result = tree_to_dict([node])
+        assert "api_key" in result
+        assert result["api_key"] is None
+
+    def test_empty_string_preserved_in_tree_to_dict(self) -> None:
+        """Empty string is saved as empty string, not as None."""
+        node = ConfigFieldNode(
+            key="api_key", field_type="str", value="", required=False, depth=0,
+            explicitly_set=True,
+        )
+        result = tree_to_dict([node])
+        assert result["api_key"] == ""
+
+    def test_explicitly_set_from_existing_config(self) -> None:
+        """Fields loaded from existing config are marked as explicitly_set."""
+        values = {"api_url": "http://test:9090", "api_key": None}
+        nodes = build_tree_from_schema(SimpleConfig, values)
+        url_node = next(n for n in nodes if n.key == "api_url")
+        key_node = next(n for n in nodes if n.key == "api_key")
+        # Both are in current_values → explicitly_set
+        assert url_node.explicitly_set is True
+        assert key_node.explicitly_set is True
+        # timeout is NOT in current_values → not explicitly_set
+        timeout_node = next(n for n in nodes if n.key == "timeout")
+        assert timeout_node.explicitly_set is False
 
     def test_required_field_cannot_be_null_display(self) -> None:
         """Required fields with None value display as empty, not <null>."""
