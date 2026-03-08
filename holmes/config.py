@@ -27,7 +27,7 @@ from holmes.plugins.runbooks import (
 
 # Source plugin imports moved to their respective create methods to speed up startup
 if TYPE_CHECKING:
-    from holmes.core.tool_calling_llm import IssueInvestigator, ToolCallingLLM
+    from holmes.core.tool_calling_llm import ToolCallingLLM
     from holmes.plugins.destinations.slack import SlackDestination
     from holmes.plugins.sources.github import GitHubSource
     from holmes.plugins.sources.jira import JiraServiceManagementSource, JiraSource
@@ -363,41 +363,6 @@ class Config(RobustaBaseConfig):
             self.max_steps,
             self._get_llm(model, tracer),
             tool_results_dir=tool_results_dir,
-        )
-
-    def create_issue_investigator(
-        self,
-        dal: Optional["SupabaseDal"] = None,
-        model: Optional[str] = None,
-        tracer=None,
-        tool_results_dir: Optional[Path] = None,
-    ) -> "IssueInvestigator":
-        tool_executor = self.create_tool_executor(dal)
-        from holmes.core.tool_calling_llm import IssueInvestigator
-
-        return IssueInvestigator(
-            tool_executor=tool_executor,
-            max_steps=self.max_steps,
-            llm=self._get_llm(model, tracer),
-            tool_results_dir=tool_results_dir,
-            cluster_name=self.cluster_name,
-        )
-
-    def create_console_issue_investigator(
-        self,
-        dal: Optional["SupabaseDal"] = None,
-        model_name: Optional[str] = None,
-        tool_results_dir: Optional[Path] = None,
-    ) -> "IssueInvestigator":
-        tool_executor = self.create_console_tool_executor(dal=dal)
-        from holmes.core.tool_calling_llm import IssueInvestigator
-
-        return IssueInvestigator(
-            tool_executor=tool_executor,
-            max_steps=self.max_steps,
-            llm=self._get_llm(model_key=model_name),
-            tool_results_dir=tool_results_dir,
-            cluster_name=self.cluster_name,
         )
 
     def validate_jira_config(self):

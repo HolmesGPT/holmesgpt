@@ -116,7 +116,7 @@ def update_test_results(
         output: The test output string
         tools_called: List of tools called or a string description
         scores: Dictionary of scores (e.g., correctness). If None and test_case is provided, will calculate
-        result: Optional result object (LLMResult or InvestigationResult) containing cost info
+        result: Optional result object (LLMResult) containing cost info
         test_case: Optional test case for score calculation
         eval_span: Optional Braintrust span for evaluation
         caplog: Optional caplog for evaluation
@@ -126,7 +126,7 @@ def update_test_results(
     """
     # Calculate scores if not provided but test_case is available
     if scores is None and test_case is not None:
-        from tests.llm.utils.classifiers import evaluate_correctness, evaluate_sections
+        from tests.llm.utils.classifiers import evaluate_correctness
 
         scores = {}
 
@@ -202,16 +202,6 @@ def update_test_results(
             caplog=caplog,
         )
         scores["correctness"] = correctness_eval.score
-
-        # Evaluate sections if applicable (for investigate tests)
-        if hasattr(test_case, "expected_sections") and test_case.expected_sections:
-            sections = {
-                key: bool(value) for key, value in test_case.expected_sections.items()
-            }
-            sections_eval = evaluate_sections(
-                sections=sections, output=output, parent_span=eval_span
-            )
-            scores["sections"] = sections_eval.score
 
     # Default scores if still None
     if scores is None:
