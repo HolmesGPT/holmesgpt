@@ -36,22 +36,12 @@ toolsets:
                 - Prefer aggregates and counts; list only outliers and actionable items
                 - Keep grep-friendly: include exact field names/values that matter
 
-      - name: "kubectl_get_by_name"
-        description: "Run `kubectl get <kind> <name> --show-labels`"
-        command: "kubectl get --show-labels -o wide {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-
-      - name: "kubectl_get_yaml"
-        description: "Run `kubectl get -o yaml` on a single Kubernetes resource"
-        command: "kubectl get -o yaml {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-
-      - name: "kubectl_events"
-        description: "Retrieve the events for a specific Kubernetes resource. `resource_type` can be any kubernetes resource type: 'pod', 'service', 'deployment', 'job', 'node', etc."
-        command: "kubectl events --for {{resource_type}}/{{ resource_name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-
       - name: "kubernetes_jq_query"
         user_description: "Query Kubernetes Resources (JSON): kubectl get {{kind}} --all-namespaces -o json | jq {{jq_expr}}"
         description: >
           Use kubectl to get json for all resources of a specific kind and filter with jq.
+          More memory-efficient than bash for large queries - uses Kubernetes API pagination
+          to process resources in batches of 500, avoiding context window overflow.
           Returns a JSON object with keys: "total_items_processed" (number of resources examined),
           "matches_found" (number of results), "results" (array of matching resources), and
           "stderr" (any error output from kubectl, or null).
@@ -304,8 +294,10 @@ toolsets:
       - name: "kubernetes_count"
         user_description: "Count Kubernetes Resources (JSON): kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
         description: >
-          Use kubectl to get apply a jq filter and then count the results.
+          Use kubectl to apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.
+          More memory-efficient than bash for large queries - uses Kubernetes API pagination
+          to process resources in batches of 500, avoiding context window overflow.
           Returns a JSON object with keys: "total_items_processed", "matches_found" (number of matches),
           "preview" (first 10 results truncated to 200 chars), and "stderr" (any error output, or null).
           IMPORTANT: The 'kind' parameter must be the plural form of the resource type
