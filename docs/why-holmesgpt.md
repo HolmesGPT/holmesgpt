@@ -10,7 +10,18 @@ Production systems generate enormous amounts of telemetry data. HolmesGPT is des
 - **Traversable JSON trees**: For APIs that return large JSON payloads, Holmes transforms responses into traversable trees with filtering and depth-limiting controls so the LLM can extract data without pulling the entire payload into context
 - **Summarization transformers**: For tools that still return large outputs, HolmesGPT supports transformers that summarize data before it reaches the LLM
 
-## 2. Operator Mode
+## 2. Memory Efficiency and OOM Protection
+
+When querying large observability backends, a single tool call can return megabytes of data—enough to exhaust memory and trigger an OOM kill. HolmesGPT applies multiple layers of protection so the agent stays within safe limits:
+
+- **Subprocess memory limits**: Every tool runs inside a subprocess with a hard virtual-memory cap (`ulimit -v`). If a tool exceeds the limit, the process is killed cleanly instead of crashing the entire agent
+- **Per-tool output budgets**: Each tool response is capped at a configurable share of the model's context window (default 15%, max 25 000 tokens). Results that exceed the budget are written to disk; the LLM receives a pointer and a preview, then uses `cat`, `grep`, or `jq` to extract what it needs
+- **Conversation history compaction**: As multi-turn investigations grow, prior conversation is automatically summarized to reclaim context space, with fair token allocation across tool messages
+- **OOM-aware error handling**: When a tool is OOM-killed, HolmesGPT detects the signal, truncates the error to avoid dumping large stack traces into context, and prompts the LLM to retry with narrower filters
+
+These safeguards let HolmesGPT query clusters with thousands of shards, dashboards with hundreds of panels, or log backends returning millions of lines—without being OOM-killed.
+
+## 3. Operator Mode
 
 HolmesGPT can run in the background to proactively find problems and notify your team.
 
@@ -47,7 +58,7 @@ spec:
 
 See the [Operator documentation](operator/index.md) for installation and configuration.
 
-## 3. Connect Any API as a Data Source
+## 4. Connect Any API as a Data Source
 
 HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](data-sources/api-toolsets.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
@@ -101,7 +112,7 @@ Holmes automatically transforms these raw endpoints to be LLM-friendly:
 - **Multiple auth methods**: Basic, Bearer, custom headers—configured once, used automatically
 - **Multi-instance**: Configure multiple API connectors with independent credentials
 
-## 4. Runtime Dependency Graph
+## 5. Runtime Dependency Graph
 
 Reconstructs upstream/downstream chains from the production data you didn't realize you already have. Sees the dependency graph as it actually runs, not as it was designed.
 
@@ -113,7 +124,7 @@ Holmes infers service relationships from the telemetry data already flowing thro
 
 Works even without distributed tracing—Holmes infers service relationships from Kubernetes resource hierarchies and metric labels alone, but takes advantage of trace data if available.
 
-## 5. Zero-Hallucination Visualizations
+## 6. Zero-Hallucination Visualizations
 
 When Holmes queries a data source like Prometheus, the raw response data—time series, log entries, trace spans—is passed through to the client alongside the LLM's text analysis. Supported clients render this data as interactive HTML and JavaScript visualizations in a sandboxed environment: metric graphs with tooltips, legends, and zoom; sortable log tables with severity coloring and CSV export; distributed trace waterfalls with timing breakdowns.
 
@@ -121,7 +132,7 @@ The LLM decides *what* to query and *how* to analyze it, but the visualization i
 
 One such supporting client is implemented by [Robusta.dev](https://home.robusta.dev/).
 
-## 6. Alert-to-Resolution Workflow
+## 7. Alert-to-Resolution Workflow
 
 HolmesGPT can integrate into your existing workflows, by automatically fetching alerts and incidents from AlertManager, PagerDuty, OpsGenie, or more—and writing the investigation results back to the source.
 
