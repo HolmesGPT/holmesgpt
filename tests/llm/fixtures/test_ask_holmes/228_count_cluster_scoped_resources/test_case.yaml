@@ -1,4 +1,4 @@
-user_prompt: "Count all PriorityClasses whose names start with 'eval-225' and tell me the exact total."
+user_prompt: "Count all PriorityClasses whose names start with 'eval-228' and tell me the exact total."
 
 expected_output:
   - The answer must state exactly 49 PriorityClasses
@@ -19,22 +19,22 @@ before_test: |
   apiVersion: scheduling.k8s.io/v1
   kind: PriorityClass
   metadata:
-    name: eval-225-${SUFFIX}
+    name: eval-228-${SUFFIX}
   value: $PRIORITY
   globalDefault: false
-  description: "eval-225 test priority class"
+  description: "eval-228 test priority class"
   EOF
   done
 
   echo "Created $CREATED PriorityClasses"
 
   # Verify all 49 were created
-  ACTUAL=$(kubectl get priorityclasses --no-headers | grep "^eval-225-" | wc -l)
-  echo "Verified $ACTUAL PriorityClasses with eval-225 prefix"
+  ACTUAL=$(kubectl get priorityclasses --no-headers | grep "^eval-228-" | wc -l)
+  echo "Verified $ACTUAL PriorityClasses with eval-228 prefix"
 
   if [ "$ACTUAL" -ne 49 ]; then
     echo "ERROR: Expected 49 PriorityClasses, got $ACTUAL"
-    kubectl get priorityclasses | grep eval-225
+    kubectl get priorityclasses | grep eval-228
     exit 1
   fi
 
@@ -42,4 +42,4 @@ before_test: |
 
 after_test: |
   echo "Cleaning up PriorityClasses..."
-  kubectl get priorityclasses --no-headers -o custom-columns=NAME:.metadata.name | grep "^eval-225-" | xargs -r kubectl delete priorityclass
+  kubectl get priorityclasses --no-headers -o custom-columns=NAME:.metadata.name | grep "^eval-228-" | xargs -r kubectl delete priorityclass
