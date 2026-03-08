@@ -44,19 +44,6 @@ class TestKubernetesYAMLTransformers:
 
         assert kubernetes_core is not None, "kubernetes/core toolset not found"
 
-        # Test kubectl_describe has transformer config
-        kubectl_describe = None
-        for tool in kubernetes_core.tools:
-            if tool.name == "kubectl_describe":
-                kubectl_describe = tool
-                break
-
-        assert kubectl_describe is not None, "kubectl_describe tool not found"
-        assert kubectl_describe.transformers is not None
-        assert len(kubectl_describe.transformers) == 1
-        assert kubectl_describe.transformers[0].name == "llm_summarize"
-        assert kubectl_describe.transformers[0].config["input_threshold"] == 1000
-
         # Test kubernetes_jq_query has transformer config
         kubernetes_jq_query = None
         for tool in kubernetes_core.tools:
@@ -432,40 +419,6 @@ toolsets:
 class TestKubernetesTransformerPrompts:
     """Test the specific transformer prompts configured for Kubernetes tools."""
 
-    def test_kubectl_describe_prompt_content(self):
-        """Test that kubectl_describe has appropriate summarization prompt."""
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        kubernetes_yaml_path = os.path.join(
-            current_dir,
-            "..",
-            "..",
-            "..",
-            "holmes",
-            "plugins",
-            "toolsets",
-            "kubernetes.yaml",
-        )
-
-        toolsets = load_toolsets_from_file(kubernetes_yaml_path)
-        kubernetes_core = next(
-            (ts for ts in toolsets if ts.name == "kubernetes/core"), None
-        )
-        assert kubernetes_core is not None, "kubernetes/core toolset not found"
-        kubectl_describe = next(
-            (tool for tool in kubernetes_core.tools if tool.name == "kubectl_describe"),
-            None,
-        )
-        assert kubectl_describe is not None, "kubectl_describe tool not found"
-
-        assert kubectl_describe.transformers is not None
-        prompt = kubectl_describe.transformers[0].config["prompt"]
-
-        # Check that prompt contains key elements for kubectl describe
-        assert "What needs attention or immediate action" in prompt
-        assert "Resource status and health indicators" in prompt
-        assert "errors, warnings" in prompt
-        assert "grep" in prompt  # Should mention grep for drilling down
-
     def test_kubectl_logs_prompt_content(self):
         """Test that kubectl_logs has appropriate summarization prompt."""
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -506,7 +459,7 @@ class TestKubernetesTransformerPrompts:
         # Load both YAML files
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # Test kubernetes core tools (kubectl get, describe)
+        # Test kubernetes core tools
         kubernetes_yaml_path = os.path.join(
             current_dir,
             "..",
@@ -522,15 +475,6 @@ class TestKubernetesTransformerPrompts:
             (ts for ts in toolsets if ts.name == "kubernetes/core"), None
         )
         assert kubernetes_core is not None, "kubernetes/core toolset not found"
-
-        # kubectl describe should have threshold of 1000
-        kubectl_describe = next(
-            (tool for tool in kubernetes_core.tools if tool.name == "kubectl_describe"),
-            None,
-        )
-        assert kubectl_describe is not None, "kubectl_describe tool not found"
-        assert kubectl_describe.transformers is not None
-        assert kubectl_describe.transformers[0].config["input_threshold"] == 1000
 
         # kubernetes_jq_query should have threshold of 10000 (handles large JSON output)
         kubernetes_jq_query = next(

@@ -90,128 +90,6 @@ class TestKubernetesTransformerExecution:
         if self.original_llm_summarize is not None:
             registry.register(self.original_llm_summarize)
 
-    def test_kubectl_describe_with_large_output(self):
-        """Test kubectl_describe applies transformer for large output."""
-        # Load the actual kubernetes.yaml file
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        kubernetes_yaml_path = os.path.join(
-            current_dir, "..", "..", "holmes", "plugins", "toolsets", "kubernetes.yaml"
-        )
-
-        toolsets = load_toolsets_from_file(kubernetes_yaml_path)
-        kubernetes_core = next(ts for ts in toolsets if ts.name == "kubernetes/core")
-        kubectl_describe = next(
-            tool for tool in kubernetes_core.tools if tool.name == "kubectl_describe"
-        )
-
-        # Create large kubectl describe output that should trigger transformation
-        large_output = (
-            """
-Name:         test-pod-12345
-Namespace:    default
-Priority:     0
-Node:         node-1/10.0.1.5
-Start Time:   Mon, 01 Jan 2024 10:00:00 +0000
-Labels:       app=test
-              version=1.0.0
-Annotations:  deployment.kubernetes.io/revision: 1
-Status:       Running
-IP:           10.244.0.15
-IPs:
-  IP:  10.244.0.15
-Containers:
-  test-container:
-    Container ID:   containerd://abc123def456
-    Image:          nginx:1.21
-    Image ID:       docker-pullable://nginx@sha256:abc123
-    Port:           80/TCP
-    Host Port:      0/TCP
-    State:          Running
-      Started:      Mon, 01 Jan 2024 10:01:00 +0000
-    Ready:          True
-    Restart Count:  0
-    Environment:    <none>
-    Mounts:
-      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-xyz (ro)
-Conditions:
-  Type              Status
-  Initialized       True
-  Ready             True
-  ContainersReady   True
-  PodScheduled      True
-Volumes:
-  kube-api-access-xyz:
-    Type:                    Projected (a volume that contains injected data from multiple sources)
-    TokenExpirationSeconds:  3607
-    ConfigMapName:           kube-root-ca.crt
-Events:
-  Type    Reason     Age   From               Message
-  ----    ------     ----  ----               -------
-  Normal  Scheduled  5m    default-scheduler  Successfully assigned default/test-pod-12345 to node-1
-  Normal  Pulling    5m    kubelet            Pulling image "nginx:1.21"
-  Normal  Pulled     4m    kubelet            Successfully pulled image "nginx:1.21"
-  Normal  Created    4m    kubelet            Created container test-container
-  Normal  Started    4m    kubelet            Started container test-container
-"""
-            * 3
-        )  # Repeat to make it large enough to trigger transformation
-
-        # Mock the subprocess execution
-        with patch.object(
-            kubectl_describe, "_YAMLTool__execute_subprocess"
-        ) as mock_subprocess:
-            mock_subprocess.return_value = (large_output, 0)
-
-            # Execute the tool
-            context = create_mock_tool_invoke_context()
-            result = kubectl_describe.invoke(
-                {"kind": "pod", "name": "test-pod-12345", "namespace": "default"},
-                context,
-            )
-
-            # Should have applied transformation
-            assert result.status == StructuredToolResultStatus.SUCCESS
-            assert result.data is not None
-            assert "SUMMARIZED:" in result.data
-            assert f"Original length: {len(large_output)}" in result.data
-            assert len(result.data) < len(
-                large_output
-            )  # Should be shorter due to summarization
-
-    def test_kubectl_describe_with_small_output(self):
-        """Test kubectl_describe skips transformer for small output."""
-        # Load the actual kubernetes.yaml file
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        kubernetes_yaml_path = os.path.join(
-            current_dir, "..", "..", "holmes", "plugins", "toolsets", "kubernetes.yaml"
-        )
-
-        toolsets = load_toolsets_from_file(kubernetes_yaml_path)
-        kubernetes_core = next(ts for ts in toolsets if ts.name == "kubernetes/core")
-        kubectl_describe = next(
-            tool for tool in kubernetes_core.tools if tool.name == "kubectl_describe"
-        )
-
-        # Create small output that should NOT trigger transformation
-        small_output = "Name: test\nStatus: Running"
-
-        # Mock the subprocess execution
-        with patch.object(
-            kubectl_describe, "_YAMLTool__execute_subprocess"
-        ) as mock_subprocess:
-            mock_subprocess.return_value = (small_output, 0)
-
-            # Execute the tool
-            context = create_mock_tool_invoke_context()
-            result = kubectl_describe.invoke(
-                {"kind": "pod", "name": "test-pod", "namespace": "default"}, context
-            )
-
-            # Should NOT have applied transformation
-            assert result.status == StructuredToolResultStatus.SUCCESS
-            assert result.data == small_output
-            assert "SUMMARIZED:" not in result.data
-
     def test_kubectl_logs_with_large_output(self):
         """Test kubectl_logs applies transformer for large log output."""
         # Load the actual kubernetes_logs.yaml file
@@ -402,30 +280,30 @@ toolsets:
 
     def test_transformer_error_status_handling(self):
         """Test that transformers are not applied when tool returns error status."""
-        # Load the actual kubernetes.yaml file
+        # Load the actual kubernetes_logs.yaml file
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        kubernetes_yaml_path = os.path.join(
-            current_dir, "..", "..", "holmes", "plugins", "toolsets", "kubernetes.yaml"
+        kubernetes_logs_yaml_path = os.path.join(
+            current_dir, "..", "..", "holmes", "plugins", "toolsets", "kubernetes_logs.yaml"
         )
 
-        toolsets = load_toolsets_from_file(kubernetes_yaml_path)
-        kubernetes_core = next(ts for ts in toolsets if ts.name == "kubernetes/core")
-        kubectl_describe = next(
-            tool for tool in kubernetes_core.tools if tool.name == "kubectl_describe"
+        toolsets = load_toolsets_from_file(kubernetes_logs_yaml_path)
+        kubernetes_logs = next(ts for ts in toolsets if ts.name == "kubernetes/logs")
+        kubectl_logs = next(
+            tool for tool in kubernetes_logs.tools if tool.name == "kubectl_logs"
         )
 
         # Mock subprocess to return error
         error_output = "Error: pod 'nonexistent' not found"
         with patch.object(
-            kubectl_describe, "_YAMLTool__execute_subprocess"
+            kubectl_logs, "_YAMLTool__execute_subprocess"
         ) as mock_subprocess:
             # For error case, mock the subprocess to return error code
             mock_subprocess.return_value = (error_output, 1)
 
             # Execute the tool
             context = create_mock_tool_invoke_context()
-            result = kubectl_describe.invoke(
-                {"kind": "pod", "name": "nonexistent", "namespace": "default"}, context
+            result = kubectl_logs.invoke(
+                {"pod_name": "nonexistent", "namespace": "default"}, context
             )
 
             # Should NOT have applied transformation due to error status

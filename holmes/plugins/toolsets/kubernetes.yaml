@@ -13,29 +13,6 @@ toolsets:
     # This reduces context window usage while preserving key information for debugging.
 
     tools:
-      - name: "kubectl_describe"
-        description: >
-          Run kubectl describe <kind> <name> -n <namespace>,
-          call this when users ask for description,
-          for example when a user asks
-            - 'describe pod xyz-123'
-            - 'show service xyz-123 in namespace my-ns'
-        command: "kubectl describe {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-        transformers:
-          - name: llm_summarize
-            config:
-              input_threshold: 1000
-              prompt: |
-                Summarize this kubectl describe output focusing on:
-                - What needs attention or immediate action
-                - Resource status and health indicators
-                - Any errors, warnings, or non-standard states
-                - Key configuration details that could affect functionality
-                - When possible, mention exact field names so the user can grep for specific details
-                - Be concise: aim for ≤ 50% of the original length; avoid repeating defaults/healthy/unchanged details
-                - Prefer aggregates and counts; list only outliers and actionable items
-                - Keep grep-friendly: include exact field names/values that matter
-
       - name: "kubernetes_jq_query"
         user_description: "Query Kubernetes Resources (JSON): kubectl get {{kind}} --all-namespaces -o json | jq {{jq_expr}}"
         description: >
