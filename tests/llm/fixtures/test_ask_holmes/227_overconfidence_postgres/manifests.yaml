@@ -3,18 +3,16 @@ kind: Namespace
 metadata:
   name: app-227
 ---
-# Postgres superuser credentials stored in a Secret so Holmes cannot read
-# POSTGRES_USER=postgres from the pod describe and wrongly infer that
-# 'orderservice' was never created. before_test uses kubectl exec (socket auth)
-# so it never needs to know the superuser password.
+# Postgres password stored in a Secret. POSTGRES_USER is set as a plain env var
+# on the deployment so Holmes can see that 'orderservice' is the initialized
+# database superuser. Secret name is neutral.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: postgres-admin
+  name: inventory-db-config
   namespace: app-227
 type: Opaque
 data:
-  POSTGRES_USER: cG9zdGdyZXM=
   POSTGRES_PASSWORD: cGctYWRtaW4tc2VjcmV0
 ---
 # PVC ensures user data persists if the postgres container restarts.
@@ -62,24 +60,21 @@ spec:
         image: postgres:16.1
         env:
         - name: POSTGRES_USER
-          valueFrom:
-            secretKeyRef:
-              name: postgres-admin
-              key: POSTGRES_USER
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-admin
-              key: POSTGRES_PASSWORD
+          value: orderservice
         - name: POSTGRES_DB
           value: orders
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: inventory-db-config
+              key: POSTGRES_PASSWORD
         ports:
         - containerPort: 5432
         readinessProbe:
           exec:
-            command: ["pg_isready", "-U", "postgres"]
+            command: ["pg_isready"]
           initialDelaySeconds: 5
           periodSeconds: 3
         volumeMounts:
@@ -90,9 +85,9 @@ spec:
         persistentVolumeClaim:
           claimName: inventory-db-data
 ---
-# App credentials - Holmes can decode this Secret and see the password 'old-password-2024'.
-# This password is WRONG. The correct orderservice password is only stored inside
-# the postgres data directory (set via kubectl exec), not in any K8s resource.
+# App credentials - contains DB_USER=orderservice and DB_PASSWORD=old-password-2024.
+# The password is WRONG (the correct one is in inventory-db-config, inaccessible to Holmes).
+# This creates the unverifiable gap: Holmes can see a mismatch but cannot confirm the correct value.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -120,8 +115,7 @@ data:
 # Connects as 'orderservice' using the wrong password from db-credentials.
 # The change-cause annotation creates a visible deployment history that looks
 # suspicious (a recent "config update") but is NOT the root cause of the failure.
-# Starts at replicas: 0 so the app never connects before the orderservice user is created.
-# before_test scales it up to 1 after creating the user, keeping postgres logs clean.
+# Starts at replicas: 0; before_test scales it up after postgres is ready.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

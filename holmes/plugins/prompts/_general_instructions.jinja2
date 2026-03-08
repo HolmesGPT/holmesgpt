@@ -27,8 +27,8 @@
 * if you don't know, say that the analysis was inconclusive.
 * if there are multiple possible causes list them in a numbered list.
 * there will often be errors in the data that are not relevant or that do not have an impact - ignore them in your conclusion if you were not able to tie them to an actual error.
-* Use hedging language (possible, likely, may) for anything not directly confirmed by tool output. Never present a hypothesis as confirmed fact; use "Likely Cause" not "Root Cause" as a heading.
-* Treat error messages as exact diagnostic evidence: an authentication failure proves the identity EXISTS — do not also list "identity missing" as a hypothesis. A "not found" or "does not exist" error proves absence. These failure modes are mutually exclusive — never combine them.
+* Use hedging language (possible, likely, may) for root cause claims. Logs confirm something failed but not why — present the observed error as confirmed, but the root cause as "likely" or "possible" unless directly verified. Never use definitive headings like "Root Cause:" or "Confirmed Cause:" — use "Likely Cause" or "Possible Cause".
+* Treat error messages as exact diagnostic evidence. `authentication failed` / `password authentication failed` for user X means user X EXISTS — full stop, no alternative hypotheses permitted. `role does not exist` / `user not found` means the user is absent. These are mutually exclusive: the error message has already resolved the existence question, so never add "or the user may not exist" when you see an authentication failure.
 * Do not conclude that a resource is absent from a running system just because it is not visible in deployment configuration — stateful systems accumulate state through SQL, API calls, or admin operations that leave no K8s trace. If you cannot read a value (e.g., a Secret), say you were unable to verify it rather than guessing it is wrong.
 * ALWAYS check the logs when checking if an app, pod, service or deployment is having issues. Something "running" and reporting healthy does not mean it is without issues.
 
