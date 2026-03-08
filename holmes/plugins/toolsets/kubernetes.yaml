@@ -13,83 +13,15 @@ toolsets:
     # This reduces context window usage while preserving key information for debugging.
 
     tools:
-      - name: "kubectl_describe"
-        description: >
-          Run kubectl describe <kind> <name> -n <namespace>,
-          call this when users ask for description,
-          for example when a user asks
-            - 'describe pod xyz-123'
-            - 'show service xyz-123 in namespace my-ns'
-        command: "kubectl describe {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-        transformers:
-          - name: llm_summarize
-            config:
-              input_threshold: 1000
-              prompt: |
-                Summarize this kubectl describe output focusing on:
-                - What needs attention or immediate action
-                - Resource status and health indicators
-                - Any errors, warnings, or non-standard states
-                - Key configuration details that could affect functionality
-                - When possible, mention exact field names so the user can grep for specific details
-                - Be concise: aim for ≤ 50% of the original length; avoid repeating defaults/healthy/unchanged details
-                - Prefer aggregates and counts; list only outliers and actionable items
-                - Keep grep-friendly: include exact field names/values that matter
-
-      - name: "kubectl_get_by_name"
-        description: "Run `kubectl get <kind> <name> --show-labels`"
-        command: "kubectl get --show-labels -o wide {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-
-      - name: "kubectl_get_by_kind_in_namespace"
-        description: "Run `kubectl get <kind> -n <namespace> --show-labels` to get all resources of a given type in namespace"
-        command: "kubectl get --show-labels -o wide {{ kind }} -n {{namespace}}"
-        transformers:
-          - name: llm_summarize
-            config:
-              input_threshold: 1000
-              prompt: |
-                Summarize this kubectl output focusing on:
-                - What needs attention or immediate action
-                - Group similar resources into aggregate descriptions
-                - Make sure to mention outliers, errors, and non-standard states
-                - List healthy resources as aggregate descriptions
-                - When listing unhealthy resources, also try to use aggregate descriptions when possible
-                - When possible, mention exact keywords so the user can rerun the command with | grep <keyword> and drill down
-                - Be concise and avoid expansion: target ≤ 50% of input size; prefer counts + outliers over full listings
-
-      - name: "kubectl_get_by_kind_in_cluster"
-        description: "Run `kubectl get -A <kind> --show-labels` to get all resources of a given type in the cluster"
-        command: "kubectl get -A --show-labels -o wide {{ kind }}"
-        transformers:
-          - name: llm_summarize
-            config:
-              input_threshold: 1000
-              prompt: |
-                Summarize this kubectl output focusing on:
-                - What needs attention or immediate action
-                - Group similar resources into a single line and description
-                - Make sure to mention outliers, errors, and non-standard states
-                - List healthy resources as aggregate descriptions
-                - When listing unhealthy resources, also try to use aggregate descriptions when possible
-                - When possible, mention exact keywords so the user can rerun the command with | grep <keyword> and drill down on the parts they care about
-                - Strive for ≤ 50% of the original size; keep results compact and grep-friendly (one line per aggregate)
-
-      - name: "kubectl_find_resource"
-        description: "Run `kubectl get {{ kind }} -A --show-labels | grep {{ keyword }}` to find a resource where you know a substring of the name, IP, namespace, or labels"
-        command: "kubectl get -A --show-labels -o wide {{ kind }} | grep {{ keyword }}"
-
-      - name: "kubectl_get_yaml"
-        description: "Run `kubectl get -o yaml` on a single Kubernetes resource"
-        command: "kubectl get -o yaml {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-
-      - name: "kubectl_events"
-        description: "Retrieve the events for a specific Kubernetes resource. `resource_type` can be any kubernetes resource type: 'pod', 'service', 'deployment', 'job', 'node', etc."
-        command: "kubectl events --for {{resource_type}}/{{ resource_name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-
       - name: "kubernetes_jq_query"
-        user_description: "Query Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -r {{jq_expr}}"
+        user_description: "Query Kubernetes Resources (JSON): kubectl get {{kind}} --all-namespaces -o json | jq {{jq_expr}}"
         description: >
           Use kubectl to get json for all resources of a specific kind and filter with jq.
+          More memory-efficient than bash for large queries - uses Kubernetes API pagination
+          to process resources in batches of 500, avoiding context window overflow.
+          Returns a JSON object with keys: "total_items_processed" (number of resources examined),
+          "matches_found" (number of results), "results" (array of matching resources), and
+          "stderr" (any error output from kubectl, or null).
           IMPORTANT: The 'kind' parameter must be the plural form of the resource type
           (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
           Do not worry about escaping the jq_expr - it will be done by the system.
@@ -97,28 +29,30 @@ toolsets:
         script: |
           #!/bin/bash
 
-          echo "Executing paginated query for {{ kind }} resources..."
-          echo "Expression: {{ jq_expr }}"
-          echo "---"
+          err_file=$(mktemp)
 
           # Get the API path for the resource kind using kubectl
-          API_INFO=$(kubectl api-resources --no-headers | grep "^{{ kind }} " | head -1)
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
 
           if [ -z "$API_INFO" ]; then
-            echo "Error: Unable to find resource kind '{{ kind }}'" >&2
-            exit 1
+            err_content=$(cat "$err_file" 2>/dev/null)
+            rm -f "$err_file"
+            jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
+              '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
+            exit 0
           fi
 
-          # Extract NAMESPACED value 
+          # Extract NAMESPACED value
           if [[ "$API_INFO" == *" true "* ]]; then
-            NAMESPACED="true"
             PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
           elif [[ "$API_INFO" == *" false "* ]]; then
-            NAMESPACED="false"
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
           else
-            echo "Error: Could not find NAMESPACED field (true/false) in API info" >&2
-            exit 1
+            err_content=$(cat "$err_file" 2>/dev/null)
+            rm -f "$err_file"
+            jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
+              '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
+            exit 0
           fi
 
           # Trim trailing spaces from prefix and collapse internal spaces
@@ -138,8 +72,11 @@ toolsets:
           fi
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
-            echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
-            exit 1
+            err_content=$(cat "$err_file" 2>/dev/null)
+            rm -f "$err_file"
+            jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
+              '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
+            exit 0
           fi
 
           # Build API path
@@ -150,48 +87,55 @@ toolsets:
           fi
 
           # Process resources in chunks using API pagination
-          LIMIT=500  # Process 500 items at a time
+          LIMIT=500
           CONTINUE=""
           PROCESSED=0
           TOTAL_MATCHES=0
+          ALL_MATCHES=""
 
           while true; do
-            # Build API query with limit and continue token
             if [ -z "$CONTINUE" ]; then
-              # First request - get from all namespaces
               QUERY="${API_PATH}?limit=${LIMIT}"
             else
-              # Subsequent requests with continue token
               QUERY="${API_PATH}?limit=${LIMIT}&continue=${CONTINUE}"
             fi
 
-            OUTPUT=$(kubectl get --raw "$QUERY" 2>&1)
+            OUTPUT=$(kubectl get --raw "$QUERY" 2>>"$err_file")
             exit_code=$?
 
             if [ $exit_code -ne 0 ]; then
-              echo "Error: $OUTPUT" >&2
-              exit $exit_code
+              err_content=$(cat "$err_file" 2>/dev/null)
+              rm -f "$err_file"
+              jq -n --arg stderr "kubectl get --raw failed for $QUERY. $err_content" \
+                --argjson total "$PROCESSED" \
+                '{total_items_processed: $total, matches_found: 0, results: [], stderr: $stderr}'
+              exit 0
             fi
 
             ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
 
-            MATCHES=$(echo "$OUTPUT" | jq -r {{ jq_expr }} 2>&1)
+            MATCHES=$(echo "$OUTPUT" | jq -c {{ jq_expr }} 2>>"$err_file")
             jq_exit=$?
             if [ $jq_exit -ne 0 ]; then
-              echo "Error: jq expression failed: $MATCHES" >&2
-              exit $jq_exit
+              err_content=$(cat "$err_file" 2>/dev/null)
+              rm -f "$err_file"
+              jq -n --arg stderr "jq expression failed. $err_content" \
+                --argjson total "$PROCESSED" \
+                '{total_items_processed: $total, matches_found: 0, results: [], stderr: $stderr}'
+              exit 0
             fi
 
             if [ "$ITEMS_COUNT" -gt 0 ]; then
               if [ -n "$MATCHES" ]; then
-                echo "$MATCHES"
+                if [ -z "$ALL_MATCHES" ]; then
+                  ALL_MATCHES="$MATCHES"
+                else
+                  ALL_MATCHES="$ALL_MATCHES"$'\n'"$MATCHES"
+                fi
                 MATCH_COUNT=$(echo "$MATCHES" | grep -c . || true)
                 TOTAL_MATCHES=$((TOTAL_MATCHES + MATCH_COUNT))
               fi
-
               PROCESSED=$((PROCESSED + ITEMS_COUNT))
-
-              echo "Processed $PROCESSED items, found $TOTAL_MATCHES matches so far..." >&2
             fi
 
             CONTINUE=$(echo "$OUTPUT" | jq -r '.metadata.continue // empty')
@@ -201,8 +145,22 @@ toolsets:
             fi
           done
 
-          echo "---" >&2
-          echo "Total items processed: $PROCESSED, matches found: $TOTAL_MATCHES" >&2
+          err_content=$(cat "$err_file" 2>/dev/null)
+          rm -f "$err_file"
+
+          # Output results as a JSON object with metadata
+          if [ -n "$ALL_MATCHES" ]; then
+            RESULTS=$(echo "$ALL_MATCHES" | jq -s '.')
+          else
+            RESULTS="[]"
+          fi
+
+          jq -n \
+            --argjson results "$RESULTS" \
+            --argjson total_items_processed "$PROCESSED" \
+            --argjson matches_found "$TOTAL_MATCHES" \
+            --arg stderr "$err_content" \
+            '{total_items_processed: $total_items_processed, matches_found: $matches_found, results: $results, stderr: (if $stderr == "" then null else $stderr end)}'
         transformers:
           - name: llm_summarize
             config:
@@ -222,6 +180,8 @@ toolsets:
         user_description: "Tabular output of specific fields: kubectl get {{kind}} --all-namespaces -o custom-columns={{columns}}"
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
+          Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
+          "rows" (array of data rows), and "stderr" (any error output, or null).
           Memory-efficient way to query large clusters - only requested fields are transmitted.
           Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
 
@@ -234,9 +194,65 @@ toolsets:
           - Nested fields: CREATED:.metadata.creationTimestamp,IMAGE:.spec.containers[0].image
           - Array fields: LABELS:.metadata.labels,PORTS:.spec.ports[*].port
 
-          Note: Output is tabular text with column headers. Filtering works on the entire line.
-          Note: not allowed characters are: ' / ; and newline
-        command:  kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}'{% if filter_pattern %} | (read -r header; echo "$header"; grep -E '{{ filter_pattern }}'){% endif %}
+          LIMITATIONS - not allowed characters in columns: ' / ; and newline.
+          Label keys containing dots or slashes (e.g. kubernetes.io/arch, app.kubernetes.io/name)
+          CANNOT be queried with this tool because dots are path separators in JSONPath and
+          slashes are forbidden characters. Use kubernetes_jq_query instead for labels with
+          special characters, e.g.: .items[] | {name: .metadata.name, arch: .metadata.labels["kubernetes.io/arch"]}
+          Similarly, use .status.nodeInfo.architecture instead of .metadata.labels["kubernetes.io/arch"] when possible.
+        script: |
+          #!/bin/bash
+          err_file=$(mktemp)
+          output=$(kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}' 2>"$err_file")
+          kubectl_exit=$?
+          err_content=$(cat "$err_file" 2>/dev/null)
+          rm -f "$err_file"
+
+          if [ $kubectl_exit -ne 0 ] || [ -z "$output" ]; then
+            if command -v jq &>/dev/null; then
+              jq -n --arg stderr "$err_content" '{count: 0, header: null, rows: [], stderr: $stderr}'
+            else
+              echo "=== STDERR ==="
+              echo "$err_content"
+              echo "=== ROWS ==="
+              echo "=== COUNT ==="
+              echo 0
+            fi
+            exit 0
+          fi
+
+          # Split header and data rows
+          header=$(echo "$output" | head -1)
+          {% if filter_pattern %}
+          data=$(echo "$output" | tail -n +2 | grep -E '{{ filter_pattern }}' || true)
+          {% else %}
+          data=$(echo "$output" | tail -n +2)
+          {% endif %}
+
+          if command -v jq &>/dev/null; then
+            if [ -n "$data" ]; then
+              rows=$(echo "$data" | jq -R . | jq -s '.')
+              count=$(echo "$data" | wc -l)
+            else
+              rows="[]"
+              count=0
+            fi
+            jq -n \
+              --argjson count "$count" \
+              --arg header "$header" \
+              --argjson rows "$rows" \
+              --arg stderr "$err_content" \
+              '{count: $count, header: $header, rows: $rows, stderr: (if $stderr == "" then null else $stderr end)}'
+          else
+            echo "=== STDERR ==="
+            echo "$err_content"
+            echo "=== HEADER ==="
+            echo "$header"
+            echo "=== ROWS ==="
+            echo "$data"
+            echo "=== COUNT ==="
+            if [ -n "$data" ]; then echo "$data" | wc -l; else echo 0; fi
+          fi
         transformers:
           - name: llm_summarize
             config:
@@ -253,10 +269,14 @@ toolsets:
                 - Keep output actionable and focused on anomalies
 
       - name: "kubernetes_count"
-        user_description: "Count Kubernetes Resources: kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
+        user_description: "Count Kubernetes Resources (JSON): kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
         description: >
-          Use kubectl to get apply a jq filter and then count the results.
+          Use kubectl to apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.
+          More memory-efficient than bash for large queries - uses Kubernetes API pagination
+          to process resources in batches of 500, avoiding context window overflow.
+          Returns a JSON object with keys: "total_items_processed", "matches_found" (number of matches),
+          "preview" (first 10 results truncated to 200 chars), and "stderr" (any error output, or null).
           IMPORTANT: The 'kind' parameter must be the plural form of the resource type
           (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
           Use select() to filter objects before extracting properties, e.g. .items[] | select(.metadata.namespace == "test-1") | .metadata.name
@@ -265,26 +285,29 @@ toolsets:
         script: |
           #!/bin/bash
 
-          echo "Command executed: kubectl get {{ kind }} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
-          echo "---"
+          err_file=$(mktemp)
 
           # Get the API path for the resource kind
-          API_INFO=$(kubectl api-resources --no-headers | grep "^{{ kind }} " | head -1)
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
 
           if [ -z "$API_INFO" ]; then
-            echo "Error: Unable to find resource kind '{{ kind }}'" >&2
-            exit 1
+            err_content=$(cat "$err_file" 2>/dev/null)
+            rm -f "$err_file"
+            jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
+              '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
+            exit 0
           fi
 
           if [[ "$API_INFO" == *" true "* ]]; then
-            NAMESPACED="true"
             PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
           elif [[ "$API_INFO" == *" false "* ]]; then
-            NAMESPACED="false"
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
           else
-            echo "Error: Could not find NAMESPACED field (true/false) in API info" >&2
-            exit 1
+            err_content=$(cat "$err_file" 2>/dev/null)
+            rm -f "$err_file"
+            jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
+              '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
+            exit 0
           fi
 
           PREFIX=$(echo "$PREFIX" | sed 's/  *$//' | sed 's/  */ /g')
@@ -303,8 +326,11 @@ toolsets:
           fi
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
-            echo "Error: Unable to parse API info for resource kind '{{ kind }}'" >&2
-            exit 1
+            err_content=$(cat "$err_file" 2>/dev/null)
+            rm -f "$err_file"
+            jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
+              '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
+            exit 0
           fi
 
           # Build API path
@@ -318,34 +344,39 @@ toolsets:
           LIMIT=500
           CONTINUE=""
           ALL_MATCHES=""
-          BATCH_NUM=0
           TOTAL_PROCESSED=0
 
           while true; do
-            BATCH_NUM=$((BATCH_NUM + 1))
-
             if [ -z "$CONTINUE" ]; then
               QUERY="${API_PATH}?limit=${LIMIT}"
             else
               QUERY="${API_PATH}?limit=${LIMIT}&continue=${CONTINUE}"
             fi
 
-            OUTPUT=$(kubectl get --raw "$QUERY" 2>&1)
+            OUTPUT=$(kubectl get --raw "$QUERY" 2>>"$err_file")
             exit_code=$?
 
             if [ $exit_code -ne 0 ]; then
-              echo "Error for query $QUERY: $OUTPUT" >&2
-              exit $exit_code
+              err_content=$(cat "$err_file" 2>/dev/null)
+              rm -f "$err_file"
+              jq -n --arg stderr "kubectl get --raw failed for $QUERY. $err_content" \
+                --argjson total "$TOTAL_PROCESSED" \
+                '{total_items_processed: $total, matches_found: 0, preview: [], stderr: $stderr}'
+              exit 0
             fi
 
             ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
             TOTAL_PROCESSED=$((TOTAL_PROCESSED + ITEMS_COUNT))
 
-            BATCH_MATCHES=$(echo "$OUTPUT" | jq -c -r {{ jq_expr }} 2>&1)
+            BATCH_MATCHES=$(echo "$OUTPUT" | jq -c -r {{ jq_expr }} 2>>"$err_file")
             jq_exit=$?
             if [ $jq_exit -ne 0 ]; then
-              echo "Error: jq expression failed: $BATCH_MATCHES" >&2
-              exit $jq_exit
+              err_content=$(cat "$err_file" 2>/dev/null)
+              rm -f "$err_file"
+              jq -n --arg stderr "jq expression failed. $err_content" \
+                --argjson total "$TOTAL_PROCESSED" \
+                '{total_items_processed: $total, matches_found: 0, preview: [], stderr: $stderr}'
+              exit 0
             fi
 
             if [ -n "$BATCH_MATCHES" ]; then
@@ -360,26 +391,27 @@ toolsets:
             if [ -z "$CONTINUE" ]; then
               break
             fi
-
-            echo "Processed batch $BATCH_NUM ($TOTAL_PROCESSED items so far)..." >&2
           done
 
-          # Now process the collected matches
+          err_content=$(cat "$err_file" 2>/dev/null)
+          rm -f "$err_file"
+
+          # Count and preview the collected matches
           filtered_matches=$(echo "$ALL_MATCHES" | grep -v '^$' | grep -v '^null$')
           if [ -z "$filtered_matches" ]; then
-            count=0
-            preview=""
+            MATCHES_FOUND=0
+            PREVIEW="[]"
           else
-            count=$(echo "$filtered_matches" | wc -l)
-            preview=$(echo "$filtered_matches" | head -n 10 | cut -c 1-200 | nl)
+            MATCHES_FOUND=$(echo "$filtered_matches" | wc -l)
+            PREVIEW=$(echo "$filtered_matches" | head -n 10 | cut -c 1-200 | jq -R . | jq -s '.')
           fi
 
-          echo "$count results"
-          echo "---"
-          echo "A *preview* of results is shown below (up to 10 results, up to 200 chars):"
-          echo "$preview"
-          echo "---"
-          echo "Total items processed: $TOTAL_PROCESSED" >&2
+          jq -n \
+            --argjson matches_found "$MATCHES_FOUND" \
+            --argjson preview "$PREVIEW" \
+            --argjson total_items_processed "$TOTAL_PROCESSED" \
+            --arg stderr "$err_content" \
+            '{total_items_processed: $total_items_processed, matches_found: $matches_found, preview: $preview, stderr: (if $stderr == "" then null else $stderr end)}'
 
     # NOTE: this is only possible for probes with a healthz endpoint - we do this to avoid giving the LLM generic
     # http GET capabilities which are more powerful than we want to expose
