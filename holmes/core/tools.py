@@ -26,6 +26,7 @@ from typing import (
 )
 
 from jinja2 import Template
+from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -195,7 +196,6 @@ class ToolInvokeContext(BaseModel):
         """Override to exclude sensitive context from serialization"""
         data = super().model_dump(**kwargs)
         if data.get("request_context"):
-            # Sanitize: show keys but not values
             data["request_context"] = {
                 k: "***REDACTED***" for k in data["request_context"].keys()
             }
@@ -492,9 +492,18 @@ class YAMLTool(Tool, BaseModel):
             template = Template(cmd_or_script)  # type: ignore
         return template.render(params)
 
-    def _build_context(self, params):
+    def _build_context(
+        self, params: dict, request_context: Optional[Dict[str, Any]] = None
+    ) -> dict:
         params = sanitize_params(params)
-        context = {**params}
+        context: Dict[str, Any] = {**params}
+        context["env"] = os.environ
+        if request_context:
+            ctx_copy = dict(request_context)
+            ctx_copy["headers"] = CaseInsensitiveDict(ctx_copy.get("headers") or {})
+            context["request_context"] = ctx_copy
+        else:
+            context["request_context"] = {"headers": CaseInsensitiveDict()}
         return context
 
     def _get_status(
@@ -512,14 +521,18 @@ class YAMLTool(Tool, BaseModel):
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
         if self.command is not None:
-            raw_output, return_code, invocation = self.__invoke_command(params)
+            raw_output, return_code, invocation = self.__invoke_command(
+                params, context.request_context
+            )
         else:
-            raw_output, return_code, invocation = self.__invoke_script(params)  # type: ignore
+            raw_output, return_code, invocation = self.__invoke_script(
+                params, context.request_context
+            )
 
         error = (
             None
             if return_code == 0
-            else f"Command `{invocation}` failed with return code {return_code}\nOutput:\n{raw_output}"
+            else f"Command `{invocation}` failed with return code {return_code}"
         )
         status = self._get_status(return_code, raw_output)
 
@@ -532,16 +545,24 @@ class YAMLTool(Tool, BaseModel):
             invocation=invocation,
         )
 
-    def __invoke_command(self, params) -> Tuple[str, int, str]:
-        context = self._build_context(params)
+    def __invoke_command(
+        self,
+        params: dict,
+        request_context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[str, int, str]:
+        context = self._build_context(params, request_context)
         command = os.path.expandvars(self.command)  # type: ignore
         template = Template(command)  # type: ignore
         rendered_command = template.render(context)
         output, return_code = self.__execute_subprocess(rendered_command)
         return output, return_code, rendered_command
 
-    def __invoke_script(self, params) -> str:
-        context = self._build_context(params)
+    def __invoke_script(
+        self,
+        params: dict,
+        request_context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[str, int, str]:
+        context = self._build_context(params, request_context)
         script = os.path.expandvars(self.script)  # type: ignore
         template = Template(script)  # type: ignore
         rendered_script = template.render(context)
@@ -556,13 +577,17 @@ class YAMLTool(Tool, BaseModel):
         try:
             output, return_code = self.__execute_subprocess(temp_script_path)
         finally:
-            subprocess.run(["rm", temp_script_path])
-        return output, return_code, rendered_script  # type: ignore
+            try:
+                os.remove(temp_script_path)
+            except FileNotFoundError:
+                pass
+        return output, return_code, rendered_script
 
-    def __execute_subprocess(self, cmd) -> Tuple[str, int]:
+    def __execute_subprocess(self, cmd: str) -> Tuple[str, int]:
         try:
             logger.debug(f"Running `{cmd}`")
             protected_cmd = get_ulimit_prefix() + cmd
+
             result = subprocess.run(
                 protected_cmd,
                 shell=True,
@@ -778,6 +803,35 @@ class Toolset(BaseModel):
         interpolated_command = os.path.expandvars(command)
 
         return interpolated_command
+
+    def should_auto_enable(self) -> bool:
+        """Determine if this toolset should be auto-enabled without explicit user config.
+
+        Rules:
+        1. Already enabled or is_default → enable
+        2. No config_classes (YAML toolsets, simple Python toolsets) → enable
+        3. Config classes exist but all fields have defaults → enable
+        4. Config is required AND was provided by user → enable
+        5. Config is required but not provided → disable
+        """
+        if self.enabled or self.is_default:
+            return True
+
+        if not self.config_classes:
+            return True
+
+        requires_config = any(
+            config_cls.has_required_fields()
+            for config_cls in self.config_classes
+            if hasattr(config_cls, "has_required_fields")
+        )
+        if not requires_config:
+            return True
+
+        if self.config is not None:
+            return True
+
+        return False
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED

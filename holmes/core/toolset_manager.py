@@ -131,7 +131,13 @@ class ToolsetManager:
 
         if enable_all_toolsets:
             for toolset in toolsets_by_name.values():
-                toolset.enabled = True
+                if toolset.should_auto_enable():
+                    toolset.enabled = True
+                else:
+                    logging.debug(
+                        f"Toolset '{toolset.name}' not auto-enabled: "
+                        f"requires configuration that was not provided"
+                    )
 
         # build-in toolset is enabled when it's explicitly enabled in the toolset or custom toolset config
         if self.toolsets is not None:
