@@ -571,7 +571,7 @@ def run_tree_editor(
         elif node.value is None and not node.required:
             val_display = "<null>"
         elif node.value == "":
-            val_display = '""'
+            val_display = "<empty>"
         else:
             val_display = str(node.value) if node.value is not None else ""
 
@@ -667,7 +667,7 @@ def run_tree_editor(
             elif node.value is None:
                 val_display = ""
             elif node.value == "":
-                val_display = '""'
+                val_display = "<empty>"
             else:
                 val_display = str(node.value)
             hints = ""
