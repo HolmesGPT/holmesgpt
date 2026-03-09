@@ -303,26 +303,64 @@ Find the **App ID** on the App's settings page (under "About").
 
 === "Holmes CLI"
 
-    Set the following environment variables and add the MCP server to **~/.holmes/config.yaml**:
+    For CLI usage, deploy the `github-app-mcp` server in your cluster and connect Holmes to it. Follow the same deployment steps as the PAT CLI setup above, but use the `github-app-mcp` image and GitHub App secret instead:
 
-    ```bash
-    export GITHUB_APP_ID="<YOUR_APP_ID>"
-    export GITHUB_APP_INSTALLATION_ID="<YOUR_INSTALLATION_ID>"
-    export GITHUB_APP_PRIVATE_KEY="$(cat /path/to/private-key.pem)"
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: github-mcp-server
+      namespace: holmes-mcp
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: github-mcp-server
+      template:
+        metadata:
+          labels:
+            app: github-mcp-server
+        spec:
+          containers:
+          - name: github-mcp
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.0
+            ports:
+            - containerPort: 8000
+            args:
+              - "--stdio"
+              - "python3 /app/wrapper.py"
+              - "--port"
+              - "8000"
+              - "--outputTransport"
+              - "streamableHttp"
+            env:
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-github-app
+                  key: GITHUB_APP_ID
+            - name: GITHUB_APP_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-github-app
+                  key: GITHUB_APP_INSTALLATION_ID
+            - name: GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-github-app
+                  key: GITHUB_APP_PRIVATE_KEY
     ```
+
+    Then add the MCP server to **~/.holmes/config.yaml**:
 
     ```yaml
     mcp_servers:
       github:
         description: "GitHub MCP Server"
         config:
-          url: "https://api.githubcopilot.com/mcp"
+          url: "http://github-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
           mode: "streamable-http"
-          extra_headers:
-            Authorization: "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
     ```
-
-    Holmes will automatically generate an installation token at startup and refresh it in the background.
 
 === "Holmes Helm Chart"
 
@@ -390,8 +428,6 @@ Find the **App ID** on the App's settings page (under "About").
     2. Exchanges it for a short-lived GitHub installation token
     3. Sets the token as `GITHUB_PERSONAL_ACCESS_TOKEN` for the underlying MCP server
     4. A background thread refreshes the token every 30 minutes
-
-    For CLI usage, Holmes handles token refresh in-process using `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` environment variables.
 
 ## Available Tools
 

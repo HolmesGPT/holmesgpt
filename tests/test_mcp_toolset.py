@@ -1799,7 +1799,7 @@ class TestRequestContextPassthrough:
 class TestMCPExtraHeadersPreservedDuringEnvResolution:
     """Verify that load_toolsets_from_config does NOT resolve extra_headers templates.
 
-    extra_headers use Jinja2 templates like {{ env.AUTO_GENERATED_GITHUB_TOKEN }}
+    extra_headers use Jinja2 templates like {{ env.SOME_DYNAMIC_TOKEN }}
     that must be rendered at request time (so they pick up refreshed tokens).
     replace_env_vars_values uses the same {{ env.X }} syntax and would bake in
     stale values at config-load time if extra_headers were not excluded.
@@ -1809,22 +1809,22 @@ class TestMCPExtraHeadersPreservedDuringEnvResolution:
         "os.environ",
         {
             "MY_STATIC_VAR": "resolved_value",
-            "AUTO_GENERATED_GITHUB_TOKEN": "ghs_initial",
+            "SOME_DYNAMIC_TOKEN": "initial_token",
         },
     )
     def test_extra_headers_templates_not_resolved(self):
         toolsets_config = {
-            "github": {
+            "my_mcp": {
                 "type": "mcp",
-                "description": "GitHub MCP",
+                "description": "Test MCP",
                 "config": {
-                    "url": "https://api.githubcopilot.com/mcp",
+                    "url": "https://example.com/mcp",
                     "mode": "streamable-http",
                     "headers": {
                         "X-Static": "{{ env.MY_STATIC_VAR }}",
                     },
                     "extra_headers": {
-                        "Authorization": "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}",
+                        "Authorization": "Bearer {{ env.SOME_DYNAMIC_TOKEN }}",
                     },
                 },
             }
@@ -1833,7 +1833,7 @@ class TestMCPExtraHeadersPreservedDuringEnvResolution:
         # load_toolsets_from_config will fail to connect to the MCP server,
         # but we only care about the config resolution, not the connection.
         # Catch the validation error and inspect the config dict directly.
-        config = copy.deepcopy(toolsets_config["github"])
+        config = copy.deepcopy(toolsets_config["my_mcp"])
 
         # Simulate the pop/restore logic from load_toolsets_from_config
         saved_extra_headers = config["config"].pop("extra_headers", None)
@@ -1845,7 +1845,7 @@ class TestMCPExtraHeadersPreservedDuringEnvResolution:
         # extra_headers should still have the raw template (NOT resolved)
         assert (
             config["config"]["extra_headers"]["Authorization"]
-            == "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+            == "Bearer {{ env.SOME_DYNAMIC_TOKEN }}"
         )
 
         # regular headers SHOULD be resolved by replace_env_vars_values
