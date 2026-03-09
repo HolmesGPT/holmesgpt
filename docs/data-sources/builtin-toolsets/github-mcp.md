@@ -97,7 +97,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
         spec:
           containers:
           - name: github-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-mcp:1.0.1
+            image: me-west1-docker.pkg.dev/robusta-development/development/github-mcp:1.0.0
             imagePullPolicy: IfNotPresent
             ports:
             - containerPort: 8000
@@ -303,7 +303,21 @@ Find the **App ID** on the App's settings page (under "About").
 
 === "Holmes CLI"
 
-    For CLI usage, deploy the `github-app-mcp` server in your cluster and connect Holmes to it. Follow the same deployment steps as the PAT CLI setup above, but use the `github-app-mcp` image and GitHub App secret instead:
+    For CLI usage, deploy the `github-app-mcp` server in your cluster and connect Holmes to it.
+
+    **Create the Kubernetes secret:**
+
+    ```bash
+    kubectl create namespace holmes-mcp  # if not already created
+
+    kubectl create secret generic holmes-github-app \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
+      -n holmes-mcp
+    ```
+
+    **Deploy the GitHub App MCP server:**
 
     ```yaml
     apiVersion: apps/v1
