@@ -194,7 +194,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
     # Configure at least one model using modelList (no credentials needed)
     modelList:
       bedrock-claude-sonnet-4:
-        aws_region_name: us-east-1
+        aws_region_name: eu-west-3
         model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
         temperature: 1
         thinking:
@@ -219,7 +219,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
       # Configure at least one model using modelList (no credentials needed)
       modelList:
         bedrock-claude-sonnet-4:
-          aws_region_name: us-east-1
+          aws_region_name: eu-west-3
           model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
           temperature: 1
           thinking:
@@ -273,7 +273,7 @@ aws bedrock list-foundation-models --region=us-east-1 | grep modelId
 Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `anthropic.claude-opus-4-1-20250805-v1:0` or `anthropic.claude-sonnet-4-20250514-v1:0`
 
 ## Setting Extra Headers
-You can enable various beta features in AWS Bedrock by setting custom headers. 
+You can enable various beta features in AWS Bedrock by setting custom headers.
 
 For example, to enable 1M context windows.
 
@@ -285,7 +285,7 @@ export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
 ```
 
 Or, for Helm:
-    
+
     # values.yaml
     holmes:
       ...
