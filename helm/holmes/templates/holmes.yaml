@@ -83,23 +83,6 @@ spec:
           - name: IS_OPENSHIFT
             value: "True"
           {{- end }}
-          {{- if and .Values.mcpAddons.github.enabled .Values.mcpAddons.github.auth.githubApp.secretName }}
-          - name: GITHUB_APP_ID
-            valueFrom:
-              secretKeyRef:
-                name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
-                key: GITHUB_APP_ID
-          - name: GITHUB_APP_INSTALLATION_ID
-            valueFrom:
-              secretKeyRef:
-                name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
-                key: GITHUB_APP_INSTALLATION_ID
-          - name: GITHUB_APP_PRIVATE_KEY
-            valueFrom:
-              secretKeyRef:
-                name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
-                key: GITHUB_APP_PRIVATE_KEY
-          {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
           {{- end }}

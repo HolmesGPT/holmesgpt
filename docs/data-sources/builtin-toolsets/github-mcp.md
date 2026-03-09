@@ -4,10 +4,10 @@ The GitHub MCP server provides access to GitHub repositories, pull requests, iss
 
 ## Overview
 
-Holmes supports two authentication methods for GitHub:
+Holmes supports two authentication methods for GitHub. Both deploy a self-hosted MCP server pod in your cluster that wraps the [official GitHub MCP server](https://github.com/github/github-mcp-server):
 
-- **Personal Access Token (PAT)**: A self-hosted MCP server pod is deployed in your cluster to proxy requests to the GitHub API.
-- **GitHub App**: Holmes connects directly to [GitHub's official MCP server](https://github.com/github/github-mcp-server) remote endpoint. No self-hosted pod is needed.
+- **Personal Access Token (PAT)**: Uses the standard `github-mcp` image. The PAT is passed directly to the MCP server.
+- **GitHub App**: Uses the `github-app-mcp` image which automatically generates and refreshes short-lived installation tokens from GitHub App credentials.
 
 Both methods support GitHub.com and GitHub Enterprise Server.
 
@@ -97,7 +97,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
         spec:
           containers:
           - name: github-mcp
-            image: me-west1-docker.pkg.dev/robusta-development/development/github-mcp:1.0.0
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-mcp:1.0.1
             imagePullPolicy: IfNotPresent
             ports:
             - containerPort: 8000
@@ -262,7 +262,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ### Using a GitHub App
 
-Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This method connects to [GitHub's official MCP server](https://github.com/github/github-mcp-server) remote endpoint with automatically refreshed installation tokens. No self-hosted MCP server pod is needed.
+Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This deploys the `github-app-mcp` image which wraps the official GitHub MCP server with automatic installation token generation and refresh.
 
 **Step 1: Create a GitHub App**
 
@@ -347,18 +347,7 @@ Find the **App ID** on the App's settings page (under "About").
             secretName: "holmes-github-app"
     ```
 
-    No self-hosted MCP server pod is deployed. Holmes connects directly to GitHub's official MCP endpoint. To use a different endpoint, set `auth.githubApp.url` and `auth.githubApp.mode`:
-
-    ```yaml
-    mcpAddons:
-      github:
-        enabled: true
-        auth:
-          githubApp:
-            secretName: "holmes-github-app"
-            url: "http://my-custom-mcp-server:8000/sse"  # default: https://api.githubcopilot.com/mcp
-            mode: "sse"                                    # default: streamable-http
-    ```
+    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and auto-refreshes installation tokens internally. The token refresh interval defaults to 30 minutes.
 
     ```bash
     helm upgrade --install holmes robusta/holmes -f values.yaml
@@ -388,21 +377,21 @@ Find the **App ID** on the App's settings page (under "About").
               secretName: "holmes-github-app"
     ```
 
-    No self-hosted MCP server pod is deployed. Holmes connects directly to GitHub's official MCP endpoint. To override the URL, set `auth.githubApp.url` and `auth.githubApp.mode`.
+    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and auto-refreshes installation tokens internally.
 
     ```bash
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
 !!! info "How token refresh works"
-    When `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` are set, Holmes automatically:
+    The `github-app-mcp` image handles token management internally:
 
-    1. Generates a JWT signed with the private key
+    1. At startup, generates a JWT signed with the private key
     2. Exchanges it for a short-lived GitHub installation token
-    3. Sets `AUTO_GENERATED_GITHUB_TOKEN` in the environment
-    4. Runs a background thread that refreshes the token before it expires
+    3. Sets the token as `GITHUB_PERSONAL_ACCESS_TOKEN` for the underlying MCP server
+    4. A background thread refreshes the token every 30 minutes
 
-    The refresh interval defaults to 30 minutes. Override with `GITHUB_APP_TOKEN_REFRESH_INTERVAL_SECONDS`.
+    For CLI usage, Holmes handles token refresh in-process using `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` environment variables.
 
 ## Available Tools
 

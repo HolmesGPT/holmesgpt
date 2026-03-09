@@ -325,9 +325,10 @@ mcpAddons:
   # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
   #
   # AUTHENTICATION (choose one):
-  # Option 1 - PAT: Deploys a self-hosted MCP server pod using a prebuilt image
+  # Option 1 - PAT: Deploys a self-hosted MCP server using the standard github-mcp image
   #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
-  # Option 2 - GitHub App: Connects to GitHub's official remote MCP endpoint (no pod deployed)
+  # Option 2 - GitHub App: Deploys a self-hosted MCP server using the github-app-mcp image
+  #   which generates and auto-refreshes installation tokens from GitHub App credentials
   #   kubectl create secret generic github-app-secret --from-literal=GITHUB_APP_ID=... -n <NAMESPACE>
   #
   # GITHUB ENTERPRISE:
@@ -350,18 +351,17 @@ mcpAddons:
       secretKey: "token"  # Key in secret (default: "token")
 
       # Option 2: GitHub App installation token
-      # Creates short-lived tokens from GitHub App credentials. Holmes auto-generates
-      # and refreshes tokens at runtime. No self-hosted MCP server pod is deployed;
-      # Holmes connects directly to GitHub's official remote MCP endpoint.
+      # Deploys a self-hosted MCP server that generates and refreshes installation tokens
+      # from GitHub App credentials. Uses a separate image with built-in token management.
       #   kubectl create secret generic github-app-secret \
       #     --from-literal=GITHUB_APP_ID=<APP_ID> \
       #     --from-literal=GITHUB_APP_INSTALLATION_ID=<INSTALLATION_ID> \
       #     --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       #     -n <NAMESPACE>
       githubApp:
-        secretName: ""                                # Name of K8s secret containing GitHub App credentials
-        url: "https://api.githubcopilot.com/mcp"     # MCP endpoint URL (override for custom MCP servers)
-        mode: "streamable-http"                       # MCP transport mode (override for custom MCP servers)
+        secretName: ""                                          # Name of K8s secret containing GitHub App credentials
+        image: "github-app-mcp:1.0.0"                          # Image with GitHub App token management
+        registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)
