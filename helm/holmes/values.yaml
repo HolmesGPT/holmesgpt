@@ -20,7 +20,7 @@ autoscaling:
 image: holmes:0.0.0
 registry: robustadev
 
-sentryDSN: https://aa95c183188a6ddf134ebfffe85fd108@o4510692373299200.ingest.de.sentry.io/4510707946094672
+sentryDSN: ""
 
 enableAccountsCreate: true
 revisionHistoryLimit: 10
@@ -82,6 +82,24 @@ resources:
 
 additionalVolumes: []
 additionalVolumeMounts: []
+
+# Init containers run before the main Holmes container starts
+# Useful for fetching secrets from external sources (e.g., vault, secret managers)
+# Example:
+# initContainers:
+#   - name: fetch-secret
+#     image: curlimages/curl:8.5.0
+#     command: ["sh", "-c", "curl -s http://vault:8200/v1/secret/api-key > /shared/api-key"]
+#     volumeMounts:
+#       - name: shared-data
+#         mountPath: /shared
+initContainers: []
+
+# Additional arguments to pass to the Holmes server
+# Example:
+# args:
+#   - "--config=/etc/holmes/custom-config.yaml"
+args: []
 
 priorityClassName: ""
 

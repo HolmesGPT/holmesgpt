@@ -1,10 +1,8 @@
 import json
-from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
-from holmes.core.investigation_structured_output import InputSectionsDataType
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
@@ -93,89 +91,6 @@ def format_tool_result_data(
     return tool_response
 
 
-class InvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    sections: Optional[Dict[str, Union[str, None]]] = None
-    tool_calls: List[ToolCallResult] = []
-    num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
-    instructions: List[str] = []
-    metadata: Optional[Dict[Any, Any]] = None
-
-
-class InvestigateRequest(BaseModel):
-    source: str  # "prometheus" etc
-    title: str
-    description: str
-    subject: dict
-    context: Dict[str, Any]
-    source_instance_id: str = "ApiRequest"
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
-    prompt_template: str = "builtin://generic_investigation.jinja2"
-    sections: Optional[InputSectionsDataType] = None
-    model: Optional[str] = None
-    # TODO in the future
-    # response_handler: ...
-
-
-class ToolCallConversationResult(BaseModel):
-    name: str
-    description: str
-    output: str
-
-
-class ConversationInvestigationResponse(BaseModel):
-    analysis: Optional[str] = None
-    tool_calls: List[ToolCallResult] = []
-
-
-class ConversationInvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    tools: Optional[List[ToolCallConversationResult]] = []
-
-
-class IssueInvestigationResult(BaseModel):
-    """
-    :var result: A dictionary containing the summary of the issue investigation.
-    :var tools: A list of dictionaries where each dictionary contains information
-                about the tool, its name, description and output.
-
-    It is based on the holmes investigation saved to Evidence table.
-    """
-
-    result: str
-    tools: Optional[List[ToolCallConversationResult]] = []
-
-
-class HolmesConversationHistory(BaseModel):
-    ask: str
-    answer: ConversationInvestigationResult
-
-
-# HolmesConversationIssueContext, ConversationType and ConversationRequest classes will be deprecated later
-class HolmesConversationIssueContext(BaseModel):
-    investigation_result: IssueInvestigationResult
-    conversation_history: Optional[List[HolmesConversationHistory]] = []
-    issue_type: str
-    robusta_issue_id: Optional[str] = None
-    source: Optional[str] = None
-
-
-class ConversationType(str, Enum):
-    ISSUE = "issue"
-
-
-class ConversationRequest(BaseModel):
-    user_prompt: str
-    source: Optional[str] = None
-    resource: Optional[dict] = None
-    # ConversationType.ISSUE is default as we gonna deprecate this class and won't add new conversation types
-    conversation_type: Optional[ConversationType] = ConversationType.ISSUE
-    context: HolmesConversationIssueContext
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
-
-
 class PendingToolApproval(BaseModel):
     """Represents a tool call that requires user approval."""
 
@@ -223,12 +138,6 @@ class ChatRequestBaseModel(BaseModel):
                     "The first item in conversation_history must contain 'role': 'system'"
                 )
         return values
-
-
-class IssueChatRequest(ChatRequestBaseModel):
-    ask: str
-    investigation_result: IssueInvestigationResult
-    issue_type: str
 
 
 class ChatRequest(ChatRequestBaseModel):

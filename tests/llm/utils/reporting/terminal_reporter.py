@@ -195,6 +195,7 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
     table.add_column("Turns", justify="right", width=5)
     table.add_column("Tools", justify="right", width=5)
     table.add_column("Cost", justify="right", width=8)
+    table.add_column("Tokens", justify="right", width=9)
     table.add_column("User Prompt", style="white", width=16)
     table.add_column("Expected", style="green", width=16)
     table.add_column("Actual", style="yellow", width=16)
@@ -262,6 +263,15 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
         else:
             cost_str = "—"
 
+        # Format total tokens (fall back to prompt + completion if total not provided)
+        total_tokens = result.get("total_tokens", 0) or 0
+        if total_tokens == 0:
+            total_tokens = (result.get("prompt_tokens", 0) or 0) + (result.get("completion_tokens", 0) or 0)
+        if total_tokens > 0:
+            tokens_str = f"{total_tokens:,}"
+        else:
+            tokens_str = "—"
+
         # Disabled for now - get analysis for failed tests with openai
         # analysis = _get_analysis_for_result(test_result)
 
@@ -272,6 +282,7 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
             turns_str,
             tools_str,
             cost_str,
+            tokens_str,
             user_prompt_wrapped,
             expected_wrapped,
             actual_wrapped,

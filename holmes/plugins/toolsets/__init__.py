@@ -14,9 +14,9 @@ from holmes.common.env_vars import (
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import Toolset, ToolsetType, ToolsetYamlFromConfig, YAMLToolset
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
-from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
+from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
 from holmes.plugins.toolsets.database.database import DatabaseToolset
@@ -199,8 +199,20 @@ def load_toolsets_from_config(
             # Resolve env var placeholders before creating the Toolset.
             # If done after, .override_with() will overwrite resolved values with placeholders
             # because model_dump() returns the original, unprocessed config from YAML.
+            #
+            # For MCP servers, preserve extra_headers templates so they can be
+            # dynamically resolved at request time (e.g., for refreshing tokens).
+            saved_extra_headers = None
+            if toolset_type == ToolsetType.MCP.value and isinstance(
+                config.get("config"), dict
+            ):
+                saved_extra_headers = config["config"].pop("extra_headers", None)
+
             if config:
                 config = env_utils.replace_env_vars_values(config)
+
+            if saved_extra_headers is not None:
+                config.setdefault("config", {})["extra_headers"] = saved_extra_headers
 
             validated_toolset: Optional[Toolset] = None
             # MCP server is not a built-in toolset, so we need to set the type explicitly
