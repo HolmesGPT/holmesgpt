@@ -1,0 +1,45 @@
+user_prompt: "Count all PriorityClasses whose names start with 'eval-228' and tell me the exact total."
+
+expected_output:
+  - The answer must state exactly 49 PriorityClasses
+
+tags:
+  - kubernetes
+  - counting
+
+before_test: |
+  echo "Creating 49 PriorityClasses with random names for cluster-scoped counting test"
+
+  # Create PriorityClasses with random suffixes so LLM cannot infer count from names
+  CREATED=0
+  for i in $(seq 1 49); do
+    SUFFIX=$(cat /proc/sys/kernel/random/uuid | cut -c1-8)
+    PRIORITY=$((1000 + i))
+    cat <<EOF | kubectl apply -f - 2>/dev/null && CREATED=$((CREATED + 1))
+  apiVersion: scheduling.k8s.io/v1
+  kind: PriorityClass
+  metadata:
+    name: eval-228-${SUFFIX}
+  value: $PRIORITY
+  globalDefault: false
+  description: "eval-228 test priority class"
+  EOF
+  done
+
+  echo "Created $CREATED PriorityClasses"
+
+  # Verify all 49 were created
+  ACTUAL=$(kubectl get priorityclasses --no-headers | grep "^eval-228-" | wc -l)
+  echo "Verified $ACTUAL PriorityClasses with eval-228 prefix"
+
+  if [ "$ACTUAL" -ne 49 ]; then
+    echo "ERROR: Expected 49 PriorityClasses, got $ACTUAL"
+    kubectl get priorityclasses | grep eval-228
+    exit 1
+  fi
+
+  echo "Test setup complete!"
+
+after_test: |
+  echo "Cleaning up PriorityClasses..."
+  kubectl get priorityclasses --no-headers -o custom-columns=NAME:.metadata.name | grep "^eval-228-" | xargs -r kubectl delete priorityclass

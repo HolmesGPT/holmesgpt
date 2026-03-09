@@ -90,16 +90,16 @@ class MCPMode(str, Enum):
 
 
 class MCPConfig(ToolsetConfig):
-    url: AnyUrl = Field(
-        title="URL",
-        description="MCP server URL (for SSE or Streamable HTTP modes).",
-        examples=["http://example.com:8000/mcp/messages"],
-    )
     mode: MCPMode = Field(
         default=MCPMode.SSE,
         title="Mode",
         description="Connection mode to use when talking to the MCP server.",
         examples=[MCPMode.STREAMABLE_HTTP],
+    )
+    url: AnyUrl = Field(
+        title="URL",
+        description="MCP server URL (for SSE or Streamable HTTP modes).",
+        examples=["http://example.com:8000/mcp/messages"],
     )
     headers: Optional[Dict[str, str]] = Field(
         default=None,
