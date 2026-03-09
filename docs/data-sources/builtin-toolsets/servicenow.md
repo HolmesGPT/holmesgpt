@@ -74,7 +74,11 @@ You should receive a JSON response. If you get an authentication error, check yo
         enabled: true
         config:
           api_key: <your servicenow API key>  # e.g. now_1234567890abcdef
-          instance_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+          api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+
+          # Optional
+          api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
+          health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -94,8 +98,19 @@ You should receive a JSON response. If you get an authentication error, check yo
           enabled: true
           config:
             api_key: <your servicenow API key>  # e.g. now_1234567890abcdef
-            instance_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+            api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+
+            # Optional
+            api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
+            health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
     ```
+
+### Optional Fields
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `api_key_header` | `x-sn-apikey` | HTTP header name used to pass the API key. Change this if your ServiceNow instance uses a custom authentication header. |
+| `health_check_table` | `sys_user` | Table queried on startup to verify connectivity and permissions. Change this if your API key doesn't have access to the default table. |
 
 ## Capabilities
 

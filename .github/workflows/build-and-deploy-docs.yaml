@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
 permissions:
   contents: write
 jobs:
@@ -10,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for mike to work with git history
       - name: Configure Git Credentials
         run: |
           git config user.name github-actions[bot]
@@ -29,4 +33,15 @@ jobs:
           curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
           poetry config virtualenvs.create false
       - run: poetry install --with dev
-      - run: poetry run mkdocs gh-deploy --force
+      # Deploy versioned docs on stable release tags only (skip alpha, beta, rc)
+      - name: Deploy versioned docs (release)
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          poetry run mike deploy --push --update-aliases $VERSION latest
+          poetry run mike set-default --push latest
+      # Deploy dev docs on master push
+      - name: Deploy dev docs (master)
+        if: github.ref == 'refs/heads/master'
+        run: |
+          poetry run mike deploy --push dev

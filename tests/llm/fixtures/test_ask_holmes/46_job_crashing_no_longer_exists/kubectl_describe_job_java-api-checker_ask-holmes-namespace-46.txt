@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_describe","match_params":{"kind":"job","name":"java-api-checker","namespace":"ask-holmes-namespace-46"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl describe job java-api-checker -n ask-holmes-namespace-46` failed with return code 1\nOutput:\nError from server (NotFound): jobs.batch \"java-api-checker\" not found", "return_code": 1, "data": null, "url": null, "invocation": "kubectl describe job java-api-checker -n ask-holmes-namespace-46", "params": {"kind": "job", "name": "java-api-checker", "namespace": "ask-holmes-namespace-46"}}
-Error from server (NotFound): jobs.batch "java-api-checker" not found

@@ -24,26 +24,42 @@ from rich.rule import Rule
 
 from holmes import get_version  # type: ignore
 from holmes.config import (
-    DEFAULT_CONFIG_LOCATION,
     Config,
     SourceFactory,
     SupportedTicketSources,
 )
-from holmes.core.prompt import build_initial_ask_messages, build_system_prompt, generate_user_prompt
+from holmes.core.prompt import (
+    PromptComponent,
+    build_initial_ask_messages,
+    build_system_prompt,
+    generate_user_prompt,
+)
 from holmes.core.resource_instruction import ResourceInstructionDocument
+from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import pretty_print_toolset_status
+from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import run_interactive_loop
 from holmes.plugins.destinations import DestinationType
 from holmes.plugins.interfaces import Issue
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
-from holmes.utils.console.consts import system_prompt_help
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.checks.checks_cli import checks_app
+from holmes.common.cli_commons import (
+    opt_api_key,
+    opt_config_file,
+    opt_model,
+    opt_verbose,
+)
+from holmes.toolset_config_tui import run_toolset_config_tui
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
+
+
+
 investigate_app = typer.Typer(
     add_completion=False,
     name="investigate",
@@ -66,21 +82,14 @@ toolset_app = typer.Typer(
 )
 app.add_typer(toolset_app, name="toolset")
 
+app.add_typer(checks_app, name="checks")
 
-# Common cli options
+
+# Common cli options defined in holmes.common.cli_commons:
+# opt_api_key, opt_model, opt_config_file, opt_verbose
 # The defaults for options that are also in the config file MUST be None or else the cli defaults will override settings in the config file
-opt_api_key: Optional[str] = typer.Option(
-    None,
-    help="API key to use for the LLM (if not given, uses environment variables OPENAI_API_KEY or AZURE_API_KEY)",
-)
-opt_model: Optional[str] = typer.Option(None, help="Model to use for the LLM")
 opt_fast_model: Optional[str] = typer.Option(
     None, help="Optional fast model for summarization tasks"
-)
-opt_config_file: Optional[Path] = typer.Option(
-    DEFAULT_CONFIG_LOCATION,  # type: ignore
-    "--config",
-    help="Path to the config file. Defaults to ~/.holmes/config.yaml when it exists. Command line arguments take precedence over config file settings",
 )
 opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     [],
@@ -88,22 +97,10 @@ opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     "-t",
     help="Path to a custom toolsets. The status of the custom toolsets specified here won't be cached (can specify -t multiple times to add multiple toolsets)",
 )
-opt_custom_runbooks: Optional[List[Path]] = typer.Option(
-    [],
-    "--custom-runbooks",
-    "-r",
-    help="Path to a custom runbooks (can specify -r multiple times to add multiple runbooks)",
-)
 opt_max_steps: Optional[int] = typer.Option(
     40,
     "--max-steps",
     help="Advanced. Maximum number of steps the LLM can take to investigate the issue",
-)
-opt_verbose: Optional[List[bool]] = typer.Option(
-    [],
-    "--verbose",
-    "-v",
-    help="Verbose output. You can pass multiple times to increase the verbosity. e.g. -v or -vv or -vvv",
 )
 opt_log_costs: bool = typer.Option(
     False,
@@ -154,6 +151,28 @@ def parse_documents(documents: Optional[str]) -> List[ResourceInstructionDocumen
             resource_documents.append(resource_document)
 
     return resource_documents
+
+
+def _investigate_issue(
+    ai: ToolCallingLLM,
+    issue: Issue,
+    config: Config,
+) -> LLMResult:
+    """Investigate an issue using the standard ask system prompt with investigation additions."""
+    investigation_additions = f"Provide a terse analysis of the following {issue.source_type} alert/issue and why it is firing."
+    system_prompt = build_system_prompt(
+        toolsets=ai.tool_executor.toolsets,
+        runbooks=None,
+        system_prompt_additions=investigation_additions,
+        cluster_name=config.cluster_name,
+        ask_user_enabled=False,
+        prompt_component_overrides={},
+    )
+    user_prompt = generate_user_prompt(
+        f"\n #This is context from the issue:\n{issue.raw}",
+        context={},
+    )
+    return ai.prompt_call(system_prompt, user_prompt)
 
 
 # TODO: add streaming output
@@ -225,6 +244,11 @@ def ask(
         "--bash-always-allow",
         help="Bypass bash command approval checks. Recommended only for sandboxed environments",
     ),
+    fast_mode: bool = typer.Option(
+        False,
+        "--fast-mode",
+        help="Skip TodoWrite planning phase for faster responses",
+    ),
 ):
     """
     Ask any question and answer using available tools
@@ -265,13 +289,6 @@ def ask(
     tracer = TracingFactory.create_tracer(trace, project="HolmesGPT-CLI")
     tracer.start_experiment()
 
-    ai = config.create_console_toolcalling_llm(
-        dal=None,  # type: ignore
-        refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
-        tracer=tracer,
-        model_name=model,
-    )
-
     if prompt_file and prompt:
         raise typer.BadParameter(
             "You cannot provide both a prompt argument and a prompt file. Please use one or the other."
@@ -301,69 +318,92 @@ def ask(
     if echo_request and not interactive and prompt:
         console.print(f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {prompt}")
 
-    if interactive:
-        run_interactive_loop(
-            ai,
-            console,
-            prompt,
+    # Build prompt component overrides for fast mode
+    prompt_component_overrides = None
+    if fast_mode:
+        prompt_component_overrides = {
+            PromptComponent.TODOWRITE_INSTRUCTIONS: False,
+            PromptComponent.TODOWRITE_REMINDER: False,
+        }
+
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(
+            dal=None,  # type: ignore
+            refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
+            tracer=tracer,
+            model_name=model,
+            tool_results_dir=tool_results_dir,
+        )
+
+        if interactive:
+            run_interactive_loop(
+                ai,
+                console,
+                prompt,
+                include_file,
+                show_tool_output,
+                tracer,
+                config.get_runbook_catalog(),
+                system_prompt_additions,
+                json_output_file=json_output_file,
+                bash_always_deny=bash_always_deny,
+                bash_always_allow=bash_always_allow,
+                prompt_component_overrides=prompt_component_overrides,
+                config=config,
+                config_file_path=config_file,
+            )
+            return
+
+        if include_file:
+            for file_path in include_file:
+                console.print(
+                    f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+                )
+
+        messages = build_initial_ask_messages(
+            prompt,  # type: ignore
             include_file,
-            show_tool_output,
-            tracer,
+            ai.tool_executor,
             config.get_runbook_catalog(),
             system_prompt_additions,
-            json_output_file=json_output_file,
-            bash_always_deny=bash_always_deny,
-            bash_always_allow=bash_always_allow,
+            prompt_component_overrides=prompt_component_overrides,
         )
-        return
 
-    if include_file:
-        for file_path in include_file:
-            console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+        with tracer.start_trace(
+            f'holmes ask "{prompt}"', span_type=SpanType.TASK
+        ) as trace_span:
+            trace_span.log(input=prompt, metadata={"type": "user_question"})
+            response = ai.call(messages, trace_span=trace_span)
+            trace_span.log(
+                output=response.result,
+            )
+            trace_url = tracer.get_trace_url()
 
-    messages = build_initial_ask_messages(
-        prompt,  # type: ignore
-        include_file,
-        ai.tool_executor,
-        config.get_runbook_catalog(),
-        system_prompt_additions,
-    )
+        messages = response.messages  # type: ignore # Update messages with the full history
 
-    with tracer.start_trace(
-        f'holmes ask "{prompt}"', span_type=SpanType.TASK
-    ) as trace_span:
-        trace_span.log(input=prompt, metadata={"type": "user_question"})
-        response = ai.call(messages, trace_span=trace_span)
-        trace_span.log(
-            output=response.result,
+        if json_output_file:
+            write_json_file(json_output_file, response.model_dump())
+
+        issue = Issue(
+            id=str(uuid.uuid4()),
+            name=prompt,  # type: ignore
+            source_type="holmes-ask",
+            raw={"prompt": prompt, "full_conversation": messages},
+            source_instance_id=socket.gethostname(),
         )
-        trace_url = tracer.get_trace_url()
+        handle_result(
+            response,
+            console,
+            destination,  # type: ignore
+            config,
+            issue,
+            show_tool_output,
+            False,  # type: ignore
+            log_costs,
+        )
 
-    messages = response.messages  # type: ignore # Update messages with the full history
-
-    if json_output_file:
-        write_json_file(json_output_file, response.model_dump())
-
-    issue = Issue(
-        id=str(uuid.uuid4()),
-        name=prompt,  # type: ignore
-        source_type="holmes-ask",
-        raw={"prompt": prompt, "full_conversation": messages},
-        source_instance_id=socket.gethostname(),
-    )
-    handle_result(
-        response,
-        console,
-        destination,  # type: ignore
-        config,
-        issue,
-        show_tool_output,
-        False,  # type: ignore
-        log_costs,
-    )
-
-    if trace_url:
-        console.print(f"🔍 View trace: {trace_url}")
+        if trace_url:
+            console.print(f"🔍 View trace: {trace_url}")
 
 
 @investigate_app.command()
@@ -394,7 +434,7 @@ def alertmanager(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     # advanced options for this command
@@ -402,14 +442,12 @@ def alertmanager(
     slack_token: Optional[str] = opt_slack_token,
     slack_channel: Optional[str] = opt_slack_channel,
     json_output_file: Optional[str] = opt_json_output_file,
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a Prometheus/Alertmanager alert
     """
     console = init_logging(verbose)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -424,48 +462,44 @@ def alertmanager(
         slack_token=slack_token,
         slack_channel=slack_channel,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
 
-    ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
 
-    source = config.create_alertmanager_source()
+        source = config.create_alertmanager_source()
 
-    try:
-        issues = source.fetch_issues()
-    except Exception as e:
-        logging.error("Failed to fetch issues from alertmanager", exc_info=e)
-        return
+        try:
+            issues = source.fetch_issues()
+        except Exception as e:
+            logging.error("Failed to fetch issues from alertmanager", exc_info=e)
+            return
 
-    if alertmanager_limit is not None:
-        console.print(
-            f"[bold yellow]Limiting to {alertmanager_limit}/{len(issues)} issues.[/bold yellow]"
-        )
-        issues = issues[:alertmanager_limit]
+        if alertmanager_limit is not None:
+            console.print(
+                f"[bold yellow]Limiting to {alertmanager_limit}/{len(issues)} issues.[/bold yellow]"
+            )
+            issues = issues[:alertmanager_limit]
 
-    if alertmanager_alertname is not None:
-        console.print(
-            f"[bold yellow]Analyzing {len(issues)} issues matching filter.[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
-        )
-    else:
-        console.print(
-            f"[bold yellow]Analyzing all {len(issues)} issues. (Use --alertmanager-alertname to filter.)[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
-        )
-    results = []
-    for i, issue in enumerate(issues):
-        console.print(
-            f"[bold yellow]Analyzing issue {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
-        )
-        result = ai.investigate(
-            issue=issue,
-            prompt=system_prompt,  # type: ignore
-            console=console,
-        )
-        results.append({"issue": issue.model_dump(), "result": result.model_dump()})
-        handle_result(result, console, destination, config, issue, False, True)  # type: ignore
+        if alertmanager_alertname is not None:
+            console.print(
+                f"[bold yellow]Analyzing {len(issues)} issues matching filter.[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
+            )
+        else:
+            console.print(
+                f"[bold yellow]Analyzing all {len(issues)} issues. (Use --alertmanager-alertname to filter.)[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
+            )
+        results = []
+        for i, issue in enumerate(issues):
+            console.print(
+                f"[bold yellow]Analyzing issue {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
+            )
+            result = _investigate_issue(ai, issue, config)
+            results.append({"issue": issue.model_dump(), "result": result.model_dump()})
+            handle_result(result, console, destination, config, issue, False, True)  # type: ignore
 
-    if json_output_file:
-        write_json_file(json_output_file, results)
+        if json_output_file:
+            write_json_file(json_output_file, results)
 
 
 @generate_app.command("alertmanager-tests")
@@ -528,19 +562,16 @@ def jira(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     json_output_file: Optional[str] = opt_json_output_file,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a Jira ticket
     """
     console = init_logging(verbose)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -551,9 +582,7 @@ def jira(
         jira_api_key=jira_api_key,
         jira_query=jira_query,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator(model_name=model)  # type: ignore
     source = config.create_jira_source()
     try:
         issues = source.fetch_issues()
@@ -566,29 +595,27 @@ def jira(
     )
 
     results = []
-    for i, issue in enumerate(issues):
-        console.print(
-            f"[bold yellow]Analyzing Jira ticket {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
-        )
-        result = ai.investigate(
-            issue=issue,
-            prompt=system_prompt,  # type: ignore
-            console=console,
-        )
-
-        console.print(Rule())
-        console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
-        console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
-        console.print(Rule())
-        if update:
-            source.write_back_result(issue.id, result)
-            console.print(f"[bold]Updated ticket {issue.url}.[/bold]")
-        else:
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        for i, issue in enumerate(issues):
             console.print(
-                f"[bold]Not updating ticket {issue.url}. Use the --update option to do so.[/bold]"
+                f"[bold yellow]Analyzing Jira ticket {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
+            result = _investigate_issue(ai, issue, config)
 
-        results.append({"issue": issue.model_dump(), "result": result.model_dump()})
+            console.print(Rule())
+            console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
+            console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
+            console.print(Rule())
+            if update:
+                source.write_back_result(issue.id, result)
+                console.print(f"[bold]Updated ticket {issue.url}.[/bold]")
+            else:
+                console.print(
+                    f"[bold]Not updating ticket {issue.url}. Use the --update option to do so.[/bold]"
+                )
+
+            results.append({"issue": issue.model_dump(), "result": result.model_dump()})
 
     if json_output_file:
         write_json_file(json_output_file, results)
@@ -622,6 +649,7 @@ def ticket(
         None,
         help="ticket ID to investigate (e.g., 'KAN-1')",
     ),
+    update: Optional[bool] = typer.Option(False, help="Update ticket with AI results"),
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     model: Optional[str] = opt_model,
 ):
@@ -656,44 +684,51 @@ def ticket(
         )
         return
 
-    ai = ticket_source.config.create_console_issue_investigator(model_name=model)
+    with tool_result_storage() as tool_results_dir:
+        ai = ticket_source.config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
 
-    # Render ticket-specific additions
-    ticket_additions = load_and_render_prompt(
-        prompt="builtin://_ticket_additions.jinja2",
-        context={
-            "source": source,
-            "output_instructions": ticket_source.output_instructions,
-        },
-    )
+        # Render ticket-specific additions
+        ticket_additions = load_and_render_prompt(
+            prompt="builtin://_ticket_additions.jinja2",
+            context={
+                "source": source,
+                "output_instructions": ticket_source.output_instructions,
+            },
+        )
 
-    system_prompt = build_system_prompt(
-        toolsets=ai.tool_executor.toolsets,
-        runbooks=None,
-        system_prompt_additions=ticket_additions,
-        cluster_name=ticket_source.config.cluster_name,
-        ask_user_enabled=False,
-    )
-    console.print(
-        f"[bold yellow]Analyzing ticket: {issue_to_investigate.name}...[/bold yellow]"
-    )
-    prompt = (
-        prompt
-        + f" for issue '{issue_to_investigate.name}' with description:'{issue_to_investigate.description}'"
-    )
+        system_prompt = build_system_prompt(
+            toolsets=ai.tool_executor.toolsets,
+            runbooks=None,
+            system_prompt_additions=ticket_additions,
+            cluster_name=ticket_source.config.cluster_name,
+            ask_user_enabled=False,
+            prompt_component_overrides={},
+        )
+        console.print(
+            f"[bold yellow]Analyzing ticket: {issue_to_investigate.name}...[/bold yellow]"
+        )
+        prompt = (
+            prompt
+            + f" for issue '{issue_to_investigate.name}' with description:'{issue_to_investigate.description}'"
+        )
 
-    ticket_user_prompt = generate_user_prompt(prompt, context={})
-    result = ai.prompt_call(system_prompt, ticket_user_prompt)
+        ticket_user_prompt = generate_user_prompt(prompt, context={})
+        result = ai.prompt_call(system_prompt, ticket_user_prompt)
 
-    console.print(Rule())
-    console.print(
-        f"[bold green]AI analysis of {issue_to_investigate.url} {prompt}[/bold green]"
-    )
-    console.print(result.result.replace("\n", "\n\n"), style="bold green")  # type: ignore
-    console.print(Rule())
+        console.print(Rule())
+        console.print(
+            f"[bold green]AI analysis of {issue_to_investigate.url} {prompt}[/bold green]"
+        )
+        console.print(result.result.replace("\n", "\n\n"), style="bold green")  # type: ignore
+        console.print(Rule())
 
-    ticket_source.source.write_back_result(issue_to_investigate.id, result)
-    console.print(f"[bold]Updated ticket {issue_to_investigate.url}.[/bold]")
+        if update:
+            ticket_source.source.write_back_result(issue_to_investigate.id, result)
+            console.print(f"[bold]Updated ticket {issue_to_investigate.url}.[/bold]")
+        else:
+            console.print(
+                f"[bold]Not updating ticket {issue_to_investigate.url}. Use the --update option to do so.[/bold]"
+            )
 
 
 @investigate_app.command()
@@ -723,18 +758,15 @@ def github(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a GitHub issue
     """
     console = init_logging(verbose)  # type: ignore
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -746,9 +778,7 @@ def github(
         github_repository=github_repository,
         github_query=github_query,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_github_source()
     try:
         issues = source.fetch_issues()
@@ -759,28 +789,26 @@ def github(
     console.print(
         f"[bold yellow]Analyzing {len(issues)} GitHub Issues.[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
     )
-    for i, issue in enumerate(issues):
-        console.print(
-            f"[bold yellow]Analyzing GitHub issue {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
-        )
-
-        result = ai.investigate(
-            issue=issue,
-            prompt=system_prompt,  # type: ignore
-            console=console,
-        )
-
-        console.print(Rule())
-        console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
-        console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
-        console.print(Rule())
-        if update:
-            source.write_back_result(issue.id, result)
-            console.print(f"[bold]Updated ticket {issue.url}.[/bold]")
-        else:
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        for i, issue in enumerate(issues):
             console.print(
-                f"[bold]Not updating issue {issue.url}. Use the --update option to do so.[/bold]"
+                f"[bold yellow]Analyzing GitHub issue {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
+
+            result = _investigate_issue(ai, issue, config)
+
+            console.print(Rule())
+            console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
+            console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
+            console.print(Rule())
+            if update:
+                source.write_back_result(issue.id, result)
+                console.print(f"[bold]Updated ticket {issue.url}.[/bold]")
+            else:
+                console.print(
+                    f"[bold]Not updating issue {issue.url}. Use the --update option to do so.[/bold]"
+                )
 
 
 @investigate_app.command()
@@ -805,19 +833,16 @@ def pagerduty(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     json_output_file: Optional[str] = opt_json_output_file,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
 ):
     """
     Investigate a PagerDuty incident
     """
     console = init_logging(verbose)
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -827,9 +852,7 @@ def pagerduty(
         pagerduty_user_email=pagerduty_user_email,
         pagerduty_incident_key=pagerduty_incident_key,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_pagerduty_source()
     try:
         issues = source.fetch_issues()
@@ -842,29 +865,27 @@ def pagerduty(
     )
 
     results = []
-    for i, issue in enumerate(issues):
-        console.print(
-            f"[bold yellow]Analyzing PagerDuty incident {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
-        )
-
-        result = ai.investigate(
-            issue=issue,
-            prompt=system_prompt,  # type: ignore
-            console=console,
-        )
-
-        console.print(Rule())
-        console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
-        console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
-        console.print(Rule())
-        if update:
-            source.write_back_result(issue.id, result)
-            console.print(f"[bold]Updated alert {issue.url}.[/bold]")
-        else:
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        for i, issue in enumerate(issues):
             console.print(
-                f"[bold]Not updating alert {issue.url}. Use the --update option to do so.[/bold]"
+                f"[bold yellow]Analyzing PagerDuty incident {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
-        results.append({"issue": issue.model_dump(), "result": result.model_dump()})
+
+            result = _investigate_issue(ai, issue, config)
+
+            console.print(Rule())
+            console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
+            console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
+            console.print(Rule())
+            if update:
+                source.write_back_result(issue.id, result)
+                console.print(f"[bold]Updated alert {issue.url}.[/bold]")
+            else:
+                console.print(
+                    f"[bold]Not updating alert {issue.url}. Use the --update option to do so.[/bold]"
+                )
+            results.append({"issue": issue.model_dump(), "result": result.model_dump()})
 
     if json_output_file:
         write_json_file(json_output_file, results)
@@ -888,19 +909,16 @@ def opsgenie(
     model: Optional[str] = opt_model,
     config_file: Optional[Path] = opt_config_file,  # type: ignore
     custom_toolsets: Optional[List[Path]] = opt_custom_toolsets,
-    custom_runbooks: Optional[List[Path]] = opt_custom_runbooks,
+
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
-    # advanced options for this command
-    system_prompt: Optional[str] = typer.Option(
-        "builtin://generic_investigation.jinja2", help=system_prompt_help
-    ),
     documents: Optional[str] = opt_documents,
 ):
     """
     Investigate an OpsGenie alert
     """
     console = init_logging(verbose)  # type: ignore
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -910,9 +928,7 @@ def opsgenie(
         opsgenie_team_integration_key=opsgenie_team_integration_key,
         opsgenie_query=opsgenie_query,
         custom_toolsets_from_cli=custom_toolsets,
-        custom_runbooks=custom_runbooks,
     )
-    ai = config.create_console_issue_investigator(model_name=model)
     source = config.create_opsgenie_source()
     try:
         issues = source.fetch_issues()
@@ -923,27 +939,25 @@ def opsgenie(
     console.print(
         f"[bold yellow]Analyzing {len(issues)} OpsGenie alerts.[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
     )
-    for i, issue in enumerate(issues):
-        console.print(
-            f"[bold yellow]Analyzing OpsGenie alert {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
-        )
-        result = ai.investigate(
-            issue=issue,
-            prompt=system_prompt,  # type: ignore
-            console=console,
-        )
-
-        console.print(Rule())
-        console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
-        console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
-        console.print(Rule())
-        if update:
-            source.write_back_result(issue.id, result)
-            console.print(f"[bold]Updated alert {issue.url}.[/bold]")
-        else:
+    with tool_result_storage() as tool_results_dir:
+        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        for i, issue in enumerate(issues):
             console.print(
-                f"[bold]Not updating alert {issue.url}. Use the --update option to do so.[/bold]"
+                f"[bold yellow]Analyzing OpsGenie alert {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
+            result = _investigate_issue(ai, issue, config)
+
+            console.print(Rule())
+            console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
+            console.print(Markdown(result.result.replace("\n", "\n\n")), style="bold green")  # type: ignore
+            console.print(Rule())
+            if update:
+                source.write_back_result(issue.id, result)
+                console.print(f"[bold]Updated alert {issue.url}.[/bold]")
+            else:
+                console.print(
+                    f"[bold]Not updating alert {issue.url}. Use the --update option to do so.[/bold]"
+                )
 
 
 @toolset_app.command("list")
@@ -973,6 +987,19 @@ def refresh_toolsets(
     config = Config.load_from_file(config_file)
     cli_toolsets = config.toolset_manager.list_console_toolsets(refresh_status=True)
     pretty_print_toolset_status(cli_toolsets, console)
+
+
+@toolset_app.command("config")
+def config_toolset(
+    verbose: Optional[List[bool]] = opt_verbose,
+    config_file: Optional[Path] = opt_config_file,  # type: ignore
+):
+    """
+    Interactive configuration editor for toolsets
+    """
+    console = init_logging(verbose)
+    config = Config.load_from_file(config_file)
+    run_toolset_config_tui(config, config_file, console)
 
 
 @app.command()

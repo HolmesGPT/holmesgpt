@@ -46,10 +46,11 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Build and push Docker images
+    - name: Build and push Holmes Docker images
       uses: docker/build-push-action@v6
       with:
         context: .
+        file: ./Dockerfile
         platforms: linux/arm64,linux/amd64
         push: true
         tags: |
@@ -58,16 +59,37 @@ jobs:
         build-args: |
           BUILDKIT_INLINE_CACHE=1
 
+    - name: Build and push Holmes Operator Docker images
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile.operator
+        platforms: linux/arm64,linux/amd64
+        push: true
+        tags: |
+          us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:${{ github.ref_name }}
+          robustadev/holmes-operator:${{ github.ref_name }}
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
     # Note: this ignores the "Set as latest release" checkbox in the GitHub UI
     # it isn't possible to check whether that was set or not
     # so if you do not want to override the "latest" tag, you should mark the release as a prerelease or a draft
     # for prereleases and drafts we don't tag latest
-    - name: Tag and push Docker image as latest if applicable
+    - name: Tag and push Docker images as latest if applicable
       if: ${{ github.event.release.prerelease == false && github.event.release.draft == false }}
       run: |
-        docker pull us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }}
-        docker tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }} us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest
-        docker push us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest
+        # Tag Holmes as latest (preserves multi-arch manifest)
+        docker buildx imagetools create \
+          --tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest \
+          --tag robustadev/holmes:latest \
+          us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }}
+
+        # Tag Holmes Operator as latest (preserves multi-arch manifest)
+        docker buildx imagetools create \
+          --tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:latest \
+          --tag robustadev/holmes-operator:latest \
+          us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:${{ github.ref_name }}
 
     - name: Save artifact with helm chart
       uses: actions/upload-artifact@v4

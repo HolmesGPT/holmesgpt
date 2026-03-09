@@ -1,7 +1,0 @@
-{"toolset_name":"kubernetes/logs","tool_name":"fetch_pod_logs","match_params":{"pod_name":"payment-service-7cb79f8c87-z96z8","namespace":"production-62","filter":"ERROR","limit":10}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": null, "params": {"namespace": "production-62", "pod_name": "payment-service-7cb79f8c87-z96z8", "start_time": null, "end_time": null, "filter": "ERROR", "limit": 10}}
-Fri Jul 11 13:23:24 UTC 2025 ERROR: Failed to connect to database: connection timeout
-Fri Jul 11 13:23:24 UTC 2025 ERROR: Retrying database connection...
-Fri Jul 11 13:23:24 UTC 2025 ERROR: Database connection failed after 3 retries
-Fri Jul 11 13:23:24 UTC 2025 ERROR: Backup database also unavailable
-Fri Jul 11 13:23:24 UTC 2025 ERROR: Application cannot start without database

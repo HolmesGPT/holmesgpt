@@ -2,12 +2,23 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
-from typing import DefaultDict, List, Optional
+from typing import DefaultDict, Dict, List, Optional
+
+try:
+    import select as select_module
+    import termios
+    import tty
+
+    _HAS_TERMINAL_CONTROL = True
+except ImportError:
+    _HAS_TERMINAL_CONTROL = False
 
 import typer
 from prompt_toolkit import PromptSession
@@ -29,6 +40,7 @@ from rich.console import Console
 from rich.markdown import Markdown, Panel
 from rich.markup import escape
 
+from holmes.config import Config
 from holmes.core.config import config_path_dir
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
@@ -36,8 +48,13 @@ from holmes.core.feedback import (
     FeedbackCallback,
     UserFeedback,
 )
-from holmes.core.prompt import build_initial_ask_messages
-from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM, ToolCallResult
+from holmes.core.prompt import PromptComponent, build_initial_ask_messages
+from holmes.core.tool_calling_llm import (
+    LLMInterruptedError,
+    LLMResult,
+    ToolCallingLLM,
+    ToolCallResult,
+)
 from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
@@ -54,12 +71,14 @@ from holmes.utils.colors import (
     TOOLS_COLOR,
     USER_COLOR,
 )
+from holmes.toolset_config_tui import run_toolset_config_tui
 from holmes.utils.console.consts import agent_name
 from holmes.utils.file_utils import write_json_file
 from holmes.version import check_version_async
 
 
 class SlashCommands(Enum):
+    CONFIG = ("/config", "Open interactive toolset configuration editor")
     EXIT = ("/exit", "Exit interactive mode")
     HELP = ("/help", "Show help message with all commands")
     CLEAR = ("/clear", "Clear screen and reset conversation context")
@@ -214,7 +233,7 @@ class ShowCommandCompleter(Completer):
                         )
 
 
-WELCOME_BANNER = f"[bold {HELP_COLOR}]Welcome to {agent_name}:[/bold {HELP_COLOR}] Type '{SlashCommands.EXIT.command}' to exit, '{SlashCommands.HELP.command}' for commands."
+WELCOME_BANNER = f"[bold {HELP_COLOR}]Welcome to {agent_name}:[/bold {HELP_COLOR}] Type '{SlashCommands.EXIT.command}' to exit, '{SlashCommands.CONFIG.command}' to set up Holmes, or '{SlashCommands.HELP.command}' for all commands."
 
 
 def format_tool_call_output(
@@ -1083,6 +1102,59 @@ def save_conversation_to_file(
         )
 
 
+def _wait_for_completion_or_escape(
+    thread: threading.Thread,
+    cancel_event: threading.Event,
+    approval_active: threading.Event,
+    terminal_restored: threading.Event,
+    poll_interval: float = 0.1,
+) -> bool:
+    """Monitor stdin for Escape while thread runs. Returns True if interrupted."""
+    if not _HAS_TERMINAL_CONTROL or not sys.stdin.isatty():
+        # Terminal is already in normal mode; signal so approval UI won't block.
+        terminal_restored.set()
+        thread.join()
+        return False
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        while thread.is_alive():
+            # If approval UI is active, restore terminal and wait for it to finish
+            if approval_active.is_set():
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                terminal_restored.set()
+                while approval_active.is_set() and thread.is_alive():
+                    time.sleep(poll_interval)
+                terminal_restored.clear()
+                if not thread.is_alive():
+                    break
+                tty.setcbreak(fd)
+                continue
+
+            ready, _, _ = select_module.select([sys.stdin], [], [], poll_interval)
+            if ready:
+                ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    # Disambiguate standalone Escape from escape sequences (arrow keys etc.)
+                    ready2, _, _ = select_module.select(
+                        [sys.stdin], [], [], 0.05
+                    )
+                    if ready2:
+                        # Part of an escape sequence — consume and discard
+                        sys.stdin.read(1)
+                        continue
+                    # Standalone Escape key pressed
+                    cancel_event.set()
+                    thread.join(timeout=2.0)
+                    return True
+        return False
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        terminal_restored.set()
+
+
 def run_interactive_loop(
     ai: ToolCallingLLM,
     console: Console,
@@ -1097,6 +1169,9 @@ def run_interactive_loop(
     json_output_file: Optional[str] = None,
     bash_always_deny: bool = False,
     bash_always_allow: bool = False,
+    prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
+    config: Optional[Config] = None,
+    config_file_path: Optional[Path] = None,
 ) -> None:
     # Enable CLI mode for bash prefix loading (server mode doesn't call this)
     enable_cli_mode()
@@ -1278,7 +1353,7 @@ def run_interactive_loop(
                     console.print(
                         f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"
                     )
-                    return
+                    break
                 elif command == SlashCommands.HELP.command:
                     console.print(
                         f"[bold {HELP_COLOR}]Available commands:[/bold {HELP_COLOR}]"
@@ -1303,6 +1378,7 @@ def run_interactive_loop(
                     all_tool_calls_history.clear()
                     # Reset the show completer history
                     show_completer.update_history([])
+                    ai.reset_interaction_state()
                     continue
                 elif command == SlashCommands.TOOLS_CONFIG.command:
                     pretty_print_toolset_status(ai.tool_executor.toolsets, console)
@@ -1340,6 +1416,20 @@ def run_interactive_loop(
                     if shared_input is None:
                         continue  # User chose not to share or no output, continue to next input
                     user_input = shared_input
+                elif command == SlashCommands.CONFIG.command:
+                    if config is not None:
+                        run_toolset_config_tui(
+                            config,
+                            config_file_path,
+                            console,
+                            preloaded_toolsets=ai.tool_executor.toolsets,
+                        )
+                    else:
+                        console.print(
+                            "[bold red]Config not available in this session. "
+                            "Use 'holmes toolset config' from the CLI instead.[/bold red]"
+                        )
+                    continue
                 elif (
                     command == SlashCommands.FEEDBACK.command
                     and feedback_callback is not None
@@ -1357,36 +1447,114 @@ def run_interactive_loop(
             if messages is None:
                 if include_files:
                     for file_path in include_files:
-                        console.print(f"[bold yellow]Adding file {file_path} to context[/bold yellow]")
+                        console.print(
+                            f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+                        )
                 messages = build_initial_ask_messages(
                     user_input,
                     include_files,
                     ai.tool_executor,
                     runbooks,
                     system_prompt_additions,
+                    prompt_component_overrides=prompt_component_overrides,
                 )
             else:
                 messages.append({"role": "user", "content": user_input})
 
-            console.print(f"\n[bold {AI_COLOR}]Thinking...[/bold {AI_COLOR}]\n")
+            escape_hint = (
+                " [dim](press escape to interrupt)[/dim]"
+                if _HAS_TERMINAL_CONTROL and sys.stdin.isatty()
+                else ""
+            )
+            console.print(
+                f"\n[bold {AI_COLOR}]Thinking...[/bold {AI_COLOR}]{escape_hint}\n"
+            )
+
+            # Snapshot messages before the call so we can rollback on interrupt
+            messages_snapshot = list(messages)
+
+            cancel_event = threading.Event()
+            approval_active = threading.Event()
+            terminal_restored = threading.Event()
+
+            # Wrap approval callback to coordinate terminal access with escape listener
+            original_approval = ai.approval_callback
+            if original_approval:
+
+                def _wrapped_approval(
+                    tool_result: StructuredToolResult,
+                    _orig=original_approval,
+                    _approval_active=approval_active,
+                    _terminal_restored=terminal_restored,
+                ) -> tuple[bool, Optional[str]]:
+                    _approval_active.set()
+                    # Wait for the escape listener to restore the terminal
+                    # from cbreak mode before launching the prompt_toolkit UI.
+                    _terminal_restored.wait(timeout=2.0)
+                    try:
+                        return _orig(tool_result)
+                    finally:
+                        _approval_active.clear()
+
+                ai.approval_callback = _wrapped_approval
+
+            call_result: List[Optional[LLMResult]] = [None]
+            call_error: List[Optional[Exception]] = [None]
 
             with tracer.start_trace(user_input) as trace_span:
-                # Log the user's question as input to the top-level span
                 trace_span.log(
                     input=user_input,
                     metadata={"type": "user_question"},
                 )
-                response = ai.call(
-                    messages,
-                    trace_span=trace_span,
-                    tool_number_offset=len(all_tool_calls_history),
-                )
+
+                def _run_ai_call(
+                    _call_result=call_result,
+                    _call_error=call_error,
+                    _messages=messages,
+                    _trace_span=trace_span,
+                    _cancel_event=cancel_event,
+                ) -> None:
+                    try:
+                        _call_result[0] = ai.call(
+                            _messages,
+                            trace_span=_trace_span,
+                            tool_number_offset=len(all_tool_calls_history),
+                            cancel_event=_cancel_event,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _call_error[0] = exc
+
+                ai_thread = threading.Thread(target=_run_ai_call, daemon=True)
+                ai_thread.start()
+
+                try:
+                    interrupted = _wait_for_completion_or_escape(
+                        ai_thread, cancel_event, approval_active,
+                        terminal_restored,
+                    )
+                finally:
+                    # Restore original approval callback even if the escape
+                    # listener raises (e.g. termios.error), so ai doesn't
+                    # keep a _wrapped_approval referencing a stale event.
+                    if original_approval:
+                        ai.approval_callback = original_approval
+
+                if interrupted or isinstance(call_error[0], LLMInterruptedError):
+                    messages = messages_snapshot
+                    console.print(
+                        f"[bold {STATUS_COLOR}]Interrupted.[/bold {STATUS_COLOR}]\n"
+                    )
+                    continue
+                elif call_error[0] is not None:
+                    raise call_error[0]
+
+                response = call_result[0]
                 trace_span.log(
                     output=response.result,
                 )
                 trace_url = tracer.get_trace_url()
 
-            messages = response.messages  # type: ignore
+            messages = response.messages
             last_response = response
             feedback.metadata.add_llm_response(user_input, response.result)
 

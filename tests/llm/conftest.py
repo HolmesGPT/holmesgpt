@@ -15,11 +15,6 @@ from holmes.common.env_vars import DEFAULT_MODEL
 from tests.llm.utils.braintrust import get_braintrust_url
 from tests.llm.utils.classifiers import create_llm_client
 from tests.llm.utils.env_vars import is_run_live_enabled
-from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
-    MockGenerationConfig,
-    MockMode,
-    report_mock_operations,
-)
 from tests.llm.utils.port_forward import (
     check_port_availability_early,
     cleanup_port_forwards_by_config,
@@ -50,7 +45,7 @@ from tests.llm.utils.test_results import TestResult
 
 # Configuration constants
 DEBUG_SEPARATOR = "=" * 80
-LLM_TEST_TYPES = ["test_ask_holmes", "test_investigate"]
+LLM_TEST_TYPES = ["test_ask_holmes"]
 DEFAULT_SYSTEM_PROMPT_URL = (
     "https://platform.robusta.dev/api/additional-system-prompt.json"
 )
@@ -104,44 +99,7 @@ def _has_frontend_tests(session: pytest.Session) -> bool:
 
 def is_llm_test(nodeid: str) -> bool:
     """Check if a test nodeid is for an LLM test."""
-    return any(
-        [
-            "test_ask_holmes" in nodeid,
-            "test_investigate" in nodeid,
-        ]
-    )
-
-
-@pytest.fixture(scope="session")
-def mock_generation_config(request):
-    """Session-scoped fixture that provides mock generation configuration and mode."""
-    # Safely get options with defaults in case they're not registered
-    generate_mocks = request.config.getoption("--generate-mocks")
-    regenerate_all_mocks = request.config.getoption("--regenerate-all-mocks")
-
-    # --regenerate-all-mocks implies --generate-mocks
-    if regenerate_all_mocks:
-        generate_mocks = True
-
-    run_live = is_run_live_enabled()
-    if generate_mocks and not run_live:
-        print(
-            "⚠️  WARNING: --generate-mocks is set but RUN_LIVE is not set. This will not generate mocks."
-        )
-        pytest.skip(
-            "Skipping test case because --generate-mocks is set but RUN_LIVE is not set."
-        )
-
-    # Determine mode based on environment and options
-
-    if generate_mocks:
-        mode = MockMode.GENERATE  # live & generate
-    elif run_live:
-        mode = MockMode.LIVE
-    else:
-        mode = MockMode.MOCK
-
-    return MockGenerationConfig(generate_mocks, regenerate_all_mocks, mode)
+    return "test_ask_holmes" in nodeid
 
 
 @pytest.fixture(scope="session")
@@ -170,15 +128,16 @@ def additional_system_prompt(request) -> Optional[str]:
 # Handles before_test and after_test
 # see https://github.com/StefanBRas/pytest-shared-session-scope
 @shared_session_scope_json()
-def shared_test_infrastructure(request, mock_generation_config: MockGenerationConfig):
+def shared_test_infrastructure(request):
     """Shared session-scoped fixture for test infrastructure setup/cleanup coordination"""
     collect_only = request.config.getoption("--collect-only")
     worker_id = getattr(request.config, "workerinput", {}).get("workerid", None)
+    run_live = is_run_live_enabled()
 
     # If we're in collect-only mode or RUN_LIVE is not set, skip setup/cleanup entirely
-    if collect_only or mock_generation_config.mode == MockMode.MOCK:
+    if collect_only or not run_live:
         log(
-            f"\n⚙️ Skipping shared test infrastructure setup/cleanup on worker {worker_id} (mode: {mock_generation_config.mode}, collect_only: {collect_only})"
+            f"\n⚙️ Skipping shared test infrastructure setup/cleanup on worker {worker_id} (run_live: {run_live}, collect_only: {collect_only})"
         )
         # Must yield twice even when skipping due to how pytest-shared-session-scope works
         initial = yield
@@ -192,17 +151,6 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
         # This is the first worker to run the fixture
         # Extract all test cases (we need them all for port forwards)
         test_cases = extract_llm_test_cases(request.session)
-
-        # Clear mock directories if --regenerate-all-mocks is set
-        cleared_directories = []
-        regenerate_all = request.config.getoption("--regenerate-all-mocks")
-
-        if regenerate_all:
-            from tests.llm.utils.mock_toolset import (  # type: ignore[attr-defined]
-                clear_all_mocks,
-            )
-
-            cleared_directories = clear_all_mocks(request.session)
 
         # Run setup unless --skip-setup is set
         # Check port availability BEFORE running any setup scripts
@@ -330,7 +278,6 @@ def shared_test_infrastructure(request, mock_generation_config: MockGenerationCo
 
         data = {
             "test_cases_for_cleanup": [tc.id for tc in tests_to_run],
-            "cleared_mock_directories": cleared_directories,
             "setup_failures": setup_failures,
             # Store port forward configs for cleanup (not the manager object)
             "port_forward_configs": port_configs,
@@ -779,9 +726,7 @@ def show_llm_summary_report(terminalreporter, exitstatus, config):
         return
 
     # Collect and sort test results from terminalreporter.stats
-    sorted_results, mock_tracking_data = _collect_test_results_from_stats(
-        terminalreporter
-    )
+    sorted_results = _collect_test_results_from_stats(terminalreporter)
 
     if not sorted_results:
         return
@@ -792,9 +737,6 @@ def show_llm_summary_report(terminalreporter, exitstatus, config):
     # Handle console/developer output (Rich table + Braintrust links)
     handle_console_output(sorted_results, terminalreporter)
 
-    # Report mock operation statistics
-    report_mock_operations(config, mock_tracking_data, terminalreporter)
-
     # Display single Braintrust experiment link at the very end
     _display_braintrust_experiment_link(terminalreporter)
 
@@ -802,17 +744,6 @@ def show_llm_summary_report(terminalreporter, exitstatus, config):
 def _collect_test_results_from_stats(terminalreporter):
     """Collect and parse test results from terminalreporter.stats."""
     test_results = {}
-    mock_tracking_data = {
-        "generated_mocks": [],
-        "cleared_directories": set(),
-        "mock_failures": [],
-    }
-
-    MOCK_ERROR_TYPES = [
-        "MockDataError",
-        "MockDataNotFoundError",
-        "MockDataCorruptedError",
-    ]
 
     for status, reports in terminalreporter.stats.items():
         for report in reports:
@@ -827,8 +758,6 @@ def _collect_test_results_from_stats(terminalreporter):
                 # Extract test type
                 if "test_ask_holmes" in nodeid:
                     test_type = "ask"
-                elif "test_investigate" in nodeid:
-                    test_type = "investigate"
                 else:
                     test_type = "unknown"
 
@@ -875,39 +804,6 @@ def _collect_test_results_from_stats(terminalreporter):
             if not user_props:  # Skip if no user_properties
                 continue
 
-            # Collect mock tracking data
-            mock_data_failure = user_props.get("mock_data_failure", False)
-
-            if "generated_mock_file" in user_props:
-                mock_tracking_data["generated_mocks"].append(
-                    user_props["generated_mock_file"]
-                )
-
-            if "mocks_cleared" in user_props:
-                folder, count = user_props["mocks_cleared"].split(":", 1)
-                mock_tracking_data["cleared_directories"].add(folder)
-
-            if "mock_failure" in user_props:
-                mock_tracking_data["mock_failures"].append(user_props["mock_failure"])
-
-            # Check for mock errors if not already found
-            if not mock_data_failure:
-                # Check in longrepr
-                if hasattr(report, "longrepr") and report.longrepr:
-                    longrepr_str = str(report.longrepr)
-                    mock_data_failure = any(
-                        error in longrepr_str for error in MOCK_ERROR_TYPES
-                    )
-
-                # Check in captured logs
-                if not mock_data_failure and hasattr(report, "sections"):
-                    for section_name, section_content in report.sections:
-                        if "log" in section_name and any(
-                            error in section_content for error in MOCK_ERROR_TYPES
-                        ):
-                            mock_data_failure = True
-                            break
-
             # Extract test type
             if "test_ask_holmes" in nodeid:
                 test_type = "ask"
@@ -951,7 +847,7 @@ def _collect_test_results_from_stats(terminalreporter):
                 "holmes_duration": user_props.get("holmes_duration"),
                 "num_llm_calls": user_props.get("num_llm_calls"),
                 "tool_call_count": user_props.get("tool_call_count"),
-                "mock_data_failure": mock_data_failure,
+                "mock_data_failure": False,
                 "user_prompt": user_props.get("user_prompt", ""),
                 "is_setup_failure": user_props.get("is_setup_failure", False),
                 # Throttling flags
@@ -971,6 +867,10 @@ def _collect_test_results_from_stats(terminalreporter):
                 "total_tokens": user_props.get("total_tokens", 0),
                 "prompt_tokens": user_props.get("prompt_tokens", 0),
                 "completion_tokens": user_props.get("completion_tokens", 0),
+                "cached_tokens": user_props.get("cached_tokens"),
+                "reasoning_tokens": user_props.get("reasoning_tokens", 0),
+                "max_completion_tokens_per_call": user_props.get("max_completion_tokens_per_call", 0),
+                "num_compactions": user_props.get("num_compactions", 0),
                 # Tag tracking for performance analysis
                 "tags": user_props.get("tags", []),
                 # Error tracking for better reporting
@@ -987,7 +887,7 @@ def _collect_test_results_from_stats(terminalreporter):
     results_with_ids = []
     for result in test_results.values():
         # If we have a clean test case ID from the test, use it
-        # This is set in test_ask_holmes.py and test_investigate.py
+        # This is set in test_ask_holmes.py
         # via: request.node.user_properties.append(("clean_test_case_id", test_case.id))
         # It provides the clean test case ID without model suffixes that pytest adds when
         # parameterizing with multiple models (e.g., "01_how_many_pods" instead of
@@ -1026,7 +926,7 @@ def _collect_test_results_from_stats(terminalreporter):
         ),
     )
 
-    return sorted_results, mock_tracking_data
+    return sorted_results
 
 
 def _display_braintrust_experiment_link(terminalreporter):

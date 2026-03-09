@@ -1,3 +1,0 @@
-{"toolset_name":"internet","tool_name":"fetch_webpage","match_params":{"url":"https://kafka_lag_instructions.md"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"url": "https://kafka_lag_instructions.md"}}
-Failed to load https://kafka_lag_instructions.md: HTTPSConnectionPool(host='kafka_lag_instructions.md', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7fbed182bc10>: Failed to establish a new connection: [Errno -2] Name or service not known'))

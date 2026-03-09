@@ -88,7 +88,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
 
 !!! tip "Which Model to Use"
-We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
+    We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
 === "Anthropic Claude"
 
@@ -237,7 +237,7 @@ We highly recommend using Sonnet 4.0 or Sonnet 4.5 as it gives the best results 
 
     3. **Ask your first question**:
         ```bash
-        holmes ask "what is wrong with the user-profile-import pod?" --model="ollama/<your-model-name>"
+        holmes ask "what is wrong with the user-profile-import pod?" --model="ollama_chat/<your-model-name>"
         ```
 
         For troubleshooting and advanced options, see [Ollama Configuration](../ai-providers/ollama.md).
@@ -250,54 +250,14 @@ _After running the command, HolmesGPT begins its automated investigation, as sho
 _Once the analysis completes, HolmesGPT provides a clear root-cause summary and fix suggestions._
 ![image](../assets/cli-installation/cli-analysis-result.png)
 
-## Using Model Lists
+## Using Multiple Models
 
-You can define multiple models in a YAML file and reference them by name in the CLI. This is useful when you have multiple model configurations with different API keys, endpoints, or parameters.
-
-**1. Create a model list file:**
-
-```yaml
-# model_list.yaml
-sonnet:
-    aws_access_key_id: "your-access-key"
-    aws_region_name: us-east-1
-    aws_secret_access_key: "your-secret-key"
-    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-    temperature: 1
-    thinking:
-        budget_tokens: 10000
-        type: enabled
-
-azure-5:
-    api_base: https://your-resource.openai.azure.com
-    api_key: "your-api-key"
-    api_version: 2025-01-01-preview
-    model: azure/gpt-5
-    temperature: 0
-```
-
-**2. Set the environment variable:**
-
-```bash
-export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
-```
-
-**3. Use models by name:**
-
-```bash
-holmes ask "what pods are failing?" --model=sonnet --no-interactive
-holmes ask "analyze deployment" --model=azure-5 --no-interactive
-```
-
-When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
-
-**Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
-
-See [Environment Variables Reference](../reference/environment-variables.md) for more details.
+If you work with multiple AI providers or model configurations, you can define them in a YAML file and switch between them by name with `--model=<name>`. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for setup instructions.
 
 ## Next Steps
 
--   **[Add Data Sources](../data-sources/index.md)** - We encourage you to use built-in toolsets to connect with [AWS](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/), [Prometheus](https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/), [Loki](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/), [NewRelic](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/), [DataDog](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/), [ArgoCD](https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/), [Confluence](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/), and other monitoring tools.
+-   **[Recommended Setup](../data-sources/recommended-setup.md)** - Connect metrics, logs, and cloud providers to unlock deeper investigations.
+-   **[All Data Sources](../data-sources/index.md)** - Browse the full list of 38+ built-in integrations.
 -   **[Connect MCP Servers](../data-sources/remote-mcp-servers.md)** - Extend capabilities with external MCP servers.
 
 ## Need Help?

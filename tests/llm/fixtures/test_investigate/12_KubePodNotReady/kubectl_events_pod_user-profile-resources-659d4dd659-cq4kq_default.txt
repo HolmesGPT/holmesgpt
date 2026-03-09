@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_events","match_params":{"resource_type":"pod","pod_name":"user-profile-resources-659d4dd659-cq4kq","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl events --for pod/user-profile-resources-659d4dd659-cq4kq -n default", "params": {"resource_type": "pod", "pod_name": "user-profile-resources-659d4dd659-cq4kq", "namespace": "default"}}
-No events found in default namespace.

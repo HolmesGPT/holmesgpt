@@ -1,0 +1,37 @@
+checks:
+  - name: "Deployment Ready"
+    description: "Check if deployment has ready replicas"
+    query: "Does the deployment 'test-app' in namespace 'app-03' have at least 2 ready replicas?"
+    tags: ["kubernetes", "deployment"]
+
+  - name: "Service Exists"
+    description: "Check if service exists"
+    query: "Is there a service named 'test-app-service' in namespace 'app-03'?"
+    tags: ["kubernetes", "service"]
+
+  - name: "No Pod Errors"
+    description: "Check for pod errors"
+    query: "Are there any pods in namespace 'app-03' that are in Error or CrashLoopBackOff state?"
+    tags: ["kubernetes", "errors"]
+
+expected_results:
+  "Deployment Ready": "pass"
+  "Service Exists": "pass"
+  "No Pod Errors": "pass"
+
+expected_output: "All checks passed"
+
+before_test: |
+  kubectl create namespace app-03 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  kubectl wait --for=condition=Available deployment/test-app -n app-03 --timeout=60s
+
+after_test: |
+  kubectl delete -f manifest.yaml --ignore-not-found=true
+  kubectl delete namespace app-03 --ignore-not-found=true
+
+tags:
+  - kubernetes
+  - easy
+
+description: "Test multiple checks running together"

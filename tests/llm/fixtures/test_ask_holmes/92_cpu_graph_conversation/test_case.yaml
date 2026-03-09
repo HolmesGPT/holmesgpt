@@ -4,14 +4,7 @@ before_test: |
 
 user_prompt:
   - "Can you show this as a graph?"
-  - "Could you visualize this data in a chart?"
   - "Please generate a graph for these metrics"
-  - "Can you plot this information?"
-  - "Show me a visual representation of this data"
-  - "Could you create a chart from these metrics?"
-  - "Please display this as a time-series graph"
-  - "Can you turn this into a visualization?"
-  - "Graph these metrics for me"
   - "Could you show this data visually?"
 expected_output: |
   Output must contain 1 or more embeds in the following format

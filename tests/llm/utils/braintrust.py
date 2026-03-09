@@ -8,6 +8,7 @@ from braintrust import Dataset, Experiment, ReadonlyExperiment, Span
 from pydantic import BaseModel
 
 from holmes.core.llm import TokenCountMetadata
+from holmes.core.tool_calling_llm import LLMResult
 from holmes.core.tracing import (
     BRAINTRUST_API_KEY,
     BRAINTRUST_ORG,
@@ -16,7 +17,7 @@ from holmes.core.tracing import (
     get_experiment_name,
     get_machine_state_tags,
 )
-from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore
+from tests.llm.utils.test_case_utils import AskHolmesTestCase, HolmesTestCase  # type: ignore
 
 braintrust_enabled = False
 if BRAINTRUST_API_KEY:
@@ -185,23 +186,23 @@ def log_to_braintrust(
     eval_span,
     test_case: HolmesTestCase,
     model: str,
-    result: Optional[Any] = None,  # Can be LLMResult or InvestigationResult
+    result: Optional[Union[LLMResult, CompactionResult]] = None,
     scores: Optional[dict] = None,
     error: Optional[Exception] = None,
-    mock_generation_config: Optional[Any] = None,
 ) -> None:
-    """Shared function to log evaluation data to Braintrust.
+    """Log evaluation data to Braintrust.
+
+    Handles both ask_holmes tests (LLMResult) and compaction tests
+    (CompactionResult), logging appropriate metrics for each.
 
     Args:
         eval_span: The Braintrust evaluation span
-        test_case: The test case being evaluated (AskHolmesTestCase or InvestigateTestCase)
+        test_case: The test case being evaluated
         model: The model being tested
-        result: The result object (LLMResult for ask, InvestigationResult for investigate)
+        result: LLMResult for ask_holmes tests, CompactionResult for compaction tests
         scores: Dictionary of scores (e.g., correctness)
         error: Exception if the test failed
-        mock_generation_config: Mock configuration for additional context
     """
-    from tests.llm.utils.test_case_utils import AskHolmesTestCase, InvestigateTestCase
 
     # Prepare tags
     tags = (test_case.tags or []).copy()
@@ -209,26 +210,14 @@ def log_to_braintrust(
 
     # Determine output based on test type and error state
     if error:
-        if hasattr(
-            result, "result"
-        ):  # AskHolmesTestCase with LLMResult or CompactionResult
+        if hasattr(result, "result"):
             output = result.result if result else str(error)
-        elif hasattr(
-            result, "analysis"
-        ):  # InvestigateTestCase with InvestigationResult
-            output = result.analysis if result else str(error)
         else:
             output = str(error)
         scores = scores or {}
     else:
-        if hasattr(
-            result, "result"
-        ):  # AskHolmesTestCase with LLMResult or CompactionResult
+        if hasattr(result, "result"):
             output = result.result if result else ""
-        elif hasattr(
-            result, "analysis"
-        ):  # InvestigateTestCase with InvestigationResult
-            output = result.analysis if result else ""
         else:
             output = ""
 
@@ -269,10 +258,6 @@ def log_to_braintrust(
     if prompt:
         metadata["system_prompt"] = prompt
 
-    # Add execution context
-    if mock_generation_config and hasattr(mock_generation_config, "mode"):
-        metadata["mock_mode"] = mock_generation_config.mode.value
-
     # Add test configuration if present
     if hasattr(test_case, "conversation_history") and test_case.conversation_history:
         metadata["has_conversation_history"] = True
@@ -284,6 +269,16 @@ def log_to_braintrust(
         metadata["tool_call_count"] = len(result.tool_calls)
         metadata["tools_used"] = list({tc.tool_name for tc in result.tool_calls})
         # Note: holmes_duration is logged separately directly to eval_span in ask_holmes()
+
+    # Add token and cost data for benchmark comparison
+    if result and hasattr(result, "total_tokens"):
+        metadata["total_tokens"] = result.total_tokens
+        metadata["prompt_tokens"] = result.prompt_tokens
+        metadata["completion_tokens"] = result.completion_tokens
+        if result.cached_tokens is not None:
+            metadata["cached_tokens"] = result.cached_tokens
+    if result and hasattr(result, "total_cost") and result.total_cost:
+        metadata["cost"] = result.total_cost
 
     # Add compaction-specific metrics if available
     if isinstance(result, CompactionResult):
@@ -310,12 +305,6 @@ def log_to_braintrust(
                     error.output[:5000] if len(error.output) > 5000 else error.output
                 )
 
-        is_mock_error = "MockDataError" in type(error).__name__ or any(
-            "MockData" in base.__name__ for base in type(error).__mro__
-        )
-        if is_mock_error:
-            metadata["is_mock_data_error"] = True
-
     # Determine input and expected based on test type
     if isinstance(test_case, AskHolmesTestCase):
         input_data = test_case.user_prompt
@@ -324,9 +313,6 @@ def log_to_braintrust(
             if isinstance(test_case.expected_output, str)
             else str(test_case.expected_output)
         )
-    elif isinstance(test_case, InvestigateTestCase):
-        input_data = str(test_case.investigate_request)
-        expected = str(test_case.expected_output)
     elif test_case.conversation_history:  # compaction test case
         from tests.llm.utils.conversation_formatter import (
             format_conversation_as_markdown,
@@ -361,9 +347,6 @@ def get_braintrust_url(
     """Generate Braintrust URL for a test.
 
     Args:
-        test_suite: Either "ask_holmes" or "investigate"
-        test_id: Test ID like "01"
-        test_name: Test name like "how_many_pods"
         span_id: Optional span ID for direct linking
         root_span_id: Optional root span ID for direct linking
 

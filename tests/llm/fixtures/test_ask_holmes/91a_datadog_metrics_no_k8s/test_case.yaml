@@ -1,0 +1,24 @@
+description: |
+  Tests that Holmes can query and display CPU/memory metrics from Datadog
+  when only the Datadog metrics toolset is available (no Kubernetes).
+  Metrics are sent to Datadog via API, then Holmes is asked to show graphs.
+
+before_test: |
+  bash ../../shared/send_datadog_metrics.sh space-projects spaceship-launch-counter spaceship-launch-counter
+
+user_prompt: "Can you show me a cpu graph of the spaceship-launch-counter pod in namespace space-projects?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "datadogql", "tool_name": "query_datadog_metrics", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - datadog
+  - embeds
+
+after_test: |
+  # No cleanup needed - we only sent metrics to Datadog which don't need cleanup

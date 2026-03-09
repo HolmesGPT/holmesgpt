@@ -1,12 +1,12 @@
 # Bash Tool
 
-Use the `bash` tool to execute simple one-liner shell commands. You must provide:
+Use the `bash` tool to execute shell commands. You must provide:
 1. `command`: The bash command to execute
 2. `suggested_prefixes`: Array of prefixes, one per command segment
 
 ## Supported Command Types
 
-**SUPPORTED** - Simple one-liner commands:
+**Auto-approved** (if prefix is in the allow list):
 - Single commands: `kubectl get pods -n default`
 - Pipes (`|`): `kubectl get pods | grep Running | head -5`
 - AND operator (`&&`): `kubectl get pods && kubectl get services`
@@ -15,14 +15,16 @@ Use the `bash` tool to execute simple one-liner shell commands. You must provide
 - Background (`&`): `sleep 5 & echo done`
 - Environment variables: `echo $HOME`, `ls ${HOME}/projects`
 
-**NOT SUPPORTED** - Compound statements:
+**Requires user approval** - Scripts and complex constructs:
 - `for` loops: `for i in 1 2 3; do echo $i; done`
-- `while` loops: `while true; do sleep 1; done`
+- `while` loops: `while read line; do echo "$line"; done < file`
 - `until` loops: `until false; do echo running; done`
 - `if` statements: `if [ -f file ]; then cat file; fi`
 - `case` statements: `case $x in 1) echo one;; esac`
 - Command substitution: `echo $(whoami)` or `` echo `whoami` ``
 - Process substitution: `diff <(cat file1) <(cat file2)`
+
+When you need loops, conditionals, or subshells to accomplish a task, go ahead and use them. The user will be prompted to approve before execution.
 
 ## Command Structure
 
@@ -55,6 +57,12 @@ Include the **full target identification** (action + resource type + resource na
 - `kubectl scale deployment nginx -n prod --replicas=3` → `kubectl scale deployment nginx -n prod`
 - `rm /tmp/file.txt` → `rm /tmp/file.txt`
 
+### Scripts (loops, conditionals, subshells)
+Provide prefixes for the **key operations** inside the script:
+- `for pod in pod1 pod2; do kubectl logs $pod; done` → `["kubectl logs"]`
+- `if [ -f /tmp/test ]; then cat /tmp/test; fi` → `["cat"]`
+- `echo $(kubectl get pods -o name)` → `["kubectl get"]`
+
 ## Allowed Commands
 
 Commands matching these prefixes will execute immediately without prompting:
@@ -76,26 +84,3 @@ These commands are blocked and cannot be executed:
 {% endif %}
 - `sudo` (always blocked)
 - `su` (always blocked)
-
-### NEVER USE - Subshells and Command Substitution
-
-The following constructs are **permanently blocked** and will **always fail**. Do not attempt to use them:
-
-- **`$(...)`** - Command substitution with dollar-paren. Example: `echo $(whoami)` - BLOCKED
-- **`` `...` ``** - Command substitution with backticks. Example: `` echo `date` `` - BLOCKED
-- **`<(...)`** - Process substitution (input). Example: `diff <(cat file1) <(cat file2)` - BLOCKED
-- **`>(...)`** - Process substitution (output). Example: `tee >(cat > file)` - BLOCKED
-
-Instead of subshells, use pipes: `whoami | xargs echo` or run separate commands.
-
-### NEVER USE - Compound Statements
-
-The following control structures are **permanently blocked** and will **always fail**:
-
-- **`for`** loops: `for i in 1 2 3; do echo $i; done` - BLOCKED
-- **`while`** loops: `while true; do sleep 1; done` - BLOCKED
-- **`until`** loops: `until false; do echo x; done` - BLOCKED
-- **`if`** statements: `if [ -f file ]; then cat file; fi` - BLOCKED
-- **`case`** statements: `case $x in 1) echo one;; esac` - BLOCKED
-
-Instead of loops, run the command once or use pipes with tools like `xargs`.

@@ -1,0 +1,6 @@
+toolsets:
+  test-clickhouse:
+    type: database
+    enabled: true
+    config:
+      connection_url: "clickhouse+http://default:@localhost:10222/default"

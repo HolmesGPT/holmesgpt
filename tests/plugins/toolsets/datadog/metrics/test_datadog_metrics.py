@@ -11,11 +11,11 @@ from tests.conftest import create_mock_tool_invoke_context
 class TestDatadogMetricsToolset:
     def setup_method(self):
         self.config = DatadogMetricsConfig(
-            dd_api_key="test-api-key",
-            dd_app_key="test-app-key",
-            site_api_url="https://api.datadoghq.com",
+            api_key="test-api-key",
+            app_key="test-app-key",
+            api_url="https://api.datadoghq.com",
             default_limit=1000,
-            request_timeout=60,
+            timeout_seconds=60,
         )
 
         self.toolset = DatadogMetricsToolset()
@@ -290,9 +290,9 @@ class TestDatadogMetricsToolset:
         mock_get.return_value = response
 
         config = {
-            "dd_api_key": "test-api-key",
-            "dd_app_key": "test-app-key",
-            "site_api_url": "https://api.datadoghq.com",
+            "api_key": "test-api-key",
+            "app_key": "test-app-key",
+            "api_url": "https://api.datadoghq.com",
         }
 
         success, error_msg = self.toolset.prerequisites_callable(config)
@@ -307,12 +307,12 @@ class TestDatadogMetricsToolset:
         assert success is False
         assert (
             error_msg
-            == "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
+            == "Missing config for api_key, app_key, or api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/"
         )
 
     def test_prerequisites_callable_invalid_config(self):
         config = {
-            "dd_api_key": "test-api-key",
+            "api_key": "test-api-key",
         }
 
         success, error_msg = self.toolset.prerequisites_callable(config)

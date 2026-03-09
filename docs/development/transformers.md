@@ -275,4 +275,4 @@ MyTool(
 )
 ```
 
-For more information, see the [HolmesGPT documentation](https://docs.robusta.dev/master/configuration/holmesgpt/toolsets/).
+For more information, see the [HolmesGPT documentation](https://holmesgpt.dev/data-sources/custom-toolsets/).

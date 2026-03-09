@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from copy import deepcopy
-from typing import Optional
+from typing import Any, Optional, Union
 
 from typing_extensions import Dict, List
 
@@ -69,25 +69,56 @@ def format_tags_in_string(user_prompt: str) -> str:
         return user_prompt
 
 
+def _format_content_tags(
+    content: Union[str, List[Dict[str, Any]]],
+) -> Union[str, List[Dict[str, Any]]]:
+    """Format tags in message content, handling both string and multimodal list formats.
+
+    For string content, applies format_tags_in_string directly.
+    For multimodal content (list of content blocks), applies tag formatting only
+    to text-type blocks while preserving image_url and other block types unchanged.
+    """
+    if isinstance(content, str):
+        return format_tags_in_string(content)
+    if isinstance(content, list):
+        formatted = []
+        changed = False
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                original_text = block.get("text", "")
+                new_text = format_tags_in_string(original_text)
+                if new_text != original_text:
+                    formatted.append({**block, "text": new_text})
+                    changed = True
+                else:
+                    formatted.append(block)
+            else:
+                formatted.append(block)
+        return formatted if changed else content
+    return content
+
+
 def parse_messages_tags(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
     """
     Parses the user messages for tags and format these.
-    System messages and llm responses are ignored and left as-is
+    System messages and llm responses are ignored and left as-is.
+    Handles both plain string content and multimodal content (list of content blocks
+    with text and image_url entries).
 
     This method returns a shallow copy of the messages list with the exception
     of the messages that have been parsed.
     """
     formatted_messages = []
     for message in messages:
-        original_message = message.get("content")
-        if message.get("role") == "user" and original_message:
-            formatted_str = format_tags_in_string(original_message)
-            if formatted_str != message.get("content"):
+        original_content = message.get("content")
+        if message.get("role") == "user" and original_content:
+            formatted_content = _format_content_tags(original_content)
+            if formatted_content != original_content:
                 formatted_message = deepcopy(message)
-                formatted_message["content"] = formatted_str
+                formatted_message["content"] = formatted_content
                 formatted_messages.append(formatted_message)
                 logging.debug(
-                    f"Message with tags '{original_message}' formatted to '{formatted_message}'"
+                    f"Message with tags '{original_content}' formatted to '{formatted_message}'"
                 )
             else:
                 formatted_messages.append(message)

@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
 from requests.exceptions import SSLError  # type: ignore
 
-from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS
+from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS, MAX_GRAPH_POINTS_HARD_LIMIT
 from holmes.common.openshift import load_openshift_token
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -31,7 +31,9 @@ from holmes.core.tools import (
 )
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.core.tools_utils.tool_context_window_limiter import get_pct_token_count
+from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
@@ -43,7 +45,6 @@ from holmes.plugins.toolsets.utils import (
     standard_start_datetime_tool_param_description,
     toolset_name_for_one_liner,
 )
-from holmes.utils.cache import TTLCache
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
@@ -76,6 +77,7 @@ class PrometheusConfig(ToolsetConfig):
     """Prometheus toolset configuration."""
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "headers": "additional_headers",
         "default_metadata_time_window_hrs": "discover_metrics_from_last_hours",
         "default_query_timeout_seconds": "query_timeout_seconds_default",
         "max_query_timeout_seconds": "query_timeout_seconds_hard_max",
@@ -132,7 +134,7 @@ class PrometheusConfig(ToolsetConfig):
         title="Return Data",
         description="Set to false to return only summaries without raw Prometheus data",
     )
-    headers: Dict[str, str] = Field(
+    additional_headers: Dict[str, str] = Field(
         default_factory=dict,
         title="Headers",
         description="HTTP headers for authentication (e.g., Authorization: Bearer token)",
@@ -173,16 +175,15 @@ class PrometheusConfig(ToolsetConfig):
 
     @model_validator(mode="after")
     def validate_prom_config(self):
-
         # If openshift is enabled, and the user didn't configure auth headers, we will try to load the token from the service account.
         if IS_OPENSHIFT:
-            if self.headers.get("Authorization"):
+            if self.additional_headers.get("Authorization"):
                 return self
 
             openshift_token = load_openshift_token()
             if openshift_token:
                 logging.info("Using openshift token for prometheus toolset auth")
-                self.headers["Authorization"] = f"Bearer {openshift_token}"
+                self.additional_headers["Authorization"] = f"Bearer {openshift_token}"
 
         return self
 
@@ -406,7 +407,7 @@ def do_request(
     if verify is None:
         verify = config.verify_ssl
     if headers is None:
-        headers = config.headers or {}
+        headers = config.additional_headers or {}
 
     if isinstance(config, AMPConfig):
         client = config.get_aws_client()  # cached AWSPrometheusConnect
@@ -463,23 +464,31 @@ def adjust_step_for_max_points(
     """
     Adjusts the step parameter to ensure the number of data points doesn't exceed max_points.
 
+    The default max_points is MAX_GRAPH_POINTS (env var, default 500). The LLM can override
+    this to request higher resolution (up to 2x the default) for simple low-cardinality
+    queries, or lower resolution for overview graphs. Token-based truncation provides
+    an additional safety net for responses that are too large.
+
     Args:
         start_timestamp: RFC3339 formatted start time
         end_timestamp: RFC3339 formatted end time
         step: The requested step duration in seconds (None for auto-calculation)
-        max_points_override: Optional override for max points (must be <= MAX_GRAPH_POINTS)
+        max_points_override: Optional override for max points. Can exceed MAX_GRAPH_POINTS
+            up to 2x the default to allow higher resolution for low-cardinality queries.
 
     Returns:
         Adjusted step value in seconds that ensures points <= max_points
     """
+    hard_limit = MAX_GRAPH_POINTS_HARD_LIMIT
+
     # Use override if provided and valid, otherwise use default
     max_points = MAX_GRAPH_POINTS
     if max_points_override is not None:
-        if max_points_override > MAX_GRAPH_POINTS:
+        if max_points_override > hard_limit:
             logging.warning(
-                f"max_points override ({max_points_override}) exceeds system limit ({MAX_GRAPH_POINTS}), using {MAX_GRAPH_POINTS}"
+                f"max_points override ({max_points_override}) exceeds hard limit ({hard_limit}), using {hard_limit}"
             )
-            max_points = MAX_GRAPH_POINTS
+            max_points = hard_limit
         elif max_points_override < 1:
             logging.warning(
                 f"max_points override ({max_points_override}) is invalid, using default {MAX_GRAPH_POINTS}"
@@ -494,12 +503,11 @@ def adjust_step_for_max_points(
 
     time_range_seconds = (end_dt - start_dt).total_seconds()
 
-    # If no step provided, calculate a reasonable default
-    # Aim for ~60 data points across the time range (1 per minute for hourly, etc)
+    # If no step provided, calculate default targeting max_points data points
     if step is None:
-        step = max(1, time_range_seconds / 60)
+        step = max(1, time_range_seconds / max_points)
         logging.debug(
-            f"No step provided, defaulting to {step}s for {time_range_seconds}s range"
+            f"No step provided, defaulting to {step}s for {time_range_seconds}s range (targeting {max_points} points)"
         )
 
     current_points = time_range_seconds / step
@@ -645,15 +653,48 @@ def create_structured_tool_result(
     )
 
 
-class ListPrometheusRules(BasePrometheusTool):
+class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
     def __init__(self, toolset: "PrometheusToolset"):
         super().__init__(
             name="list_prometheus_rules",
-            description="List all defined Prometheus rules (api/v1/rules). Will show the Prometheus rules description, expression and annotations",
-            parameters={},
+            description=(
+                "List Prometheus rules (api/v1/rules). Returns rule names, expressions, and annotations. "
+                "Use filtering parameters to reduce response size. "
+                "Without filters, returns ALL rules which may be very large. "
+                "The returned JSON has the structure {groups: [{name, file, rules: [{name, query, state, labels, annotations, ...}]}]}. "
+                "When using jq, note the root object is 'data' already extracted, so use '.groups[]' not '.data.groups[]'."
+            ),
+            parameters=self.extend_parameters(
+                {
+                    "type": ToolParameter(
+                        description="Filter by rule type: 'alert' for alerting rules, 'record' for recording rules",
+                        type="string",
+                        required=False,
+                    ),
+                    "rule_name": ToolParameter(
+                        description="Filter by rule name(s). Can be specified multiple times for OR matching. Supports exact match only.",
+                        type="string",
+                        required=False,
+                    ),
+                    "rule_group": ToolParameter(
+                        description="Filter by rule group name(s). Can be specified multiple times for OR matching.",
+                        type="string",
+                        required=False,
+                    ),
+                    "file": ToolParameter(
+                        description="Filter by rule file path(s). Can be specified multiple times for OR matching.",
+                        type="string",
+                        required=False,
+                    ),
+                    "match": ToolParameter(
+                        description="Filter rules by label selector (e.g., '{severity=\"critical\"}', '{team=~\"platform.*\"}')",
+                        type="string",
+                        required=False,
+                    ),
+                }
+            ),
             toolset=toolset,
         )
-        self._cache = None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         if not self.toolset.config or not self.toolset.config.prometheus_url:
@@ -668,19 +709,19 @@ class ListPrometheusRules(BasePrometheusTool):
                 error="Tool not supported in AMP",
                 params=params,
             )
-        if not self._cache and self.toolset.config.rules_cache_duration_seconds:
-            self._cache = TTLCache(self.toolset.config.rules_cache_duration_seconds)  # type: ignore
         try:
-            if self._cache:
-                cached_rules = self._cache.get(PROMETHEUS_RULES_CACHE_KEY)
-                if cached_rules:
-                    logging.debug("rules returned from cache")
-
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.SUCCESS,
-                        data=cached_rules,
-                        params=params,
-                    )
+            # Build query parameters for server-side filtering
+            query_params: dict = {}
+            if params.get("type"):
+                query_params["type"] = params["type"]
+            if params.get("rule_name"):
+                query_params["rule_name[]"] = params["rule_name"]
+            if params.get("rule_group"):
+                query_params["rule_group[]"] = params["rule_group"]
+            if params.get("file"):
+                query_params["file[]"] = params["file"]
+            if params.get("match"):
+                query_params["match[]"] = params["match"]
 
             prometheus_url = self.toolset.config.prometheus_url
 
@@ -689,22 +730,21 @@ class ListPrometheusRules(BasePrometheusTool):
             rules_response = do_request(
                 config=self.toolset.config,
                 url=rules_url,
-                params=params,
+                params=query_params,
                 timeout=40,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             rules_response.raise_for_status()
             data = rules_response.json()["data"]
 
-            if self._cache:
-                self._cache.set(PROMETHEUS_RULES_CACHE_KEY, data)
-            return StructuredToolResult(
+            result = StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=data,
                 params=params,
             )
+            return self.filter_result(result, params)
         except requests.Timeout:
             logging.warning("Timeout while fetching prometheus rules", exc_info=True)
             return StructuredToolResult(
@@ -735,7 +775,17 @@ class ListPrometheusRules(BasePrometheusTool):
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Rules"
+        filters = []
+        if params.get("type"):
+            filters.append(f"type={params['type']}")
+        if params.get("rule_name"):
+            filters.append(f"name={params['rule_name']}")
+        if params.get("rule_group"):
+            filters.append(f"group={params['rule_group']}")
+        filter_str = f" ({', '.join(filters)})" if filters else ""
+        return (
+            f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Rules{filter_str}"
+        )
 
 
 class GetMetricNames(BasePrometheusTool):
@@ -825,7 +875,7 @@ class GetMetricNames(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -943,7 +993,7 @@ class GetLabelValues(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1047,7 +1097,7 @@ class GetAllLabels(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1161,7 +1211,7 @@ class GetSeries(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1240,7 +1290,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1339,7 +1389,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1502,7 +1552,11 @@ class ExecuteRangeQuery(BasePrometheusTool):
                     required=False,
                 ),
                 "step": ToolParameter(
-                    description="Query resolution step width in duration format or float number of seconds",
+                    description=(
+                        "Query resolution step width in duration format or float number of seconds. "
+                        "Smaller step = higher resolution but more data points. "
+                        "If not provided, automatically calculated from the time range and max_points."
+                    ),
                     type="number",
                     required=False,
                 ),
@@ -1522,9 +1576,10 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 ),
                 "max_points": ToolParameter(
                     description=(
-                        f"Maximum number of data points to return. Default: {int(MAX_GRAPH_POINTS)}. "
-                        f"Can be reduced to get fewer data points (e.g., 50 for simpler graphs). "
-                        f"Cannot exceed system limit of {int(MAX_GRAPH_POINTS)}. "
+                        f"Maximum number of data points per series. Default: {int(MAX_GRAPH_POINTS)}. "
+                        f"Only increase above default for queries returning few time series (1-3 series). "
+                        f"Decrease for high-cardinality queries (e.g., 50) to avoid hitting maximum number of data points. "
+                        f"Maximum: {int(MAX_GRAPH_POINTS_HARD_LIMIT)}. "
                         f"If your query would return more points than this limit, the step will be automatically adjusted."
                     ),
                     type="number",
@@ -1588,7 +1643,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.headers,
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1754,7 +1809,16 @@ class PrometheusToolset(Toolset):
         template_file_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "prometheus_instructions.jinja2")
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+        tool_names = [t.name for t in self.tools]
+        self.llm_instructions = load_and_render_prompt(
+            prompt=f"file://{template_file_path}",
+            context={
+                "tool_names": tool_names,
+                "config": self.config,
+                "default_max_points": int(MAX_GRAPH_POINTS),
+                "hard_max_points": int(MAX_GRAPH_POINTS_HARD_LIMIT),
+            },
+        )
 
     def determine_prometheus_class(
         self, config: dict[str, Any]
@@ -1805,7 +1869,9 @@ class PrometheusToolset(Toolset):
 
             self.config = PrometheusConfig(
                 prometheus_url=prometheus_url,
-                headers=add_prometheus_auth(os.environ.get("PROMETHEUS_AUTH_HEADER")),
+                additional_headers=add_prometheus_auth(
+                    os.environ.get("PROMETHEUS_AUTH_HEADER")
+                ),
             )
             logging.info(f"Prometheus auto discovered at url {prometheus_url}")
             self._reload_llm_instructions()
@@ -1837,7 +1903,7 @@ class PrometheusToolset(Toolset):
             response = do_request(
                 config=self.config,
                 url=url,
-                headers=self.config.headers,
+                headers=self.config.additional_headers,
                 timeout=10,
                 verify=self.config.verify_ssl,
                 method="GET",

@@ -1,0 +1,123 @@
+# Test: SQL Server Query Performance - connectivity and performance diagnosis
+# Tests that Holmes can connect to Microsoft SQL Server, discover schema,
+# query data, and diagnose performance issues (missing index).
+
+user_prompt: |
+  1. List the tables in the database and tell me the verification code from the holmes_eval_223 table
+  2. I'm experiencing slow queries with this SQL: SELECT * FROM orders WHERE customer_id = 12345
+     Analyze why this query is slow and suggest how to fix it
+
+expected_output:
+  - "Must report the verification code: HOLMES-MSSQL-EVAL-223-j2w7p9"
+  - "Must mention the holmes_eval_223 table"
+  - "Must identify missing index on customer_id column"
+  - "Must suggest creating an index on customer_id"
+
+include_tool_calls: true
+
+tags:
+  - db-connectors
+
+setup_timeout: 180
+
+port_forwards:
+  - namespace: app-223
+    service: sqlserver
+    local_port: 10223
+    remote_port: 1433
+
+before_test: |
+  set -e
+
+  echo "⏳ Setting up SQL Server in cluster..."
+
+  # Create namespace
+  kubectl create namespace app-223 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Deploy SQL Server
+  kubectl apply -f sqlserver.yaml -n app-223
+
+  # Wait for SQL Server to be ready
+  echo "⏳ Waiting for SQL Server pod to be ready..."
+  POD_READY=false
+  for i in {1..120}; do
+    if kubectl wait --for=condition=ready pod -l app=sqlserver -n app-223 --timeout=5s 2>/dev/null; then
+      echo "✅ SQL Server pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ SQL Server pod failed to become ready after 240 seconds"
+    kubectl get pods -n app-223
+    kubectl logs -l app=sqlserver -n app-223 --tail=30
+    exit 1
+  fi
+
+  # Wait for SQL Server to fully initialize
+  sleep 10
+
+  # Create database and test tables
+  echo "⏳ Creating test database and data..."
+  kubectl exec -n app-223 deployment/sqlserver -- /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'HolmesTest123!' -C -Q "
+  CREATE DATABASE testdb;
+  "
+
+  kubectl exec -n app-223 deployment/sqlserver -- /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'HolmesTest123!' -d testdb -C -Q "
+  -- Create verification table
+  IF OBJECT_ID('holmes_eval_223', 'U') IS NOT NULL DROP TABLE holmes_eval_223;
+  CREATE TABLE holmes_eval_223 (
+      id INT PRIMARY KEY IDENTITY(1,1),
+      category NVARCHAR(50) NOT NULL,
+      verification_code NVARCHAR(100) NOT NULL,
+      created_at DATETIME DEFAULT GETDATE()
+  );
+  INSERT INTO holmes_eval_223 (category, verification_code)
+  VALUES ('eval_test', 'HOLMES-MSSQL-EVAL-223-j2w7p9');
+
+  -- Create orders table without index for performance test
+  IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders;
+  CREATE TABLE orders (
+      id INT PRIMARY KEY IDENTITY(1,1),
+      customer_id INT NOT NULL,
+      order_date DATE NOT NULL,
+      total_amount DECIMAL(10,2) NOT NULL,
+      status NVARCHAR(20) NOT NULL
+  );
+  "
+
+  # Insert sample data (10K rows) - SQL Server has a different approach
+  echo "⏳ Generating 10K rows of test data..."
+  kubectl exec -n app-223 deployment/sqlserver -- /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'HolmesTest123!' -d testdb -C -Q "
+  DECLARE @i INT = 1;
+  WHILE @i <= 10000
+  BEGIN
+    INSERT INTO orders (customer_id, order_date, total_amount, status)
+    VALUES (
+      CAST(RAND() * 1000 AS INT) + 1,
+      DATEADD(DAY, -CAST(RAND() * 365 AS INT), GETDATE()),
+      CAST(10 + RAND() * 990 AS DECIMAL(10,2)),
+      CASE CAST(RAND() * 3 AS INT)
+        WHEN 0 THEN 'pending'
+        WHEN 1 THEN 'completed'
+        ELSE 'cancelled'
+      END
+    );
+    SET @i = @i + 1;
+  END
+  "
+
+  # Verify data
+  VERIFICATION_CODE=$(kubectl exec -n app-223 deployment/sqlserver -- /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'HolmesTest123!' -d testdb -C -h -1 -Q "SET NOCOUNT ON; SELECT verification_code FROM holmes_eval_223;" | tr -d '[:space:]')
+  ORDER_COUNT=$(kubectl exec -n app-223 deployment/sqlserver -- /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'HolmesTest123!' -d testdb -C -h -1 -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM orders;" | tr -d '[:space:]')
+  echo "✅ Verification code: $VERIFICATION_CODE"
+  echo "✅ Orders table has $ORDER_COUNT rows"
+
+  echo "✅ SQL Server setup complete"
+
+after_test: |
+  echo "⏳ Cleaning up SQL Server..."
+  kubectl delete namespace app-223 --ignore-not-found=true --wait=false 2>/dev/null || true
+  echo "✅ Cleanup initiated"

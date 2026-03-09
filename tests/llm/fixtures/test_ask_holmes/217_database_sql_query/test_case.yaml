@@ -1,0 +1,83 @@
+# Test: SQL Database Query - discover table structure and query data
+# Tests that Holmes can connect to a PostgreSQL database, explore its schema,
+# and find specific data by querying.
+#
+# The before_test deploys PostgreSQL in the cluster and creates a table with a
+# unique verification code that the LLM must discover by querying the database.
+
+user_prompt: "List the tables in the database, then look at the holmes_eval_217 table and tell me the verification code stored in it."
+
+expected_output:
+  - "Must report the verification code: HOLMES-DB-EVAL-217-q8x3m7"
+  - "Must mention the holmes_eval_217 table"
+
+include_tool_calls: true
+
+tags:
+  - db-connectors
+
+setup_timeout: 120
+
+port_forwards:
+  - namespace: app-217
+    service: postgres
+    local_port: 10217
+    remote_port: 5432
+
+before_test: |
+  set -e
+
+  echo "⏳ Setting up PostgreSQL in cluster..."
+
+  # Create namespace
+  kubectl create namespace app-217 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Deploy PostgreSQL
+  kubectl apply -f postgres.yaml -n app-217
+
+  # Wait for PostgreSQL to be ready
+  echo "⏳ Waiting for PostgreSQL pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=postgres -n app-217 --timeout=5s 2>/dev/null; then
+      echo "✅ PostgreSQL pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ PostgreSQL pod failed to become ready after 60 seconds"
+    kubectl get pods -n app-217
+    kubectl logs -l app=postgres -n app-217 --tail=20
+    exit 1
+  fi
+
+  # Wait for PostgreSQL service to be ready
+  sleep 2
+
+  # Create test table and data using kubectl exec
+  echo "⏳ Creating test data..."
+  kubectl exec -n app-217 deployment/postgres -- psql -U holmes -d holmesdb -c "
+  DROP TABLE IF EXISTS holmes_eval_217;
+  CREATE TABLE holmes_eval_217 (
+      id SERIAL PRIMARY KEY,
+      category TEXT NOT NULL,
+      verification_code TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+  );
+  INSERT INTO holmes_eval_217 (category, verification_code)
+  VALUES ('eval_test', 'HOLMES-DB-EVAL-217-q8x3m7');
+  "
+
+  # Verify data was inserted
+  VERIFICATION_CODE=$(kubectl exec -n app-217 deployment/postgres -- psql -U holmes -d holmesdb -t -c "SELECT verification_code FROM holmes_eval_217;")
+  echo "✅ Verification code inserted: $VERIFICATION_CODE"
+
+  echo "✅ PostgreSQL setup complete"
+
+after_test: |
+  echo "⏳ Cleaning up PostgreSQL..."
+  kubectl delete namespace app-217 --ignore-not-found=true --wait=false 2>/dev/null || true
+  echo "✅ Cleanup initiated"

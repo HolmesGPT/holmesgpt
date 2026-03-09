@@ -13,7 +13,7 @@ Example of using HolmesGPT in a CI/CD pipeline to automatically troubleshoot dep
 - name: Install HolmesGPT
   run: |
     # Clone the branch of holmes you want to install
-    git clone -b slack-markdown-fix https://github.com/HolmesGPT/holmesgpt.git /tmp/holmesgpt
+    git clone https://github.com/HolmesGPT/holmesgpt.git /tmp/holmesgpt
     cd /tmp/holmesgpt
 
     # Install Poetry
@@ -100,7 +100,7 @@ Example of using HolmesGPT in a CI/CD pipeline to automatically troubleshoot dep
         - name: Install HolmesGPT
           run: |
             # Clone the branch of holmes you want to install
-            git clone -b slack-markdown-fix https://github.com/HolmesGPT/holmesgpt.git /tmp/holmesgpt
+            git clone https://github.com/HolmesGPT/holmesgpt.git /tmp/holmesgpt
             cd /tmp/holmesgpt
 
             # Install Poetry

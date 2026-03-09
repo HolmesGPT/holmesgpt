@@ -1,9 +1,0 @@
-toolsets:
-  kubernetes/kube-lineage-extras:
-    enabled: true
-  kubernetes/logs:
-    enabled: False
-  datadog/logs:
-    enabled: True
-  datadog/metrics:
-    enabled: True

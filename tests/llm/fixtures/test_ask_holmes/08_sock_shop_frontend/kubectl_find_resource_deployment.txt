@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"deployment","keyword":"front-end"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide deployment | grep front-end", "params": {"kind": "deployment", "keyword": "front-end"}}
-sock-shop            front-end                             1/1     1            1           18d   front-end                                             weaveworksdemos/front-end:0.3.12                                                                           name=front-end                                                                                                 <none>

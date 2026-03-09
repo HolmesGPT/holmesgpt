@@ -25,20 +25,25 @@ class ElasticsearchConfig(ToolsetConfig):
 
     Example configuration:
     ```yaml
-    url: "https://your-cluster.es.cloud.io"
+    api_url: "https://your-cluster.es.cloud.io"
     api_key: "base64_encoded_api_key"
     ```
 
     Or with basic auth:
     ```yaml
-    url: "https://your-cluster.es.cloud.io"
+    api_url: "https://your-cluster.es.cloud.io"
     username: "elastic"
     password: "your_password"
     ```
     """
 
-    url: str = Field(
-        title="URL",
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "url": "api_url",
+        "timeout": "timeout_seconds",
+    }
+
+    api_url: str = Field(
+        title="API URL",
         description="Elasticsearch/OpenSearch base URL",
         examples=["https://your-cluster.es.cloud.io"],
     )
@@ -63,9 +68,9 @@ class ElasticsearchConfig(ToolsetConfig):
         title="Verify SSL",
         description="Whether to verify SSL certificates",
     )
-    timeout: int = Field(
+    timeout_seconds: int = Field(
         default=10,
-        title="Timeout",
+        title="Timeout Seconds",
         description="Default request timeout in seconds",
     )
 
@@ -126,7 +131,7 @@ class ElasticsearchBaseToolset(Toolset):
         except requests.exceptions.ConnectionError:
             return (
                 False,
-                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.url}",
+                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.api_url}",
             )
         except requests.exceptions.Timeout:
             return False, "Elasticsearch health check timed out"
@@ -181,8 +186,8 @@ class ElasticsearchBaseToolset(Toolset):
             requests.exceptions.ConnectionError: For connection problems
             requests.exceptions.Timeout: For timeout errors
         """
-        url = f"{self.elasticsearch_config.url.rstrip('/')}/{endpoint.lstrip('/')}"
-        timeout = timeout or self.elasticsearch_config.timeout
+        url = f"{self.elasticsearch_config.api_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        timeout = timeout or self.elasticsearch_config.timeout_seconds
 
         response = requests.request(
             method=method,

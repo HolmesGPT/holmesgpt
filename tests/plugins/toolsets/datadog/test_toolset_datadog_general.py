@@ -142,10 +142,10 @@ class TestDatadogGeneralToolset:
         """Test the API GET tool."""
         toolset = DatadogGeneralToolset()
         toolset.dd_config = Mock()
-        toolset.dd_config.site_api_url = "https://api.datadoghq.com"
+        toolset.dd_config.api_url = "https://api.datadoghq.com"
         toolset.dd_config.max_response_size = 10485760
         toolset.dd_config.allow_custom_endpoints = False
-        toolset.dd_config.request_timeout = 60
+        toolset.dd_config.timeout_seconds = 60
 
         get_tool = toolset.tools[0]  # DatadogAPIGet
 

@@ -1,13 +1,18 @@
 import asyncio
+import copy
 import logging
-import os
 import shutil
 import subprocess
+import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
+if sys.version_info < (3, 11):
+    from exceptiongroup import ExceptionGroup
+
+import holmes.utils.env as env_utils
 from holmes.core.tools import (
     StructuredToolResultStatus,
     ToolInvokeContext,
@@ -19,6 +24,7 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import (
     RemoteMCPTool,
     RemoteMCPToolset,
     StdioMCPConfig,
+    _extract_root_error_message,
     get_initialized_mcp_session,
 )
 
@@ -30,6 +36,34 @@ def suppress_migration_warnings():
     logger.setLevel(logging.ERROR)
     yield
     logger.setLevel(original_level)
+
+
+class TestToolParameter:
+    """Tests for the ToolParameter model."""
+
+    def test_type_accepts_string(self) -> None:
+        """Test that ToolParameter.type accepts a string value."""
+        param = ToolParameter(type="string")
+        assert param.type == "string"
+
+    def test_type_accepts_list_for_nullable(self) -> None:
+        """Test that ToolParameter.type accepts a list for nullable types.
+
+        This is the fix for issue #1459: MCP tools may define nullable types
+        as ['string', 'null'] per JSON Schema spec.
+        """
+        param = ToolParameter(type=["string", "null"])
+        assert param.type == ["string", "null"]
+
+    def test_type_accepts_list_for_union_types(self) -> None:
+        """Test that ToolParameter.type accepts a list for union types."""
+        param = ToolParameter(type=["string", "integer"])
+        assert param.type == ["string", "integer"]
+
+    def test_default_type_is_string(self) -> None:
+        """Test that the default type is 'string'."""
+        param = ToolParameter()
+        assert param.type == "string"
 
 
 def npx_not_available() -> tuple[bool, str]:
@@ -86,7 +120,9 @@ class TestMCPGeneral:
             "qty": ToolParameter(
                 type="integer", required=True, description="example for description"
             ),
-            "side": ToolParameter(type="string", required=True),
+            "side": ToolParameter(
+                type="string", required=True, enum=["buy", "sell"]
+            ),
             "limit_price": ToolParameter(type="number", required=False),
         }
 
@@ -98,6 +134,162 @@ class TestMCPGeneral:
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
         assert tool.description == "desc"
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_nullable_type_schema_parses_correctly(self) -> None:
+        """Test that nullable types (e.g., ['string', 'null']) are parsed correctly.
+
+        Fixes issue #1459: MCP Tool Validation Error when type is a list like
+        ['string', 'null'] instead of just 'string'.
+        """
+        mcp_tool = Tool(
+            name="test_nullable",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {
+                        "type": ["string", "null"],
+                        "description": "Optional description field",
+                    },
+                    "count": {"type": ["integer", "null"]},
+                },
+                "required": ["name"],
+            },
+            description="Test tool with nullable types",
+            annotations=None,
+        )
+
+        expected_schema = {
+            "name": ToolParameter(type="string", required=True),
+            "description": ToolParameter(
+                type=["string", "null"],
+                required=False,
+                description="Optional description field",
+            ),
+            "count": ToolParameter(type=["integer", "null"], required=False),
+        }
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+        assert tool.parameters == expected_schema
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_array_with_items_schema_parsed_correctly(self) -> None:
+        """Test that array parameters with items schemas are recursively parsed.
+
+        This ensures MCP tools that define array parameters with nested object
+        schemas (e.g., Conviva API filters) have their full structure preserved
+        in the ToolParameter, so the LLM receives accurate type information.
+        """
+        mcp_tool = Tool(
+            name="query_metrics",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filters": {
+                        "type": "array",
+                        "description": "Filters to apply",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "dimension": {"type": "string"},
+                                "operator": {
+                                    "type": "string",
+                                    "enum": ["in", "not_in"],
+                                },
+                                "values": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                            },
+                            "required": ["dimension", "operator", "values"],
+                        },
+                    },
+                    "metrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Metrics to query",
+                    },
+                },
+                "required": ["filters", "metrics"],
+            },
+            description="Query metrics with filters",
+            annotations=None,
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        # Verify filters parameter has nested items schema
+        filters_param = tool.parameters["filters"]
+        assert filters_param.type == "array"
+        assert filters_param.required is True
+        assert filters_param.items is not None
+        assert filters_param.items.type == "object"
+        assert filters_param.items.properties is not None
+        assert "dimension" in filters_param.items.properties
+        assert filters_param.items.properties["dimension"].type == "string"
+        assert filters_param.items.properties["operator"].enum == ["in", "not_in"]
+        # Verify nested array within the object
+        values_param = filters_param.items.properties["values"]
+        assert values_param.type == "array"
+        assert values_param.items is not None
+        assert values_param.items.type == "string"
+
+        # Verify metrics parameter
+        metrics_param = tool.parameters["metrics"]
+        assert metrics_param.type == "array"
+        assert metrics_param.items is not None
+        assert metrics_param.items.type == "string"
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_object_with_properties_schema_parsed_correctly(self) -> None:
+        """Test that object parameters with nested properties are recursively parsed."""
+        mcp_tool = Tool(
+            name="create_filter",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "type": "object",
+                        "description": "Configuration object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "enabled": {"type": "boolean"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+                "required": ["config"],
+            },
+            description="Create a filter",
+            annotations=None,
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        config_param = tool.parameters["config"]
+        assert config_param.type == "object"
+        assert config_param.properties is not None
+        assert "name" in config_param.properties
+        assert config_param.properties["name"].type == "string"
+        assert config_param.properties["name"].required is True
+        assert config_param.properties["enabled"].type == "boolean"
+        assert config_param.properties["enabled"].required is False
 
     def test_unreachable_server_returns_error(self, suppress_migration_warnings):
         mcp_toolset = RemoteMCPToolset(
@@ -268,6 +460,97 @@ class TestMCPGeneral:
         )
         assert result[0] is True
         assert mcp_toolset._mcp_config.mode == MCPMode.STREAMABLE_HTTP
+
+
+class TestExceptionGroupUnwrapping:
+    def test_extract_root_error_from_exception_group(self):
+        root_cause = ConnectionRefusedError("Connection refused")
+        group = ExceptionGroup(
+            "unhandled errors in a TaskGroup (1 sub-exception)", [root_cause]
+        )
+        assert _extract_root_error_message(group) == "Connection refused"
+
+    def test_extract_root_error_from_nested_exception_group(self):
+        root_cause = PermissionError("401 Unauthorized")
+        inner_group = ExceptionGroup("inner", [root_cause])
+        outer_group = ExceptionGroup(
+            "unhandled errors in a TaskGroup (1 sub-exception)", [inner_group]
+        )
+        assert _extract_root_error_message(outer_group) == "401 Unauthorized"
+
+    def test_extract_root_error_from_regular_exception(self):
+        exc = ValueError("some error")
+        assert _extract_root_error_message(exc) == "some error"
+
+    def test_prerequisites_callable_surfaces_auth_error(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        mcp_toolset = RemoteMCPToolset(
+            name="dynatrace",
+            description="",
+            config={"url": "http://localhost:1234"},
+        )
+
+        auth_error = PermissionError("403 Forbidden: Invalid API token")
+        group = ExceptionGroup(
+            "unhandled errors in a TaskGroup (1 sub-exception)", [auth_error]
+        )
+
+        async def mock_get_server_tools():
+            raise group
+
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
+        result = mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+        assert result[0] is False
+        assert "403 Forbidden: Invalid API token" in result[1]
+        assert "TaskGroup" not in result[1]
+        assert "will retry automatically" in result[1]
+
+    def test_invoke_surfaces_auth_error(self, monkeypatch, suppress_migration_warnings):
+        tool_def = Tool(
+            name="test_tool",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Test tool",
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mock_toolset, "_get_server_tools", mock_get_server_tools)
+        mock_toolset.prerequisites_callable(config=mock_toolset.config)
+
+        mcp_tool = RemoteMCPTool.create(tool_def, mock_toolset)
+
+        auth_error = PermissionError("401 Unauthorized")
+        group = ExceptionGroup(
+            "unhandled errors in a TaskGroup (1 sub-exception)", [auth_error]
+        )
+
+        async def mock_invoke_async(params, request_context):
+            raise group
+
+        monkeypatch.setattr(mcp_tool, "_invoke_async", mock_invoke_async)
+
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="test-id",
+            tool_name="test_tool",
+            request_context=None,
+        )
+
+        result = mcp_tool._invoke({}, context)
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "401 Unauthorized" in result.error
+        assert "TaskGroup" not in result.error
 
 
 class TestStreamableHttp:
@@ -1378,9 +1661,7 @@ class TestRequestContextPassthrough:
         assert "secret-tenant" not in str_repr
         assert "context_keys=['headers']" in str_repr
 
-    def test_get_initialized_mcp_session_passes_request_context(
-        self, monkeypatch
-    ):
+    def test_get_initialized_mcp_session_passes_request_context(self, monkeypatch):
         mcp_toolset = RemoteMCPToolset(
             name="test_mcp",
             description="Test toolset",
@@ -1415,7 +1696,9 @@ class TestRequestContextPassthrough:
 
         captured_headers = None
 
-        def capture_sse_client_call(_url, headers, *, sse_read_timeout, httpx_client_factory=None):
+        def capture_sse_client_call(
+            _url, headers, *, sse_read_timeout, httpx_client_factory=None
+        ):
             nonlocal captured_headers
             captured_headers = headers
             return mock_client_context
@@ -1490,7 +1773,9 @@ class TestRequestContextPassthrough:
 
         captured_headers = None
 
-        def capture_sse_client_call(_url, headers, *, sse_read_timeout, httpx_client_factory=None):
+        def capture_sse_client_call(
+            _url, headers, *, sse_read_timeout, httpx_client_factory=None
+        ):
             nonlocal captured_headers
             captured_headers = headers
             return mock_client_context
@@ -1509,3 +1794,59 @@ class TestRequestContextPassthrough:
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert captured_headers is not None
         assert captured_headers["X-Context"] == "ctx-value"
+
+
+class TestMCPExtraHeadersPreservedDuringEnvResolution:
+    """Verify that load_toolsets_from_config does NOT resolve extra_headers templates.
+
+    extra_headers use Jinja2 templates like {{ env.AUTO_GENERATED_GITHUB_TOKEN }}
+    that must be rendered at request time (so they pick up refreshed tokens).
+    replace_env_vars_values uses the same {{ env.X }} syntax and would bake in
+    stale values at config-load time if extra_headers were not excluded.
+    """
+
+    @patch.dict(
+        "os.environ",
+        {
+            "MY_STATIC_VAR": "resolved_value",
+            "AUTO_GENERATED_GITHUB_TOKEN": "ghs_initial",
+        },
+    )
+    def test_extra_headers_templates_not_resolved(self):
+        toolsets_config = {
+            "github": {
+                "type": "mcp",
+                "description": "GitHub MCP",
+                "config": {
+                    "url": "https://api.githubcopilot.com/mcp",
+                    "mode": "streamable-http",
+                    "headers": {
+                        "X-Static": "{{ env.MY_STATIC_VAR }}",
+                    },
+                    "extra_headers": {
+                        "Authorization": "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}",
+                    },
+                },
+            }
+        }
+
+        # load_toolsets_from_config will fail to connect to the MCP server,
+        # but we only care about the config resolution, not the connection.
+        # Catch the validation error and inspect the config dict directly.
+        config = copy.deepcopy(toolsets_config["github"])
+
+        # Simulate the pop/restore logic from load_toolsets_from_config
+        saved_extra_headers = config["config"].pop("extra_headers", None)
+        config = env_utils.replace_env_vars_values(config)
+
+        assert saved_extra_headers is not None
+        config.setdefault("config", {})["extra_headers"] = saved_extra_headers
+
+        # extra_headers should still have the raw template (NOT resolved)
+        assert (
+            config["config"]["extra_headers"]["Authorization"]
+            == "Bearer {{ env.AUTO_GENERATED_GITHUB_TOKEN }}"
+        )
+
+        # regular headers SHOULD be resolved by replace_env_vars_values
+        assert config["config"]["headers"]["X-Static"] == "resolved_value"

@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mariadb-secret
+  namespace: app-219
+type: Opaque
+stringData:
+  MARIADB_ROOT_PASSWORD: rootpass
+  MARIADB_DATABASE: testdb
+  MARIADB_USER: holmes
+  MARIADB_PASSWORD: holmespass
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  namespace: app-219
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:11.6.2
+        ports:
+        - containerPort: 3306
+        envFrom:
+        - secretRef:
+            name: mariadb-secret
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          exec:
+            command:
+            - mariadb-admin
+            - ping
+            - -h
+            - localhost
+            - -u
+            - root
+            - -prootpass
+          initialDelaySeconds: 10
+          periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: app-219
+spec:
+  selector:
+    app: mariadb
+  ports:
+  - port: 3306
+    targetPort: 3306

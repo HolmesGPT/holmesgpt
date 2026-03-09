@@ -61,6 +61,16 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 ## HolmesGPT Configuration
 
+### MODEL_LIST_FILE_LOCATION
+Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
+
+**Example:**
+```bash
+export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
+```
+
+See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for the model list file format and usage.
+
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.
 
@@ -83,15 +93,30 @@ export HOLMES_LOG_LEVEL="DEBUG"
 ### HOLMES_CACHE_DIR
 Directory for caching HolmesGPT data and temporary files.
 
+### HOLMES_PASSTHROUGH_BLOCKED_HEADERS
+**Default:** `"authorization,cookie,set-cookie"`
+
+Comma-separated list of HTTP header names that should **not** be forwarded from incoming requests to toolsets via `request_context`. Case-insensitive.
+
+**Example:**
+```bash
+# Also block a custom internal header
+export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-internal-only"
+```
+
+See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
+
 ## Data Source Configuration
 
 ### Prometheus
 - `PROMETHEUS_URL` - URL of the Prometheus server
 
 ### Confluence
-- `CONFLUENCE_BASE_URL` - Base URL of Confluence instance
-- `CONFLUENCE_EMAIL` - Email for Confluence authentication
-- `CONFLUENCE_API_KEY` - API key for Confluence
+
+- `CONFLUENCE_API_URL` - Base URL of Confluence instance (e.g., `https://mycompany.atlassian.net`)
+- `CONFLUENCE_USER` - User email (Cloud) or username (Data Center) for authentication
+- `CONFLUENCE_API_KEY` - API token (Cloud) or password (Data Center)
+- `CONFLUENCE_PAT` - Personal Access Token (Data Center, used with `auth_type: bearer`)
 
 ### GitHub
 - `GITHUB_TOKEN` - Personal access token for GitHub API
@@ -115,7 +140,7 @@ Directory for caching HolmesGPT data and temporary files.
 ## Testing and Development
 
 ### RUN_LIVE
-When set to `true`, enables live execution of commands in tests instead of using mocked responses. Strongly recommended for accurate test results.
+Enables live execution of commands in tests. Defaults to `true`.
 
 **Example:**
 ```bash

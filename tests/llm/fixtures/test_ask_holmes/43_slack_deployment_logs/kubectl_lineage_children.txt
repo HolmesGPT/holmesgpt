@@ -1,8 +1,0 @@
-{"toolset_name":"kubernetes/kube-lineage-extras","tool_name":"kubectl_lineage_children","match_params":{"kind":"deployment","name":"catalogue","namespace":"sock-shop"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kube-lineage deployment catalogue -n sock-shop", "params": {"kind": "deployment", "name": "catalogue", "namespace": "sock-shop"}}
-NAME                                            READY   STATUS    AGE
-Deployment/catalogue                            1/1               27d
-└── ReplicaSet/catalogue-f7687cb4               1/1               27d
-    └── Pod/catalogue-f7687cb4-bjxf2            1/1     Running   27d
-        └── Service/catalogue                   -                 27d
-            └── EndpointSlice/catalogue-4cr5z   -                 27d

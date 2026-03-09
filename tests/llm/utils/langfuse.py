@@ -9,7 +9,6 @@ from langfuse.model import DatasetItem
 from tests.llm.utils.test_case_utils import (
     AskHolmesTestCase,
     HolmesTestCase,
-    InvestigateTestCase,
 )
 
 # init
@@ -51,8 +50,6 @@ def get_input(test_case: HolmesTestCase) -> Dict[str, Any]:
     input = {}
     if isinstance(test_case, AskHolmesTestCase):
         input = {"user_prompt": test_case.user_prompt}
-    elif isinstance(test_case, InvestigateTestCase):
-        input = test_case.investigate_request.model_dump()
     input["id"] = test_case.id
 
     return input

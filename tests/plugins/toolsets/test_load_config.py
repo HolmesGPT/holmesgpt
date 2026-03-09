@@ -58,7 +58,7 @@ toolsets_config_str = """
 grafana/loki:
     config:
         api_key: "{{env.GRAFANA_API_KEY}}"
-        url: "{{env.GRAFANA_URL}}"
+        api_url: "{{env.GRAFANA_URL}}"
         grafana_datasource_uid: "my_grafana_datasource_uid"
 """
 
@@ -83,5 +83,5 @@ def test_load_toolsets_from_config(monkeypatch):
     config = grafana_loki.config
     assert config
     assert config.get("api_key") == "glsa_sdj1q2o3prujpqfd"
-    assert config.get("url") == "https://my-grafana.com/"
+    assert config.get("api_url") == "https://my-grafana.com/"
     assert config.get("grafana_datasource_uid") == "my_grafana_datasource_uid"

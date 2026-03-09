@@ -1,0 +1,80 @@
+{{- if .Values.operator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: holmes-operator
+    app.kubernetes.io/name: holmes-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: holmes-operator
+      app.kubernetes.io/name: holmes-operator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: holmes-operator
+        app.kubernetes.io/name: holmes-operator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: operator
+        image: "{{ .Values.operator.registry }}/{{ .Values.operator.image }}"
+        imagePullPolicy: {{ .Values.operator.imagePullPolicy }}
+        command:
+          - python3
+          - -m
+          - holmes_operator.operator
+        env:
+        - name: HOLMES_API_URL
+          value: {{ .Values.operator.holmesApiUrl | default (printf "http://%s-holmes:80" .Release.Name) }}
+        - name: HOLMES_API_TIMEOUT
+          value: {{ .Values.operator.holmesApiTimeout | default 300 | quote }}
+        - name: LOG_LEVEL
+          value: {{ .Values.operator.logLevel | default "INFO" }}
+        - name: MAX_HISTORY_ITEMS
+          value: {{ .Values.operator.maxHistoryItems | default 10 | quote }}
+        - name: CLEANUP_COMPLETED_CHECKS
+          value: {{ .Values.operator.cleanupCompletedChecks | default false | quote }}
+        - name: COMPLETED_CHECK_TTL_HOURS
+          value: {{ .Values.operator.completedCheckTTLHours | default 24 | quote }}
+        {{- if .Values.operator.additionalEnvVars }}
+        {{- toYaml .Values.operator.additionalEnvVars | nindent 8 }}
+        {{- end }}
+        resources:
+          requests:
+            memory: {{ .Values.operator.resources.requests.memory | default "256Mi" }}
+            cpu: {{ .Values.operator.resources.requests.cpu | default "100m" }}
+          limits:
+            memory: {{ .Values.operator.resources.limits.memory | default "512Mi" }}
+        securityContext:
+          runAsNonRoot: true
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+      {{- if .Values.operator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.operator.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.operator.tolerations }}
+      tolerations:
+        {{- toYaml .Values.operator.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.operator.affinity }}
+      affinity:
+        {{- toYaml .Values.operator.affinity | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -195,6 +195,7 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
     table.add_column("Turns", justify="right", width=5)
     table.add_column("Tools", justify="right", width=5)
     table.add_column("Cost", justify="right", width=8)
+    table.add_column("Tokens", justify="right", width=9)
     table.add_column("User Prompt", style="white", width=16)
     table.add_column("Expected", style="green", width=16)
     table.add_column("Actual", style="yellow", width=16)
@@ -262,6 +263,15 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
         else:
             cost_str = "—"
 
+        # Format total tokens (fall back to prompt + completion if total not provided)
+        total_tokens = result.get("total_tokens", 0) or 0
+        if total_tokens == 0:
+            total_tokens = (result.get("prompt_tokens", 0) or 0) + (result.get("completion_tokens", 0) or 0)
+        if total_tokens > 0:
+            tokens_str = f"{total_tokens:,}"
+        else:
+            tokens_str = "—"
+
         # Disabled for now - get analysis for failed tests with openai
         # analysis = _get_analysis_for_result(test_result)
 
@@ -272,6 +282,7 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
             turns_str,
             tools_str,
             cost_str,
+            tokens_str,
             user_prompt_wrapped,
             expected_wrapped,
             actual_wrapped,
@@ -311,11 +322,6 @@ def _get_llm_analysis(result: TestResult) -> str:
     """
     from litellm import completion
 
-    # Check if this is a MockDataError case and add context
-    mock_data_context = ""
-    if result.mock_data_failure:
-        mock_data_context = "\n\nIMPORTANT CONTEXT: This test failed due to MockDataError - no mock data files were found for the tool calls that the agent tried to make. This is a test infrastructure issue, not a problem with the agent's logic."
-
     prompt = textwrap.dedent(f"""\
         Analyze this failed eval for an AIOps agent why it failed.
         TEST: {result.test_case_name}
@@ -325,15 +331,9 @@ def _get_llm_analysis(result: TestResult) -> str:
         ERROR: {result.error_message or 'Test assertion failed'}
 
         LOGS:
-        {result.logs if result.logs else 'No logs available'}{mock_data_context}
+        {result.logs if result.logs else 'No logs available'}
 
         Please provide a concise analysis (2-3 sentences) and categorize this as one of:
-        - MockDataError - the test failed because mock data files were missing for the tool calls (this is a test infrastructure issue).
-          To fix (show bullet points with each option - any are valid solutions so user should see all options):
-          - Run with RUN_LIVE=true
-          - Use --generate-mocks (may cause inconsistent data)
-          - Use --regenerate-all-mocks (ensures consistency)
-        - Problem with mock data - the test is failing due to incorrect or incomplete mock data, but the agent itself did the correct queries you would expect it to do
         - Setup issue - the test is failing due to an issue with the test setup, such as missing tools or incorrect before_test/after_test configuration
         - Real failure - the test is failing because the agent did not perform as expected, and this is a real issue that needs to be fixed
         """)

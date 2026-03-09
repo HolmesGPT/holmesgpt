@@ -34,7 +34,7 @@ def _build_grafana_dashboard_url(
     query_params: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     try:
-        base_url = config.external_url or config.url
+        base_url = config.external_url or config.api_url
         if uid:
             return f"{base_url.rstrip('/')}/d/{uid}"
         else:
@@ -112,7 +112,7 @@ class BaseGrafanaTool(Tool, ABC):
         url = urljoin(base_url, endpoint)
         headers = build_headers(
             api_key=self._toolset.grafana_config.api_key,
-            additional_headers=self._toolset.grafana_config.headers,
+            additional_headers=self._toolset.grafana_config.additional_headers,
         )
 
         response = requests.get(

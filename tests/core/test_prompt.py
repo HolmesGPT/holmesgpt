@@ -10,20 +10,15 @@ from rich.console import Console
 from holmes.config import Config
 from holmes.core.conversations import (
     build_chat_messages,
-    build_issue_chat_messages,
-)
-from holmes.core.investigation import get_investigation_context
-from holmes.core.models import (
-    InvestigateRequest,
-    IssueChatRequest,
-    IssueInvestigationResult,
 )
 from holmes.core.prompt import (
+    PromptComponent,
     append_all_files_to_user_prompt,
     append_file_to_user_prompt,
     build_initial_ask_messages,
     generate_user_prompt,
     get_tasks_management_system_reminder,
+    is_component_enabled,
 )
 from holmes.utils.global_instructions import generate_runbooks_args
 
@@ -73,16 +68,6 @@ def mock_ai(mock_tool_executor):
     return ai
 
 
-@pytest.fixture
-def mock_dal():
-    """Create a mock DAL instance."""
-    dal = Mock()
-    dal.get_global_instructions_for_account = Mock(return_value=None)
-    dal.get_resource_instructions = Mock(return_value=None)
-    dal.get_issue_data = Mock(return_value=None)
-    return dal
-
-
 def get_user_message_from_messages(messages: list, get_last: bool = False) -> str:
     """Extract user message content from messages list.
 
@@ -130,34 +115,9 @@ def create_test_files(file_paths: list, tmp_path: Path) -> Optional[list]:
     return test_files
 
 
-def create_mock_investigator():
-    """Create a mock investigator instance for testing."""
-    mock_investigator = Mock()
-    mock_investigator.tool_executor = Mock()
-    mock_investigator.tool_executor.toolsets = []
-    mock_investigator.runbook_manager = Mock()
-    mock_investigator.runbook_manager.get_instructions_for_issue = Mock(return_value=[])
-    mock_investigator.llm = Mock()
-    mock_investigator.llm.model = None
-    return mock_investigator
-
-
 def extract_instructions(instructions_obj):
     """Extract instruction list from DummyInstructions object or return None."""
     return instructions_obj.instructions if instructions_obj else None
-
-
-def create_issue_chat_request(user_ask: str, issue_type: str = "prometheus"):
-    """Create an IssueChatRequest for testing."""
-    return IssueChatRequest(
-        ask=user_ask,
-        conversation_history=None,
-        investigation_result=IssueInvestigationResult(
-            result="Investigation analysis",
-            tools=[],
-        ),
-        issue_type=issue_type,
-    )
 
 
 def assert_user_prompt_contains_timestamp(user_prompt: str):
@@ -354,66 +314,6 @@ class TestServerFlows:
             expected_global_instructions=extract_instructions(global_instructions),
         )
 
-    @pytest.mark.parametrize(
-        "user_ask,global_instructions",
-        [
-            ("Tell me more about this alert", None),
-            ("What should I do?", DummyInstructions(["Check metrics"])),
-        ],
-    )
-    def test_issue_chat_api_user_prompt(
-        self,
-        mock_ai,
-        mock_config,
-        user_ask,
-        global_instructions,
-    ):
-        """Test user prompt in /api/issue_chat flow."""
-        issue_chat_request = create_issue_chat_request(user_ask)
-
-        messages = build_issue_chat_messages(
-            issue_chat_request=issue_chat_request,
-            ai=mock_ai,
-            config=mock_config,
-            global_instructions=global_instructions,
-            runbooks=None,
-        )
-
-        user_content = get_user_message_from_messages(messages)
-        validate_user_prompt(
-            user_content,
-            user_ask,
-            expected_global_instructions=extract_instructions(global_instructions),
-        )
-
-
-class TestInvestigationFlow:
-    """Test user prompt validation for investigation flow."""
-
-    def test_investigate_api_user_prompt(self, mock_config, mock_dal):
-        """Test user prompt in /api/investigate flow."""
-        mock_investigator = create_mock_investigator()
-        mock_config.create_issue_investigator = Mock(return_value=mock_investigator)
-
-        investigate_request = InvestigateRequest(
-            title="Test Alert",
-            description="Test description",
-            source="prometheus",
-            subject={},
-            context={"robusta_issue_id": "test-123"},
-            prompt_template="builtin://generic_investigation.jinja2",
-        )
-
-        _, _, user_prompt, _, _, _ = get_investigation_context(
-            investigate_request, mock_dal, mock_config
-        )
-
-        assert user_prompt is not None
-        assert isinstance(user_prompt, str)
-        assert "context from the issue" in user_prompt.lower()
-        assert_user_prompt_contains_timestamp(user_prompt)
-
-
 class TestUserPromptComponents:
     """Test that user prompts include all expected components via generate_user_prompt."""
 
@@ -513,3 +413,53 @@ def test_append_all_files_to_user_prompt_no_files():
     # Also test with empty list
     result = append_all_files_to_user_prompt(prompt, [])
     assert result == "Original prompt"
+
+
+class TestIsComponentEnabled:
+    """Test is_component_enabled function with overrides."""
+
+    def test_no_overrides_returns_env_var_result(self, monkeypatch):
+        """Without overrides, should return is_prompt_allowed_by_env result."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+
+    def test_override_can_disable_component(self, monkeypatch):
+        """API override can disable a component that env var allows."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+    def test_override_cannot_enable_env_disabled_component(self, monkeypatch):
+        """API override cannot enable a component that env var disabled."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "none")
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+    def test_override_true_keeps_enabled(self, monkeypatch):
+        """API override with True keeps component enabled."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is True
+        )
+
+    def test_env_var_selective_enable_with_override(self, monkeypatch):
+        """When env var selectively enables, override can still disable."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions,intro")
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+
+        overrides = {PromptComponent.AI_SAFETY: True}
+        assert is_component_enabled(PromptComponent.AI_SAFETY, overrides) is False

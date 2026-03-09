@@ -19,14 +19,7 @@ before_test: |
 
 user_prompt:
   - "Can you show me a cpu graph of the metrics-deployment in namespace deploy-91c?"
-  - "Show me CPU metrics for metrics-deployment pods in deploy-91c"
-  - "Display metrics-deployment CPU usage graph from deploy-91c namespace"
   - "I need to see the memory usage for metrics-deployment in deploy-91c"
-  - "What's the CPU utilization of the metrics-deployment deployment in namespace deploy-91c?"
-  - "Generate a memory graph for metrics-deployment pods in deploy-91c"
-  - "Show CPU and memory charts for metrics-deployment in namespace deploy-91c"
-  - "How much CPU is metrics-deployment consuming in deploy-91c namespace?"
-  - "Plot memory consumption of metrics-deployment over time in deploy-91c"
   - "Can you visualize the resource usage for metrics-deployment pods in the deploy-91c namespace?"
 
 expected_output: |

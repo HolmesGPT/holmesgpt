@@ -1,0 +1,36 @@
+# NOTE: This test is useful for testing the holmes check evaluation framework
+# without requiring any test infrastructure (no Kubernetes cluster, no pods, etc.)
+# It uses simple math questions that the LLM can answer directly without any tools.
+# This makes it ideal for:
+# - Quick validation that the eval framework is working
+# - Testing in environments without Kubernetes access
+# - Debugging the check evaluation logic itself
+
+checks:
+  - name: "Basic Math Check"
+    description: "Simple arithmetic check"
+    query: "Does 2 + 2 equal 4?"
+    tags: ["math", "simple"]
+
+  - name: "Wrong Math Check"
+    description: "Intentionally wrong arithmetic"
+    query: "Does 3 + 3 equal 7?"
+    tags: ["math", "wrong"]
+
+  - name: "Multiplication Check"
+    description: "Check multiplication"
+    query: "Is 6 times 7 equal to 42?"
+    tags: ["math", "multiplication"]
+
+expected_results:
+  "Basic Math Check": "pass"
+  "Wrong Math Check": "fail"
+  "Multiplication Check": "pass"
+
+expected_output: "Math checks completed with expected results"
+
+tags:
+  - numerical
+  - easy
+
+description: "Simple arithmetic checks to test pass/fail logic without infrastructure"

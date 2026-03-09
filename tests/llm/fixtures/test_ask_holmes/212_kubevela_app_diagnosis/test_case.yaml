@@ -1,0 +1,122 @@
+# Test that Holmes can diagnose KubeVela application deployment issues
+user_prompt: "My payment-service application in the app-212 namespace is not working properly. What's wrong with it and what components does it have?"
+
+expected_output:
+  - "Must identify that the payment-service application exists"
+  - "Must report that the application has an 'Unhealthy' or failed status"
+  - "Must mention the webservice component"
+  - "Must identify the issue with the container image (using nonexistent-image tag)"
+
+tags:
+  - question-answer
+  - kubernetes
+
+include_tool_calls: true
+
+before_test: |
+  set -e
+
+  NAMESPACE="app-212"
+  APP_NAME="payment-service"
+
+  echo "Creating namespace $NAMESPACE..."
+  kubectl create namespace $NAMESPACE || true
+
+  echo ""
+  echo "Installing KubeVela core..."
+  # Check if vela-system namespace exists
+  if ! kubectl get namespace vela-system >/dev/null 2>&1; then
+    echo "Installing KubeVela..."
+    vela install --version v1.10.4
+  else
+    echo "KubeVela already installed"
+  fi
+
+  echo ""
+  echo "Waiting for KubeVela controller to be ready..."
+  kubectl wait --for=condition=available --timeout=120s deployment/vela-core -n vela-system
+
+  echo ""
+  echo "Creating a KubeVela application with an issue..."
+  cat <<EOF | kubectl apply -f -
+  apiVersion: core.oam.dev/v1beta1
+  kind: Application
+  metadata:
+    name: $APP_NAME
+    namespace: $NAMESPACE
+  spec:
+    components:
+      - name: webservice
+        type: webservice
+        properties:
+          image: nginx:nonexistent-image  # Intentionally broken image tag
+          ports:
+            - port: 80
+              expose: true
+          cpu: "0.1"
+          memory: "128Mi"
+        traits:
+          - type: scaler
+            properties:
+              replicas: 1
+  EOF
+
+  echo ""
+  echo "Waiting for application to be processed..."
+  sleep 10
+
+  echo ""
+  echo "Checking application status..."
+  APP_CREATED=false
+  for i in {1..30}; do
+    if kubectl get application $APP_NAME -n $NAMESPACE >/dev/null 2>&1; then
+      echo "Application resource created"
+      APP_CREATED=true
+      break
+    fi
+    echo "Attempt $i/30: Waiting for application to be created..."
+    sleep 2
+  done
+
+  if [ "$APP_CREATED" = false ]; then
+    echo "Application failed to be created after 60 seconds"
+    echo ""
+    echo "=== KubeVela controller logs (last 50 lines) ==="
+    kubectl logs -n vela-system -l app.kubernetes.io/name=vela-core --tail=50 || echo "No controller logs found"
+    exit 1
+  fi
+
+  echo ""
+  echo "Verifying application is accessible via vela CLI..."
+  VELA_APP_VISIBLE=false
+  for i in {1..30}; do
+    if vela ls -n $NAMESPACE 2>&1 | grep -q "$APP_NAME"; then
+      echo "Application visible via vela CLI"
+      VELA_APP_VISIBLE=true
+      break
+    fi
+    echo "Attempt $i/30: Waiting for app to be visible in vela ls..."
+    sleep 2
+  done
+
+  if [ "$VELA_APP_VISIBLE" = false ]; then
+    echo "Application not visible in vela ls after 60 seconds"
+    echo ""
+    echo "=== Application status ==="
+    kubectl get application $APP_NAME -n $NAMESPACE -o yaml || true
+    echo ""
+    echo "=== vela ls output ==="
+    vela ls -n $NAMESPACE || true
+    exit 1
+  fi
+
+  echo ""
+  echo "Application status:"
+  vela status $APP_NAME -n $NAMESPACE || true
+
+  echo ""
+  echo "Test setup completed - application deployed with intentional issue"
+
+after_test: |
+  kubectl delete application payment-service -n app-212 || true
+  kubectl delete namespace app-212 || true

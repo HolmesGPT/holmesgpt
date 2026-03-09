@@ -41,12 +41,21 @@ from holmes.utils.pydantic_utils import ToolsetConfig, build_config_example
 
 
 class KafkaClusterConfig(ToolsetConfig):
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "kafka_broker": "broker",
+        "kafka_security_protocol": "security_protocol",
+        "kafka_sasl_mechanism": "sasl_mechanism",
+        "kafka_client_id": "client_id",
+        "kafka_username": "username",
+        "kafka_password": "password",
+    }
+
     name: str = Field(
         title="Name",
         description="Name identifier for this Kafka cluster",
         examples=["us-west-kafka", "eu-central-kafka"],
     )
-    kafka_broker: str = Field(
+    broker: str = Field(
         title="Broker Address",
         description="Kafka broker address",
         examples=[
@@ -55,31 +64,31 @@ class KafkaClusterConfig(ToolsetConfig):
             "kafka.default.svc:9092",
         ],
     )
-    kafka_security_protocol: Optional[str] = Field(
+    security_protocol: Optional[str] = Field(
         default=None,
         title="Security Protocol",
         description="Security protocol (e.g., PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL)",
         examples=["SASL_SSL", "SSL", "PLAINTEXT"],
     )
-    kafka_sasl_mechanism: Optional[str] = Field(
+    sasl_mechanism: Optional[str] = Field(
         default=None,
         title="SASL Mechanism",
         description="SASL mechanism (e.g., PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)",
         examples=["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"],
     )
-    kafka_username: Optional[str] = Field(
+    username: Optional[str] = Field(
         default=None,
         title="Username",
         description="Username for SASL authentication",
         examples=["{{ env.KAFKA_USERNAME }}"],
     )
-    kafka_password: Optional[str] = Field(
+    password: Optional[str] = Field(
         default=None,
         title="Password",
         description="Password for SASL authentication",
         examples=["{{ env.KAFKA_PASSWORD }}"],
     )
-    kafka_client_id: Optional[str] = Field(
+    client_id: Optional[str] = Field(
         default="holmes-kafka-client",
         title="Client ID",
         description="Client ID for Kafka connections",
@@ -87,10 +96,14 @@ class KafkaClusterConfig(ToolsetConfig):
 
 
 class KafkaConfig(ToolsetConfig):
-    kafka_clusters: List[KafkaClusterConfig] = Field(
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "kafka_clusters": "clusters",
+    }
+
+    clusters: List[KafkaClusterConfig] = Field(
         title="Clusters",
         description="List of Kafka clusters to connect to",
-        examples=[[build_config_example(KafkaClusterConfig)]]
+        examples=[[build_config_example(KafkaClusterConfig)]],
     )
 
 
@@ -173,9 +186,9 @@ class BaseKafkaTool(Tool):
         if not self.toolset.kafka_config:
             raise Exception("Kafka configuration not available")
 
-        for cluster in self.toolset.kafka_config.kafka_clusters:
+        for cluster in self.toolset.kafka_config.clusters:
             if cluster.name == cluster_name:
-                return cluster.kafka_broker
+                return cluster.broker
 
         raise Exception(
             f"Failed to resolve bootstrap servers. No matching cluster: {cluster_name}"
@@ -638,25 +651,23 @@ class KafkaToolset(Toolset):
             kafka_config = KafkaConfig(**config)
             self.kafka_config = kafka_config
 
-            for cluster in kafka_config.kafka_clusters:
+            for cluster in kafka_config.clusters:
                 try:
                     logging.info(f"Setting up Kafka client for cluster: {cluster.name}")
                     admin_config = {
-                        "bootstrap.servers": cluster.kafka_broker,
-                        "client.id": cluster.kafka_client_id,
+                        "bootstrap.servers": cluster.broker,
+                        "client.id": cluster.client_id,
                         "socket.timeout.ms": 15000,  # 15 second timeout
                         "api.version.request.timeout.ms": 15000,  # 15 second API version timeout
                     }
 
-                    if cluster.kafka_security_protocol:
-                        admin_config["security.protocol"] = (
-                            cluster.kafka_security_protocol
-                        )
-                    if cluster.kafka_sasl_mechanism:
-                        admin_config["sasl.mechanisms"] = cluster.kafka_sasl_mechanism
-                    if cluster.kafka_username and cluster.kafka_password:
-                        admin_config["sasl.username"] = cluster.kafka_username
-                        admin_config["sasl.password"] = cluster.kafka_password
+                    if cluster.security_protocol:
+                        admin_config["security.protocol"] = cluster.security_protocol
+                    if cluster.sasl_mechanism:
+                        admin_config["sasl.mechanisms"] = cluster.sasl_mechanism
+                    if cluster.username and cluster.password:
+                        admin_config["sasl.username"] = cluster.username
+                        admin_config["sasl.password"] = cluster.password
 
                     client = AdminClient(admin_config)
                     # Test the connection by trying to list topics with a timeout

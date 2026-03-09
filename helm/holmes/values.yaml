@@ -20,7 +20,7 @@ autoscaling:
 image: holmes:0.0.0
 registry: robustadev
 
-sentryDSN: https://aa95c183188a6ddf134ebfffe85fd108@o4510692373299200.ingest.de.sentry.io/4510707946094672
+sentryDSN: ""
 
 enableAccountsCreate: true
 revisionHistoryLimit: 10
@@ -70,7 +70,7 @@ toolsets:
   bash:
     enabled: true
     config:
-      include_default_allow_deny_list: true
+      builtin_allowlist: "extended"
 mcp_servers: {}
 
 resources:
@@ -117,8 +117,8 @@ mcpAddons:
       name: "aws-api-mcp-sa"
       annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
-    image: "aws-api-mcp-server:1.0.1"
-    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/devel"
+    image: "aws-api-mcp-server:2.0.1"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     resources:
       requests:
@@ -137,7 +137,7 @@ mcpAddons:
     # When multiAccount.profiles is defined, the chart will use EKS token projection
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
-      image: "multi-aws-api-mcp-server:2.0.0"
+      image: "multi-aws-api-mcp-server:2.0.1"
       # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
       profiles: {}
       llm_account_descriptions: ""
@@ -158,8 +158,8 @@ mcpAddons:
   mariadb:
     enabled: false
 
-    image: "mariadb-http-mcp-minimal:1.0.5"
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    image: "mariadb-http-mcp-minimal:1.0.6"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
       host: ""       # MariaDB host
@@ -228,7 +228,7 @@ mcpAddons:
 
     # Container registry for GCP MCP images
     # Build images from: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: "IfNotPresent"
 
     # Workload Identity configuration (works for observability/storage MCPs, not gcloud)
@@ -248,7 +248,7 @@ mcpAddons:
     # gcloud MCP - General GCP management via gcloud CLI
     gcloud:
       enabled: true
-      image: "gcloud-cli-mcp:1.0.7"
+      image: "gcloud-cli-mcp:1.0.9"
       port: 8000
       resources:
         requests:
@@ -260,7 +260,7 @@ mcpAddons:
     # Observability MCP - Cloud Logging, Monitoring, Trace, Error Reporting
     observability:
       enabled: true
-      image: "gcloud-observability-mcp:1.0.0"
+      image: "gcloud-observability-mcp:1.0.1"
       port: 8001
       resources:
         requests:
@@ -272,7 +272,7 @@ mcpAddons:
     # Storage MCP - Cloud Storage operations
     storage:
       enabled: true
-      image: "gcloud-storage-mcp:1.0.0"
+      image: "gcloud-storage-mcp:1.0.1"
       port: 8002
       resources:
         requests:
@@ -299,8 +299,8 @@ mcpAddons:
         # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
         # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
 
-    image: "azure-cli-mcp:1.0.1"
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    image: "azure-cli-mcp:1.0.2"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: "IfNotPresent"
 
     config:
@@ -358,8 +358,8 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.0"
-    registry: "me-west1-docker.pkg.dev/robusta-development/development"
+    image: "github-mcp:1.0.1"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
     # Authentication - PAT from Kubernetes secret
@@ -404,3 +404,213 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+  # Sentry MCP Server Configuration
+  # Provides access to Sentry error tracking and monitoring
+  # Authentication: Create a Sentry Auth Token with appropriate scopes
+  #   Then create a Kubernetes secret:
+  #   kubectl create secret generic sentry-mcp-token --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> -n <NAMESPACE>
+  sentry:
+    enabled: false
+
+    image: "sentry-mcp:1.0.1"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+    imagePullPolicy: IfNotPresent
+
+    auth:
+      secretName: ""      # Required: name of K8s secret containing the Sentry auth token
+      secretKey: "token"  # Key in secret (default: "token")
+
+    config:
+      # Sentry host URL (leave empty for sentry.io)
+      # Set to your self-hosted Sentry URL (e.g., "https://sentry.mycompany.com")
+      host: ""
+
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+    networkPolicy:
+      enabled: false
+
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # Prefect MCP Server Configuration
+  # Provides access to Prefect workflow orchestration for monitoring and troubleshooting
+  # Authentication: Create a Prefect Cloud API key (optional for self-hosted)
+  #   Then create a Kubernetes secret:
+  #   kubectl create secret generic prefect-mcp-token --from-literal=token=<YOUR_PREFECT_API_KEY> -n <NAMESPACE>
+  prefect:
+    enabled: false
+
+    image: "prefect-mcp:1.0.0"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+    imagePullPolicy: IfNotPresent
+
+    auth:
+      secretName: ""      # Name of K8s secret containing the Prefect API key (required for Cloud, optional for self-hosted)
+      secretKey: "token"  # Key in secret (default: "token")
+
+    config:
+      # Prefect API URL (required)
+      # Cloud: https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>
+      # Self-hosted: http://prefect-server:4200/api
+      apiUrl: ""
+
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+    networkPolicy:
+      enabled: false
+
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # Kubernetes Remediation MCP Server Configuration
+  # Provides safe kubectl command execution with security controls
+  # WARNING: This addon can execute write operations. Configure allowedCommands carefully.
+  kubernetesRemediation:
+    enabled: false
+
+    image: "kubernetes-remediation-mcp:1.0.0"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+    imagePullPolicy: IfNotPresent
+
+    serviceAccount:
+      create: true
+      name: "k8s-remediation-mcp-sa"
+      annotations: {}
+      clusterRole: "cluster-admin"  # Override with a more restrictive role as needed
+
+    config:
+      # Comma-separated list of allowed kubectl subcommands
+      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+      # Comma-separated list of blocked flags
+      dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
+      # Command timeout in seconds
+      timeout: "60"
+      # Log level
+      logLevel: "INFO"
+      # Comma-separated list of allowed images for the run_image tool (leave empty to disable)
+      allowedImages: ""
+
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "50m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
+
+    networkPolicy:
+      enabled: false
+
+    # Tools that can only be called after a runbook invocation (prevents ad-hoc write operations)
+    # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
+    restrictedTools:
+      - "*"
+    # Tools that require user confirmation before execution
+    # Use ["*"] to require approval for all tools, or specify tool names
+    approvalRequiredTools:
+      - "*"
+
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # Confluence MCP Server Configuration
+  # Provides access to Confluence documentation search and retrieval
+  # Authentication: Create an Atlassian API token
+  #   Then create a Kubernetes secret:
+  #   kubectl create secret generic confluence-mcp-credentials \
+  #     --from-literal=confluence-username=<YOUR_EMAIL> --from-literal=confluence-api-token=<YOUR_API_TOKEN> -n <NAMESPACE>
+  confluenceMcp:
+    enabled: false
+
+    image: "mcp-atlassian:latest"
+    registry: "ghcr.io/sooperset"
+    imagePullPolicy: IfNotPresent
+
+    auth:
+      secretName: ""         # Required: name of K8s secret containing Confluence credentials
+      usernameKey: "confluence-username"  # Key in secret for the username/email
+      tokenKey: "confluence-api-token"   # Key in secret for the API token
+
+    config:
+      # Confluence instance URL (required)
+      # Example: "https://your-company.atlassian.net/wiki"
+      url: ""
+      # Restrict available tools (comma-separated, leave empty for all)
+      enabledTools: "confluence_search,confluence_get_page,confluence_get_page_content,confluence_get_comments"
+      # Set to true to disable write operations
+      readOnly: true
+
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "500m"
+
+    networkPolicy:
+      enabled: false
+
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+# Holmes Operator Configuration
+operator:
+  enabled: false  # Set to true to deploy the operator
+
+  # Container image
+  image: holmes-operator:0.0.0
+  registry: robustadev
+  imagePullPolicy: IfNotPresent
+
+  # Holmes API connection
+  holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
+  holmesApiTimeout: 300  # seconds
+
+  # Logging
+  logLevel: INFO
+
+  # History management
+  maxHistoryItems: 10
+  cleanupCompletedChecks: false
+  completedCheckTTLHours: 24
+
+  # Resources
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+
+  # Additional configuration
+  additionalEnvVars: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

@@ -1,4 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_get_by_name", "match_params": {"kind": "pod", "name": "my_grafana_4j981", "namespace": "default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_get_by_name command", "params": {"kind": "pod", "name": "my_grafana_4j981", "namespace": "default"}}
-NAME                           READY   STATUS    RESTARTS   AGE
-pod/my_grafana_4j981   1/1     Running   0          7m27s

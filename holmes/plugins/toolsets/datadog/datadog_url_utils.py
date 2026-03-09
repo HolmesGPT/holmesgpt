@@ -17,7 +17,7 @@ def generate_datadog_metrics_explorer_url(
     from_time: int,
     to_time: int,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
 
     params = {
         "query": query,
@@ -36,7 +36,7 @@ def generate_datadog_metrics_list_url(
     tag_filter: Optional[str] = None,
     metric_filter: Optional[str] = None,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
 
     params = {}
     if metric_filter:
@@ -55,7 +55,7 @@ def generate_datadog_metric_metadata_url(
     dd_config: DatadogMetricsConfig,
     metric_name: str,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
     params = {"metric": metric_name}
     return f"{base_url}/metric/summary?{urlencode(params)}"
 
@@ -64,7 +64,7 @@ def generate_datadog_metric_tags_url(
     dd_config: DatadogMetricsConfig,
     metric_name: str,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
     params = {"metric": metric_name}
     return f"{base_url}/metric/summary?{urlencode(params)}"
 
@@ -75,7 +75,7 @@ def generate_datadog_spans_url(
     from_time_ms: int,
     to_time_ms: int,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
 
     url_params = {
         "query": query,
@@ -93,7 +93,7 @@ def generate_datadog_spans_analytics_url(
     from_time_ms: int,
     to_time_ms: int,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
 
     url_params = {
         "query": query,
@@ -109,7 +109,7 @@ def generate_datadog_logs_url(
     dd_config: DatadogLogsConfig,
     params: dict,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
     url_params = {
         "query": params["filter"]["query"],
         "from_ts": params["filter"]["from"],
@@ -161,7 +161,7 @@ def generate_datadog_general_url(
     endpoint: str,
     query_params: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    base_url = convert_api_url_to_app_url(dd_config.site_api_url)
+    base_url = convert_api_url_to_app_url(dd_config.api_url)
     path = urlparse(endpoint).path
 
     if "/logs" in path:

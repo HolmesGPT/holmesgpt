@@ -1,8 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_events","match_params":{"namespace":"default","pod_name":"java-api-checker-jzzdd","resource_type":"pod"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl events --for pod/java-api-checker-jzzdd -n default", "params": {"namespace": "default", "pod_name": "java-api-checker-jzzdd", "resource_type": "pod"}}
-LAST SEEN   TYPE     REASON      OBJECT                       MESSAGE
-29m         Normal   Scheduled   Pod/java-api-checker-jzzdd   Successfully assigned default/java-api-checker-jzzdd to kind-double-node-worker
-29m         Normal   Pulling     Pod/java-api-checker-jzzdd   Pulling image "busybox"
-29m         Normal   Pulled      Pod/java-api-checker-jzzdd   Successfully pulled image "busybox" in 846ms (846ms including waiting). Image size: 2156518 bytes.
-29m         Normal   Created     Pod/java-api-checker-jzzdd   Created container java-beans
-29m         Normal   Started     Pod/java-api-checker-jzzdd   Started container java-beans

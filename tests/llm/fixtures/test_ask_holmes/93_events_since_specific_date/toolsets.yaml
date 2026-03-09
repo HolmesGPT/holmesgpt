@@ -1,5 +1,0 @@
-toolsets:
-  kubernetes/logs:
-    enabled: true
-  kubernetes/core:
-    enabled: true

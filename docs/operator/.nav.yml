@@ -1,0 +1,7 @@
+nav:
+    - Overview & Installation: index.md
+    - Health Checks: health-checks.md
+    - Scheduled Health Checks: scheduled-health-checks.md
+    - Alert Destinations: destinations.md
+    - Configuration: configuration.md
+    - Development Guide: development.md

@@ -237,7 +237,7 @@ class DatadogGeneralToolset(Toolset):
         if not config:
             return (
                 False,
-                "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
+                "Missing config for api_key, app_key, or api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             )
 
         try:
@@ -266,7 +266,7 @@ class DatadogGeneralToolset(Toolset):
         """Perform health check on Datadog API."""
         try:
             logging.info("Performing Datadog general API configuration healthcheck...")
-            base_url = str(dd_config.site_api_url).rstrip("/")
+            base_url = str(dd_config.api_url).rstrip("/")
             url = f"{base_url}/api/v1/validate"
             headers = get_headers(dd_config)
 
@@ -274,7 +274,7 @@ class DatadogGeneralToolset(Toolset):
                 url=url,
                 headers=headers,
                 payload_or_params={},
-                timeout=dd_config.request_timeout,
+                timeout=dd_config.timeout_seconds,
                 method="GET",
             )
 
@@ -434,7 +434,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
         url = None
         try:
             # Build full URL (ensure no double slashes)
-            base_url = str(self.toolset.dd_config.site_api_url).rstrip("/")
+            base_url = str(self.toolset.dd_config.api_url).rstrip("/")
             endpoint = endpoint.lstrip("/")
             url = f"{base_url}/{endpoint}"
             headers = get_headers(self.toolset.dd_config)
@@ -449,7 +449,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                 url=url,
                 headers=headers,
                 payload_or_params=processed_params,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="GET",
             )
 
@@ -492,7 +492,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
             elif e.status_code == 400:
                 # Use enhanced error message for 400 errors
                 error_msg = enhance_error_message(
-                    e, endpoint, "GET", str(self.toolset.dd_config.site_api_url)
+                    e, endpoint, "GET", str(self.toolset.dd_config.api_url)
                 )
             else:
                 error_msg = f"API error {e.status_code}: {str(e)}"
@@ -630,7 +630,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
         url = None
         try:
             # Build full URL (ensure no double slashes)
-            base_url = str(self.toolset.dd_config.site_api_url).rstrip("/")
+            base_url = str(self.toolset.dd_config.api_url).rstrip("/")
             endpoint = endpoint.lstrip("/")
             url = f"{base_url}/{endpoint}"
             headers = get_headers(self.toolset.dd_config)
@@ -645,7 +645,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                 url=url,
                 headers=headers,
                 payload_or_params=processed_body,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -689,7 +689,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
             elif e.status_code == 400:
                 # Use enhanced error message for 400 errors
                 error_msg = enhance_error_message(
-                    e, endpoint, "POST", str(self.toolset.dd_config.site_api_url)
+                    e, endpoint, "POST", str(self.toolset.dd_config.api_url)
                 )
             else:
                 error_msg = f"API error {e.status_code}: {str(e)}"

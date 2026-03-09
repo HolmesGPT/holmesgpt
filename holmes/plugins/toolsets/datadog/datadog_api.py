@@ -3,7 +3,7 @@ import logging
 import re
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse, urlunparse
 
 import requests  # type: ignore
@@ -98,24 +98,31 @@ def convert_api_url_to_app_url(api_url: Union[str, AnyUrl]) -> str:
 class DatadogBaseConfig(ToolsetConfig):
     """Base configuration for all Datadog toolsets"""
 
-    dd_api_key: str = Field(
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "dd_api_key": "api_key",
+        "dd_app_key": "app_key",
+        "site_api_url": "api_url",
+        "request_timeout": "timeout_seconds",
+    }
+
+    api_key: str = Field(
         title="API Key",
         description="Datadog API key for authentication",
         examples=["<your_datadog_api_key>"],
     )
-    dd_app_key: str = Field(
+    app_key: str = Field(
         title="Application Key",
         description="Datadog application key for authentication",
         examples=["<your_datadog_app_key>"],
     )
-    site_api_url: AnyUrl = Field(
-        title="Site API URL",
+    api_url: AnyUrl = Field(
+        title="API URL",
         description="Datadog site API base URL",
         examples=["https://api.datadoghq.com", "https://api.datadoghq.eu"],
     )
-    request_timeout: int = Field(
+    timeout_seconds: int = Field(
         default=60,
-        title="Request Timeout",
+        title="Timeout",
         description="HTTP request timeout in seconds",
     )
 
@@ -151,8 +158,8 @@ def get_headers(dd_config: DatadogBaseConfig) -> Dict[str, str]:
     """
     return {
         "Content-Type": "application/json",
-        "DD-API-KEY": dd_config.dd_api_key,
-        "DD-APPLICATION-KEY": dd_config.dd_app_key,
+        "DD-API-KEY": dd_config.api_key,
+        "DD-APPLICATION-KEY": dd_config.app_key,
     }
 
 

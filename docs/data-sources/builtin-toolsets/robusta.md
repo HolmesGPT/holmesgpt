@@ -59,8 +59,23 @@ holmes:
 | Tool Name | Description |
 |-----------|-------------|
 | fetch_finding_by_id | Fetches detailed metadata about a specific Robusta finding (alerts, deployment updates, etc.) including historical context |
-| fetch_configuration_changes_metadata | Retrieves all configuration changes in a given time range, optionally filtered by namespace or workload |
-| fetch_resource_recommendation | Provides resource optimization recommendations based on actual historical usage for Deployments, StatefulSets, DaemonSets, and Jobs |
+| fetch_configuration_changes_metadata | Retrieves configuration changes in a given time range. Supports multi-cluster queries and includes external changes (e.g., LaunchDarkly feature flags) by default |
+| fetch_resource_issues_metadata | Fetches issues and alert metadata in a given time range with multi-cluster support |
+| fetch_resource_recommendation | Provides resource optimization recommendations based on actual historical usage for Deployments, StatefulSets, DaemonSets, and Jobs. Supports multi-cluster queries |
+
+### Multi-Cluster Support
+
+All tools that fetch data from Robusta SaaS support querying across multiple clusters:
+
+- **Default behavior**: Queries the current cluster only
+- **all_clusters=true**: Searches across all clusters in your account
+- **clusters=['cluster-a', 'cluster-b']**: Queries specific clusters by name
+
+This is useful when investigating issues that may span multiple clusters or when comparing configurations across your infrastructure.
+
+### External Changes
+
+The `fetch_configuration_changes_metadata` tool includes external configuration changes by default (e.g., LaunchDarkly feature flag changes). Set `include_external=false` to exclude these and only see Kubernetes cluster changes.
 
 ## Use Cases
 

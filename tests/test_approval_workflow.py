@@ -85,7 +85,12 @@ def test_streaming_chat_approval_workflow_requires_approval(
     mock_tool_executor = MagicMock(spec=ToolExecutor)
 
     # Create the actual ToolCallingLLM instance
-    ai = ToolCallingLLM(tool_executor=mock_tool_executor, max_steps=5, llm=mock_llm)
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=5,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
 
     # Mock LLM methods
     mock_llm.count_tokens.return_value = TokenCountMetadata(
@@ -221,7 +226,12 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
     mock_tool_executor = MagicMock(spec=ToolExecutor)
 
     # Create the actual ToolCallingLLM instance
-    ai = ToolCallingLLM(tool_executor=mock_tool_executor, max_steps=5, llm=mock_llm)
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=5,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
 
     # Mock LLM methods - Return final answer after tool execution
     mock_llm.count_tokens.return_value = TokenCountMetadata(
@@ -368,7 +378,12 @@ def test_streaming_chat_approval_workflow_reject_command(
     mock_tool_executor = MagicMock(spec=ToolExecutor)
 
     # Create the actual ToolCallingLLM instance
-    ai = ToolCallingLLM(tool_executor=mock_tool_executor, max_steps=5, llm=mock_llm)
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=5,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
 
     # Mock LLM methods - Return final answer after tool rejection
     mock_llm.count_tokens.return_value = TokenCountMetadata(

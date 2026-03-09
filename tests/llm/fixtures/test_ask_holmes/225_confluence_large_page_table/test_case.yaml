@@ -1,0 +1,340 @@
+# Test: Extract a specific cell from a large table in a big Confluence page
+# The page simulates a platform engineering environment matrix document with
+# ~3000 words of prose followed by a 15-row config table. Holmes must find a
+# specific service's production endpoint by looking up the row (service name)
+# and column (Prod Endpoint).
+#
+# Requirements:
+#   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
+
+user_prompt: |
+  Look up the environment matrix page titled 'Platform Services Environment Matrix'
+  in Confluence space 'HOLMES225'. What is the production endpoint for the
+  inventory-service?
+
+expected_output:
+  - "Must report the production endpoint: https://inventory.prod.internal.acme.io:8443/api/v2"
+
+tags:
+  - confluence
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES225"
+  SPACE_NAME="Holmes Test Space 225"
+  PAGE_TITLE="Platform Services Environment Matrix"
+  VERIFICATION_ENDPOINT="https://inventory.prod.internal.acme.io:8443/api/v2"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 225\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif [ "$HTTP_CODE" -eq 409 ]; then
+    echo "Space already exists, reusing."
+  else
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+  sleep 2
+
+  # Build the large page body. The prose sections are deliberately long to push
+  # the table far down and test whether Holmes can extract from a big page.
+  read -r -d '' PAGE_BODY << 'PAGEEOF' || true
+  <h1>Platform Services Environment Matrix</h1>
+
+  <h2>Overview</h2>
+  <p>This document serves as the canonical reference for all platform microservices operated by the Infrastructure Platform team. It covers deployment topology, networking configuration, database assignments, caching layers, and feature-flag states across all four standard environments: Development (dev), Staging (staging), Production (prod), and Disaster Recovery (dr). All teams shipping services on the Acme Platform must keep this page up to date whenever infrastructure changes are made. The page is reviewed quarterly by the Architecture Review Board.</p>
+
+  <h2>Deployment Architecture</h2>
+  <p>Every microservice is deployed as a set of Kubernetes Deployments behind a ClusterIP Service. Ingress is managed by an NGINX-based Ingress Controller in dev and staging, and by an AWS ALB Ingress Controller in production and DR. Each service is assigned a unique internal DNS name following the pattern <code>&lt;service&gt;.&lt;env&gt;.internal.acme.io</code>. TLS termination happens at the load balancer in production using certificates issued by the internal PKI (Vault-managed). In non-production environments, services communicate over plain HTTP within the cluster mesh, while external access uses self-signed certificates managed by cert-manager.</p>
+  <p>All production services run with a minimum of three replicas spread across availability zones us-east-1a, us-east-1b, and us-east-1c. Horizontal Pod Autoscalers are configured with CPU target utilization of 65% and memory target of 70%. The maximum replica count varies per service and is documented in each service's Helm values file stored in the <code>infra-helm-charts</code> repository. Staging mirrors the production topology at reduced scale (two replicas, single AZ) to catch topology-sensitive bugs before they reach production. Dev runs single-replica deployments with relaxed resource requests to keep costs low.</p>
+
+  <h2>Database Strategy</h2>
+  <p>The platform uses Amazon RDS PostgreSQL 15.4 as the primary relational database engine. Each service that requires persistent storage is assigned a dedicated database within a shared RDS cluster per environment. Connection pooling is handled by PgBouncer sidecars injected via a mutating admission webhook. The connection pool size defaults to 20 connections per pod, with a maximum of 50 for high-throughput services like the order-processor and payment-gateway. Read replicas are provisioned in production and DR for services that perform heavy analytical queries, and these replicas are exposed via a separate read-only endpoint.</p>
+  <p>Schema migrations are executed during the CI/CD pipeline using Flyway. Migration scripts are versioned and stored alongside application code. Backward-compatible migrations are enforced by a pre-merge check that verifies no DROP or ALTER TABLE ... DROP COLUMN statements appear without a corresponding feature flag gating the code path. This policy was introduced after the Q2-2024 incident where a premature column drop caused the notification-service to crash loop for 47 minutes in production (see Postmortem PM-2024-0091).</p>
+
+  <h2>Caching Layer</h2>
+  <p>Redis 7.2 clusters provide the caching layer. A shared ElastiCache cluster is used per environment, with logical databases (db0 through db15) assigned to individual services. Cache eviction policies are set to <code>allkeys-lru</code> by default. Services that require guaranteed cache availability (such as the auth-service session store) use a dedicated Redis cluster with <code>noeviction</code> policy and persistence enabled (RDB snapshots every 60 seconds, AOF with fsync every second). Cache key prefixes follow the pattern <code>&lt;service-name&gt;:&lt;version&gt;:</code> to prevent key collisions during blue-green deployments.</p>
+  <p>The recommendation-engine service uses a separate Redis instance configured as a sorted-set store for real-time ranking. This instance runs on r6g.2xlarge nodes with 52 GiB of memory to accommodate the full product catalog ranking data. Cache warming is performed by a Kubernetes Job that runs immediately after each deployment, pre-populating the top 10,000 product rankings from the analytics data warehouse.</p>
+
+  <h2>Feature Flags</h2>
+  <p>Feature flags are managed by LaunchDarkly. Each environment has a separate LaunchDarkly project, and flag evaluations are cached locally by the LaunchDarkly SDK with a polling interval of 30 seconds in production (streaming mode disabled due to proxy limitations). New features must be gated behind a feature flag if they modify user-facing behavior or change data schemas. Flags are reviewed monthly and archived if they have been at 100% rollout for more than 30 days. The current flag count per environment is: dev (312 flags), staging (287 flags), prod (198 flags), dr (198 flags, mirrored from prod).</p>
+
+  <h2>Monitoring and Alerting</h2>
+  <p>All services expose Prometheus metrics on the <code>/metrics</code> endpoint. Service-level indicators (SLIs) are defined for latency (p99), error rate (5xx / total), and availability. Service-level objectives (SLOs) are tracked in Grafana dashboards under the "Platform SLOs" folder. PagerDuty is configured for production alerts with a 5-minute escalation window. Non-production alerts route to a shared Slack channel (#platform-staging-alerts). Each service owner is required to maintain a runbook linked from the PagerDuty service configuration. On-call rotations follow a weekly schedule with a primary and secondary on each rotation.</p>
+  <p>Distributed tracing is implemented using OpenTelemetry with Jaeger as the backend. Trace sampling is set at 1% in production and 100% in dev/staging. Critical paths (payment processing, authentication flows) have forced sampling enabled regardless of the global sampling rate. Log aggregation uses Fluent Bit shipping to OpenSearch, with a retention policy of 7 days in dev, 30 days in staging, 90 days in production, and 90 days in DR.</p>
+
+  <h2>Networking and Security</h2>
+  <p>Network policies are enforced by Calico. Each namespace has a default-deny ingress policy, and services must explicitly declare their allowed communication partners via NetworkPolicy resources. The API gateway (Kong) serves as the single entry point for external traffic, performing rate limiting (1000 req/s per client), JWT validation, and request transformation. Internal service-to-service calls use mTLS provided by Istio sidecar proxies in production. Staging uses plain-text communication for easier debugging. IP whitelisting is configured for administrative endpoints using Kubernetes annotations on the Ingress resources.</p>
+  <p>Secrets are managed by HashiCorp Vault with the Kubernetes auth method. Each service's ServiceAccount is bound to a Vault role that grants read access to the service-specific secret path <code>secret/data/&lt;env&gt;/&lt;service-name&gt;</code>. Vault Agent injector handles secret injection at pod startup. Secret rotation is automated for database credentials (every 24 hours) and API keys (every 7 days). Manual rotation is required for third-party service credentials, and the rotation schedule is tracked in this page's companion document "Secret Rotation Schedule".</p>
+
+  <h2>CI/CD Pipeline</h2>
+  <p>The CI/CD pipeline runs on GitHub Actions. Each repository follows a trunk-based development model with short-lived feature branches. Merges to main trigger the following stages: lint, unit test, integration test, container build, security scan (Trivy), push to ECR, deploy to dev, smoke test, promote to staging, integration test in staging, and finally a manual approval gate for production deployment. Production deployments use a canary strategy with 10% traffic shift, 5-minute bake time, and automatic rollback if error rate exceeds 1% or p99 latency exceeds the SLO by more than 20%. The average deployment frequency is 4.2 deploys per service per week in production.</p>
+
+  <h2>Environment Configuration Matrix</h2>
+  <p>The table below contains the definitive endpoint and configuration mapping for every platform service. Use the search function or scroll to find the service you need. When making infrastructure changes, update this table and notify the #platform-changes Slack channel.</p>
+
+  <table>
+    <tbody>
+      <tr>
+        <th>Service</th>
+        <th>Dev Endpoint</th>
+        <th>Staging Endpoint</th>
+        <th>Prod Endpoint</th>
+        <th>DR Endpoint</th>
+        <th>DB Host</th>
+        <th>Redis Host</th>
+        <th>Feature Flags</th>
+      </tr>
+      <tr>
+        <td>api-gateway</td>
+        <td>http://api-gw.dev.internal.acme.io:8080</td>
+        <td>https://api-gw.staging.internal.acme.io:8443</td>
+        <td>https://api-gw.prod.internal.acme.io:8443</td>
+        <td>https://api-gw.dr.internal.acme.io:8443</td>
+        <td>N/A (stateless)</td>
+        <td>redis-shared.dev.acme.io:6379/db0</td>
+        <td>12 active</td>
+      </tr>
+      <tr>
+        <td>auth-service</td>
+        <td>http://auth.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://auth.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://auth.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://auth.dr.internal.acme.io:8443/api/v1</td>
+        <td>pg-auth.prod.rds.acme.io:5432</td>
+        <td>redis-auth-dedicated.prod.acme.io:6379</td>
+        <td>8 active</td>
+      </tr>
+      <tr>
+        <td>user-profile</td>
+        <td>http://user-profile.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://user-profile.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://user-profile.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://user-profile.dr.internal.acme.io:8443/api/v1</td>
+        <td>pg-users.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db2</td>
+        <td>15 active</td>
+      </tr>
+      <tr>
+        <td>product-catalog</td>
+        <td>http://catalog.dev.internal.acme.io:8080/api/v3</td>
+        <td>https://catalog.staging.internal.acme.io:8443/api/v3</td>
+        <td>https://catalog.prod.internal.acme.io:8443/api/v3</td>
+        <td>https://catalog.dr.internal.acme.io:8443/api/v3</td>
+        <td>pg-catalog.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db3</td>
+        <td>22 active</td>
+      </tr>
+      <tr>
+        <td>inventory-service</td>
+        <td>http://inventory.dev.internal.acme.io:8080/api/v2</td>
+        <td>https://inventory.staging.internal.acme.io:8443/api/v2</td>
+        <td>https://inventory.prod.internal.acme.io:8443/api/v2</td>
+        <td>https://inventory.dr.internal.acme.io:8443/api/v2</td>
+        <td>pg-inventory.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db4</td>
+        <td>9 active</td>
+      </tr>
+      <tr>
+        <td>order-processor</td>
+        <td>http://orders.dev.internal.acme.io:8080/api/v2</td>
+        <td>https://orders.staging.internal.acme.io:8443/api/v2</td>
+        <td>https://orders.prod.internal.acme.io:8443/api/v2</td>
+        <td>https://orders.dr.internal.acme.io:8443/api/v2</td>
+        <td>pg-orders.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db5</td>
+        <td>18 active</td>
+      </tr>
+      <tr>
+        <td>payment-gateway</td>
+        <td>http://payments.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://payments.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://payments.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://payments.dr.internal.acme.io:8443/api/v1</td>
+        <td>pg-payments.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db6</td>
+        <td>6 active</td>
+      </tr>
+      <tr>
+        <td>notification-service</td>
+        <td>http://notify.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://notify.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://notify.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://notify.dr.internal.acme.io:8443/api/v1</td>
+        <td>pg-notify.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db7</td>
+        <td>11 active</td>
+      </tr>
+      <tr>
+        <td>recommendation-engine</td>
+        <td>http://reco.dev.internal.acme.io:8080/api/v2</td>
+        <td>https://reco.staging.internal.acme.io:8443/api/v2</td>
+        <td>https://reco.prod.internal.acme.io:8443/api/v2</td>
+        <td>https://reco.dr.internal.acme.io:8443/api/v2</td>
+        <td>pg-reco.prod.rds.acme.io:5432</td>
+        <td>redis-reco-dedicated.prod.acme.io:6379</td>
+        <td>31 active</td>
+      </tr>
+      <tr>
+        <td>search-indexer</td>
+        <td>http://search.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://search.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://search.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://search.dr.internal.acme.io:8443/api/v1</td>
+        <td>opensearch-search.prod.acme.io:9200</td>
+        <td>redis-shared.prod.acme.io:6379/db9</td>
+        <td>7 active</td>
+      </tr>
+      <tr>
+        <td>analytics-collector</td>
+        <td>http://analytics.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://analytics.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://analytics.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://analytics.dr.internal.acme.io:8443/api/v1</td>
+        <td>clickhouse-analytics.prod.acme.io:8123</td>
+        <td>redis-shared.prod.acme.io:6379/db10</td>
+        <td>4 active</td>
+      </tr>
+      <tr>
+        <td>media-processor</td>
+        <td>http://media.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://media.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://media.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://media.dr.internal.acme.io:8443/api/v1</td>
+        <td>pg-media.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db11</td>
+        <td>3 active</td>
+      </tr>
+      <tr>
+        <td>email-dispatcher</td>
+        <td>http://email.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://email.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://email.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://email.dr.internal.acme.io:8443/api/v1</td>
+        <td>pg-email.prod.rds.acme.io:5432</td>
+        <td>redis-shared.prod.acme.io:6379/db12</td>
+        <td>5 active</td>
+      </tr>
+      <tr>
+        <td>audit-logger</td>
+        <td>http://audit.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://audit.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://audit.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://audit.dr.internal.acme.io:8443/api/v1</td>
+        <td>pg-audit.prod.rds.acme.io:5432</td>
+        <td>N/A (no caching)</td>
+        <td>2 active</td>
+      </tr>
+      <tr>
+        <td>config-server</td>
+        <td>http://config.dev.internal.acme.io:8080/api/v1</td>
+        <td>https://config.staging.internal.acme.io:8443/api/v1</td>
+        <td>https://config.prod.internal.acme.io:8443/api/v1</td>
+        <td>https://config.dr.internal.acme.io:8443/api/v1</td>
+        <td>consul-config.prod.acme.io:8500</td>
+        <td>redis-shared.prod.acme.io:6379/db14</td>
+        <td>0 active</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Change Log</h2>
+  <p><strong>2025-01-15:</strong> Added DR endpoints for all services after the DR readiness initiative completed. Updated Redis host for recommendation-engine to use dedicated cluster after the memory pressure incident in December.</p>
+  <p><strong>2024-11-02:</strong> Migrated search-indexer from Elasticsearch to OpenSearch. Updated DB host column accordingly. Added analytics-collector service (new service launched in Q4).</p>
+  <p><strong>2024-09-18:</strong> Upgraded all production endpoints from TLS 1.2 to TLS 1.3. Changed port from 443 to 8443 for internal routing consistency. Updated auth-service to dedicated Redis cluster after session store eviction incidents.</p>
+  <p><strong>2024-07-01:</strong> Initial version of the environment matrix. Covers 12 original platform services across dev, staging, and prod environments.</p>
+  PAGEEOF
+
+  echo "Creating page..."
+  # Escape the body for JSON
+  ESCAPED_BODY=$(echo "$PAGE_BODY" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"type\": \"page\",
+      \"title\": \"${PAGE_TITLE}\",
+      \"space\": {
+        \"key\": \"${SPACE_KEY}\"
+      },
+      \"body\": {
+        \"storage\": {
+          \"value\": ${ESCAPED_BODY},
+          \"representation\": \"storage\"
+        }
+      }
+    }")
+
+  PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
+  PAGE_BODY_RESP=$(echo "$PAGE_RESPONSE" | sed '$d')
+
+  if [ "$PAGE_HTTP_CODE" -eq 200 ]; then
+    PAGE_ID=$(echo "$PAGE_BODY_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
+    PAGE_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${PAGE_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PAGE_ID" ]; then
+      echo "Failed to create or find page."
+      exit 1
+    fi
+    echo "Found existing page."
+  fi
+  echo "Page created with ID: ${PAGE_ID}"
+
+  echo "Verifying page content..."
+  VERIFY=$(curl -L -s \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content/${PAGE_ID}?expand=body.storage" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if echo "$VERIFY" | grep -q "${VERIFICATION_ENDPOINT}"; then
+    echo "Page content verified - target endpoint found"
+  else
+    echo "Page verification failed - target endpoint not found in content"
+    exit 1
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES225"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

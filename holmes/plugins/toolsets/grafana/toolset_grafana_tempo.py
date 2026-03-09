@@ -47,7 +47,7 @@ def _build_grafana_explore_tempo_url(
     if not config.grafana_datasource_uid:
         return None
     try:
-        base_url = config.external_url or config.url
+        base_url = config.external_url or config.api_url
         datasource_uid = config.grafana_datasource_uid
         now_s = int(time.time())
         start_ts = start if start else now_s - 3600

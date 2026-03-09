@@ -1,9 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_memory_requests_namespace", "match_params": {"namespace": "minishop"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_memory_requests_namespace command", "params": {"namespace": "minishop"}}
-stdout:
-minishop backend-service-66468d89c8-sxrjj 256 Mi
-minishop fraud-service-5f8b576878-slnpb 0 Mi
-minishop checkout-service-66cb4b6c4b-77chl 0 Mi
-minishop auth-service-f79c78ccb-zzr9j 0 Mi
-
-stderr:

@@ -1,0 +1,23 @@
+checks:
+  - name: "CrashLooping Pod Check"
+    description: "Check if pod is healthy (it's not - it's crashing)"
+    query: "Is the pod named 'crash-pod' in the default namespace healthy and running without errors?"
+    tags: ["kubernetes", "failure"]
+
+expected_results:
+  "CrashLooping Pod Check": "fail"
+
+expected_output: "Health check failed - pod is crashing"
+
+before_test: |
+  kubectl apply -f manifest.yaml
+  sleep 10
+
+after_test: |
+  kubectl delete -f manifest.yaml --ignore-not-found=true
+
+tags:
+  - kubernetes
+  - easy
+
+description: "Test that correctly identifies a crashing pod as unhealthy"

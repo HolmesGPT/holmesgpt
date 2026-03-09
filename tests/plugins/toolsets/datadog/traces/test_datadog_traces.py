@@ -15,10 +15,10 @@ class TestDatadogTracesToolset:
     def setup_method(self):
         """Setup test configuration."""
         self.config = {
-            "dd_api_key": "test_api_key",
-            "dd_app_key": "test_app_key",
-            "site_api_url": "https://api.datadoghq.com",
-            "request_timeout": 60,
+            "api_key": "test_api_key",
+            "app_key": "test_app_key",
+            "api_url": "https://api.datadoghq.com",
+            "timeout_seconds": 60,
         }
 
     def test_toolset_initialization(self):
@@ -76,8 +76,8 @@ class TestFetchDatadogSpansByFilter:
         """Setup test configuration."""
         self.toolset = DatadogTracesToolset()
         self.toolset.dd_config = MagicMock()
-        self.toolset.dd_config.site_api_url = "https://api.datadoghq.com"
-        self.toolset.dd_config.request_timeout = 60
+        self.toolset.dd_config.api_url = "https://api.datadoghq.com"
+        self.toolset.dd_config.timeout_seconds = 60
         self.tool = GetSpans(self.toolset)
 
     def test_get_parameterized_one_liner(self):

@@ -21,6 +21,8 @@ class ClusterConnectionStatus(str, Enum):
 class RabbitMQClusterConfig(ToolsetConfig):
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
         "verify_certs": "verify_ssl",
+        "management_url": "api_url",
+        "request_timeout_seconds": "timeout_seconds",
     }
 
     id: str = Field(
@@ -29,8 +31,8 @@ class RabbitMQClusterConfig(ToolsetConfig):
         description="Unique identifier for this cluster",
         examples=["rabbitmq", "rabbitmq-prod"],
     )
-    management_url: str = Field(
-        title="Management URL",
+    api_url: str = Field(
+        title="API URL",
         description="RabbitMQ Management API URL",
         examples=[
             "http://<your-rabbitmq-server-or-service>:15672",
@@ -48,7 +50,7 @@ class RabbitMQClusterConfig(ToolsetConfig):
         description="Password for authentication",
         examples=["holmes_password"],
     )
-    request_timeout_seconds: int = Field(
+    timeout_seconds: int = Field(
         default=30,
         title="Request Timeout",
         description="Request timeout in seconds",
@@ -155,7 +157,7 @@ def make_request(
             auth=get_auth(config),
             params=params,
             json=data,
-            timeout=config.request_timeout_seconds,
+            timeout=config.timeout_seconds,
             verify=config.verify_ssl,
         )
         response.raise_for_status()
@@ -188,7 +190,7 @@ def get_status_from_node(
         hostname = parts[1]
 
         # Construct the target node's management URL based on the original config's scheme/port
-        parsed_original_url = urlparse(config.management_url)
+        parsed_original_url = urlparse(config.api_url)
         scheme = parsed_original_url.scheme or "http"
         port = parsed_original_url.port or (
             443 if scheme == "https" else 15672
@@ -258,7 +260,7 @@ def get_cluster_status(config: RabbitMQClusterConfig) -> ClusterStatus:
     """
     raw_nodes_data: List[Dict] = []
     try:
-        url = get_url(config.management_url, "api/nodes")
+        url = get_url(config.api_url, "api/nodes")
         raw_nodes_data = make_request(
             config=config,
             method="GET",
@@ -268,7 +270,7 @@ def get_cluster_status(config: RabbitMQClusterConfig) -> ClusterStatus:
         config.connection_error = None
     except Exception as e:
         logging.error(
-            f"Failed to get primary cluster status from {config.management_url}: {e}"
+            f"Failed to get primary cluster status from {config.api_url}: {e}"
         )
         config.connection_status = ClusterConnectionStatus.ERROR
         config.connection_error = str(e)

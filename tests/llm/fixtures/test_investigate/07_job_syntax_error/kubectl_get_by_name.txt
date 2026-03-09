@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"job","name":"product-data-scraper","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide job product-data-scraper -n default", "params": {"kind": "job", "name": "product-data-scraper", "namespace": "default"}}
-NAME                   STATUS   COMPLETIONS   DURATION   AGE   CONTAINERS    IMAGES   SELECTOR                                                                  LABELS
-product-data-scraper   Failed   0/5           23h        23h   run-forever   bash     batch.kubernetes.io/controller-uid=51277d93-dedf-44bd-8b57-cdbcb21b0fe2   batch.kubernetes.io/controller-uid=51277d93-dedf-44bd-8b57-cdbcb21b0fe2,batch.kubernetes.io/job-name=product-data-scraper,controller-uid=51277d93-dedf-44bd-8b57-cdbcb21b0fe2,job-name=product-data-scraper

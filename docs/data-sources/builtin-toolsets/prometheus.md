@@ -17,7 +17,7 @@ toolsets:
             prometheus_url: http://<your-prometheus-service>:9090
 
             # Optional:
-            #headers:
+            #additional_headers:
             #    Authorization: "Basic <base_64_encoded_string>"
 ```
 
@@ -75,7 +75,7 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
           enabled: true
           config:
             prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
-            headers:
+            additional_headers:
               token: "{{ env.CORALOGIX_API_KEY }}"
             discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
             tool_calls_return_data: true
@@ -171,36 +171,188 @@ holmes:
 
 ### Grafana Cloud (Mimir)
 
-To connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint:
+There are two ways to connect HolmesGPT to Grafana Cloud's Prometheus/Mimir endpoint.
 
-1. **Create a service account token in Grafana Cloud:**
-   - Navigate to "Administration → Service accounts"
-   - Create a new service account
-   - Generate a service account token (starts with `glsa_`)
+#### Option 1: Direct Prometheus Endpoint (Recommended)
 
-2. **Find your Prometheus datasource UID:**
-   ```bash
-   curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
-        "https://YOUR-INSTANCE.grafana.net/api/datasources" | \
-        jq '.[] | select(.type=="prometheus") | {name, uid}'
-   ```
+Use Grafana Cloud's direct Prometheus endpoint with Basic authentication. This is the simplest approach.
 
-3. **Configure HolmesGPT:**
-   ```yaml
-   holmes:
-     toolsets:
-       prometheus/metrics:
-         enabled: true
-         config:
-           prometheus_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
-           headers:
-             Authorization: Bearer YOUR_GLSA_TOKEN
-   ```
+**Find your credentials:**
 
-**Important notes:**
+- Go to your Grafana Cloud portal → your stack → Prometheus card → **Details**
+- Note the **remote write endpoint URL** — remove the `/push` suffix to get the query endpoint
+- Note the **Username / Instance ID** (a numeric ID)
+- Generate a **Cloud Access Policy token** with `metrics:read` scope
 
-- Use the proxy endpoint URL format `/api/datasources/proxy/uid/` - this handles authentication and routing to Mimir automatically
-- The toolset automatically detects and uses the most appropriate APIs for discovery
+The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom`
+
+=== "Holmes CLI"
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
+    ```yaml
+    toolsets:
+      prometheus/metrics:
+        enabled: true
+        config:
+          prometheus_url: https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom
+          additional_headers:
+            Authorization: "Basic <base64_encoded_credentials>"
+    ```
+
+    The Basic auth credentials are `<instance_id>:<cloud_access_policy_token>` base64-encoded.
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    First, create a Kubernetes secret with your credentials:
+
+    ```bash
+    # Base64-encode your credentials: <instance_id>:<cloud_access_policy_token>
+    kubectl create secret generic grafana-cloud-prometheus \
+      --from-literal=auth-header="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64)"
+    ```
+
+    Then add to your Holmes Helm values:
+
+    ```yaml
+    additionalEnvVars:
+      - name: GRAFANA_CLOUD_PROM_AUTH
+        valueFrom:
+          secretKeyRef:
+            name: grafana-cloud-prometheus
+            key: auth-header
+
+    toolsets:
+      prometheus/metrics:
+        enabled: true
+        config:
+          prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
+          additional_headers:
+            Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
+    ```
+
+=== "Robusta Helm Chart"
+
+    First, create a Kubernetes secret with your credentials:
+
+    ```bash
+    # Base64-encode your credentials: <instance_id>:<cloud_access_policy_token>
+    kubectl create secret generic grafana-cloud-prometheus \
+      --from-literal=auth-header="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64)"
+    ```
+
+    Then add to your Robusta Helm values:
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: GRAFANA_CLOUD_PROM_AUTH
+          valueFrom:
+            secretKeyRef:
+              name: grafana-cloud-prometheus
+              key: auth-header
+      toolsets:
+        prometheus/metrics:
+          enabled: true
+          config:
+            prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
+            additional_headers:
+              Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
+    ```
+
+    --8<-- "snippets/helm_upgrade_command.md"
+
+#### Option 2: Grafana API Proxy
+
+Use Grafana's datasource proxy to route requests through the Grafana API. This approach uses a Grafana service account token.
+
+**Find your credentials:**
+
+- Navigate to "Administration → Service accounts" in Grafana Cloud
+- Create a new service account and generate a token (starts with `glsa_`)
+- Find your Prometheus datasource UID:
+
+```bash
+curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
+     "https://YOUR-INSTANCE.grafana.net/api/datasources" | \
+     jq '.[] | select(.type=="prometheus") | {name, uid}'
+```
+
+=== "Holmes CLI"
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
+    ```yaml
+    toolsets:
+      prometheus/metrics:
+        enabled: true
+        config:
+          prometheus_url: https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID
+          additional_headers:
+            Authorization: Bearer YOUR_GLSA_TOKEN
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    First, create a Kubernetes secret with your service account token:
+
+    ```bash
+    kubectl create secret generic grafana-cloud-sa-token \
+      --from-literal=token=YOUR_GLSA_TOKEN
+    ```
+
+    Then add to your Holmes Helm values:
+
+    ```yaml
+    additionalEnvVars:
+      - name: GRAFANA_CLOUD_SA_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: grafana-cloud-sa-token
+            key: token
+
+    toolsets:
+      prometheus/metrics:
+        enabled: true
+        config:
+          prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
+          additional_headers:
+            Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
+    ```
+
+=== "Robusta Helm Chart"
+
+    First, create a Kubernetes secret with your service account token:
+
+    ```bash
+    kubectl create secret generic grafana-cloud-sa-token \
+      --from-literal=token=YOUR_GLSA_TOKEN
+    ```
+
+    Then add to your Robusta Helm values:
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: GRAFANA_CLOUD_SA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: grafana-cloud-sa-token
+              key: token
+      toolsets:
+        prometheus/metrics:
+          enabled: true
+          config:
+            prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
+            additional_headers:
+              Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
+    ```
+
+    --8<-- "snippets/helm_upgrade_command.md"
 
 ---
 
@@ -214,7 +366,7 @@ toolsets:
     enabled: true
     config:
       prometheus_url: http://prometheus-server.monitoring.svc.cluster.local:9090
-      headers:
+      additional_headers:
         Authorization: "Basic <base64_encoded_credentials>"
 
       # Discovery settings
@@ -239,7 +391,7 @@ toolsets:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `prometheus_url` | - | Prometheus server URL (include protocol and port) |
-| `headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
+| `additional_headers` | `{}` | Authentication headers (e.g., `Authorization: Bearer token`) |
 | `discover_metrics_from_last_hours` | `1` | Only discover metrics with data in last N hours |
 | `query_timeout_seconds_default` | `20` | Default PromQL query timeout |
 | `query_timeout_seconds_hard_max` | `180` | Maximum query timeout |

@@ -6,4 +6,4 @@ toolsets:
         - holmesgpt-unique-test-cmd-7x9k2
         - another-special-prefix-m3n8p
       deny: []
-      include_default_allow_deny_list: false
+      builtin_allowlist: "none"
