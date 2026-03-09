@@ -235,6 +235,7 @@ class DefaultLLM(LLM):
                 # (covers EC2 instance profile, ECS task role, ~/.aws/credentials, etc.)
                 try:
                     import boto3
+                    from botocore.exceptions import BotoCoreError
                     session = boto3.Session()
                     credentials = session.get_credentials()
                     if credentials is not None:
@@ -243,7 +244,7 @@ class DefaultLLM(LLM):
                         model_requirements = litellm.validate_environment(
                             model=model, api_key=api_key, api_base=api_base
                         )
-                except Exception:
+                except (ImportError, BotoCoreError):
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
