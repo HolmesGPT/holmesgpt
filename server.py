@@ -39,17 +39,13 @@ from holmes.common.env_vars import (
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
-from holmes.core import investigation
 from holmes.core.conversations import (
     build_chat_messages,
-    build_issue_chat_messages,
 )
 from holmes.core.models import (
     ChatRequest,
     ChatResponse,
     FollowUpAction,
-    InvestigateRequest,
-    IssueChatRequest,
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import ToolsetStatusEnum, ToolsetType
@@ -60,7 +56,7 @@ from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
-from holmes.utils.stream import stream_chat_formatter, stream_investigate_formatter
+from holmes.utils.stream import stream_chat_formatter
 
 # removed: add_runbooks_to_user_prompt
 
@@ -268,111 +264,6 @@ if LOG_PERFORMANCE:
 init_checks_app(app, config)
 
 
-@app.post("/api/investigate")
-def investigate_issues(investigate_request: InvestigateRequest, http_request: Request):
-    try:
-        runbooks = config.get_runbook_catalog()
-        request_context = extract_passthrough_headers(http_request)
-        with tool_result_storage() as tool_results_dir:
-            result = investigation.investigate_issues(
-                investigate_request=investigate_request,
-                dal=dal,
-                config=config,
-                model=investigate_request.model,
-                runbooks=runbooks,
-                request_context=request_context,
-                tool_results_dir=tool_results_dir,
-            )
-            return result
-
-    except AuthenticationError as e:
-        raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
-    except Exception as e:
-        logging.error(f"Error in /api/investigate: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/stream/investigate")
-def stream_investigate_issues(req: InvestigateRequest, http_request: Request):
-    try:
-        req_info = f"/api/stream/investigate request: title={req.title}"
-        logging.info(f"Received {req_info}")
-        storage = tool_result_storage()
-        tool_results_dir = storage.__enter__()
-        ai, system_prompt, user_prompt, response_format, sections = (
-            investigation.get_investigation_context(
-                req, dal, config, tool_results_dir=tool_results_dir
-            )
-        )
-        request_context = extract_passthrough_headers(http_request)
-
-        return StreamingResponse(
-            _stream_with_storage_cleanup(
-                storage,
-                stream_investigate_formatter(
-                    ai.call_stream(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        response_format=response_format,
-                        sections=sections,
-                        request_context=request_context,
-                    ),
-                ),
-                req_info
-            ),
-            media_type="text/event-stream",
-        )
-
-    except AuthenticationError as e:
-        storage.__exit__(None, None, None)
-        raise HTTPException(status_code=401, detail=e.message)
-    except Exception as e:
-        storage.__exit__(None, None, None)
-        logging.exception(f"Error in /api/stream/investigate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/issue_chat")
-def issue_conversation(issue_chat_request: IssueChatRequest, http_request: Request):
-    try:
-        runbooks = config.get_runbook_catalog()
-        with tool_result_storage() as tool_results_dir:
-            ai = config.create_toolcalling_llm(
-                dal=dal,
-                model=issue_chat_request.model,
-                tool_results_dir=tool_results_dir,
-            )
-            global_instructions = dal.get_global_instructions_for_account()
-
-            messages = build_issue_chat_messages(
-                issue_chat_request=issue_chat_request,
-                ai=ai,
-                config=config,
-                global_instructions=global_instructions,
-                runbooks=runbooks,
-            )
-            request_context = extract_passthrough_headers(http_request)
-            llm_call = ai.messages_call(
-                messages=messages, request_context=request_context
-            )
-
-            return ChatResponse(
-                analysis=llm_call.result,
-                tool_calls=llm_call.tool_calls,
-                conversation_history=llm_call.messages,
-                metadata=llm_call.metadata,
-            )
-    except AuthenticationError as e:
-        raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
-    except Exception as e:
-        logging.error(f"Error in /api/issue_chat: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 def already_answered(conversation_history: Optional[List[dict]]) -> bool:
     if conversation_history is None:
         return False
@@ -386,7 +277,7 @@ def already_answered(conversation_history: Optional[List[dict]]) -> bool:
 def extract_passthrough_headers(request: Request) -> dict:
     """
     Extract pass-through headers from the request, excluding sensitive auth headers.
-    These headers are forwarded to MCP servers for authentication and context.
+    These headers are forwarded to all toolset types (MCP, HTTP, YAML, Python) for authentication and context.
 
     The blocked headers can be configured via the HOLMES_PASSTHROUGH_BLOCKED_HEADERS
     environment variable (comma-separated list). Defaults to "authorization,cookie,set-cookie".

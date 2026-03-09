@@ -113,7 +113,6 @@ Configure your test by defining these fields in `test_case.yaml`:
 - `port_forwards`: Configure port forwarding for tests
 - `test_env_vars`: Environment variables during test execution
 - `conversation_history`: For multi-turn conversation tests
-- `expected_sections`: For investigation tests only
 
 ## Advanced Features
 
