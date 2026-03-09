@@ -55,14 +55,26 @@ The implementation follows OpenTelemetry Gen AI semantic conventions for standar
 
 ### Environment Variables
 
+**Standard OTEL Variables** (per [OTEL Environment Variable Spec](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/)):
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `OTEL_SDK_DISABLED` | Disable OTEL SDK (`true`/`false`). Set to `false` to enable. | `true` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL | Required |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | OTLP export timeout in milliseconds (generic) | `30000` |
+| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | OTLP trace export timeout in milliseconds (overrides generic) | (none) |
+| `OTEL_SERVICE_NAME` | Service name reported in traces | `holmesgpt` |
 | `OTEL_METRICS_EXPORTER` | Set to `none` to disable metrics export | (default exporter) |
-| `OTEL_LOG_LEVEL` | Set to `debug` for span lifecycle logging | `info` |
+| `OTEL_LOG_LEVEL` | Set to `debug` for verbose span lifecycle logging | (none) |
+
+**Holmes-Specific Variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `HOLMES_AWS_OSIS_PROFILE` | AWS profile for OSIS authentication | None |
 | `HOLMES_AWS_OSIS_REGION` | AWS region for OSIS (auto-detected from endpoint) | Auto |
+| `HOLMES_AWS_OSIS_SERVICE` | AWS service name for SigV4 signing (try `osis-pipelines` or `es` if auth fails) | `osis` |
+| `HOLMES_OTEL_EXPORT_TIMEOUT_SECONDS` | Export timeout in seconds (convenience alternative to the millisecond OTEL vars) | `30` |
 
 ### Example Configuration
 
@@ -70,8 +82,11 @@ The implementation follows OpenTelemetry Gen AI semantic conventions for standar
 # Basic OTEL setup
 export OTEL_SDK_DISABLED=false
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://your-collector:4318/v1/traces
+```
 
-# AWS OSIS (OpenSearch Ingestion Service - https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ingestion.html)
+For [AWS OpenSearch Ingestion Service (OSIS)](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ingestion.html):
+
+```bash
 export OTEL_SDK_DISABLED=false
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://pipeline-id.us-east-1.osis.amazonaws.com/otel-trace/v1/traces
 export HOLMES_AWS_OSIS_PROFILE=your-aws-profile

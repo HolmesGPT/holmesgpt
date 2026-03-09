@@ -1,4 +1,12 @@
-"""OpenTelemetry instrumentation for HolmesGPT experimental endpoints."""
+"""OpenTelemetry instrumentation for HolmesGPT (experimental).
+
+This package lives under ``experimental/`` because the OTEL instrumentation API
+is still evolving (span names, attribute keys, metric definitions). All integration
+points in server.py and server-agui.py use try/except with no-op fallbacks, so this
+package can be removed or relocated without breaking core HolmesGPT functionality.
+
+Once the API stabilizes, this can move to a non-experimental location.
+"""
 
 from experimental.otel.attributes import (  # Correlation IDs; Gen AI Required Attributes; LLM Request/Response; Token Usage; Tool/Function Calling; Agent-Specific; Result Attributes; Cost Tracking; Span Names; Granular Span Names; Context Attributes; Metric Names; Token Type; Truncation
     AGENT_ITERATION,

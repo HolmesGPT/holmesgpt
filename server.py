@@ -278,7 +278,9 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
 app = FastAPI()
 
 
-# OTEL tracing middleware - creates root spans for API requests
+# OTEL tracing middleware - creates root spans for API requests.
+# Tracing and metrics initialization happens in init_otel() above (line ~63).
+# This middleware only handles per-request span creation for HTTP endpoints.
 if otel_enabled:
     _otel_tracer = TracingFactory.create_tracer("otel")
 

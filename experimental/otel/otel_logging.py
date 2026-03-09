@@ -2,6 +2,13 @@
 
 Provides logging utilities that automatically include trace context (trace_id, span_id)
 for correlation between logs and traces in observability backends.
+
+Note: Logs are NOT exported via OTLP. This module only enriches Python log records
+with trace context fields so that logs collected by external agents (e.g., Fluent Bit,
+Promtail) can be correlated with distributed traces.
+
+Named ``otel_logging.py`` (not ``logging.py``) to avoid shadowing Python's built-in
+``logging`` module.
 """
 
 import logging

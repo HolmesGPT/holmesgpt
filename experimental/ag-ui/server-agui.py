@@ -46,7 +46,41 @@ try:
 except ImportError:
     _otel_available = False
     TracingFactory = None  # type: ignore
-    get_tracer = None  # type: ignore
+
+    # Define no-op tracer for when OTEL is unavailable
+    class _NoopSpan:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def set_attribute(self, *args, **kwargs):
+            pass
+        def set_attributes(self, *args, **kwargs):
+            pass
+        def add_event(self, *args, **kwargs):
+            pass
+        def end(self):
+            pass
+
+    class _NoopTracer:
+        def start_span(self, *args, **kwargs):
+            return _NoopSpan()
+
+    get_tracer = lambda *args, **kwargs: _NoopTracer()  # type: ignore
+    set_span_error = lambda *args, **kwargs: None  # type: ignore
+    init_otel_metrics = lambda *args, **kwargs: False  # type: ignore
+    record_token_usage = lambda *args, **kwargs: None  # type: ignore
+    record_operation_duration = lambda *args, **kwargs: None  # type: ignore
+    record_tool_duration = lambda *args, **kwargs: None  # type: ignore
+    increment_iterations = lambda *args, **kwargs: None  # type: ignore
+    increment_tool_calls = lambda *args, **kwargs: None  # type: ignore
+    increment_errors = lambda *args, **kwargs: None  # type: ignore
+
+    # Define a mock otel_attr module
+    class _OtelAttr:
+        SPAN_INVOKE_AGENT = "invoke_agent"
+        # Add other attributes as needed
+    otel_attr = _OtelAttr()  # type: ignore
 
     def init_otel_metrics():  # type: ignore
         return False
@@ -171,14 +205,14 @@ if _otel_available and os.environ.get("OTEL_SDK_DISABLED", "true").lower() != "t
     if otel_initialized:
         logging.info("OTEL tracing enabled for AG-UI endpoint")
         _otel_enabled = True
-    tracer = get_tracer("holmesgpt.agui")
 
     # Initialize OTEL metrics if enabled
     metrics_initialized = init_otel_metrics()
     if metrics_initialized:
         logging.info("OTEL metrics enabled for AG-UI endpoint")
-else:
-    tracer = _NoopTracer()  # type: ignore
+
+# Always get a tracer (will be no-op if OTEL disabled/unavailable)
+tracer = get_tracer("holmesgpt.agui")
 
 config = Config.load_from_env()
 dal = config.dal

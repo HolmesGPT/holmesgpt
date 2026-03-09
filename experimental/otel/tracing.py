@@ -1,6 +1,7 @@
 """OpenTelemetry tracer initialization and management.
 
-Based on patterns from ml-commons AgentTracer.java
+Based on patterns from ml-commons AgentTracer.java:
+https://github.com/opensearch-project/ml-commons/blob/main/common/src/main/java/org/opensearch/ml/common/agent/AgentTracer.java
 """
 
 import atexit
@@ -31,8 +32,19 @@ _initialized = False
 
 
 def _get_otel_debug() -> bool:
-    """Check if OTEL debug logging is enabled."""
-    return os.environ.get("OTEL_DEBUG", "false").lower() == "true"
+    """Check if OTEL debug logging is enabled.
+
+    Checks (in order):
+    1. OTEL_LOG_LEVEL=debug — standard OTEL spec env var
+    2. OTEL_DEBUG=true — deprecated Holmes-specific fallback
+    """
+    if os.environ.get("OTEL_LOG_LEVEL", "").lower() == "debug":
+        return True
+    otel_debug = os.environ.get("OTEL_DEBUG")
+    if otel_debug is not None:
+        logging.warning("OTEL_DEBUG is deprecated, use OTEL_LOG_LEVEL=debug instead")
+        return otel_debug.lower() == "true"
+    return False
 
 
 class LoggingSpanProcessor(SpanProcessor):
@@ -139,12 +151,49 @@ def _get_aws_osis_region() -> Optional[str]:
     return os.environ.get("HOLMES_AWS_OSIS_REGION")
 
 
-def _get_otel_aws_service() -> str:
-    """Read OTEL_AWS_SERVICE at call time.
+def _get_aws_osis_service() -> str:
+    """Read the AWS service name for SigV4 signing.
+
+    Primary env var: HOLMES_AWS_OSIS_SERVICE
+    Deprecated fallback: OTEL_AWS_SERVICE (non-standard OTEL_ prefix)
 
     Default is 'osis'. Try 'osis-pipelines' or 'es' if auth fails.
     """
-    return os.environ.get("OTEL_AWS_SERVICE", "osis")
+    val = os.environ.get("HOLMES_AWS_OSIS_SERVICE")
+    if val:
+        return val
+    deprecated = os.environ.get("OTEL_AWS_SERVICE")
+    if deprecated:
+        logging.warning(
+            "OTEL_AWS_SERVICE is deprecated, use HOLMES_AWS_OSIS_SERVICE instead"
+        )
+        return deprecated
+    return "osis"
+
+
+def _get_otel_export_timeout_seconds() -> int:
+    """Get OTLP export timeout in seconds.
+
+    Checks (in order):
+    1. OTEL_EXPORTER_OTLP_TRACES_TIMEOUT (ms) — trace-specific per OTEL spec
+    2. OTEL_EXPORTER_OTLP_TIMEOUT (ms) — generic per OTEL spec
+    3. HOLMES_OTEL_EXPORT_TIMEOUT_SECONDS (s) — Holmes-specific convenience var
+    4. Default: 30 seconds (increased from OTEL's 10s default for OSIS endpoints)
+    """
+    for var in ["OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "OTEL_EXPORTER_OTLP_TIMEOUT"]:
+        val = os.environ.get(var)
+        if val:
+            try:
+                return max(1, int(val) // 1000)  # ms → s, minimum 1s
+            except ValueError:
+                pass
+    val = os.environ.get("HOLMES_OTEL_EXPORT_TIMEOUT_SECONDS")
+    if val:
+        try:
+            return max(1, int(val))
+        except ValueError:
+            pass
+    return 30  # Default: 30s (OTEL default is 10s, too short for OSIS)
 
 
 def needs_aws_auth(endpoint: str) -> bool:
@@ -155,8 +204,10 @@ def needs_aws_auth(endpoint: str) -> bool:
     - Endpoint URL contains '.osis.' (AWS OpenSearch Ingestion Service)
     - Endpoint URL contains '.es.' (AWS OpenSearch/Elasticsearch Service)
 
-    This centralizes the AWS detection logic for use across tracing, metrics,
-    and logging modules.
+    This is the single source of truth for AWS auth detection, used by:
+    - tracing.py: init_otel_tracer() for trace export
+    - metrics.py: init_otel_metrics() (imports this function)
+    - otel_logging.py: not needed (logs are not exported via OTLP)
 
     Args:
         endpoint: The OTLP endpoint URL
@@ -288,7 +339,7 @@ def _create_osis_session(endpoint: str) -> Optional[requests.Session]:
 
         otel_profile = _get_aws_osis_profile()
         otel_region = _get_aws_osis_region() or _extract_region_from_endpoint(endpoint)
-        otel_service = _get_otel_aws_service()
+        otel_service = _get_aws_osis_service()
 
         # Create boto3 session with specific profile or default
         # IMPORTANT: We must temporarily clear ALL AWS credential env vars to ensure
@@ -394,21 +445,22 @@ def init_otel_tracer() -> bool:
         )
 
         # Create OTLP HTTP exporter (with AWS SigV4 auth for OSIS if needed)
+        timeout = _get_otel_export_timeout_seconds()
         if needs_aws_auth(otel_endpoint):
             osis_session = _create_osis_session(otel_endpoint)
             if osis_session:
                 exporter = OTLPSpanExporter(
-                    endpoint=otel_endpoint, session=osis_session
+                    endpoint=otel_endpoint, session=osis_session, timeout=timeout
                 )
             else:
                 # Fall back to unauthenticated exporter (may fail with OSIS)
                 logging.warning(
                     "AWS auth requested but OSIS session creation failed, using unauthenticated exporter"
                 )
-                exporter = OTLPSpanExporter(endpoint=otel_endpoint)
+                exporter = OTLPSpanExporter(endpoint=otel_endpoint, timeout=timeout)
         else:
             # Standard unauthenticated OTLP exporter
-            exporter = OTLPSpanExporter(endpoint=otel_endpoint)
+            exporter = OTLPSpanExporter(endpoint=otel_endpoint, timeout=timeout)
 
         # Wrap exporter with logging if debug enabled
         if _get_otel_debug():
@@ -419,7 +471,8 @@ def init_otel_tracer() -> bool:
         _tracer_provider = TracerProvider(resource=resource)
 
         # Add batch processor with reduced batch size to prevent payload too large errors
-        # Based on ml-commons pattern: max_export_batch_size=32
+        # Based on ml-commons AgentTracer pattern (max_export_batch_size=32):
+        # https://github.com/opensearch-project/ml-commons/blob/main/common/src/main/java/org/opensearch/ml/common/agent/AgentTracer.java
         batch_processor = BatchSpanProcessor(
             exporter,
             max_queue_size=2048,
