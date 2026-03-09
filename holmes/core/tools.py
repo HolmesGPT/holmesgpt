@@ -804,6 +804,35 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
+    def should_auto_enable(self) -> bool:
+        """Determine if this toolset should be auto-enabled without explicit user config.
+
+        Rules:
+        1. Already enabled or is_default → enable
+        2. No config_classes (YAML toolsets, simple Python toolsets) → enable
+        3. Config classes exist but all fields have defaults → enable
+        4. Config is required AND was provided by user → enable
+        5. Config is required but not provided → disable
+        """
+        if self.enabled or self.is_default:
+            return True
+
+        if not self.config_classes:
+            return True
+
+        requires_config = any(
+            config_cls.has_required_fields()
+            for config_cls in self.config_classes
+            if hasattr(config_cls, "has_required_fields")
+        )
+        if not requires_config:
+            return True
+
+        if self.config is not None:
+            return True
+
+        return False
+
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
 
@@ -1035,20 +1064,28 @@ class ToolsetDBModel(BaseModel):
 
 
 def pretty_print_toolset_status(toolsets: list[Toolset], console: Console) -> None:
-    status_fields = ["name", "enabled", "status", "type", "path", "error"]
+    display_fields = ["name", "status", "type", "path", "error"]
     toolsets_status = []
     for toolset in sorted(toolsets, key=lambda ts: ts.status.value):
+        status_fields = ["name", "enabled", "status", "type", "path", "error"]
         toolset_status = json.loads(toolset.model_dump_json(include=status_fields))  # type: ignore
 
-        status_value = toolset_status.get("status", "")
+        # Merge enabled (configured/unconfigured) and status (enabled/failed) into one column:
+        # failed & unconfigured -> unconfigured, enabled & unconfigured -> enabled
+        # failed & configured -> failed, enabled & configured -> enabled
+        raw_status = toolset_status.get("status", "")
+        is_configured = toolset_status.get("enabled", False)
         error_value = toolset_status.get("error", "")
-        if status_value == "enabled":
+
+        if raw_status == "enabled":
             toolset_status["status"] = "[green]enabled[/green]"
-        elif status_value == "failed":
+        elif raw_status == "failed" and is_configured:
             toolset_status["status"] = "[red]failed[/red]"
             toolset_status["error"] = f"[red]{error_value}[/red]"
+        elif raw_status == "failed" and not is_configured:
+            toolset_status["status"] = "[yellow]unconfigured[/yellow]"
         else:
-            toolset_status["status"] = f"[yellow]{status_value}[/yellow]"
+            toolset_status["status"] = f"[yellow]{raw_status}[/yellow]"
 
         # Replace None with "" for Path and Error columns
         for field in ["path", "error"]:
@@ -1057,16 +1094,16 @@ def pretty_print_toolset_status(toolsets: list[Toolset], console: Console) -> No
 
         order_toolset_status = OrderedDict(
             (k.capitalize(), toolset_status[k])
-            for k in status_fields
+            for k in display_fields
             if k in toolset_status
         )
         toolsets_status.append(order_toolset_status)
 
     table = Table(show_header=True, header_style="bold")
-    for col in status_fields:
+    for col in display_fields:
         table.add_column(col.capitalize())
 
     for row in toolsets_status:
-        table.add_row(*(str(row.get(col.capitalize(), "")) for col in status_fields))
+        table.add_row(*(str(row.get(col.capitalize(), "")) for col in display_fields))
 
     console.print(table)

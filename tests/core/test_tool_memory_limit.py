@@ -59,6 +59,7 @@ class TestCheckOomAndAppendHint:
         assert "TOOL_MEMORY_LIMIT_MB" in result
         assert str(TOOL_MEMORY_LIMIT_MB) in result  # Shows current limit
         assert result.startswith("[OOM]")  # Hint comes first
+        assert "NOT an error" in result  # Emphasizes this is by design
 
     def test_hint_prepended_before_output(self):
         """Test that hint appears before the original output, not after."""
@@ -71,7 +72,7 @@ class TestCheckOomAndAppendHint:
     def test_hint_shows_default_when_not_configured(self, monkeypatch):
         """Test that hint shows default when env var not set."""
         result = check_oom_and_append_hint("Killed", 137)
-        assert f"current limit: {TOOL_MEMORY_LIMIT_MB}" in result
+        assert f"{TOOL_MEMORY_LIMIT_MB} MB" in result
 
     @pytest.mark.parametrize(
         "output",

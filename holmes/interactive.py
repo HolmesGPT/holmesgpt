@@ -78,6 +78,7 @@ from holmes.version import check_version_async
 
 
 class SlashCommands(Enum):
+    CONFIG = ("/config", "Open interactive toolset configuration editor")
     EXIT = ("/exit", "Exit interactive mode")
     HELP = ("/help", "Show help message with all commands")
     CLEAR = ("/clear", "Clear screen and reset conversation context")
@@ -95,7 +96,6 @@ class SlashCommands(Enum):
     CONTEXT = ("/context", "Show conversation context size and token count")
     SHOW = ("/show", "Show specific tool output in scrollable view")
     FEEDBACK = ("/feedback", "Provide feedback on the agent's response")
-    CONFIG = ("/config", "Open interactive toolset configuration editor")
 
     def __init__(self, command, description):
         self.command = command
@@ -233,7 +233,7 @@ class ShowCommandCompleter(Completer):
                         )
 
 
-WELCOME_BANNER = f"[bold {HELP_COLOR}]Welcome to {agent_name}:[/bold {HELP_COLOR}] Type '{SlashCommands.EXIT.command}' to exit, '{SlashCommands.HELP.command}' for commands."
+WELCOME_BANNER = f"[bold {HELP_COLOR}]Welcome to {agent_name}:[/bold {HELP_COLOR}] Type '{SlashCommands.EXIT.command}' to exit, '{SlashCommands.CONFIG.command}' to set up Holmes, or '{SlashCommands.HELP.command}' for all commands."
 
 
 def format_tool_call_output(

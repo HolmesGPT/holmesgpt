@@ -83,6 +83,24 @@ resources:
 additionalVolumes: []
 additionalVolumeMounts: []
 
+# Init containers run before the main Holmes container starts
+# Useful for fetching secrets from external sources (e.g., vault, secret managers)
+# Example:
+# initContainers:
+#   - name: fetch-secret
+#     image: curlimages/curl:8.5.0
+#     command: ["sh", "-c", "curl -s http://vault:8200/v1/secret/api-key > /shared/api-key"]
+#     volumeMounts:
+#       - name: shared-data
+#         mountPath: /shared
+initContainers: []
+
+# Additional arguments to pass to the Holmes server
+# Example:
+# args:
+#   - "--config=/etc/holmes/custom-config.yaml"
+args: []
+
 priorityClassName: ""
 
 modelList: {}

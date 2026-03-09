@@ -283,13 +283,6 @@ def generate_markdown_report(
     ask_holmes_skipped = 0
     ask_holmes_setup_failures = 0
 
-    investigate_total = 0
-    investigate_passed = 0
-    investigate_regressions = 0
-    investigate_mock_failures = 0
-    investigate_skipped = 0
-    investigate_setup_failures = 0
-
     for result in sorted_results:
         status = TestStatus(result)
 
@@ -305,19 +298,6 @@ def generate_markdown_report(
                 ask_holmes_regressions += 1
             elif status.is_mock_failure:
                 ask_holmes_mock_failures += 1
-        elif result["test_type"] == "investigate":
-            investigate_total += 1
-            if status.is_skipped:
-                investigate_skipped += 1
-            elif status.is_setup_failure:
-                investigate_setup_failures += 1
-            elif status.passed:
-                investigate_passed += 1
-            elif status.is_regression:
-                investigate_regressions += 1
-            elif status.is_mock_failure:
-                investigate_mock_failures += 1
-
     # Generate summary lines
     if ask_holmes_total > 0:
         markdown += f"- ask_holmes: {ask_holmes_passed}/{ask_holmes_total} test cases were successful, {ask_holmes_regressions} regressions"
@@ -328,16 +308,6 @@ def generate_markdown_report(
         if ask_holmes_mock_failures > 0:
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
-    if investigate_total > 0:
-        markdown += f"- investigate: {investigate_passed}/{investigate_total} test cases were successful, {investigate_regressions} regressions"
-        if investigate_skipped > 0:
-            markdown += f", {investigate_skipped} skipped"
-        if investigate_setup_failures > 0:
-            markdown += f", {investigate_setup_failures} setup failures"
-        if investigate_mock_failures > 0:
-            markdown += f", {investigate_mock_failures} mock failures"
-        markdown += "\n"
-
     # Generate detailed table
     markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Output | Cached | Non-cached | Reasoning | Max output | Compactions |\n"
     markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
@@ -481,5 +451,5 @@ def generate_markdown_report(
     return (
         markdown,
         sorted_results,
-        ask_holmes_regressions + investigate_regressions,
+        ask_holmes_regressions,
     )
