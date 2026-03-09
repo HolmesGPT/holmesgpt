@@ -244,7 +244,7 @@ class DefaultLLM(LLM):
                         model_requirements = litellm.validate_environment(
                             model=model, api_key=api_key, api_base=api_base
                         )
-                except (ImportError, BotoCoreError):
+                except BotoCoreError:
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
