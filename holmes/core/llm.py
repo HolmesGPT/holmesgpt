@@ -1,9 +1,11 @@
 import json
 import logging
 import os
+import boto3
 import threading
 import time
 from abc import abstractmethod
+from botocore.exceptions import BotoCoreError
 from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
 
@@ -234,8 +236,6 @@ class DefaultLLM(LLM):
                 # Final fallback: try boto3 default credential chain
                 # (covers EC2 instance profile, ECS task role, ~/.aws/credentials, etc.)
                 try:
-                    import boto3
-                    from botocore.exceptions import BotoCoreError
                     session = boto3.Session()
                     credentials = session.get_credentials()
                     if credentials is not None:
