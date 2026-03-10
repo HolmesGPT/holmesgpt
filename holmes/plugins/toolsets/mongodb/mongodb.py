@@ -247,6 +247,8 @@ class MongoDBToolset(Toolset):
         limit: Optional[int] = None,
         database: Optional[str] = None,
     ) -> Dict[str, Any]:
+        if limit is not None and limit < 1:
+            raise ValueError(f"limit must be a positive integer, got {limit}")
         effective_limit = min(
             limit or self.mongodb_config.max_rows,
             self.mongodb_config.max_rows,
