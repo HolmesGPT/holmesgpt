@@ -98,10 +98,13 @@ class TestToolsetManager:
         configured = []
 
         # Validate that all custom definitions reference existing toolsets
-        # (except for HTTP and MCP toolsets which are dynamically created)
+        # (except for HTTP, MCP, and custom YAML toolsets with tools defined inline)
         builtin_names = {ts.name for ts in builtin_toolsets}
         for definition in custom_definitions:
             if isinstance(definition, (HttpToolset, RemoteMCPToolset)):
+                continue
+            # Allow custom YAML toolsets that define their own tools inline
+            if definition.tools and definition.name not in builtin_names:
                 continue
             if definition.name not in builtin_names:
                 raise RuntimeError(
@@ -117,6 +120,15 @@ class TestToolsetManager:
         # Collect MCP toolsets from custom definitions
         mcp_toolsets = {
             d.name: d for d in custom_definitions if isinstance(d, RemoteMCPToolset)
+        }
+
+        # Collect custom YAML toolsets (ones with inline tools, not builtin overrides)
+        custom_yaml_toolsets = {
+            d.name: d
+            for d in custom_definitions
+            if d.tools
+            and d.name not in builtin_names
+            and not isinstance(d, (HttpToolset, RemoteMCPToolset))
         }
 
         dal = load_test_dal(
@@ -258,5 +270,10 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                         toolset_name=mcp_toolset.name,
                         error_detail=str(e),
                     ) from e
+
+        # Add custom YAML toolsets (inline tool definitions, no infrastructure needed)
+        for yaml_toolset in custom_yaml_toolsets.values():
+            yaml_toolset.status = ToolsetStatusEnum.ENABLED
+            configured.append(yaml_toolset)
 
         return configured

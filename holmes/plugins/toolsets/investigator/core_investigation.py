@@ -1,7 +1,10 @@
+import json
 import logging
 import os
 from typing import Any, Dict
 from uuid import uuid4
+
+import jq as jq_lib
 
 from holmes.core.todo_tasks_formatter import format_tasks
 from holmes.core.tools import (
@@ -130,6 +133,98 @@ class TodoWriteTool(Tool):
         return "Update investigation tasks"
 
 
+class JqQueryTool(Tool):
+    name: str = "jq_query"
+    description: str = (
+        "Run a jq expression on the JSON output of a previous tool call. "
+        "Use this for precise counting, grouping, filtering, or aggregation. "
+        "Reference the previous tool call by its tool_call_id."
+    )
+    parameters: Dict[str, ToolParameter] = {
+        "tool_call_id": ToolParameter(
+            description="The tool_call_id of a previous tool call whose output you want to query",
+            type="string",
+            required=True,
+        ),
+        "expression": ToolParameter(
+            description=(
+                "A jq expression to run on the data. Examples: "
+                "'. | length' (count items), "
+                "'[.[] | .severity] | group_by(.) | map({key: .[0], count: length})' (group and count), "
+                "'[.[] | select(.status == \"open\")] | length' (count filtered items), "
+                "'group_by(.team) | map({team: .[0].team, count: length})' (group by field)"
+            ),
+            type="string",
+            required=True,
+        ),
+    }
+
+    def _find_tool_call_data(self, tool_call_id: str, context: ToolInvokeContext) -> str | None:
+        """Look up the result data from a previous tool call by its ID."""
+        for tc in context.previous_tool_calls:
+            if tc.get("tool_call_id") == tool_call_id:
+                result = tc.get("result", {})
+                return result.get("data", "")
+        return None
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        ref_tool_call_id = params.get("tool_call_id", "")
+        expression = params.get("expression", "")
+
+        if not ref_tool_call_id:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'tool_call_id' parameter is required - pass the tool_call_id of the tool whose output you want to query",
+                params=params,
+            )
+        if not expression:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'expression' parameter is required",
+                params=params,
+            )
+
+        data_str = self._find_tool_call_data(ref_tool_call_id, context)
+        if data_str is None:
+            available_ids = [tc.get("tool_call_id", "?") for tc in context.previous_tool_calls]
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"No previous tool call found with id '{ref_tool_call_id}'. Available tool_call_ids: {available_ids}",
+                params=params,
+            )
+
+        try:
+            parsed_data = json.loads(data_str)
+        except json.JSONDecodeError:
+            # Data might not be JSON - try to use it as a raw string
+            parsed_data = data_str
+
+        try:
+            compiled = jq_lib.compile(expression)
+            results = compiled.input(parsed_data).all()
+            if len(results) == 1:
+                output = results[0]
+            else:
+                output = results
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.SUCCESS,
+                data=output,
+                params=params,
+            )
+        except Exception as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"jq expression error: {e}",
+                params=params,
+            )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        expr = params.get("expression", "")
+        if len(expr) > 60:
+            expr = expr[:57] + "..."
+        return f"jq: {expr}"
+
+
 class CoreInvestigationToolset(Toolset):
     """Core toolset for investigation management and task planning."""
 
@@ -138,7 +233,7 @@ class CoreInvestigationToolset(Toolset):
             name="core_investigation",
             description="Core investigation tools for task management and planning",
             enabled=True,
-            tools=[TodoWriteTool()],
+            tools=[TodoWriteTool(), JqQueryTool()],
             tags=[ToolsetTag.CORE],
             is_default=True,
         )

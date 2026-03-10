@@ -191,6 +191,7 @@ class ToolInvokeContext(BaseModel):
         str
     ] = []  # Bash prefixes approved during this session
     request_context: Optional[Dict[str, Any]] = None
+    previous_tool_calls: List[Dict[str, Any]] = []
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""

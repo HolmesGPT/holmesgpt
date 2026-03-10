@@ -1,0 +1,47 @@
+toolsets:
+  issues:
+    description: "Issue tracker"
+    tools:
+      - name: get_issues
+        description: "Retrieve all reported issues as JSON"
+        script: |
+          cat <<'DATA'
+          [
+            {"id": 1001, "title": "Database connection timeout", "severity": "critical", "status": "open", "team": "backend"},
+            {"id": 1002, "title": "CSS alignment on login page", "severity": "low", "status": "open", "team": "frontend"},
+            {"id": 1003, "title": "Memory leak in worker process", "severity": "critical", "status": "open", "team": "platform"},
+            {"id": 1004, "title": "Slow API response on /users", "severity": "medium", "status": "open", "team": "backend"},
+            {"id": 1005, "title": "SSL certificate expiring soon", "severity": "high", "status": "open", "team": "infra"},
+            {"id": 1006, "title": "Disk usage above 90% on node-3", "severity": "critical", "status": "open", "team": "infra"},
+            {"id": 1007, "title": "Flaky test in CI pipeline", "severity": "low", "status": "closed", "team": "platform"},
+            {"id": 1008, "title": "Missing input validation on signup", "severity": "medium", "status": "open", "team": "frontend"},
+            {"id": 1009, "title": "Redis cluster failover not working", "severity": "critical", "status": "open", "team": "platform"},
+            {"id": 1010, "title": "Stale cache entries after deploy", "severity": "medium", "status": "open", "team": "backend"},
+            {"id": 1011, "title": "Log aggregation pipeline delay", "severity": "high", "status": "open", "team": "platform"},
+            {"id": 1012, "title": "Broken pagination on search results", "severity": "low", "status": "open", "team": "frontend"},
+            {"id": 1013, "title": "Race condition in payment processing", "severity": "critical", "status": "open", "team": "backend"},
+            {"id": 1014, "title": "Grafana dashboard queries slow", "severity": "medium", "status": "open", "team": "platform"},
+            {"id": 1015, "title": "Kubernetes pod eviction loop", "severity": "high", "status": "open", "team": "infra"},
+            {"id": 1016, "title": "Deadlock in connection pool", "severity": "critical", "status": "open", "team": "backend"},
+            {"id": 1017, "title": "Unhandled null in user profile API", "severity": "medium", "status": "open", "team": "backend"},
+            {"id": 1018, "title": "Mobile layout broken on tablet", "severity": "low", "status": "open", "team": "frontend"},
+            {"id": 1019, "title": "Prometheus scrape target missing", "severity": "high", "status": "open", "team": "platform"},
+            {"id": 1020, "title": "DNS resolution failures intermittent", "severity": "critical", "status": "open", "team": "infra"},
+            {"id": 1021, "title": "Data pipeline schema mismatch", "severity": "high", "status": "open", "team": "data"},
+            {"id": 1022, "title": "ETL job failing silently", "severity": "critical", "status": "open", "team": "data"},
+            {"id": 1023, "title": "Spark executor OOM on large datasets", "severity": "medium", "status": "open", "team": "data"},
+            {"id": 1024, "title": "Stale feature flags not cleaned up", "severity": "low", "status": "closed", "team": "platform"},
+            {"id": 1025, "title": "Webhook delivery retry storm", "severity": "high", "status": "open", "team": "backend"},
+            {"id": 1026, "title": "Dashboard permission sync broken", "severity": "medium", "status": "open", "team": "platform"},
+            {"id": 1027, "title": "Audit log missing write events", "severity": "medium", "status": "open", "team": "data"},
+            {"id": 1028, "title": "Container image scan false positives", "severity": "low", "status": "open", "team": "infra"},
+            {"id": 1029, "title": "SSO session expiry mismatch", "severity": "high", "status": "open", "team": "platform"},
+            {"id": 1030, "title": "Data lake partition skew", "severity": "medium", "status": "open", "team": "data"}
+          ]
+          DATA
+  helm/core:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
