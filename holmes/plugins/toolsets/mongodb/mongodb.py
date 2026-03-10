@@ -70,9 +70,6 @@ class MongoDBConfig(ToolsetConfig):
     ```
     """
 
-    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
-        "max_documents": "max_rows",
-    }
 
     connection_url: str = Field(
         title="Connection URL",
