@@ -90,6 +90,15 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 !!! tip "Which Model to Use"
     We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
+!!! info "No Kubernetes Required"
+    The examples below use a Kubernetes pod for a quick guided demo, but HolmesGPT works with any infrastructure. If you don't use Kubernetes, skip the `kubectl apply` step and ask about your own systems instead:
+    ```bash
+    holmes ask "what Prometheus alerts are currently firing and why?"
+    holmes ask "what is the health of my Elasticsearch cluster?"
+    holmes ask "are there any issues with my production databases?"
+    ```
+    See [data sources](../data-sources/builtin-toolsets/index.md) for all supported integrations.
+
 === "Anthropic Claude"
 
     1. **Set up API key**:
@@ -97,12 +106,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
         export ANTHROPIC_API_KEY="your-api-key"
         ```
 
-    2. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    3. **Ask your first question**:
+    2. **Ask your first question**:
         ```bash
         holmes ask "what is wrong with the user-profile-import pod?" --model="anthropic/claude-sonnet-4-5-20250929"
         ```
@@ -118,12 +122,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
         export OPENAI_API_KEY="your-api-key"
         ```
 
-    2. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    3. **Ask your first question**:
+    2. **Ask your first question**:
         ```bash
         # Uses gpt-4.1 by default (fairly fast, decent results)
         holmes ask "what is wrong with the user-profile-import pod?"
@@ -143,12 +142,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
         export AZURE_API_KEY="your-azure-api-key"
         ```
 
-    2. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    3. **Ask your first question**:
+    2. **Ask your first question**:
         ```bash
         holmes ask "what is wrong with the user-profile-import pod?" --model="azure/<your-model-name>"
         ```
@@ -169,12 +163,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
         pip install "boto3>=1.28.57"
         ```
 
-    3. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    4. **Ask your first question**:
+    3. **Ask your first question**:
         ```bash
         # Recommended: Use Sonnet 4.0 or Sonnet 4.5 for best results
         holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
@@ -192,12 +181,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
         export GEMINI_API_KEY="your-gemini-api-key"
         ```
 
-    2. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    3. **Ask your first question**:
+    2. **Ask your first question**:
         ```bash
         holmes ask "what is wrong with the user-profile-import pod?" --model="gemini/<your-gemini-model>"
         ```
@@ -213,12 +197,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
         export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account-key.json"
         ```
 
-    2. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    3. **Ask your first question**:
+    2. **Ask your first question**:
         ```bash
         holmes ask "what is wrong with the user-profile-import pod?" --model="vertex_ai/<your-vertex-model>"
         ```
@@ -230,12 +209,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
     1. **Set up API key**:
         No API key required for local Ollama installation.
 
-    2. **Create a test pod** to investigate:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    3. **Ask your first question**:
+    2. **Ask your first question**:
         ```bash
         holmes ask "what is wrong with the user-profile-import pod?" --model="ollama_chat/<your-model-name>"
         ```
