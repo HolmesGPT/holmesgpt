@@ -7,6 +7,7 @@ against allow/deny lists, with support for composed commands (pipes, &&, etc.).
 
 import logging
 import re
+import shlex
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -324,6 +325,57 @@ def validate_command(
                 deny_reason=DenyReason.DENY_LIST,
                 message=f"Command matches deny list pattern '{denied}'. This command is blocked by configuration.",
             )
+
+        # Fallback: use shlex to tokenize (respects quoting), then split
+        # tokens into command segments by shell operators (|, &&, ;, etc.).
+        # bashlex may fail on valid commands with special chars in quoted
+        # arguments (e.g. parentheses in PromQL queries passed to curl).
+        SHELL_OPERATORS = {"|", "||", "&&", ";", "&"}
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            # shlex can't parse either — fall through to approval
+            return ValidationResult(
+                status=ValidationStatus.APPROVAL_REQUIRED,
+                message="Command contains complex syntax which requires approval.",
+                prefixes_needing_approval=[],
+            )
+
+        # Group tokens into segments separated by shell operators
+        segments_from_shlex: List[str] = []
+        current_segment: List[str] = []
+        for token in tokens:
+            if token in SHELL_OPERATORS:
+                if current_segment:
+                    segments_from_shlex.append(" ".join(current_segment))
+                    current_segment = []
+            else:
+                current_segment.append(token)
+        if current_segment:
+            segments_from_shlex.append(" ".join(current_segment))
+
+        if not segments_from_shlex:
+            return ValidationResult(
+                status=ValidationStatus.APPROVAL_REQUIRED,
+                message="Command contains complex syntax which requires approval.",
+                prefixes_needing_approval=[],
+            )
+
+        all_allowed = True
+        for seg in segments_from_shlex:
+            seg_result = validate_segment(seg, allow_list, deny_list)
+            if seg_result.status == ValidationStatus.DENIED:
+                return seg_result
+            if seg_result.status != ValidationStatus.ALLOWED:
+                all_allowed = False
+                break
+
+        if all_allowed:
+            logger.info(
+                f"Command allowed via fallback validation (bashlex parse failed): {command[:200]}"
+            )
+            return ValidationResult(status=ValidationStatus.ALLOWED)
+
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message="Command contains complex syntax which requires approval.",

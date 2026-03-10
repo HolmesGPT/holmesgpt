@@ -1042,6 +1042,43 @@ class TestCompoundStatements:
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         assert result.message == "Command contains complex syntax which requires approval."
 
+    def test_curl_with_parentheses_in_args_allowed(self):
+        """curl with parentheses in quoted args (e.g. PromQL) should be allowed via fallback."""
+        config = BashExecutorConfig(allow=["curl", "jq"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "curl -sG 'http://vmselect:8481/select/0/prometheus/api/v1/query' "
+            "--data-urlencode 'query=topk(10, nvme_smart_log_media_errors)' | jq .data.result",
+            ["curl", "jq"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_curl_with_parentheses_pipe_not_allowed_prefix(self):
+        """curl with parentheses piped to non-allowed command still requires approval."""
+        config = BashExecutorConfig(allow=["curl"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "curl -sG 'http://example.com/api' --data-urlencode 'query=topk(10, metric)' | python3 -c 'import sys'",
+            ["curl", "python3"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+
+    def test_curl_with_parentheses_denied_command(self):
+        """curl with parentheses piped to denied command is still denied."""
+        config = BashExecutorConfig(allow=["curl"], deny=["rm"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "curl -sG 'http://example.com' --data-urlencode 'query=topk(10, x)' | rm -rf /",
+            ["curl", "rm"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+
 
 # ==================== Integration: requires_approval prefixes_to_save ====================
 

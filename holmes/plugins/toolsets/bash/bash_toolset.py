@@ -195,6 +195,11 @@ class RunBashCommand(Tool):
         command_str = params.get("command")
         suggested_prefixes = params.get("suggested_prefixes", [])
         timeout = params.get("timeout", 30)
+        # LLM may pass timeout as string — ensure it's an int for subprocess
+        try:
+            timeout = int(timeout)
+        except (TypeError, ValueError):
+            timeout = 30
 
         # Validate required parameters
         if not command_str:

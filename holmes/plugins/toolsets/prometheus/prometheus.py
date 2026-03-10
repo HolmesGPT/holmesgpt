@@ -1378,6 +1378,11 @@ class ExecuteInstantQuery(BasePrometheusTool):
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
             timeout = params.get("timeout", default_timeout)
+            # LLM may pass timeout as string — ensure numeric type
+            try:
+                timeout = int(timeout)
+            except (TypeError, ValueError):
+                timeout = default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
@@ -1632,6 +1637,11 @@ class ExecuteRangeQuery(BasePrometheusTool):
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
             timeout = params.get("timeout", default_timeout)
+            # LLM may pass timeout as string — ensure numeric type
+            try:
+                timeout = int(timeout)
+            except (TypeError, ValueError):
+                timeout = default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
