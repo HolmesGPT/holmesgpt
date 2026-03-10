@@ -219,7 +219,6 @@ class MongoDBToolset(Toolset):
             "socketTimeoutMS": self.mongodb_config.timeout_seconds * 1000,
         }
         if not self.mongodb_config.verify_ssl:
-            kwargs["tls"] = True
             kwargs["tlsAllowInvalidCertificates"] = True
 
         return pymongo.MongoClient(
