@@ -24,7 +24,7 @@ tags:
   - db-connectors
   - medium
 
-setup_timeout: 120
+setup_timeout: 180
 
 port_forwards:
   - namespace: app-228
@@ -62,7 +62,23 @@ before_test: |
     exit 1
   fi
 
-  sleep 2
+  # Wait for MongoDB to accept authenticated connections
+  echo "⏳ Waiting for MongoDB to accept connections..."
+  MONGO_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n app-228 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+      echo "✅ MongoDB is accepting connections!"
+      MONGO_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$MONGO_READY" = false ]; then
+    echo "❌ MongoDB not accepting connections after 60 seconds"
+    kubectl logs -l app=mongodb -n app-228 --tail=20
+    exit 1
+  fi
 
   # Copy seed script into the pod and execute it
   echo "⏳ Seeding events data..."
