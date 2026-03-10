@@ -173,12 +173,11 @@ class MongoDBToolset(Toolset):
             os.path.dirname(__file__), "instructions.jinja2"
         )
 
-        self._user_llm_instructions = llm_instructions
-        if self._user_llm_instructions:
+        if llm_instructions:
             self.llm_instructions = (
                 (self.llm_instructions or "")
                 + "\n\n## Database-Specific Instructions\n\n"
-                + self._user_llm_instructions
+                + llm_instructions
             )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
