@@ -141,6 +141,8 @@ class MongoDBToolset(Toolset):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     config_classes: ClassVar[list[Type[MongoDBConfig]]] = [MongoDBConfig]
 
+    _client: Optional[pymongo.MongoClient] = None
+
     def __init__(self, name: str = "mongodb", **kwargs: Any):
         llm_instructions = kwargs.pop("llm_instructions", None)
         enabled = kwargs.pop("enabled", False)
@@ -189,18 +191,16 @@ class MongoDBToolset(Toolset):
 
     def _perform_health_check(self) -> Tuple[bool, str]:
         try:
-            client = self._create_client()
-            try:
-                client.admin.command("ping")
-                # Resolve default database name
-                if not self.mongodb_config.default_database:
-                    db_name = pymongo.uri_parser.parse_uri(self.mongodb_config.connection_url).get("database")
-                    if db_name:
-                        self.mongodb_config.default_database = db_name
-                return True, "Connected to MongoDB"
-            finally:
-                client.close()
+            self._client = self._create_client()
+            self._client.admin.command("ping")
+            # Resolve default database name
+            if not self.mongodb_config.default_database:
+                db_name = pymongo.uri_parser.parse_uri(self.mongodb_config.connection_url).get("database")
+                if db_name:
+                    self.mongodb_config.default_database = db_name
+            return True, "Connected to MongoDB"
         except Exception as e:
+            self._client = None
             return False, f"MongoDB connection failed: {e}"
 
     def _create_client(self) -> pymongo.MongoClient:
@@ -221,13 +221,13 @@ class MongoDBToolset(Toolset):
     def mongodb_config(self) -> MongoDBConfig:
         return self.config  # type: ignore
 
-    def _get_database(self, client: pymongo.MongoClient, database: Optional[str] = None) -> pymongo.database.Database:
+    def _get_database(self, database: Optional[str] = None) -> pymongo.database.Database:
         db_name = database or self.mongodb_config.default_database
         if not db_name:
             raise ValueError(
                 "No database specified. Provide a 'database' parameter or set 'default_database' in config."
             )
-        return client[db_name]
+        return self._client[db_name]  # type: ignore
 
     def execute_find(
         self,
@@ -245,30 +245,26 @@ class MongoDBToolset(Toolset):
             self.mongodb_config.max_rows,
         )
 
-        client = self._create_client()
-        try:
-            db = self._get_database(client, database)
-            coll = db[collection]
-            cursor = coll.find(
-                filter=filter_doc or {},
-                projection=projection,
-            )
-            if sort:
-                cursor = cursor.sort(sort)
-            cursor = cursor.limit(effective_limit + 1)
+        db = self._get_database(database)
+        coll = db[collection]
+        cursor = coll.find(
+            filter=filter_doc or {},
+            projection=projection,
+        )
+        if sort:
+            cursor = cursor.sort(sort)
+        cursor = cursor.limit(effective_limit + 1)
 
-            docs = list(cursor)
-            truncated = len(docs) > effective_limit
-            if truncated:
-                docs = docs[:effective_limit]
+        docs = list(cursor)
+        truncated = len(docs) > effective_limit
+        if truncated:
+            docs = docs[:effective_limit]
 
-            return {
-                "documents": [_serialize_value(doc) for doc in docs],
-                "count": len(docs),
-                "truncated": truncated,
-            }
-        finally:
-            client.close()
+        return {
+            "documents": [_serialize_value(doc) for doc in docs],
+            "count": len(docs),
+            "truncated": truncated,
+        }
 
     def execute_aggregate(
         self,
@@ -285,37 +281,29 @@ class MongoDBToolset(Toolset):
                             f"Only read-only aggregation stages are permitted."
                         )
 
-        client = self._create_client()
-        try:
-            db = self._get_database(client, database)
-            coll = db[collection]
-            results = list(coll.aggregate(pipeline))
+        db = self._get_database(database)
+        coll = db[collection]
+        results = list(coll.aggregate(pipeline))
 
-            max_docs = self.mongodb_config.max_rows
-            truncated = len(results) > max_docs
-            if truncated:
-                results = results[:max_docs]
+        max_docs = self.mongodb_config.max_rows
+        truncated = len(results) > max_docs
+        if truncated:
+            results = results[:max_docs]
 
-            return {
-                "documents": [_serialize_value(doc) for doc in results],
-                "count": len(results),
-                "truncated": truncated,
-            }
-        finally:
-            client.close()
+        return {
+            "documents": [_serialize_value(doc) for doc in results],
+            "count": len(results),
+            "truncated": truncated,
+        }
 
     def list_collections(self, database: Optional[str] = None) -> Dict[str, Any]:
-        client = self._create_client()
-        try:
-            db = self._get_database(client, database)
-            collections = db.list_collection_names()
-            return {
-                "database": db.name,
-                "collections": sorted(collections),
-                "total_count": len(collections),
-            }
-        finally:
-            client.close()
+        db = self._get_database(database)
+        collections = db.list_collection_names()
+        return {
+            "database": db.name,
+            "collections": sorted(collections),
+            "total_count": len(collections),
+        }
 
     def get_collection_schema(
         self,
@@ -323,43 +311,39 @@ class MongoDBToolset(Toolset):
         database: Optional[str] = None,
         sample_size: int = 10,
     ) -> Dict[str, Any]:
-        client = self._create_client()
-        try:
-            db = self._get_database(client, database)
-            coll = db[collection]
+        db = self._get_database(database)
+        coll = db[collection]
 
-            # Sample documents to infer schema
-            sample_docs = list(coll.find().limit(sample_size))
-            field_types: Dict[str, set] = {}
-            for doc in sample_docs:
-                self._extract_field_types(doc, field_types, prefix="")
+        # Sample documents to infer schema
+        sample_docs = list(coll.find().limit(sample_size))
+        field_types: Dict[str, set] = {}
+        for doc in sample_docs:
+            self._extract_field_types(doc, field_types, prefix="")
 
-            schema_fields = {
-                field: sorted(types) for field, types in sorted(field_types.items())
-            }
+        schema_fields = {
+            field: sorted(types) for field, types in sorted(field_types.items())
+        }
 
-            # Get indexes
-            indexes = []
-            for idx_name, idx_info in coll.index_information().items():
-                indexes.append({
-                    "name": idx_name,
-                    "keys": idx_info.get("key", []),
-                    "unique": idx_info.get("unique", False),
-                })
+        # Get indexes
+        indexes = []
+        for idx_name, idx_info in coll.index_information().items():
+            indexes.append({
+                "name": idx_name,
+                "keys": idx_info.get("key", []),
+                "unique": idx_info.get("unique", False),
+            })
 
-            # Get estimated document count
-            estimated_count = coll.estimated_document_count()
+        # Get estimated document count
+        estimated_count = coll.estimated_document_count()
 
-            return {
-                "collection": collection,
-                "database": db.name,
-                "estimated_document_count": estimated_count,
-                "fields": schema_fields,
-                "indexes": indexes,
-                "sample_size": len(sample_docs),
-            }
-        finally:
-            client.close()
+        return {
+            "collection": collection,
+            "database": db.name,
+            "estimated_document_count": estimated_count,
+            "fields": schema_fields,
+            "indexes": indexes,
+            "sample_size": len(sample_docs),
+        }
 
     def _extract_field_types(
         self, doc: Dict, field_types: Dict[str, set], prefix: str
@@ -376,33 +360,29 @@ class MongoDBToolset(Toolset):
 
     def get_server_status(self, sections: Optional[List[str]] = None) -> Dict[str, Any]:
         """Run serverStatus and return selected sections for diagnostics."""
-        client = self._create_client()
-        try:
-            status = client.admin.command("serverStatus")
-            # Always include these overview fields
-            result: Dict[str, Any] = {
-                "host": status.get("host"),
-                "version": status.get("version"),
-                "uptime_seconds": status.get("uptimeEstimate", status.get("uptime")),
-            }
+        status = self._client.admin.command("serverStatus")  # type: ignore
+        # Always include these overview fields
+        result: Dict[str, Any] = {
+            "host": status.get("host"),
+            "version": status.get("version"),
+            "uptime_seconds": status.get("uptimeEstimate", status.get("uptime")),
+        }
 
-            # Default sections that are most useful for performance diagnostics
-            default_sections = [
-                "connections", "opcounters", "mem", "locks",
-                "globalLock", "network", "wiredTiger",
-            ]
-            requested = sections or default_sections
-            for section in requested:
-                if section in status:
-                    result[section] = status[section]
+        # Default sections that are most useful for performance diagnostics
+        default_sections = [
+            "connections", "opcounters", "mem", "locks",
+            "globalLock", "network", "wiredTiger",
+        ]
+        requested = sections or default_sections
+        for section in requested:
+            if section in status:
+                result[section] = status[section]
 
-            # Include replication info if available
-            if "repl" in status:
-                result["repl"] = status["repl"]
+        # Include replication info if available
+        if "repl" in status:
+            result["repl"] = status["repl"]
 
-            return _serialize_value(result)
-        finally:
-            client.close()
+        return _serialize_value(result)
 
     def get_current_op(
         self,
@@ -410,51 +390,43 @@ class MongoDBToolset(Toolset):
         active_only: bool = True,
     ) -> Dict[str, Any]:
         """Run currentOp to find active/slow operations."""
-        client = self._create_client()
-        try:
-            filter_doc: Dict[str, Any] = {}
-            if active_only:
-                filter_doc["active"] = True
-            if min_duration_ms is not None:
-                filter_doc["microsecs_running"] = {"$gte": min_duration_ms * 1000}
+        filter_doc: Dict[str, Any] = {}
+        if active_only:
+            filter_doc["active"] = True
+        if min_duration_ms is not None:
+            filter_doc["microsecs_running"] = {"$gte": min_duration_ms * 1000}
 
-            result = client.admin.command("currentOp", **filter_doc)
-            ops = result.get("inprog", [])
+        result = self._client.admin.command("currentOp", **filter_doc)  # type: ignore
+        ops = result.get("inprog", [])
 
-            # Limit output to prevent token overflow
-            max_ops = self.mongodb_config.max_rows
-            truncated = len(ops) > max_ops
-            if truncated:
-                ops = ops[:max_ops]
+        # Limit output to prevent token overflow
+        max_ops = self.mongodb_config.max_rows
+        truncated = len(ops) > max_ops
+        if truncated:
+            ops = ops[:max_ops]
 
-            return {
-                "operations": _serialize_value(ops),
-                "count": len(ops),
-                "truncated": truncated,
-            }
-        finally:
-            client.close()
+        return {
+            "operations": _serialize_value(ops),
+            "count": len(ops),
+            "truncated": truncated,
+        }
 
     def get_list_databases(self) -> Dict[str, Any]:
         """List all databases with their sizes."""
-        client = self._create_client()
-        try:
-            result = client.admin.command("listDatabases")
-            databases = []
-            for db_info in result.get("databases", []):
-                databases.append({
-                    "name": db_info.get("name"),
-                    "sizeOnDisk": db_info.get("sizeOnDisk"),
-                    "sizeOnDisk_mb": round(db_info.get("sizeOnDisk", 0) / (1024 * 1024), 2),
-                    "empty": db_info.get("empty", False),
-                })
-            return {
-                "databases": databases,
-                "totalSize_mb": round(result.get("totalSize", 0) / (1024 * 1024), 2),
-                "total_count": len(databases),
-            }
-        finally:
-            client.close()
+        result = self._client.admin.command("listDatabases")  # type: ignore
+        databases = []
+        for db_info in result.get("databases", []):
+            databases.append({
+                "name": db_info.get("name"),
+                "sizeOnDisk": db_info.get("sizeOnDisk"),
+                "sizeOnDisk_mb": round(db_info.get("sizeOnDisk", 0) / (1024 * 1024), 2),
+                "empty": db_info.get("empty", False),
+            })
+        return {
+            "databases": databases,
+            "totalSize_mb": round(result.get("totalSize", 0) / (1024 * 1024), 2),
+            "total_count": len(databases),
+        }
 
 
 class BaseMongoDBTool(Tool, ABC):
