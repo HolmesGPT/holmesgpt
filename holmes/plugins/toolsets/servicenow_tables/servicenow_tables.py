@@ -16,6 +16,7 @@ from holmes.core.tools import (
     Toolset,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -54,6 +55,13 @@ class ServiceNowTablesConfig(ToolsetConfig):
         title="Health check table",
         description="Table queried on startup to verify connectivity and permissions. Change this if your API key doesn't have access to the default table.",
         examples=["sys_user", "incident", "sys_db_object"],
+    )
+    extra_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        title="Extra Headers",
+        description="Optional extra HTTP headers rendered via Jinja2 templates. "
+        "Supports request context (e.g. {{ request_context.headers['X-Tenant-Id'] }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
+        examples=[{"X-Custom-Header": "{{ env.MY_TOKEN }}"}],
     )
 
 
@@ -134,6 +142,7 @@ class ServiceNowTablesToolset(Toolset):
         endpoint: str,
         query_params: Optional[Dict] = None,
         timeout: int = 30,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """Make a GET request to ServiceNow API and return JSON data and headers.
 
@@ -141,6 +150,7 @@ class ServiceNowTablesToolset(Toolset):
             endpoint: API endpoint path (e.g., "api/now/v2/table/incident")
             query_params: Optional query parameters for the request
             timeout: Request timeout in seconds
+            request_context: Optional request context for rendering extra_headers templates
 
         Returns:
             Tuple of (parsed JSON response data, response headers dict)
@@ -161,6 +171,15 @@ class ServiceNowTablesToolset(Toolset):
             "Content-Type": "application/json",
         }
 
+        if self.servicenow_config.extra_headers:
+            rendered = render_header_templates(
+                extra_headers=self.servicenow_config.extra_headers,
+                request_context=request_context,
+                source_name=self.name,
+            )
+            if rendered:
+                headers.update(rendered)
+
         response = requests.get(
             url, headers=headers, params=query_params, timeout=timeout
         )
@@ -179,6 +198,7 @@ class BaseServiceNowTool(Tool, ABC):
         self,
         endpoint: str,
         params: dict,
+        context: ToolInvokeContext,
         query_params: Optional[Dict] = None,
         timeout: int = 30,
     ) -> StructuredToolResult:
@@ -187,6 +207,7 @@ class BaseServiceNowTool(Tool, ABC):
         Args:
             endpoint: API endpoint path (e.g., "/api/now/v2/table/incident")
             params: Original parameters passed to the tool
+            context: Tool invocation context (used for request_context header rendering)
             query_params: Optional query parameters for the request
             timeout: Request timeout in seconds
 
@@ -197,7 +218,10 @@ class BaseServiceNowTool(Tool, ABC):
 
         # Use the toolset's shared API request method
         data, headers = self._toolset._make_api_request(
-            endpoint=endpoint, query_params=query_params, timeout=timeout
+            endpoint=endpoint,
+            query_params=query_params,
+            timeout=timeout,
+            request_context=context.request_context,
         )
 
         return StructuredToolResult(
@@ -334,7 +358,10 @@ class GetRecords(BaseServiceNowTool):
 
         # Get data and headers from the API request
         data, headers = self._toolset._make_api_request(
-            endpoint=endpoint, query_params=query_params, timeout=30
+            endpoint=endpoint,
+            query_params=query_params,
+            timeout=30,
+            request_context=context.request_context,
         )
 
         # Create the response with records and relevant headers
@@ -433,7 +460,7 @@ class GetRecord(BaseServiceNowTool):
             query_params["sysparm_view"] = params["sysparm_view"]
 
         endpoint = f"/api/now/v2/table/{table_name}/{sys_id}"
-        return self._make_servicenow_request(endpoint, params, query_params)
+        return self._make_servicenow_request(endpoint, params, context, query_params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         table_name = params.get("table_name", "unknown")

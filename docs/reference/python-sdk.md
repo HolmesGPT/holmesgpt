@@ -273,8 +273,7 @@ Main configuration class (`holmes.config.Config`).
 |--------|---------|-------------|
 | `Config.load_from_file(config_file, **kwargs)` | `Config` | Load configuration from a YAML file. |
 | `Config.load_from_env()` | `Config` | Load configuration from environment variables. |
-| `create_console_toolcalling_llm()` | `ToolCallingLLM` | Create an AI instance for asking questions. |
-| `create_console_issue_investigator()` | `IssueInvestigator` | Create an AI instance for investigating alerts. |
+| `create_console_toolcalling_llm()` | `ToolCallingLLM` | Create an AI instance for asking questions and investigating alerts. |
 | `get_runbook_catalog()` | `RunbookCatalog` or `None` | Get the loaded runbook catalog. |
 
 ### `ToolCallingLLM`

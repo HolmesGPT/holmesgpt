@@ -59,6 +59,31 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## SSL/TLS
+
+### CERTIFICATE
+
+Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the certificate is appended to the default CA bundle so that HolmesGPT trusts your private CA for all connections (LLM APIs, Elasticsearch, Prometheus, etc.).
+
+=== "Holmes CLI"
+
+    ```bash
+    export CERTIFICATE="$(base64 -w0 /path/to/ca.crt)"
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    certificate: "<base64-encoded CA cert>"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      certificate: "<base64-encoded CA cert>"
+    ```
+
 ## HolmesGPT Configuration
 
 ### MODEL_LIST_FILE_LOCATION
@@ -92,6 +117,19 @@ export HOLMES_LOG_LEVEL="DEBUG"
 
 ### HOLMES_CACHE_DIR
 Directory for caching HolmesGPT data and temporary files.
+
+### HOLMES_PASSTHROUGH_BLOCKED_HEADERS
+**Default:** `"authorization,cookie,set-cookie"`
+
+Comma-separated list of HTTP header names that should **not** be forwarded from incoming requests to toolsets via `request_context`. Case-insensitive.
+
+**Example:**
+```bash
+# Also block a custom internal header
+export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-internal-only"
+```
+
+See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
 
 ## Data Source Configuration
 

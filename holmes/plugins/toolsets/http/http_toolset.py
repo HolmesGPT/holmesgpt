@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import requests  # type: ignore
 from pydantic import BaseModel, Field, model_validator
+from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -19,6 +20,7 @@ from holmes.core.tools import (
     Toolset,
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
+from holmes.utils.header_rendering import render_header_templates
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +28,8 @@ ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 
 class AuthConfig(BaseModel):
-    type: Literal["none", "basic", "bearer", "header"] = "none"
-    # For basic auth
+    type: Literal["none", "basic", "bearer", "header", "digest"] = "none"
+    # For basic/digest auth
     username: Optional[str] = None
     password: Optional[str] = None
     # For bearer auth
@@ -41,6 +43,9 @@ class AuthConfig(BaseModel):
         if self.type == "basic":
             if not self.username or not self.password:
                 raise ValueError("Basic auth requires 'username' and 'password'")
+        elif self.type == "digest":
+            if not self.username or not self.password:
+                raise ValueError("Digest auth requires 'username' and 'password'")
         elif self.type == "bearer":
             if not self.token:
                 raise ValueError("Bearer auth requires 'token'")
@@ -84,6 +89,19 @@ class HttpToolsetConfig(BaseModel):
     verify_ssl: bool = True
     timeout_seconds: int = 30
     default_headers: Dict[str, str] = Field(default_factory=dict)
+    extra_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Extra HTTP headers rendered via Jinja2 templates. "
+        "Supports request context (e.g. {{ request_context.headers['X-Tenant-Id'] }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
+    )
+    client_cert_path: Optional[str] = Field(
+        default=None,
+        description="Path to client certificate file for mTLS authentication.",
+    )
+    client_key_path: Optional[str] = Field(
+        default=None,
+        description="Path to client private key file for mTLS. If not set, the cert file is assumed to contain both cert and key.",
+    )
 
 
 class HttpToolset(Toolset):
@@ -138,6 +156,11 @@ class HttpToolset(Toolset):
                     False,
                     "No endpoints configured. Add at least one endpoint with hosts and auth.",
                 )
+
+            if self._http_config.client_cert_path and not os.path.isfile(self._http_config.client_cert_path):
+                return False, f"Client certificate file not found: {self._http_config.client_cert_path}"
+            if self._http_config.client_key_path and not os.path.isfile(self._http_config.client_key_path):
+                return False, f"Client key file not found: {self._http_config.client_key_path}"
 
             for i, endpoint in enumerate(self._http_config.endpoints):
                 if not endpoint.hosts:
@@ -197,10 +220,18 @@ class HttpToolset(Toolset):
         auth = endpoint.auth
         if auth.type == "basic":
             parts.append('-u "$USERNAME:$PASSWORD"')
+        elif auth.type == "digest":
+            parts.append('--digest -u "$USERNAME:$PASSWORD"')
         elif auth.type == "bearer":
             parts.append('-H "Authorization: Bearer $TOKEN"')
         elif auth.type == "header" and auth.name:
             parts.append(f'-H "{auth.name}: $SECRET"')
+
+        if self._http_config:
+            if self._http_config.client_cert_path:
+                parts.append(f'--cert "{self._http_config.client_cert_path}"')
+            if self._http_config.client_key_path:
+                parts.append(f'--key "{self._http_config.client_key_path}"')
 
         parts.append(f'"{url}"')
         return " ".join(parts)
@@ -216,15 +247,19 @@ class HttpToolset(Toolset):
 
         try:
             headers = self.build_headers(endpoint)
-            basic_auth = self.get_basic_auth(endpoint)
+            auth_obj = self.get_request_auth(endpoint)
 
-            response = requests.get(
-                url,
-                headers=headers,
-                auth=basic_auth,
-                timeout=10,
-                verify=self._http_config.verify_ssl if self._http_config else True,
-            )
+            request_kwargs: Dict[str, Any] = {
+                "headers": headers,
+                "auth": auth_obj,
+                "timeout": 10,
+                "verify": self._http_config.verify_ssl if self._http_config else True,
+            }
+            cert = self.get_client_cert()
+            if cert:
+                request_kwargs["cert"] = cert
+
+            response = requests.get(url, **request_kwargs)
 
             if response.ok:
                 logger.info(f"Health check passed for endpoint {endpoint_index}: {url}")
@@ -331,14 +366,20 @@ class HttpToolset(Toolset):
 
         return headers
 
-    def get_basic_auth(self, endpoint: EndpointConfig) -> Optional[Tuple[str, str]]:
-        if (
-            endpoint.auth.type == "basic"
-            and endpoint.auth.username
-            and endpoint.auth.password
-        ):
-            return (endpoint.auth.username, endpoint.auth.password)
+    def get_request_auth(self, endpoint: EndpointConfig) -> Optional[Any]:
+        if endpoint.auth.username and endpoint.auth.password:
+            if endpoint.auth.type == "basic":
+                return (endpoint.auth.username, endpoint.auth.password)
+            if endpoint.auth.type == "digest":
+                return HTTPDigestAuth(endpoint.auth.username, endpoint.auth.password)
         return None
+
+    def get_client_cert(self) -> Optional[Any]:
+        if not self._http_config or not self._http_config.client_cert_path:
+            return None
+        if self._http_config.client_key_path:
+            return (self._http_config.client_cert_path, self._http_config.client_key_path)
+        return self._http_config.client_cert_path
 
 
 class HttpRequest(Tool, JsonFilterMixin):
@@ -432,17 +473,30 @@ class HttpRequest(Tool, JsonFilterMixin):
                 )
 
         headers = self._toolset.build_headers(endpoint, extra_headers)
-        basic_auth = self._toolset.get_basic_auth(endpoint)
+
+        # Merge rendered toolset-level extra_headers
+        if self._toolset.http_config.extra_headers:
+            rendered_extra = render_header_templates(
+                extra_headers=self._toolset.http_config.extra_headers,
+                request_context=context.request_context,
+                source_name=self._toolset.name,
+            )
+            if rendered_extra:
+                headers.update(rendered_extra)
+        auth_obj = self._toolset.get_request_auth(endpoint)
         timeout = self._toolset.http_config.timeout_seconds
         verify_ssl = self._toolset.http_config.verify_ssl
 
         try:
             request_kwargs: Dict[str, Any] = {
                 "headers": headers,
-                "auth": basic_auth,
+                "auth": auth_obj,
                 "timeout": timeout,
                 "verify": verify_ssl,
             }
+            cert = self._toolset.get_client_cert()
+            if cert:
+                request_kwargs["cert"] = cert
 
             if method in ("POST", "PUT", "PATCH") and body:
                 request_kwargs["data"] = body

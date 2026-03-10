@@ -44,6 +44,14 @@ ROBUSTA_API_ENDPOINT = os.environ.get("ROBUSTA_API_ENDPOINT", "https://api.robus
 LOG_PERFORMANCE = os.environ.get("LOG_PERFORMANCE", None)
 
 
+AZURE_AD_TOKEN_AUTH = load_bool("AZURE_AD_TOKEN_AUTH", False)
+# Override the default scope used when acquiring Entra ID tokens for Azure OpenAI/Foundry endpoints
+# Default aligns with Azure Cognitive Services (Azure OpenAI)
+AZURE_COGNITIVE_SERVICES_SCOPE = os.environ.get(
+    "AZURE_COGNITIVE_SERVICES_SCOPE",
+    "https://cognitiveservices.azure.com/.default",
+)
+
 ENABLE_TELEMETRY = load_bool("ENABLE_TELEMETRY", False)
 DEVELOPMENT_MODE = load_bool("DEVELOPMENT_MODE", False)
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
@@ -84,7 +92,7 @@ TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS = load_bool(
 
 MAX_OUTPUT_TOKEN_RESERVATION = int(
     os.environ.get("MAX_OUTPUT_TOKEN_RESERVATION", 16384)
-)  ## 16k
+)  # 16k
 
 # When using the bash tool, setting BASH_TOOL_UNSAFE_ALLOW_ALL will skip any command validation and run any command requested by the LLM
 BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
@@ -93,7 +101,9 @@ LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
 
 
 MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
-MAX_GRAPH_POINTS_HARD_LIMIT = float(os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 2))
+MAX_GRAPH_POINTS_HARD_LIMIT = float(
+    os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 2)
+)
 
 # Limit each tool response to N% of the total context window.
 # Number between 0 and 100

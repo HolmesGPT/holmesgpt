@@ -2,6 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 import requests  # type: ignore
+from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import StructuredToolResultStatus, ToolInvokeContext
 from holmes.plugins.toolsets.http.http_toolset import (
@@ -50,6 +51,20 @@ class TestAuthConfig:
     def test_header_auth_missing_value(self):
         with pytest.raises(ValueError, match="Header auth requires"):
             AuthConfig(type="header", name="X-API-Key")
+
+    def test_digest_auth_valid(self):
+        auth = AuthConfig(type="digest", username="user", password="pass")
+        assert auth.type == "digest"
+        assert auth.username == "user"
+        assert auth.password == "pass"
+
+    def test_digest_auth_missing_username(self):
+        with pytest.raises(ValueError, match="Digest auth requires"):
+            AuthConfig(type="digest", password="pass")
+
+    def test_digest_auth_missing_password(self):
+        with pytest.raises(ValueError, match="Digest auth requires"):
+            AuthConfig(type="digest", username="user")
 
     def test_none_auth(self):
         auth = AuthConfig(type="none")
@@ -216,14 +231,31 @@ class TestHttpToolsetHeaders:
         headers = toolset.build_headers(endpoint)
         assert "Authorization" not in headers
 
+    def test_digest_auth_not_in_headers(self, toolset):
+        endpoint = EndpointConfig(
+            hosts=["example.com"],
+            auth=AuthConfig(type="digest", username="user", password="pass"),
+        )
+        headers = toolset.build_headers(endpoint)
+        assert "Authorization" not in headers
+
     def test_basic_auth_tuple(self):
         toolset = HttpToolset()
         endpoint = EndpointConfig(
             hosts=["example.com"],
             auth=AuthConfig(type="basic", username="user", password="pass"),
         )
-        auth = toolset.get_basic_auth(endpoint)
+        auth = toolset.get_request_auth(endpoint)
         assert auth == ("user", "pass")
+
+    def test_digest_auth_returns_digest_handler(self):
+        toolset = HttpToolset()
+        endpoint = EndpointConfig(
+            hosts=["example.com"],
+            auth=AuthConfig(type="digest", username="user", password="pass"),
+        )
+        auth = toolset.get_request_auth(endpoint)
+        assert isinstance(auth, HTTPDigestAuth)
 
     def test_extra_headers_override(self, toolset):
         endpoint = EndpointConfig(hosts=["example.com"], auth=AuthConfig(type="none"))
@@ -426,7 +458,9 @@ class TestHttpRequest:
 
     @pytest.fixture
     def mock_context(self):
-        return Mock(spec=ToolInvokeContext)
+        ctx = Mock(spec=ToolInvokeContext)
+        ctx.request_context = None
+        return ctx
 
     def test_headers_must_be_dict(self, toolset, mock_context):
         tool = HttpRequest(toolset)
@@ -756,3 +790,153 @@ class TestHttpRequestOneLiner:
         tool = HttpRequest(ts)
         result = tool.get_parameterized_one_liner({"url": "https://api.example.com/test"})
         assert result.startswith("HTTP GET")
+
+
+class TestDigestAuth:
+    def test_digest_auth_prereq(self):
+        toolset = HttpToolset()
+        success, message = toolset.prerequisites_callable(
+            {
+                "endpoints": [
+                    {
+                        "hosts": ["api.example.com"],
+                        "auth": {"type": "digest", "username": "user", "password": "pass"},
+                    }
+                ]
+            }
+        )
+        assert success is True
+
+    @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
+    def test_digest_auth_request(self, mock_request):
+        ts = HttpToolset()
+        ts._http_config = HttpToolsetConfig(
+            endpoints=[
+                EndpointConfig(
+                    hosts=["api.example.com"],
+                    auth=AuthConfig(type="digest", username="user", password="pass"),
+                )
+            ]
+        )
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": "test"}
+        mock_request.return_value = mock_response
+
+        ctx = Mock(spec=ToolInvokeContext)
+        ctx.request_context = None
+        tool = HttpRequest(ts)
+        result = tool._invoke({"url": "https://api.example.com/test"}, ctx)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        call_kwargs = mock_request.call_args[1]
+        assert isinstance(call_kwargs["auth"], HTTPDigestAuth)
+
+    def test_digest_curl_command(self):
+        toolset = HttpToolset()
+        toolset._http_config = HttpToolsetConfig(endpoints=[])
+        endpoint = EndpointConfig(
+            hosts=["api.example.com"],
+            auth=AuthConfig(type="digest", username="user", password="pass"),
+        )
+        cmd = toolset._build_curl_command(endpoint, "https://api.example.com/test")
+        assert "--digest" in cmd
+        assert '-u "$USERNAME:$PASSWORD"' in cmd
+
+
+class TestMTLS:
+    def test_client_cert_only(self):
+        toolset = HttpToolset()
+        toolset._http_config = HttpToolsetConfig(
+            endpoints=[],
+            client_cert_path="/path/to/cert.pem",
+        )
+        cert = toolset.get_client_cert()
+        assert cert == "/path/to/cert.pem"
+
+    def test_client_cert_and_key(self):
+        toolset = HttpToolset()
+        toolset._http_config = HttpToolsetConfig(
+            endpoints=[],
+            client_cert_path="/path/to/cert.pem",
+            client_key_path="/path/to/key.pem",
+        )
+        cert = toolset.get_client_cert()
+        assert cert == ("/path/to/cert.pem", "/path/to/key.pem")
+
+    def test_no_client_cert(self):
+        toolset = HttpToolset()
+        toolset._http_config = HttpToolsetConfig(endpoints=[])
+        cert = toolset.get_client_cert()
+        assert cert is None
+
+    def test_mtls_curl_command(self):
+        toolset = HttpToolset()
+        toolset._http_config = HttpToolsetConfig(
+            endpoints=[],
+            client_cert_path="/path/to/cert.pem",
+            client_key_path="/path/to/key.pem",
+        )
+        endpoint = EndpointConfig(
+            hosts=["api.example.com"],
+            auth=AuthConfig(type="none"),
+        )
+        cmd = toolset._build_curl_command(endpoint, "https://api.example.com/test")
+        assert '--cert "/path/to/cert.pem"' in cmd
+        assert '--key "/path/to/key.pem"' in cmd
+
+    def test_prereq_fails_missing_cert_file(self):
+        toolset = HttpToolset()
+        success, message = toolset.prerequisites_callable(
+            {
+                "endpoints": [{"hosts": ["api.example.com"]}],
+                "client_cert_path": "/nonexistent/cert.pem",
+            }
+        )
+        assert success is False
+        assert "Client certificate file not found" in message
+
+    def test_prereq_fails_missing_key_file(self, tmp_path):
+        cert_file = tmp_path / "cert.pem"
+        cert_file.write_text("fake cert")
+        toolset = HttpToolset()
+        success, message = toolset.prerequisites_callable(
+            {
+                "endpoints": [{"hosts": ["api.example.com"]}],
+                "client_cert_path": str(cert_file),
+                "client_key_path": "/nonexistent/key.pem",
+            }
+        )
+        assert success is False
+        assert "Client key file not found" in message
+
+    @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
+    def test_mtls_cert_passed_to_request(self, mock_request, tmp_path):
+        cert_file = tmp_path / "cert.pem"
+        cert_file.write_text("fake cert")
+        key_file = tmp_path / "key.pem"
+        key_file.write_text("fake key")
+
+        ts = HttpToolset()
+        ts._http_config = HttpToolsetConfig(
+            endpoints=[
+                EndpointConfig(hosts=["api.example.com"], auth=AuthConfig(type="none"))
+            ],
+            client_cert_path=str(cert_file),
+            client_key_path=str(key_file),
+        )
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": "test"}
+        mock_request.return_value = mock_response
+
+        ctx = Mock(spec=ToolInvokeContext)
+        ctx.request_context = None
+        tool = HttpRequest(ts)
+        result = tool._invoke({"url": "https://api.example.com/test"}, ctx)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        call_kwargs = mock_request.call_args[1]
+        assert call_kwargs["cert"] == (str(cert_file), str(key_file))
