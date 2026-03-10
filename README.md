@@ -1,5 +1,5 @@
 <div align="center">
-  <h1 align="center">HolmesGPT — Open-Source SRE Agent</h1>
+  <h1 align="center">HolmesGPT — The CNCF SRE Agent</h1>
 
   <p align="center">
     <a href="#installation"><strong>Installation</strong></a> |
