@@ -11,45 +11,11 @@ Before starting, ensure you have:
 
 ## Run Your First Investigation
 
-Choose a quickstart based on your environment:
+```bash
+holmes ask "tell me something surprising about my environment"
+```
 
-=== "Any Environment (No K8s Needed)"
-
-    HolmesGPT works without Kubernetes. Ask it about any system you have access to:
-
-    ```bash
-    # Investigate a Prometheus alert
-    holmes ask "what Prometheus alerts are currently firing and why?"
-
-    # Ask about any infrastructure topic
-    holmes ask "what is the health of my Elasticsearch cluster?"
-
-    # Or ask a general question — Holmes uses whichever toolsets are configured
-    holmes ask "are there any issues with my production databases?"
-    ```
-
-    Holmes will use whichever [data sources](../data-sources/builtin-toolsets/index.md) you have configured — Prometheus, Datadog, Elasticsearch, AWS, GCP, databases, and more.
-
-=== "Kubernetes"
-
-    If you have a Kubernetes cluster, try this guided example:
-
-    1. **Create a test pod with an issue:**
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-        ```
-
-    2. **Ask Holmes to investigate:**
-        ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues"
-        ```
-
-    3. **Clean up:**
-        ```bash
-        kubectl delete pod user-profile-import
-        ```
-
-    Holmes will identify that the pod is stuck in "Pending" state due to an invalid node selector and suggest specific remediation steps.
+Holmes will automatically discover your connected [data sources](../data-sources/builtin-toolsets/index.md) — Kubernetes, Prometheus, Datadog, Elasticsearch, AWS, GCP, databases, and more — and report back on what it finds.
 
 ## What You Just Experienced
 
