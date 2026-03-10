@@ -8,69 +8,23 @@ Before starting, ensure you have:
 
 - ✅ **HolmesGPT CLI installed** - See [CLI Installation Guide](../installation/cli-installation.md)
 - ✅ **AI provider API key configured** - See [AI Provider Setup](../ai-providers/index.md)
-- ✅ **kubectl access to a Kubernetes cluster** - Any cluster will work
 
 ## Run Your First Investigation
 
-Let's investigate a pod with HolmesGPT to see the value it provides:
+```bash
+holmes ask "tell me something surprising about my environment"
+```
 
-1. **Create a test pod with an issue:**
-   ```bash
-   kubectl apply -f https://raw.githubusercontent.com/robusta-dev/kubernetes-demos/main/pending_pods/pending_pod_node_selector.yaml
-   ```
-
-2. **Ask Holmes to investigate:**
-
-    === "OpenAI (Default)"
-        ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues"
-        ```
-
-    === "Azure OpenAI"
-        ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues" --model="azure/<your-model-name>"
-        ```
-
-    === "Anthropic Claude"
-        ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues" --model="anthropic/<your-model-name>"
-        ```
-
-    === "Google Gemini"
-        ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues" --model="gemini/<your-model-name>"
-        ```
-
-    === "AWS Bedrock"
-        ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues" --model="bedrock/<your-model-name>"
-        ```
-
-    === "Ollama"
-        ```bash
-        holmes ask "describe the user-profile-import pod and explain any issues" --model="ollama_chat/<your-model-name>"
-        ```
-
-3. **See the value:**
-
-    Holmes will analyze the pod, identify that it's stuck in "Pending" state due to an invalid node selector, and suggest specific remediation steps - all without you needing to manually run `kubectl describe`, check events, or dig through logs.
+Holmes will automatically discover your connected [data sources](../data-sources/builtin-toolsets/index.md) — Kubernetes, Prometheus, Datadog, Elasticsearch, AWS, GCP, databases, and more — and report back on what it finds.
 
 ## What You Just Experienced
 
 HolmesGPT automatically:
 
-- ✅ **Gathered context** - Retrieved pod status, events, and related information
-- ✅ **Identified the root cause** - Invalid node selector preventing scheduling
-- ✅ **Provided actionable solutions** - Specific commands to fix the issue
+- ✅ **Gathered context** - Retrieved relevant data from your observability stack
+- ✅ **Identified the root cause** - Pinpointed the underlying issue
+- ✅ **Provided actionable solutions** - Specific steps to fix the problem
 - ✅ **Saved investigation time** - No manual troubleshooting steps required
-
-## Clean Up
-
-Remove the test pod:
-
-```bash
-kubectl delete pod user-profile-import
-```
 
 ## Next Steps
 

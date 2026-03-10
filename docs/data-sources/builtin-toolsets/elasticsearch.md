@@ -136,13 +136,105 @@ The toolsets support multiple authentication methods:
 |--------|--------------|-------------|
 | API Key | `api_key` | Recommended for Elastic Cloud |
 | Basic Auth | `username`, `password` | Username and password |
+| mTLS | `client_cert`, `client_key` | Client certificate authentication (e.g., OpenShift Jaeger operator) |
 | None | - | For clusters without authentication |
+
+### mTLS (Mutual TLS)
+
+For Elasticsearch clusters that require client certificate authentication (common with the OpenShift Jaeger operator), configure the certificate paths:
+
+=== "Holmes CLI"
+
+    ```yaml
+    toolsets:
+      elasticsearch/data:
+        enabled: true
+        config:
+          api_url: "https://elasticsearch.jaeger.svc:9200"
+          client_cert: "/path/to/client.crt"
+          client_key: "/path/to/client.key"
+    ```
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret containing the client certificates:
+
+    ```bash
+    kubectl create secret generic elasticsearch-client-certs \
+      --from-file=tls.crt=/path/to/client.crt \
+      --from-file=tls.key=/path/to/client.key
+    ```
+
+    Then mount the secret into the Holmes container using `additionalVolumes` and `additionalVolumeMounts`:
+
+    ```yaml
+    additionalEnvVars:
+      - name: ELASTICSEARCH_URL
+        value: "https://elasticsearch.jaeger.svc:9200"
+
+    additionalVolumes:
+      - name: es-certs
+        secret:
+          secretName: elasticsearch-client-certs
+
+    additionalVolumeMounts:
+      - name: es-certs
+        mountPath: /etc/elasticsearch/certs
+        readOnly: true
+
+    toolsets:
+      elasticsearch/data:
+        enabled: true
+        config:
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
+          client_cert: "/etc/elasticsearch/certs/tls.crt"
+          client_key: "/etc/elasticsearch/certs/tls.key"
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret containing the client certificates:
+
+    ```bash
+    kubectl create secret generic elasticsearch-client-certs \
+      --from-file=tls.crt=/path/to/client.crt \
+      --from-file=tls.key=/path/to/client.key
+    ```
+
+    Then add to your Robusta Helm values:
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: ELASTICSEARCH_URL
+          value: "https://elasticsearch.jaeger.svc:9200"
+
+      additionalVolumes:
+        - name: es-certs
+          secret:
+            secretName: elasticsearch-client-certs
+
+      additionalVolumeMounts:
+        - name: es-certs
+          mountPath: /etc/elasticsearch/certs
+          readOnly: true
+
+      toolsets:
+        elasticsearch/data:
+          enabled: true
+          config:
+            api_url: "{{ env.ELASTICSEARCH_URL }}"
+            client_cert: "/etc/elasticsearch/certs/tls.crt"
+            client_key: "/etc/elasticsearch/certs/tls.key"
+    ```
+
+If Elasticsearch uses a private CA, use the global [`certificate`](../../reference/helm-configuration.md) Helm value (or `CERTIFICATE` env var for CLI) to trust it. This applies to all outbound HTTPS requests, not just Elasticsearch. See [Environment Variables](../../reference/environment-variables.md#certificate) for details.
 
 ### Other Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `verify_ssl` | `true` | Verify SSL certificates |
+| `verify_ssl` | `true` | Verify SSL certificates. For custom CAs, use the global `CERTIFICATE` env var instead. |
 | `timeout_seconds` | `10` | Request timeout in seconds |
 
 ## Tools

@@ -8,7 +8,7 @@
   </p>
 </div>
 
-Open-source AI agent for investigating production incidents and finding root causes. We are a [Cloud Native Computing Foundation](https://www.cncf.io/) sandbox project. Originally created by [Robusta.Dev](http://robusta.dev), with major contributions from [Microsoft](https://microsoft.com/).
+Open-source AI agent for investigating production incidents and finding root causes. Works with any stack — Kubernetes, VMs, cloud providers, databases, and SaaS platforms. We are a [Cloud Native Computing Foundation](https://www.cncf.io/) sandbox project. Originally created by [Robusta.Dev](http://robusta.dev), with major contributions from [Microsoft](https://microsoft.com/).
 
 
 - **Petabyte-scale data**: Server-side filtering, JSON tree traversal, and tool output transformers keep large payloads out of context windows
@@ -16,7 +16,8 @@ Open-source AI agent for investigating production incidents and finding root cau
 - **[Deep integrations](https://holmesgpt.dev/data-sources/builtin-toolsets/)**: Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any [REST API](https://holmesgpt.dev/data-sources/api-toolsets/)
 - **Bidirectional alert integrations**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
 - **[Any LLM provider](https://holmesgpt.dev/ai-providers/)**: OpenAI, Anthropic, Azure, Bedrock, Gemini, and more
-- **[Operator mode](https://holmesgpt.dev/operator/)**: Run investigations on a schedule as a Kubernetes operator
+- **No Kubernetes required**: Works with any infrastructure — VMs, bare metal, cloud services, or containers
+- **[Operator mode](https://holmesgpt.dev/operator/)**: Optionally run as a Kubernetes operator for automated investigations
 
 ## How it Works
 

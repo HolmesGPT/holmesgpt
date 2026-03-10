@@ -90,6 +90,15 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 !!! tip "Which Model to Use"
     We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
+!!! info "No Kubernetes Required"
+    The examples below use a Kubernetes pod for a quick guided demo, but HolmesGPT works with any infrastructure. If you don't use Kubernetes, skip the `kubectl apply` step and ask about your own systems instead:
+    ```bash
+    holmes ask "what Prometheus alerts are currently firing and why?"
+    holmes ask "what is the health of my Elasticsearch cluster?"
+    holmes ask "are there any issues with my production databases?"
+    ```
+    See [data sources](../data-sources/builtin-toolsets/index.md) for all supported integrations.
+
 === "Anthropic Claude"
 
     1. **Set up API key**:
