@@ -195,7 +195,7 @@ toolsets:
             type: integer
             description: "Filter by minimum latency (nanoseconds)"
             default: 0
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_dns:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if name %}--filter name~{{ name }}{% endif %} {% if nameserver %}--filter nameserver.addr=={{ nameserver }}{% endif %} {% if minimal_latency %}--filter latency_ns_raw>={{ minimal_latency }}{% endif %}"
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_dns:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if name %}--filter name~{{ name }}{% endif %} {% if nameserver %}--filter nameserver.addr=={{ nameserver }}{% endif %} {% if minimal_latency %}--filter 'latency_ns_raw>={{ minimal_latency }}'{% endif %}"
 
   inspektor-gadget/tcpdump:
     description: "Inspektor Gadget tcpdump gadget for Kubernetes node-level packet capture"
