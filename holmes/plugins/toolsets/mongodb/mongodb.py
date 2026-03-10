@@ -146,12 +146,7 @@ class MongoDBToolset(Toolset):
         enabled = kwargs.pop("enabled", False)
         kwargs.pop("type", None)
 
-        description = kwargs.pop("description", None)
-        if not description:
-            if name == "mongodb":
-                description = "Query MongoDB databases"
-            else:
-                description = f"Query {name} MongoDB database"
+        description = kwargs.pop("description", None) or f"Query {name} MongoDB database"
 
         super().__init__(
             name=name,
