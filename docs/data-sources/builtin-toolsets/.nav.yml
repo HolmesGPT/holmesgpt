@@ -29,6 +29,7 @@ nav:
   - KubeVela: kubevela.md
   - MariaDB: database-mariadb.md
   - MariaDB (MCP): mariadb-mcp.md
+  - MongoDB: mongodb.md
   - MongoDB Atlas: mongodb-atlas.md
   - MySQL: database-mysql.md
   - New Relic: newrelic.md
