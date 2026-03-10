@@ -554,8 +554,9 @@ class MongoDBQuery(BaseMongoDBTool):
                 limit=params.get("limit"),
                 database=params.get("database"),
             )
+            status = StructuredToolResultStatus.SUCCESS if data.get("documents") else StructuredToolResultStatus.NO_DATA
             return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS,
+                status=status,
                 data=data,
                 params=params,
             )
@@ -624,8 +625,9 @@ class MongoDBAggregate(BaseMongoDBTool):
                 pipeline=pipeline,
                 database=params.get("database"),
             )
+            status = StructuredToolResultStatus.SUCCESS if data.get("documents") else StructuredToolResultStatus.NO_DATA
             return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS,
+                status=status,
                 data=data,
                 params=params,
             )
@@ -670,8 +672,9 @@ class MongoDBListCollections(BaseMongoDBTool):
             data = self._toolset.list_collections(
                 database=params.get("database"),
             )
+            status = StructuredToolResultStatus.SUCCESS if data.get("collections") else StructuredToolResultStatus.NO_DATA
             return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS,
+                status=status,
                 data=data,
                 params=params,
             )
@@ -750,8 +753,9 @@ class MongoDBListDatabases(BaseMongoDBTool):
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             data = self._toolset.get_list_databases()
+            status = StructuredToolResultStatus.SUCCESS if data.get("databases") else StructuredToolResultStatus.NO_DATA
             return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS,
+                status=status,
                 data=data,
                 params=params,
             )
@@ -852,8 +856,9 @@ class MongoDBCurrentOp(BaseMongoDBTool):
                 min_duration_ms=params.get("min_duration_ms"),
                 active_only=params.get("active_only", True),
             )
+            status = StructuredToolResultStatus.SUCCESS if data.get("operations") else StructuredToolResultStatus.NO_DATA
             return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS,
+                status=status,
                 data=data,
                 params=params,
             )
