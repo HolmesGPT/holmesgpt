@@ -173,6 +173,66 @@ This tells HolmesGPT the actual context window size (1M tokens) so it can proper
 !!! warning "Both Parameters Required"
     You must include **both** `extra_headers` and `custom_args` to use the 1M context window. The `extra_headers` enables the feature, while `custom_args.max_context_size` ensures HolmesGPT knows the correct window size.
 
+### Using IRSA (IAM Roles for Service Accounts)
+
+If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate without static credentials. The AWS SDK picks up the role automatically when the pod's service account is annotated with the role ARN and the following environment variables are injected into the pod:
+
+| Variable | Description |
+|---|---|
+| `AWS_ROLE_ARN` | ARN of the IAM role to assume |
+| `AWS_WEB_IDENTITY_TOKEN_FILE` | Path to the projected service account token |
+
+=== "Holmes Helm Chart"
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    serviceAccount:
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/<role-name>"
+
+    # Configure at least one model using modelList (no credentials needed)
+    modelList:
+      bedrock-claude-sonnet-4:
+        aws_region_name: eu-west-3
+        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+        temperature: 1
+        thinking:
+          budget_tokens: 10000
+          type: enabled
+
+    # Optional: Set default model (use modelList key name)
+    config:
+      model: "bedrock-claude-sonnet-4"
+    ```
+
+=== "Robusta Helm Chart"
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    holmes:
+      serviceAccount:
+        annotations:
+          eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/<role-name>"
+
+      # Configure at least one model using modelList (no credentials needed)
+      modelList:
+        bedrock-claude-sonnet-4:
+          aws_region_name: eu-west-3
+          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+          temperature: 1
+          thinking:
+            budget_tokens: 10000
+            type: enabled
+
+      # Optional: Set default model (use modelList key name)
+      config:
+        model: "bedrock-claude-sonnet-4"
+    ```
+
+**Note:** With IRSA, you do not need `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY`. The AWS SDK picks up the injected token automatically.
+
 ### Using Bearer Token Authentication (IAM Identity Center)
 
 If you're using AWS IAM Identity Center (SSO) with Bedrock, you can authenticate via bearer token instead of access/secret keys.
@@ -213,7 +273,7 @@ aws bedrock list-foundation-models --region=us-east-1 | grep modelId
 Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `anthropic.claude-opus-4-1-20250805-v1:0` or `anthropic.claude-sonnet-4-20250514-v1:0`
 
 ## Setting Extra Headers
-You can enable various beta features in AWS Bedrock by setting custom headers. 
+You can enable various beta features in AWS Bedrock by setting custom headers.
 
 For example, to enable 1M context windows.
 
@@ -225,7 +285,7 @@ export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
 ```
 
 Or, for Helm:
-    
+
     # values.yaml
     holmes:
       ...

@@ -101,6 +101,7 @@ nav:
                 - "SQLite": data-sources/builtin-toolsets/database-sqlite.md
                 - "Splunk (MCP)": data-sources/builtin-toolsets/splunk-mcp.md
           - "HTTP Connectors": data-sources/api-toolsets.md
+          - "Database Connectors": data-sources/database-connectors.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
           - "HTTP Header Propagation": data-sources/header-propagation.md
