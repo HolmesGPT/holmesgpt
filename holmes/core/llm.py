@@ -1,9 +1,11 @@
 import json
 import logging
 import os
+import boto3
 import threading
 import time
 from abc import abstractmethod
+from botocore.exceptions import BotoCoreError
 from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
 
@@ -222,16 +224,30 @@ class DefaultLLM(LLM):
                     "https://docs.litellm.ai/docs/providers/watsonx#usage---models-in-deployment-spaces"
                 )
         elif provider == "bedrock":
-            if os.environ.get("AWS_PROFILE") or os.environ.get(
-                "AWS_BEARER_TOKEN_BEDROCK"
-            ):
+            if (
+                os.environ.get("AWS_PROFILE")
+                or os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+                or (os.environ.get("AWS_ROLE_ARN") and os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE"))
+                ):
                 model_requirements = {"keys_in_environment": True, "missing_keys": []}
             elif args.get("aws_access_key_id") and args.get("aws_secret_access_key"):
                 return  # break fast.
             else:
-                model_requirements = litellm.validate_environment(
-                    model=model, api_key=api_key, api_base=api_base
-                )
+                # Final fallback: try boto3 default credential chain
+                # (covers EC2 instance profile, ECS task role, ~/.aws/credentials, etc.)
+                try:
+                    session = boto3.Session()
+                    credentials = session.get_credentials()
+                    if credentials is not None:
+                        model_requirements = {"keys_in_environment": True, "missing_keys": []}
+                    else:
+                        model_requirements = litellm.validate_environment(
+                            model=model, api_key=api_key, api_base=api_base
+                        )
+                except BotoCoreError:
+                    model_requirements = litellm.validate_environment(
+                        model=model, api_key=api_key, api_base=api_base
+                    )
         else:
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base
