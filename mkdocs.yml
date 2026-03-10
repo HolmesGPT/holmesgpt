@@ -80,6 +80,7 @@ nav:
                 - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
                 - "Kubernetes Remediation (MCP)": data-sources/builtin-toolsets/kubernetes-remediation-mcp.md
                 - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
+                - "MongoDB": data-sources/builtin-toolsets/mongodb.md
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md
                 - "Notion": data-sources/builtin-toolsets/notion.md
