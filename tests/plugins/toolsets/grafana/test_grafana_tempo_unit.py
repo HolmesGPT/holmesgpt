@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from holmes.core.tools import (
     StructuredToolResultStatus,
 )
-from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
+from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig, GrafanaTempoLabelsConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     FetchTracesSimpleComparison,
     GrafanaTempoToolset,
@@ -454,3 +454,28 @@ def test_build_k8s_filters_with_special_characters():
     }
     exact_filters = toolset.build_k8s_filters(params_with_quotes, use_exact_match=True)
     assert 'resource.service.name="service\\"with\\"quotes"' in exact_filters
+
+
+def test_prerequisites_callable_creates_tempo_config():
+    """Test that prerequisites_callable creates GrafanaTempoConfig (not plain GrafanaConfig).
+
+    Regression test: BaseGrafanaToolset.prerequisites_callable used to hardcode
+    GrafanaConfig(**config), ignoring the subclass config_classes. This meant the
+    Tempo toolset's _grafana_config lacked the 'labels' attribute, causing
+    AttributeError when building k8s filters.
+    """
+    toolset = GrafanaTempoToolset()
+    config = {
+        "api_url": "http://localhost:3000",
+        "api_key": "test_key",
+        "grafana_datasource_uid": "tempo_uid",
+    }
+
+    with patch(
+        "holmes.plugins.toolsets.grafana.toolset_grafana_tempo.GrafanaTempoAPI"
+    ):
+        toolset.prerequisites_callable(config)
+
+    assert isinstance(toolset._grafana_config, GrafanaTempoConfig)
+    assert hasattr(toolset._grafana_config, "labels")
+    assert isinstance(toolset._grafana_config.labels, GrafanaTempoLabelsConfig)
