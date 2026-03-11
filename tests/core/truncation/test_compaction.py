@@ -49,7 +49,7 @@ def test_conversation_history_compaction_system_prompt_untouched():
 
         assert compacted_history[2]["role"] == "assistant"
 
-        assert compacted_history[3]["role"] == "system"
+        assert compacted_history[3]["role"] == "user"
         assert "compacted" in compacted_history[3]["content"].lower()
 
 
@@ -71,7 +71,7 @@ def test_conversation_history_compaction():
 
         assert compacted_history[1]["role"] == "assistant"
 
-        assert compacted_history[2]["role"] == "system"
+        assert compacted_history[2]["role"] == "user"
         assert "compacted" in compacted_history[2]["content"].lower()
 
         original_tokens = llm.count_tokens(conversation_history)
@@ -82,3 +82,26 @@ def test_conversation_history_compaction():
         )
         print(compacted_history[1]["content"])
         assert compacted_tokens.total_tokens < expected_max_compacted_token_count
+
+
+def test_conversation_history_compaction_ends_with_user_message():
+    """Test that compacted history ends with user message (required for AWS Bedrock)."""
+    llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
+    with open(CONVERSATION_HISTORY_FILE_PATH) as file:
+        conversation_history = json.load(file)
+
+        # Test without system prompt
+        compacted_history = compact_conversation_history(
+            original_conversation_history=conversation_history, llm=llm
+        )
+        assert compacted_history[-1]["role"] == "user", \
+            "Compacted history must end with user message (required for AWS Bedrock)"
+
+        # Test with system prompt
+        system_prompt = {"role": "system", "content": "this is a system prompt"}
+        conversation_history.insert(0, system_prompt)
+        compacted_history = compact_conversation_history(
+            original_conversation_history=conversation_history, llm=llm
+        )
+        assert compacted_history[-1]["role"] == "user", \
+            "Compacted history with system prompt must end with user message (required for AWS Bedrock)"
