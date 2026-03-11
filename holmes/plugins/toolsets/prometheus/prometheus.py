@@ -1377,7 +1377,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            timeout = params.get("timeout") or default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
@@ -1400,11 +1400,6 @@ class ExecuteInstantQuery(BasePrometheusTool):
                 data = response.json()
                 status = data.get("status")
                 error_message = None
-                if status == "success" and not result_has_data(data):
-                    status = "Failed"
-                    error_message = (
-                        "The prometheus query returned no result. Is the query correct?"
-                    )
                 response_data = MetricsBasedResponse(
                     status=status,
                     error_message=error_message,
@@ -1631,7 +1626,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            timeout = params.get("timeout") or default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
@@ -1654,11 +1649,6 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 data = response.json()
                 status = data.get("status")
                 error_message = None
-                if status == "success" and not result_has_data(data):
-                    status = "Failed"
-                    error_message = (
-                        "The prometheus query returned no result. Is the query correct?"
-                    )
                 response_data = MetricsBasedResponse(
                     status=status,
                     error_message=error_message,
