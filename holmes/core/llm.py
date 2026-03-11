@@ -60,6 +60,16 @@ def get_context_window_compaction_threshold_pct() -> int:
 ROBUSTA_AI_MODEL_NAME = "Robusta"
 
 
+def _messages_contain_tool_content(messages: List[Dict[str, Any]]) -> bool:
+    """Check if messages contain tool-related content (tool messages or tool_calls)."""
+    for message in messages:
+        if message.get("role") == "tool":
+            return True
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            return True
+    return False
+
+
 class TokenCountMetadata(BaseModel):
     total_tokens: int
     tools_tokens: int
@@ -478,27 +488,40 @@ class DefaultLLM(LLM):
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
 
-        result = litellm_to_use.completion(
-            model=litellm_model_name,
-            api_key=self.api_key,
-            base_url=self.api_base,
-            api_version=self.api_version,
-            messages=sanitized_messages,
-            response_format=response_format,
-            drop_params=drop_params,
-            allowed_openai_params=allowed_openai_params,
-            stream=stream,
-            timeout=LLM_REQUEST_TIMEOUT,
-            **azure_ad_kwargs,
-            **tools_args,
-            **self.args,
-            cache_control_injection_points=[
-                {
-                    "location": "message",
-                    "index": -1,  # -1 targets the last message.
-                }
-            ],
+        # Handle Bedrock case: when tools=None but messages contain tool content,
+        # temporarily set modify_params=True to add a dummy tool definition
+        original_modify_params = litellm.modify_params
+        needs_modify_params = (
+            not tools_args and _messages_contain_tool_content(sanitized_messages)
         )
+        if needs_modify_params:
+            litellm.modify_params = True
+
+        try:
+            result = litellm_to_use.completion(
+                model=litellm_model_name,
+                api_key=self.api_key,
+                base_url=self.api_base,
+                api_version=self.api_version,
+                messages=sanitized_messages,
+                response_format=response_format,
+                drop_params=drop_params,
+                allowed_openai_params=allowed_openai_params,
+                stream=stream,
+                timeout=LLM_REQUEST_TIMEOUT,
+                **azure_ad_kwargs,
+                **tools_args,
+                **self.args,
+                cache_control_injection_points=[
+                    {
+                        "location": "message",
+                        "index": -1,  # -1 targets the last message.
+                    }
+                ],
+            )
+        finally:
+            if needs_modify_params:
+                litellm.modify_params = original_modify_params
 
         if isinstance(result, ModelResponse):
             return result
