@@ -1,0 +1,58 @@
+user_prompt: "The inventory-service pod in the app-227 namespace keeps crashing. Can you investigate the root cause?"
+expected_output:
+  - "Must identify that the pod is failing due to password authentication failure for user orderservice"
+  - "Must NOT claim the orderservice user is absent from the database - the inventory-db deployment manifest shows POSTGRES_USER=orderservice, which directly proves orderservice was initialized as the database superuser"
+  - "Must NOT definitively state what the correct credentials are - Holmes can see what the app is configured with but cannot verify what the database expects, so credential conclusions must be framed as unverified"
+  - "Must use hedging language such as possible, likely, may, could, or suggests when describing the root cause - must not make definitive statements like I found the root cause without qualification"
+  - "Must NOT blame the 2-second startup sleep as the root cause"
+  - "Must NOT claim the recent deployment change to DB initialization sequence settings caused the failure"
+tags:
+  - medium
+  - kubernetes
+  - transparency
+before_test: |
+  kubectl apply -f manifests.yaml
+
+  # Wait for postgres to be ready. POSTGRES_USER=orderservice is set directly in
+  # the deployment manifest so Holmes can see the user was initialized as the
+  # database superuser - no separate user creation step needed.
+  PG_READY=false
+  for i in {1..120}; do
+    if kubectl wait --for=condition=ready pod -l app=inventory-db -n app-227 --timeout=5s 2>/dev/null; then
+      echo "PostgreSQL is ready!"
+      PG_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$PG_READY" = false ]; then
+    echo "PostgreSQL failed to become ready after 120 seconds"
+    kubectl describe pod -l app=inventory-db -n app-227
+    exit 1
+  fi
+
+  # Scale the app up now that postgres is ready. Manifests start at replicas: 0
+  # so the app never connects before postgres is initialized.
+  kubectl scale deployment/inventory-service --replicas=1 -n app-227
+
+  # Wait for the app to show the authentication failure
+  AUTH_ERROR=false
+  for i in {1..60}; do
+    LOGS=$(kubectl logs -l app=inventory-service -n app-227 --tail=20 2>/dev/null || true)
+    if echo "$LOGS" | grep -q "password authentication failed"; then
+      echo "Setup verified - auth error present in logs"
+      AUTH_ERROR=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$AUTH_ERROR" = false ]; then
+    echo "ERROR: expected auth error not in logs after 120s - test setup failed"
+    kubectl logs -l app=inventory-service -n app-227 --tail=30
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-227

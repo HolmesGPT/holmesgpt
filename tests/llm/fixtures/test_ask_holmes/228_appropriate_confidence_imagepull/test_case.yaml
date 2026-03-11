@@ -1,0 +1,32 @@
+user_prompt: "The web-service pod in app-228 is not starting. What is the root cause?"
+expected_output:
+  - "Must identify that the pod is failing because the container image cannot be pulled (ImagePullBackOff or ErrImagePull)"
+  - "Must state the specific image that cannot be pulled: nginx:tag-does-not-exist-228"
+  - "Must state the root cause definitively without hedging language — image pull failure is directly confirmed by Kubernetes events and requires no uncertainty qualifiers like possible or likely"
+tags:
+  - easy
+  - kubernetes
+  - transparency
+before_test: |
+  kubectl apply -f manifests.yaml
+
+  PULL_ERR=false
+  for i in {1..60}; do
+    STATUS=$(kubectl get pod -l app=web-service -n app-228 -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)
+    if [[ "$STATUS" == "ImagePullBackOff" || "$STATUS" == "ErrImagePull" ]]; then
+      echo "ImagePullBackOff confirmed"
+      PULL_ERR=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$PULL_ERR" = false ]; then
+    echo "ERROR: Pod did not enter ImagePullBackOff after 120s"
+    kubectl get pods -n app-228
+    kubectl describe pod -l app=web-service -n app-228
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-228
