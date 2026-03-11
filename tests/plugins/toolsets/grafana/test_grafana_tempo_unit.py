@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from holmes.core.tools import (
     StructuredToolResultStatus,
 )
-from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
+from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig, GrafanaTempoLabelsConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     FetchTracesSimpleComparison,
     GrafanaTempoToolset,
@@ -454,3 +454,33 @@ def test_build_k8s_filters_with_special_characters():
     }
     exact_filters = toolset.build_k8s_filters(params_with_quotes, use_exact_match=True)
     assert 'resource.service.name="service\\"with\\"quotes"' in exact_filters
+
+
+def test_build_k8s_filters_after_prerequisites_callable():
+    """Test that build_k8s_filters works after config is set up via prerequisites_callable.
+
+    Regression test: prerequisites_callable used to create a plain GrafanaConfig instead
+    of GrafanaTempoConfig, causing 'GrafanaConfig has no attribute labels' when
+    build_k8s_filters was called during trace fetching.
+    """
+    toolset = GrafanaTempoToolset()
+    config = {
+        "api_url": "http://localhost:3000",
+        "api_key": "test_key",
+        "grafana_datasource_uid": "tempo_uid",
+    }
+
+    with patch(
+        "holmes.plugins.toolsets.grafana.toolset_grafana_tempo.GrafanaTempoAPI"
+    ):
+        toolset.prerequisites_callable(config)
+
+    # This is the call path that failed with:
+    # "Error fetching traces: 'GrafanaConfig' object has no attribute 'labels'"
+    filters = toolset.build_k8s_filters(
+        {"service_name": "frontend", "namespace_name": "production"},
+        use_exact_match=False,
+    )
+    assert len(filters) == 2
+    assert 'resource.service.name=~".*frontend.*"' in filters
+    assert 'resource.k8s.namespace.name=~".*production.*"' in filters

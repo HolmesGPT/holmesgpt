@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -35,11 +35,19 @@ class ElasticsearchConfig(ToolsetConfig):
     username: "elastic"
     password: "your_password"
     ```
+
+    Or with mTLS (mutual TLS / client certificate):
+    ```yaml
+    api_url: "https://your-cluster:9200"
+    client_cert: "/path/to/client.crt"
+    client_key: "/path/to/client.key"
+    ```
     """
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
         "url": "api_url",
         "timeout": "timeout_seconds",
+        "ca_cert": None,
     }
 
     api_url: str = Field(
@@ -63,16 +71,36 @@ class ElasticsearchConfig(ToolsetConfig):
         title="Password",
         description="Password for basic auth authentication (used if api_key is not provided)",
     )
+    client_cert: Optional[str] = Field(
+        default=None,
+        title="Client Certificate",
+        description="Path to client certificate file for mTLS authentication (PEM format)",
+        examples=["/path/to/client.crt", "{{ env.ELASTICSEARCH_CLIENT_CERT }}"],
+    )
+    client_key: Optional[str] = Field(
+        default=None,
+        title="Client Key",
+        description="Path to client private key file for mTLS authentication (PEM format)",
+        examples=["/path/to/client.key", "{{ env.ELASTICSEARCH_CLIENT_KEY }}"],
+    )
     verify_ssl: bool = Field(
         default=True,
         title="Verify SSL",
-        description="Whether to verify SSL certificates",
+        description="Whether to verify SSL certificates. For custom CAs, use the global CERTIFICATE env var instead.",
     )
     timeout_seconds: int = Field(
         default=10,
         title="Timeout Seconds",
         description="Default request timeout in seconds",
     )
+
+    @model_validator(mode="after")
+    def validate_mtls_fields(self) -> "ElasticsearchConfig":
+        if self.client_cert and not self.client_key:
+            raise ValueError("client_key is required when client_cert is set")
+        if self.client_key and not self.client_cert:
+            raise ValueError("client_cert is required when client_key is set")
+        return self
 
 
 class ElasticsearchBaseToolset(Toolset):
@@ -128,6 +156,16 @@ class ElasticsearchBaseToolset(Toolset):
                     False,
                     f"Elasticsearch API error: {e.response.status_code} - {e.response.text}",
                 )
+        except requests.exceptions.SSLError as e:
+            error_msg = str(e)
+            if "certificate required" in error_msg.lower() or "sslcertverificationerror" in error_msg.lower():
+                return (
+                    False,
+                    f"Elasticsearch SSL/TLS error: {error_msg}. "
+                    "If the server requires mTLS, configure client_cert and client_key. "
+                    "If using a private CA, set the CERTIFICATE env var (base64-encoded CA cert).",
+                )
+            return False, f"Elasticsearch SSL error: {error_msg}"
         except requests.exceptions.ConnectionError:
             return (
                 False,
@@ -160,6 +198,19 @@ class ElasticsearchBaseToolset(Toolset):
                 self.elasticsearch_config.password,
             )
         return None
+
+    def _get_client_cert(self) -> Optional[Tuple[str, str]]:
+        """Return client certificate tuple for mTLS if configured."""
+        if self.elasticsearch_config.client_cert and self.elasticsearch_config.client_key:
+            return (
+                self.elasticsearch_config.client_cert,
+                self.elasticsearch_config.client_key,
+            )
+        return None
+
+    def _get_verify(self) -> bool:
+        """Return SSL verification setting."""
+        return self.elasticsearch_config.verify_ssl
 
     def _make_request(
         self,
@@ -194,10 +245,11 @@ class ElasticsearchBaseToolset(Toolset):
             url=url,
             headers=self._get_headers(),
             auth=self._get_auth(),
+            cert=self._get_client_cert(),
             params=params,
             json=body,
             timeout=timeout,
-            verify=self.elasticsearch_config.verify_ssl,
+            verify=self._get_verify(),
         )
         response.raise_for_status()
         return response.json()
