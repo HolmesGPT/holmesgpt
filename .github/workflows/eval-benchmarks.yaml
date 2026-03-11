@@ -16,7 +16,7 @@ on:
         description: 'Comma-separated list of models to test'
         required: false
         # NOTE: Keep in sync with DEFAULT_BENCHMARK_MODELS env var
-        default: 'haiku-4.5,gpt-5.2-high-reasoning,gemini-3-pro-preview,gemini-3-flash-preview,deepseek-reasoner,deepseek-chat'
+        default: 'opus-4.6,sonnet-4.6,opus-4.5,sonnet-4.5,haiku-4.5,gpt-5.2-high-reasoning,gemini-3-pro-preview,gemini-3-flash-preview,deepseek-reasoner,deepseek-chat'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
