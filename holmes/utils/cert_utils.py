@@ -34,7 +34,7 @@ def add_custom_certificate(custom_ca: str) -> bool:
     #       use a temporary file in case of PermissionError.
     try:
         append_custom_certificate(custom_ca)
-    except PermissionError:
+    except OSError:
         create_temporary_certificate(custom_ca)
 
     return True

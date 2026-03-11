@@ -73,6 +73,7 @@ pg8000 = "^1.31.5"
 pymysql = "^1.1.2"
 clickhouse-sqlalchemy = "^0.3.2"
 pymssql = "^2.3.0"
+pymongo = "^4.7.0"
 
 [tool.poetry.group.dev]
 optional = true

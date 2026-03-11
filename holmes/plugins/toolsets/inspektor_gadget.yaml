@@ -40,10 +40,16 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run snapshot_process:v0.49.0 -o json --timeout 5{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+            default: ""
+          process_name:
+            type: string
+            description: "Filter by process name. Only processes containing this substring will be shown"
+            default: ""
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run snapshot_process:v0.49.0 -o json --timeout 5{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if process_name %}--filter comm~{{ process_name }}{% endif %} "
 
       - name: "ig_node_snapshot_socket"
         description: "Snapshot of open sockets on a node."
@@ -54,9 +60,11 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
+            default: ""
         command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run snapshot_socket:v0.49.0 -o json --timeout 5{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
 
       - name: "ig_node_trace_exec"
@@ -72,10 +80,16 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_exec:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+            default: ""
+          process_name:
+            type: string
+            description: "Filter by process name. Only processes containing this substring will be shown"
+            default: ""
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_exec:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if process_name %}--filter proc.comm~{{ process_name }}{% endif %}"
 
       - name: "ig_node_traceloop"
         description: "Capture system calls in real-time, acting as a flight recorder for your applications"
@@ -90,10 +104,16 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run traceloop:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+            default: ""
+          system_calls:
+            type: string
+            description: "Comma-separated list of system calls to trace e.g open,connect,accept. If empty, all system calls will be traced"
+            default: ""
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run traceloop:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if system_calls %}--syscall-filters {{ system_calls }}{% endif %}"
 
 
       - name: "ig_node_trace_open"
@@ -109,10 +129,16 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_open:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+            default: ""
+          path:
+            type: string
+            description: "Filter by path"
+            default: ""
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_open:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if path %}--filter fname~{{ path }}{% endif %}"
 
       - name: "ig_node_trace_tcp"
         description: "Trace TCP connection events on a node."
@@ -127,10 +153,17 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_tcp:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+            default: ""
+          type:
+            type: string
+            description: "Filter by connection type i.e connect, accept, close"
+            default: ""
+            enum: ["connect", "accept", "close"]
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_tcp:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if type %}--filter type=={{ type }}{% endif %}"
 
       - name: "ig_node_trace_dns"
         description: "Trace DNS query events on a node."
@@ -145,10 +178,24 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_dns:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}"
+            default: ""
+          name:
+            type: string
+            description: "Filter by DNS name"
+            default: ""
+          nameserver:
+            type: string
+            description: "Filter by DNS nameserver"
+            default: ""
+          minimal_latency:
+            type: integer
+            description: "Filter by minimum latency (nanoseconds)"
+            default: 0
+        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_dns:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if name %}--filter name~{{ name }}{% endif %} {% if nameserver %}--filter nameserver.addr=={{ nameserver }}{% endif %} {% if minimal_latency %}--filter 'latency_ns_raw>={{ minimal_latency }}'{% endif %}"
 
   inspektor-gadget/tcpdump:
     description: "Inspektor Gadget tcpdump gadget for Kubernetes node-level packet capture"
@@ -192,8 +239,10 @@ toolsets:
           namespace:
             type: string
             description: "Kubernetes namespace to filter"
+            default: ""
           podname:
             type: string
             description: "Pod name to filter"
+            default: ""
         command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run tcpdump:v0.49.0 -o pcap-ng --timeout {{ timeout }}{% if filter %} --pf {{ filter }}{% endif %}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} | tcpdump -nvr -"
 

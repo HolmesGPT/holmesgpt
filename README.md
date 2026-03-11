@@ -8,7 +8,7 @@
   </p>
 </div>
 
-Open-source AI agent for investigating production incidents and finding root causes. We are a [Cloud Native Computing Foundation](https://www.cncf.io/) sandbox project. Originally created by [Robusta.Dev](http://robusta.dev), with major contributions from [Microsoft](https://microsoft.com/).
+Open-source AI agent for investigating production incidents and finding root causes. Works with any stack — Kubernetes, VMs, cloud providers, databases, and SaaS platforms. We are a [Cloud Native Computing Foundation](https://www.cncf.io/) sandbox project. Originally created by [Robusta.Dev](http://robusta.dev), with major contributions from [Microsoft](https://microsoft.com/).
 
 
 - **Petabyte-scale data**: Server-side filtering, JSON tree traversal, and tool output transformers keep large payloads out of context windows
@@ -16,7 +16,8 @@ Open-source AI agent for investigating production incidents and finding root cau
 - **[Deep integrations](https://holmesgpt.dev/data-sources/builtin-toolsets/)**: Prometheus, Grafana, Datadog, Kubernetes, and [many more](#-data-sources)—plus any [REST API](https://holmesgpt.dev/data-sources/api-toolsets/)
 - **Bidirectional alert integrations**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
 - **[Any LLM provider](https://holmesgpt.dev/ai-providers/)**: OpenAI, Anthropic, Azure, Bedrock, Gemini, and more
-- **[Operator mode](https://holmesgpt.dev/operator/)**: Run investigations on a schedule as a Kubernetes operator
+- **No Kubernetes required**: Works with any infrastructure — VMs, bare metal, cloud services, or containers
+- **[Operator mode](https://holmesgpt.dev/operator/)**: Optionally run as a Kubernetes operator for automated investigations
 
 ## How it Works
 
@@ -51,6 +52,7 @@ HolmesGPT integrates with popular observability and cloud platforms. The followi
 | [<img src="images/integration_logos/kubernetes-icon.png" alt="Kubernetes" width="20" style="vertical-align: middle;"> **Kubernetes**](https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/) | Pod logs, K8s events, and resource status (kubectl describe) |
 | [<img src="images/integration_logos/grafana_loki-icon.png" alt="Loki" width="20" style="vertical-align: middle;"> **Loki**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/) | Query logs for Kubernetes resources or any query |
 | [<img src="images/integration_logos/postgres-icon.png" alt="MariaDB" width="20" style="vertical-align: middle;"> **MariaDB**](https://holmesgpt.dev/data-sources/builtin-toolsets/mariadb-mcp/) | MariaDB database queries and diagnostics (MCP) |
+| [<img src="images/integration_logos/postgres-icon.png" alt="MongoDB" width="20" style="vertical-align: middle;"> **MongoDB**](https://holmesgpt.dev/data-sources/builtin-toolsets/mongodb/) | Query data, diagnose performance, inspect schemas, find slow operations |
 | [<img src="images/integration_logos/postgres-icon.png" alt="MongoDB Atlas" width="20" style="vertical-align: middle;"> **MongoDB Atlas**](https://holmesgpt.dev/data-sources/builtin-toolsets/mongodb-atlas/) | Cluster health, slow queries, and performance diagnostics |
 | [<img src="images/integration_logos/newrelic_logo.png" alt="NewRelic" width="20" style="vertical-align: middle;"> **NewRelic**](https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/) | Investigate alerts, query tracing data |
 | [<img src="images/integration_logos/openshift-icon.png" alt="OpenShift" width="20" style="vertical-align: middle;"> **OpenShift**](https://holmesgpt.dev/data-sources/builtin-toolsets/openshift/) | Projects, routes, builds, security context constraints, and deployment configs |

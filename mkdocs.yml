@@ -84,6 +84,7 @@ nav:
                 - "KubeVela": data-sources/builtin-toolsets/kubevela.md
                 - "MariaDB": data-sources/builtin-toolsets/database-mariadb.md
                 - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
+                - "MongoDB": data-sources/builtin-toolsets/mongodb.md
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
                 - "MySQL": data-sources/builtin-toolsets/database-mysql.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md
