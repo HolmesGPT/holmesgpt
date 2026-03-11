@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils.global_instructions import Instructions, generate_runbooks_args
+from holmes.version import get_version
 
 
 class PromptComponent(str, Enum):
@@ -188,6 +189,7 @@ def build_system_prompt(
     toolset_instructions_enabled = is_enabled(PromptComponent.TOOLSET_INSTRUCTIONS)
 
     template_context = {
+        "holmes_version": get_version(),
         "intro_enabled": is_enabled(PromptComponent.INTRO),
         "ask_user_enabled": ask_user_enabled and is_enabled(PromptComponent.ASK_USER),
         "todowrite_enabled": is_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),

@@ -165,6 +165,7 @@ class ToolsetType(str, Enum):
     MCP = "mcp"
     HTTP = "http"
     DATABASE = "database"
+    MONGODB = "mongodb"
 
 
 class ToolParameter(BaseModel):

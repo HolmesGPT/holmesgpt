@@ -84,6 +84,7 @@ nav:
                 - "KubeVela": data-sources/builtin-toolsets/kubevela.md
                 - "MariaDB": data-sources/builtin-toolsets/database-mariadb.md
                 - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
+                - "MongoDB": data-sources/builtin-toolsets/mongodb.md
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
                 - "MySQL": data-sources/builtin-toolsets/database-mysql.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md
@@ -101,6 +102,7 @@ nav:
                 - "SQLite": data-sources/builtin-toolsets/database-sqlite.md
                 - "Splunk (MCP)": data-sources/builtin-toolsets/splunk-mcp.md
           - "HTTP Connectors": data-sources/api-toolsets.md
+          - "Database Connectors": data-sources/database-connectors.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
           - "HTTP Header Propagation": data-sources/header-propagation.md
