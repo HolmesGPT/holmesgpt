@@ -64,11 +64,9 @@ def prevent_overly_big_tool_response(
         boilerplate = (
             f"{size_info}\n"
             f"Saved to: {file_path}\n"
-            f"Use `cat {file_path}` to read it (pre-approved, no user approval needed), "
-            f"then pipe into other commands to filter: "
-            f"`cat {file_path} | jq '.field'`, "
-            f"`cat {file_path} | grep -oP 'pattern'`, "
-            f"`cat {file_path} | head -n 100`.\n"
+            f"Use `cat {file_path}` to read it (pre-approved, no user approval needed). "
+            f"You can pipe the output into any command to filter, for example: "
+            f"`cat {file_path} | jq '.field'`, `cat {file_path} | grep -oP 'pattern'`, etc.\n"
             f"\nPreview:\n"
         )
         # Allocate remaining char budget to the preview so the final string fits the context window
