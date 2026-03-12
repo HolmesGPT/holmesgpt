@@ -197,7 +197,7 @@ jobs:
           curl -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"channel\": \"#demo-slack-preview\", \"text\": \"Weekly eval benchmarks finished! Here is the PR: ${PR_URL}\"}"
+            -d "{\"channel\": \"#backend\", \"text\": \"Weekly eval benchmarks finished! Here is the PR: ${PR_URL}\"}"
 
       - name: Notify Slack on failure or cancellation
         if: steps.run-benchmarks.outcome != 'success'
@@ -213,4 +213,4 @@ jobs:
           curl -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"channel\": \"#demo-slack-preview\", \"text\": \"Weekly eval benchmarks ${STATUS}! See the run: ${RUN_URL}\"}"
+            -d "{\"channel\": \"#backend\", \"text\": \"Weekly eval benchmarks ${STATUS}! See the run: ${RUN_URL}\"}"
