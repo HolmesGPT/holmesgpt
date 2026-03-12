@@ -64,12 +64,11 @@ def prevent_overly_big_tool_response(
         boilerplate = (
             f"{size_info}\n"
             f"Saved to: {file_path}\n"
-            f"Use bash to access the data. The following commands are pre-approved (no user approval needed):\n"
-            f"- Read the full file: `cat {file_path}`\n"
-            f"- Filter JSON fields: `cat {file_path} | jq '.field'`\n"
-            f"- Search for a pattern: `grep {file_path} -e 'pattern'`\n"
-            f"- First/last N lines: `head {file_path} -n 100` or `tail {file_path} -n 100`\n"
-            f"- Count lines: `wc {file_path} -l`\n"
+            f"Use bash to access the data. Any command starting with `cat {file_path}`, `grep {file_path}`, "
+            f"`head {file_path}`, `tail {file_path}`, `wc {file_path}`, or `jq {file_path}` is pre-approved — "
+            f"no user approval needed. The file path MUST be the first argument (before any flags). "
+            f"You can add any flags after. You can also pipe into other commands freely (e.g. `cat {file_path} | jq '.field'`). "
+            f"Examples: `cat {file_path}`, `head {file_path} -n 100`, `grep {file_path} -e 'pattern'`.\n"
             f"\nPreview:\n"
         )
         # Allocate remaining char budget to the preview so the final string fits the context window
