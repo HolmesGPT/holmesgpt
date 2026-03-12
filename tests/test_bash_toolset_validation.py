@@ -115,6 +115,68 @@ class TestMatchPrefix:
             "cat {confined:/tmp/.holmes}",
         )
 
+    # --- Exact match ($) tests ---
+
+    def test_exact_match_suffix_allows_single_arg(self):
+        """Test that $ allows a command with exactly the expected token count."""
+        assert match_prefix("kubectl get pods", "kubectl get pods$")
+
+    def test_exact_match_suffix_blocks_extra_args(self):
+        """Test that $ blocks extra arguments after the matched prefix."""
+        assert not match_prefix("kubectl get pods -o yaml", "kubectl get pods$")
+
+    def test_exact_match_suffix_allows_subpath(self):
+        """Test that $ allows subpath expansion on the last token via /."""
+        assert match_prefix(
+            "cat /tmp/.holmes/uuid/file.json",
+            "cat {confined:/tmp/.holmes}$",
+        )
+
+    def test_exact_match_suffix_blocks_extra_path_arg(self):
+        """Test that $ blocks an extra file argument after the confined path."""
+        assert not match_prefix(
+            "cat /tmp/.holmes/file.json /etc/passwd",
+            "cat {confined:/tmp/.holmes}$",
+        )
+
+    def test_exact_match_suffix_blocks_extra_quoted_path_arg(self):
+        """Test that $ blocks extra quoted arguments."""
+        assert not match_prefix(
+            "cat '/tmp/.holmes/file.json' '/etc/passwd'",
+            "cat {confined:/tmp/.holmes}$",
+        )
+
+    def test_exact_match_suffix_blocks_flags_after(self):
+        """Test that $ blocks flags added after the matched prefix."""
+        assert not match_prefix("echo hello --verbose", "echo hello$")
+
+    def test_exact_match_suffix_on_bare_command(self):
+        """Test that $ on a single-token prefix only matches that bare command."""
+        assert match_prefix("echo", "echo$")
+        assert not match_prefix("echo hello", "echo$")
+
+    def test_exact_match_suffix_combined_with_traversal(self):
+        """Test that confined + $ blocks traversal even with correct token count."""
+        assert not match_prefix(
+            "cat /tmp/.holmes/../../etc/passwd",
+            "cat {confined:/tmp/.holmes}$",
+        )
+
+    def test_exact_match_suffix_without_dollar_allows_extra_args(self):
+        """Test that without $, extra arguments are still allowed (prefix match)."""
+        assert match_prefix("kubectl get pods -o yaml", "kubectl get pods")
+        assert match_prefix(
+            "cat /tmp/.holmes/file.json /etc/passwd",
+            "cat {confined:/tmp/.holmes}",
+        )
+
+    def test_exact_match_suffix_relative_path_extra_arg(self):
+        """Test that $ blocks relative path extra arguments."""
+        assert not match_prefix(
+            "cat /tmp/.holmes/file.json ../../../etc/shadow",
+            "cat {confined:/tmp/.holmes}$",
+        )
+
 
 class TestMatchPrefixForDeny:
     """Tests for the stricter deny list prefix matching."""
@@ -474,6 +536,30 @@ class TestValidateSegment:
         # Path traversal causes match_prefix to return False, so the segment
         # is not matched by the allow list and requires approval instead.
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
+
+    def test_confined_exact_blocks_extra_file_arg(self):
+        """Test that confined$ blocks reading an extra file outside the confined dir."""
+        from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+
+        storage = HOLMES_TOOL_RESULT_STORAGE_PATH
+        result = validate_segment(
+            f"cat {storage}/file.json /etc/passwd",
+            allow_list=[f"cat {{confined:{storage}}}$"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+
+    def test_confined_exact_allows_single_file(self):
+        """Test that confined$ still allows a single valid file."""
+        from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+
+        storage = HOLMES_TOOL_RESULT_STORAGE_PATH
+        result = validate_segment(
+            f"cat {storage}/abc-123/tool_results/file.json",
+            allow_list=[f"cat {{confined:{storage}}}$"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.ALLOWED
 
 
 class TestValidateCommand:
