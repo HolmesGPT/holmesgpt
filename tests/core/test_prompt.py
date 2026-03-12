@@ -463,3 +463,14 @@ class TestIsComponentEnabled:
 
         overrides = {PromptComponent.AI_SAFETY: True}
         assert is_component_enabled(PromptComponent.AI_SAFETY, overrides) is False
+
+    def test_disabled_by_default_component(self, monkeypatch):
+        """Components in DISABLED_BY_DEFAULT are off without explicit override."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        assert is_component_enabled(PromptComponent.AI_SAFETY) is False
+
+    def test_disabled_by_default_can_be_enabled_via_override(self, monkeypatch):
+        """Components in DISABLED_BY_DEFAULT can be explicitly enabled."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.AI_SAFETY: True}
+        assert is_component_enabled(PromptComponent.AI_SAFETY, overrides) is True

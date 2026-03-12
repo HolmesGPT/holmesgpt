@@ -58,6 +58,68 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
 | enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions    |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
+| behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode--prompt-controls)) |
+
+#### Fast Mode & Prompt Controls
+
+The `behavior_controls` field lets you selectively enable or disable sections of the system and user prompts. This is the API equivalent of the CLI's `--fast-mode` flag and gives you fine-grained control over which prompt components HolmesGPT includes.
+
+**Fast mode example** — skip the TodoWrite planning phase for faster, more direct responses:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Why is my pod crashing?",
+    "behavior_controls": {
+      "todowrite_instructions": false,
+      "todowrite_reminder": false
+    }
+  }'
+```
+
+**Minimal prompt example** — disable most sections to reduce token usage and latency:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "List all pods in the default namespace",
+    "behavior_controls": {
+      "todowrite_instructions": false,
+      "todowrite_reminder": false,
+      "ai_safety": false,
+      "style_guide": false,
+      "general_instructions": false
+    }
+  }'
+```
+
+**Precedence rules:**
+
+1. **`ENABLED_PROMPTS` env var** (highest) — If set on the server, it restricts which sections are allowed. The API cannot re-enable a section the env var disables.
+2. **`behavior_controls`** — Enables or disables sections within what the env var allows.
+3. **Default** (lowest) — All sections are enabled.
+
+The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.g., `"files,ai_safety,toolset_instructions"`) or `"none"` to disable all sections.
+
+**Available prompt sections:**
+
+| Section Key               | Prompt   | Description                                  |
+|---------------------------|----------|----------------------------------------------|
+| `intro`                   | System   | Introduction and identity                   |
+| `ask_user`                | System   | Instructions for asking clarifying questions |
+| `todowrite_instructions`  | System   | TodoWrite planning tool instructions         |
+| `ai_safety`               | System   | Safety guidelines (disabled by default)      |
+| `toolset_instructions`    | System   | Tool definitions and usage instructions      |
+| `permission_errors`       | System   | Permission error handling guidance           |
+| `general_instructions`    | System   | General investigation instructions           |
+| `style_guide`             | System   | Output formatting and style guide            |
+| `cluster_name`            | System   | Kubernetes cluster name context              |
+| `system_prompt_additions` | System   | Custom additions from configuration          |
+| `files`                   | User     | Attached file contents                       |
+| `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
+| `time_runbooks`           | User     | Runbook content and custom instructions      |
 
 #### Structured Output with `response_format`
 

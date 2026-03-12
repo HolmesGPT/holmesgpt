@@ -31,6 +31,8 @@ def main():
     current_time = start_time
     log_count = 0
 
+    failure_window_logged = False
+
     while current_time < datetime.utcnow():
         # Check if we're in the problematic time window (03:00-03:05)
         hour = current_time.hour
@@ -47,8 +49,9 @@ def main():
                 )
             )
 
-            # Add some diagnostic logs
-            if minute == 0 and current_time.second < 10:
+            # Add some diagnostic logs (once per failure window)
+            if minute == 0 and not failure_window_logged:
+                failure_window_logged = True
                 print(
                     json.dumps(
                         {
