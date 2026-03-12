@@ -197,19 +197,12 @@ def match_prefix(segment: str, prefix: str) -> bool:
     segment = segment.strip()
     prefix = prefix.strip()
 
-    # Try matching the segment as-is first, then with quotes stripped from
-    # arguments (bashlex preserves quotes in raw segments).
-    effective = segment
     if not segment.startswith(prefix):
-        unquoted = " ".join(part.strip("'\"") for part in segment.split())
-        if unquoted.startswith(prefix):
-            effective = unquoted
-        else:
-            return False
+        return False
 
     # If prefix is shorter than segment, the next char must be boundary char or end
-    if len(effective) > len(prefix):
-        next_char = effective[len(prefix)]
+    if len(segment) > len(prefix):
+        next_char = segment[len(prefix)]
         # Allow whitespace or path separator as boundary
         if not (next_char.isspace() or next_char == "/"):
             return False

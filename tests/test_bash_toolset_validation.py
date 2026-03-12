@@ -77,17 +77,6 @@ class TestMatchPrefix:
         """Test that path prefixes allow subpaths via / boundary."""
         assert match_prefix("cat /tmp/.holmes/uuid/file.json", "cat /tmp/.holmes")
 
-    def test_quoted_path_matching(self):
-        """Test that quoted paths are matched after stripping quotes."""
-        assert match_prefix(
-            "cat '/tmp/.holmes/uuid/file.json'",
-            "cat /tmp/.holmes",
-        )
-        assert match_prefix(
-            'cat "/tmp/.holmes/uuid/file.json"',
-            "cat /tmp/.holmes",
-        )
-
 
 class TestMatchPrefixForDeny:
     """Tests for the stricter deny list prefix matching."""
