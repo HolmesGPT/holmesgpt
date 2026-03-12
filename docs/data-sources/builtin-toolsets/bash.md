@@ -130,7 +130,7 @@ toolsets:
 
 This allows `cat /var/log/myapp/error.log` but blocks `cat /var/log/myapp/../../etc/passwd` — the path is resolved and must stay within the confined directory. This prevents path traversal attacks via `..`.
 
-Holmes uses this internally to auto-approve read commands for saved tool results (stored in the `HOLMES_TOOL_RESULT_STORAGE_PATH` directory, default `/tmp/.holmes`). The following commands are pre-approved with confinement: `cat`, `head`, `tail`, `wc`, `jq`. For `grep`, pipe from `cat` instead (e.g. `cat /tmp/.holmes/.../file.json | grep 'pattern'`) since grep expects flags before the file argument.
+Holmes uses this internally to auto-approve `cat` for saved tool results (stored in the `HOLMES_TOOL_RESULT_STORAGE_PATH` directory, default `/tmp/.holmes`). The LLM reads the file with `cat` and pipes into other commands to filter (e.g. `cat /tmp/.holmes/.../file.json | jq '.field'`).
 
 ## Blocked Commands
 
