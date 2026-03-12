@@ -301,7 +301,7 @@ class TestGetEffectiveLists:
         config = BashExecutorConfig(builtin_allowlist="none")
         allow_list, deny_list = get_effective_lists(config)
         # Tool result storage prefixes are always included so the LLM can read saved results
-        assert all("/.holmes" in p for p in allow_list)
+        assert len(allow_list) > 0 and all("/.holmes" in p for p in allow_list)
         assert deny_list == []
 
     def test_core_config_default(self):
@@ -369,7 +369,7 @@ class TestGetEffectiveLists:
         assert config.builtin_allowlist == "none"
         allow_list, deny_list = get_effective_lists(config)
         # Tool result storage prefixes are always included
-        assert all("/.holmes" in p for p in allow_list)
+        assert len(allow_list) > 0 and all("/.holmes" in p for p in allow_list)
 
     def test_default_lists_content(self):
         """Verify default lists have expected content."""
