@@ -82,8 +82,10 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
     tool_result_prefixes = [
         f"cat {storage_path}",
+        f"grep {storage_path}",
         f"head {storage_path}",
         f"tail {storage_path}",
+        f"wc {storage_path}",
         f"jq {storage_path}",
     ]
 

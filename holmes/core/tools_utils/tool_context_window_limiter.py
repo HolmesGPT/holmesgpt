@@ -64,7 +64,12 @@ def prevent_overly_big_tool_response(
         boilerplate = (
             f"{size_info}\n"
             f"Saved to: {file_path}\n"
-            f"Use bash to read the file. `cat {file_path}` is always allowed without approval. To filter JSON, pipe into jq: `cat {file_path} | jq '.field'`\n"
+            f"Use bash to access the data. The following commands are pre-approved (no user approval needed):\n"
+            f"- Read the full file: `cat {file_path}`\n"
+            f"- Filter JSON fields: `cat {file_path} | jq '.field'`\n"
+            f"- Search for a pattern: `grep {file_path} -e 'pattern'`\n"
+            f"- First/last N lines: `head {file_path} -n 100` or `tail {file_path} -n 100`\n"
+            f"- Count lines: `wc {file_path} -l`\n"
             f"\nPreview:\n"
         )
         # Allocate remaining char budget to the preview so the final string fits the context window
