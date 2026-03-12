@@ -73,6 +73,19 @@ class TestMatchPrefix:
         assert match_prefix("  kubectl get pods  ", "kubectl get")
         assert match_prefix("kubectl get pods", "  kubectl get  ")
 
+    def test_path_confinement_allows_valid_subpath(self):
+        """Test that paths within the confined directory are matched."""
+        assert match_prefix("cat /tmp/.holmes/uuid/file.json", "cat /tmp/.holmes")
+
+    def test_path_confinement_blocks_traversal(self):
+        """Test that path traversal escaping the confined dir is not matched."""
+        assert not match_prefix("cat /tmp/.holmes/../../etc/passwd", "cat /tmp/.holmes")
+
+    def test_path_confinement_not_applied_without_absolute_path(self):
+        """Test that confinement only applies when prefix has an absolute path."""
+        # Regular prefixes without absolute paths are not affected
+        assert match_prefix("kubectl get pods", "kubectl get")
+
 
 class TestMatchPrefixForDeny:
     """Tests for the stricter deny list prefix matching."""
@@ -419,8 +432,8 @@ class TestValidateSegment:
         )
         assert result.status == ValidationStatus.ALLOWED
 
-    def test_tool_result_storage_path_traversal_denied(self):
-        """Test that path traversal through tool result storage is denied."""
+    def test_tool_result_storage_path_traversal_not_matched(self):
+        """Test that path traversal through a confined prefix is not matched."""
         from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
 
         storage = HOLMES_TOOL_RESULT_STORAGE_PATH
@@ -429,8 +442,9 @@ class TestValidateSegment:
             allow_list=[f"cat {storage}"],
             deny_list=[],
         )
-        assert result.status == ValidationStatus.DENIED
-        assert "traversal" in result.message.lower()
+        # Path traversal causes match_prefix to return False, so the segment
+        # is not matched by the allow list and requires approval instead.
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
 
 
 class TestValidateCommand:

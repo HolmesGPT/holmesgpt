@@ -181,6 +181,19 @@ def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optio
     return None
 
 
+def _extract_confined_path(prefix: str) -> Optional[str]:
+    """Extract an absolute directory path from a prefix, if present.
+
+    Returns the path portion if the prefix contains one
+    (e.g. "cat /tmp/.holmes" -> "/tmp/.holmes"), else None.
+    """
+    parts = prefix.split()
+    for part in parts[1:]:  # skip the command itself
+        if part.startswith("/"):
+            return part
+    return None
+
+
 def match_prefix(segment: str, prefix: str) -> bool:
     """
     Check if a command segment matches a prefix.
@@ -188,11 +201,18 @@ def match_prefix(segment: str, prefix: str) -> bool:
     The prefix should match the beginning of the command at word boundaries.
     Accepts whitespace or '/' as valid boundaries (for kubectl resource/name syntax).
 
+    When the prefix contains an absolute path (e.g. "cat /tmp/.holmes"), any path
+    argument in the segment that starts with that base is resolved and checked for
+    confinement — ``cat /tmp/.holmes/../../etc/passwd`` will NOT match because the
+    resolved path escapes the confined directory.
+
     Examples:
         - "kubectl get pods" matches prefix "kubectl get"
         - "kubectl delete pod" does NOT match prefix "kubectl get"
         - "grep -r error" matches prefix "grep"
         - "kubectl get secret/my-secret" matches prefix "kubectl get secret"
+        - "cat /tmp/.holmes/uuid/file.json" matches prefix "cat /tmp/.holmes"
+        - "cat /tmp/.holmes/../../etc/passwd" does NOT match (path traversal)
     """
     segment = segment.strip()
     prefix = prefix.strip()
@@ -207,6 +227,17 @@ def match_prefix(segment: str, prefix: str) -> bool:
         # Allow whitespace or path separator as boundary
         if not (next_char.isspace() or next_char == "/"):
             return False
+
+    # Path confinement: if the prefix contains an absolute path, verify that every
+    # path argument in the segment resolves within that directory.
+    confined_to = _extract_confined_path(prefix)
+    if confined_to:
+        resolved_base = os.path.realpath(confined_to)
+        for part in segment.split():
+            if part.startswith(confined_to):
+                resolved = os.path.realpath(part)
+                if resolved != resolved_base and not resolved.startswith(resolved_base + os.sep):
+                    return False
 
     return True
 
@@ -284,23 +315,6 @@ def validate_segment(
     # Step 3: Check allow list
     for allow_prefix in allow_list:
         if match_prefix(segment, allow_prefix):
-            # Guard against path traversal for tool result storage prefixes.
-            # e.g. "cat /tmp/.holmes/../../etc/passwd" matches prefix "cat /tmp/.holmes"
-            # but resolves outside the storage directory.
-            storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
-            if allow_prefix.endswith(storage_path):
-                path_args = [
-                    part for part in segment.split()
-                    if part.startswith(storage_path)
-                ]
-                for path_arg in path_args:
-                    resolved = os.path.realpath(path_arg)
-                    if not resolved.startswith(os.path.realpath(storage_path) + os.sep):
-                        return ValidationResult(
-                            status=ValidationStatus.DENIED,
-                            deny_reason=DenyReason.HARDCODED_BLOCK,
-                            message=f"Path traversal detected: '{path_arg}' resolves outside the tool result storage directory.",
-                        )
             return ValidationResult(status=ValidationStatus.ALLOWED)
 
     # Step 4: Not in any list -> needs approval
