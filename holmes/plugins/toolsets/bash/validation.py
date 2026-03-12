@@ -77,7 +77,17 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     else:
         builtin = []
 
-    allow_list = sorted(set(builtin + config.allow))
+    # Auto-allow read-only commands for the tool result storage directory so the
+    # LLM can access saved large tool results without approval prompts.
+    storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
+    tool_result_prefixes = [
+        f"cat {storage_path}",
+        f"head {storage_path}",
+        f"tail {storage_path}",
+        f"jq {storage_path}",
+    ]
+
+    allow_list = sorted(set(builtin + config.allow + tool_result_prefixes))
     deny_list = sorted(set(DEFAULT_DENY_LIST + config.deny))
 
     return allow_list, deny_list
@@ -271,18 +281,6 @@ def validate_segment(
     # Step 3: Check allow list
     for allow_prefix in allow_list:
         if match_prefix(segment, allow_prefix):
-            return ValidationResult(status=ValidationStatus.ALLOWED)
-
-    # Step 3b: Auto-allow read-only commands targeting the tool result storage directory.
-    # Large tool results are saved to disk and the LLM is instructed to read them with
-    # bash commands (cat, grep, head, tail, jq).  These commands may include flags before
-    # the path (e.g. "grep -i pattern /tmp/.holmes/...") which prefix matching can't handle,
-    # so we check if the segment references the storage path directly.
-    _TOOL_RESULT_READ_COMMANDS = {"cat", "head", "tail", "grep", "jq", "wc", "less"}
-    segment_parts = segment.split()
-    if segment_parts and segment_parts[0] in _TOOL_RESULT_READ_COMMANDS:
-        storage_prefix = HOLMES_TOOL_RESULT_STORAGE_PATH
-        if any(arg.startswith(storage_prefix) for arg in segment_parts[1:]):
             return ValidationResult(status=ValidationStatus.ALLOWED)
 
     # Step 4: Not in any list -> needs approval

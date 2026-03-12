@@ -248,7 +248,7 @@ class ToolCallingLLM:
         for toolset in self.tool_executor.enabled_toolsets:
             if toolset.name == "bash":
                 config = toolset.config
-                if config and hasattr(config, "builtin_allowlist"):
+                if config:
                     return config.builtin_allowlist != "none"
                 return False
         return False
