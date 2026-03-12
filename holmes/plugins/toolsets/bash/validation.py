@@ -86,7 +86,6 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
         confined = "{confined:" + storage_path + "}"
         tool_result_prefixes = [
             f"cat {confined}",
-            f"grep {confined}",
             f"head {confined}",
             f"tail {confined}",
             f"wc {confined}",
