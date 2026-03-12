@@ -64,24 +64,6 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 
 The `behavior_controls` field lets you selectively enable or disable sections of the system and user prompts. This is the API equivalent of the CLI's `--fast-mode` flag and gives you fine-grained control over which prompt components HolmesGPT includes.
 
-**Available prompt sections:**
-
-| Section Key               | Prompt   | Description                                  |
-|---------------------------|----------|----------------------------------------------|
-| `intro`                   | System   | Introduction and identity                   |
-| `ask_user`                | System   | Instructions for asking clarifying questions |
-| `todowrite_instructions`  | System   | TodoWrite planning tool instructions         |
-| `ai_safety`               | System   | Safety guidelines                            |
-| `toolset_instructions`    | System   | Tool definitions and usage instructions      |
-| `permission_errors`       | System   | Permission error handling guidance           |
-| `general_instructions`    | System   | General investigation instructions           |
-| `style_guide`             | System   | Output formatting and style guide            |
-| `cluster_name`            | System   | Kubernetes cluster name context              |
-| `system_prompt_additions` | System   | Custom additions from configuration          |
-| `files`                   | User     | Attached file contents                       |
-| `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
-| `time_runbooks`           | User     | Runbook content and custom instructions      |
-
 **Fast mode example** — skip the TodoWrite planning phase for faster, more direct responses:
 
 ```bash
@@ -120,6 +102,24 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 3. **Default** (lowest) — All sections are enabled.
 
 The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.g., `"files,ai_safety,toolset_instructions"`) or `"none"` to disable all sections.
+
+**Available prompt sections:**
+
+| Section Key               | Prompt   | Description                                  |
+|---------------------------|----------|----------------------------------------------|
+| `intro`                   | System   | Introduction and identity                   |
+| `ask_user`                | System   | Instructions for asking clarifying questions |
+| `todowrite_instructions`  | System   | TodoWrite planning tool instructions         |
+| `ai_safety`               | System   | Safety guidelines                            |
+| `toolset_instructions`    | System   | Tool definitions and usage instructions      |
+| `permission_errors`       | System   | Permission error handling guidance           |
+| `general_instructions`    | System   | General investigation instructions           |
+| `style_guide`             | System   | Output formatting and style guide            |
+| `cluster_name`            | System   | Kubernetes cluster name context              |
+| `system_prompt_additions` | System   | Custom additions from configuration          |
+| `files`                   | User     | Attached file contents                       |
+| `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
+| `time_runbooks`           | User     | Runbook content and custom instructions      |
 
 #### Structured Output with `response_format`
 
