@@ -6,6 +6,7 @@ against allow/deny lists, with support for composed commands (pipes, &&, etc.).
 """
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -283,6 +284,23 @@ def validate_segment(
     # Step 3: Check allow list
     for allow_prefix in allow_list:
         if match_prefix(segment, allow_prefix):
+            # Guard against path traversal for tool result storage prefixes.
+            # e.g. "cat /tmp/.holmes/../../etc/passwd" matches prefix "cat /tmp/.holmes"
+            # but resolves outside the storage directory.
+            storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
+            if allow_prefix.endswith(storage_path):
+                path_args = [
+                    part for part in segment.split()
+                    if part.startswith(storage_path)
+                ]
+                for path_arg in path_args:
+                    resolved = os.path.realpath(path_arg)
+                    if not resolved.startswith(os.path.realpath(storage_path) + os.sep):
+                        return ValidationResult(
+                            status=ValidationStatus.DENIED,
+                            deny_reason=DenyReason.HARDCODED_BLOCK,
+                            message=f"Path traversal detected: '{path_arg}' resolves outside the tool result storage directory.",
+                        )
             return ValidationResult(status=ValidationStatus.ALLOWED)
 
     # Step 4: Not in any list -> needs approval

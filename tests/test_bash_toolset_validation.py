@@ -407,6 +407,31 @@ class TestValidateSegment:
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
 
+    def test_tool_result_storage_path_allowed(self):
+        """Test that commands accessing tool result storage are allowed."""
+        from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+
+        storage = HOLMES_TOOL_RESULT_STORAGE_PATH
+        result = validate_segment(
+            f"cat {storage}/abc-123/tool_results/file.json",
+            allow_list=[f"cat {storage}"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_tool_result_storage_path_traversal_denied(self):
+        """Test that path traversal through tool result storage is denied."""
+        from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+
+        storage = HOLMES_TOOL_RESULT_STORAGE_PATH
+        result = validate_segment(
+            f"cat {storage}/../../etc/passwd",
+            allow_list=[f"cat {storage}"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert "traversal" in result.message.lower()
+
 
 class TestValidateCommand:
     """Tests for full command validation."""
