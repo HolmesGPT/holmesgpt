@@ -199,6 +199,8 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
     1. **Set up API key**:
         ```bash
         export GEMINI_API_KEY="your-gemini-api-key"
+        export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
+        export MODEL="gemini/<your-gemini-model>"
         ```
 
     2. **Create a test pod** to investigate:
@@ -208,6 +210,9 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 
     3. **Ask your first question**:
         ```bash
+        holmes ask "what is wrong with the user-profile-import pod?"
+
+        # Or specify the model explicitly per command:
         holmes ask "what is wrong with the user-profile-import pod?" --model="gemini/<your-gemini-model>"
         ```
 
