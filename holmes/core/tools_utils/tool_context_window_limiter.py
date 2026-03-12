@@ -64,12 +64,11 @@ def prevent_overly_big_tool_response(
         boilerplate = (
             f"{size_info}\n"
             f"Saved to: {file_path}\n"
-            f"Use bash to access the data. These commands are pre-approved (no user approval needed) "
-            f"when the file path is the first argument: cat, head, tail, wc, jq. "
-            f"The file path MUST come before any flags. You can add flags after the path. "
-            f"You can pipe into any command in the core allow list (grep, jq, head, tail, sort, etc.).\n"
-            f"Examples: `cat {file_path}`, `head {file_path} -n 100`, "
-            f"`cat {file_path} | grep -oP 'pattern'`, `cat {file_path} | jq '.field'`.\n"
+            f"Use `cat {file_path}` to read it (pre-approved, no user approval needed), "
+            f"then pipe into other commands to filter: "
+            f"`cat {file_path} | jq '.field'`, "
+            f"`cat {file_path} | grep -oP 'pattern'`, "
+            f"`cat {file_path} | head -n 100`.\n"
             f"\nPreview:\n"
         )
         # Allocate remaining char budget to the preview so the final string fits the context window
