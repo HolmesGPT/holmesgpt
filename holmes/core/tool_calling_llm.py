@@ -144,6 +144,7 @@ class LLMCosts(BaseModel):
     cached_tokens: Optional[int] = None
     reasoning_tokens: int = 0
     max_completion_tokens_per_call: int = 0
+    max_prompt_tokens_per_call: int = 0
     num_compactions: int = 0
 
 
@@ -181,6 +182,9 @@ def _process_cost_info(
                 costs.reasoning_tokens += raw.reasoning_tokens
                 costs.max_completion_tokens_per_call = max(
                     costs.max_completion_tokens_per_call, raw.completion_tokens
+                )
+                costs.max_prompt_tokens_per_call = max(
+                    costs.max_prompt_tokens_per_call, raw.prompt_tokens
                 )
         elif raw.cost > 0:
             cost_logger.debug(
@@ -452,6 +456,12 @@ class ToolCallingLLM:
                 costs.prompt_tokens += compaction.prompt_tokens
                 costs.completion_tokens += compaction.completion_tokens
                 costs.total_cost += compaction.cost
+                costs.max_prompt_tokens_per_call = max(
+                    costs.max_prompt_tokens_per_call, compaction.prompt_tokens
+                )
+                costs.max_completion_tokens_per_call = max(
+                    costs.max_completion_tokens_per_call, compaction.completion_tokens
+                )
 
             if (
                 limit_result.conversation_history_compacted
@@ -984,6 +994,12 @@ class ToolCallingLLM:
                 costs.prompt_tokens += compaction.prompt_tokens
                 costs.completion_tokens += compaction.completion_tokens
                 costs.total_cost += compaction.cost
+                costs.max_prompt_tokens_per_call = max(
+                    costs.max_prompt_tokens_per_call, compaction.prompt_tokens
+                )
+                costs.max_completion_tokens_per_call = max(
+                    costs.max_completion_tokens_per_call, compaction.completion_tokens
+                )
                 cost_logger.debug(
                     f"Compaction cost (streaming): ${compaction.cost:.6f} | "
                     f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
