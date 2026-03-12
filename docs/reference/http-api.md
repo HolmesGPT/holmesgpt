@@ -110,7 +110,7 @@ The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.
 | `intro`                   | System   | Introduction and identity                   |
 | `ask_user`                | System   | Instructions for asking clarifying questions |
 | `todowrite_instructions`  | System   | TodoWrite planning tool instructions         |
-| `ai_safety`               | System   | Safety guidelines                            |
+| `ai_safety`               | System   | Safety guidelines (disabled by default)      |
 | `toolset_instructions`    | System   | Tool definitions and usage instructions      |
 | `permission_errors`       | System   | Permission error handling guidance           |
 | `general_instructions`    | System   | General investigation instructions           |
