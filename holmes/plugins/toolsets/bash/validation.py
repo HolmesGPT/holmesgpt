@@ -15,7 +15,7 @@ from typing import List, Optional, Tuple
 import bashlex
 from bashlex import ast
 
-from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH, load_bool
 
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
@@ -80,16 +80,18 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
 
     # Auto-allow read-only commands for the tool result storage directory so the
     # LLM can access saved large tool results without approval prompts.
-    storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
-    confined = "{confined:" + storage_path + "}"
-    tool_result_prefixes = [
-        f"cat {confined}",
-        f"grep {confined}",
-        f"head {confined}",
-        f"tail {confined}",
-        f"wc {confined}",
-        f"jq {confined}",
-    ]
+    tool_result_prefixes: List[str] = []
+    if load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
+        storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
+        confined = "{confined:" + storage_path + "}"
+        tool_result_prefixes = [
+            f"cat {confined}",
+            f"grep {confined}",
+            f"head {confined}",
+            f"tail {confined}",
+            f"wc {confined}",
+            f"jq {confined}",
+        ]
 
     allow_list = sorted(set(builtin + config.allow + tool_result_prefixes))
     deny_list = sorted(set(DEFAULT_DENY_LIST + config.deny))
