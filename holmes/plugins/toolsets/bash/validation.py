@@ -81,13 +81,14 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     # Auto-allow read-only commands for the tool result storage directory so the
     # LLM can access saved large tool results without approval prompts.
     storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
+    confined = "{confined:" + storage_path + "}"
     tool_result_prefixes = [
-        f"cat {storage_path}",
-        f"grep {storage_path}",
-        f"head {storage_path}",
-        f"tail {storage_path}",
-        f"wc {storage_path}",
-        f"jq {storage_path}",
+        f"cat {confined}",
+        f"grep {confined}",
+        f"head {confined}",
+        f"tail {confined}",
+        f"wc {confined}",
+        f"jq {confined}",
     ]
 
     allow_list = sorted(set(builtin + config.allow + tool_result_prefixes))
@@ -181,17 +182,26 @@ def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optio
     return None
 
 
-def _extract_confined_path(prefix: str) -> Optional[str]:
-    """Extract an absolute directory path from a prefix, if present.
+_CONFINED_RE = re.compile(r"\{confined:([^}]+)\}")
 
-    Returns the path portion if the prefix contains one
-    (e.g. "cat /tmp/.holmes" -> "/tmp/.holmes"), else None.
+
+def _expand_prefix(prefix: str) -> tuple[str, Optional[str]]:
+    """Expand a prefix that may contain a ``{confined:/path}`` placeholder.
+
+    Returns:
+        (expanded_prefix, confined_path) where confined_path is the directory
+        that arguments must resolve within, or None for regular prefixes.
+
+    Examples:
+        "cat {confined:/tmp/.holmes}"  -> ("cat /tmp/.holmes", "/tmp/.holmes")
+        "kubectl get"                  -> ("kubectl get", None)
     """
-    parts = prefix.split()
-    for part in parts[1:]:  # skip the command itself
-        if part.startswith("/"):
-            return part
-    return None
+    m = _CONFINED_RE.search(prefix)
+    if not m:
+        return prefix, None
+    confined_path = m.group(1)
+    expanded = prefix[: m.start()] + confined_path + prefix[m.end() :]
+    return expanded, confined_path
 
 
 def match_prefix(segment: str, prefix: str) -> bool:
@@ -201,36 +211,37 @@ def match_prefix(segment: str, prefix: str) -> bool:
     The prefix should match the beginning of the command at word boundaries.
     Accepts whitespace or '/' as valid boundaries (for kubectl resource/name syntax).
 
-    When the prefix contains an absolute path (e.g. "cat /tmp/.holmes"), any path
-    argument in the segment that starts with that base is resolved and checked for
-    confinement — ``cat /tmp/.holmes/../../etc/passwd`` will NOT match because the
-    resolved path escapes the confined directory.
+    Prefixes may contain a ``{confined:/path}`` placeholder to enable path
+    confinement.  When present, the placeholder is expanded for normal prefix
+    matching **and** every segment argument that starts with the confined path
+    is resolved to verify it stays within that directory.
 
     Examples:
         - "kubectl get pods" matches prefix "kubectl get"
         - "kubectl delete pod" does NOT match prefix "kubectl get"
         - "grep -r error" matches prefix "grep"
         - "kubectl get secret/my-secret" matches prefix "kubectl get secret"
-        - "cat /tmp/.holmes/uuid/file.json" matches prefix "cat /tmp/.holmes"
+        - "cat /tmp/.holmes/uuid/f.json" matches "cat {confined:/tmp/.holmes}"
         - "cat /tmp/.holmes/../../etc/passwd" does NOT match (path traversal)
     """
     segment = segment.strip()
     prefix = prefix.strip()
 
-    # Command must start with the prefix
-    if not segment.startswith(prefix):
+    expanded, confined_to = _expand_prefix(prefix)
+
+    # Command must start with the expanded prefix
+    if not segment.startswith(expanded):
         return False
 
     # If prefix is shorter than segment, the next char must be boundary char or end
-    if len(segment) > len(prefix):
-        next_char = segment[len(prefix)]
+    if len(segment) > len(expanded):
+        next_char = segment[len(expanded)]
         # Allow whitespace or path separator as boundary
         if not (next_char.isspace() or next_char == "/"):
             return False
 
-    # Path confinement: if the prefix contains an absolute path, verify that every
-    # path argument in the segment resolves within that directory.
-    confined_to = _extract_confined_path(prefix)
+    # Path confinement: verify that every path argument referencing the confined
+    # directory resolves within it (prevents path traversal via "..").
     if confined_to:
         resolved_base = os.path.realpath(confined_to)
         for part in segment.split():

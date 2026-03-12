@@ -73,17 +73,28 @@ class TestMatchPrefix:
         assert match_prefix("  kubectl get pods  ", "kubectl get")
         assert match_prefix("kubectl get pods", "  kubectl get  ")
 
-    def test_path_confinement_allows_valid_subpath(self):
+    def test_confined_placeholder_allows_valid_subpath(self):
         """Test that paths within the confined directory are matched."""
-        assert match_prefix("cat /tmp/.holmes/uuid/file.json", "cat /tmp/.holmes")
+        assert match_prefix(
+            "cat /tmp/.holmes/uuid/file.json",
+            "cat {confined:/tmp/.holmes}",
+        )
 
-    def test_path_confinement_blocks_traversal(self):
+    def test_confined_placeholder_blocks_traversal(self):
         """Test that path traversal escaping the confined dir is not matched."""
-        assert not match_prefix("cat /tmp/.holmes/../../etc/passwd", "cat /tmp/.holmes")
+        assert not match_prefix(
+            "cat /tmp/.holmes/../../etc/passwd",
+            "cat {confined:/tmp/.holmes}",
+        )
 
-    def test_path_confinement_not_applied_without_absolute_path(self):
-        """Test that confinement only applies when prefix has an absolute path."""
-        # Regular prefixes without absolute paths are not affected
+    def test_plain_path_prefix_no_confinement(self):
+        """Test that plain absolute paths in prefixes do NOT get confinement."""
+        # Without {confined:...}, path traversal is not checked — this is
+        # a regular prefix match, the user opted in to allowing it.
+        assert match_prefix("cat /var/log/../../etc/passwd", "cat /var/log")
+
+    def test_confined_placeholder_not_applied_without_syntax(self):
+        """Test that regular prefixes are not affected by confinement."""
         assert match_prefix("kubectl get pods", "kubectl get")
 
 
@@ -420,26 +431,26 @@ class TestValidateSegment:
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
 
-    def test_tool_result_storage_path_allowed(self):
-        """Test that commands accessing tool result storage are allowed."""
+    def test_confined_prefix_allows_valid_path(self):
+        """Test that commands accessing a confined path are allowed."""
         from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
 
         storage = HOLMES_TOOL_RESULT_STORAGE_PATH
         result = validate_segment(
             f"cat {storage}/abc-123/tool_results/file.json",
-            allow_list=[f"cat {storage}"],
+            allow_list=[f"cat {{confined:{storage}}}"],
             deny_list=[],
         )
         assert result.status == ValidationStatus.ALLOWED
 
-    def test_tool_result_storage_path_traversal_not_matched(self):
+    def test_confined_prefix_blocks_traversal(self):
         """Test that path traversal through a confined prefix is not matched."""
         from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
 
         storage = HOLMES_TOOL_RESULT_STORAGE_PATH
         result = validate_segment(
             f"cat {storage}/../../etc/passwd",
-            allow_list=[f"cat {storage}"],
+            allow_list=[f"cat {{confined:{storage}}}"],
             deny_list=[],
         )
         # Path traversal causes match_prefix to return False, so the segment
