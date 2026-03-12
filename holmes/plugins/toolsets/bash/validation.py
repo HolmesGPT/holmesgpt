@@ -6,7 +6,6 @@ against allow/deny lists, with support for composed commands (pipes, &&, etc.).
 """
 
 import logging
-import os
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -83,13 +82,12 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     tool_result_prefixes: List[str] = []
     if load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
         storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
-        confined = "{confined:" + storage_path + "}"
         tool_result_prefixes = [
-            f"cat {confined}$",
-            f"head {confined}$",
-            f"tail {confined}$",
-            f"wc {confined}$",
-            f"jq {confined}$",
+            f"cat {storage_path}",
+            f"head {storage_path}",
+            f"tail {storage_path}",
+            f"wc {storage_path}",
+            f"jq {storage_path}",
         ]
 
     allow_list = sorted(set(builtin + config.allow + tool_result_prefixes))
@@ -183,40 +181,6 @@ def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optio
     return None
 
 
-_CONFINED_RE = re.compile(r"\{confined:([^}]+)\}")
-
-
-def _expand_prefix(prefix: str) -> tuple[str, Optional[str], bool]:
-    """Expand a prefix that may contain a ``{confined:/path}`` placeholder.
-
-    A trailing ``$`` on the prefix requests exact matching: the command segment
-    must have the same number of whitespace-separated tokens as the expanded
-    prefix (no extra arguments allowed).
-
-    Returns:
-        (expanded_prefix, confined_path, exact) where confined_path is the
-        directory that arguments must resolve within (or None for regular
-        prefixes) and exact is True when ``$`` was present.
-
-    Examples:
-        "cat {confined:/tmp/.holmes}"   -> ("cat /tmp/.holmes", "/tmp/.holmes", False)
-        "cat {confined:/tmp/.holmes}$"  -> ("cat /tmp/.holmes", "/tmp/.holmes", True)
-        "kubectl get pods$"            -> ("kubectl get pods", None, True)
-        "kubectl get"                  -> ("kubectl get", None, False)
-    """
-    # Detect and strip trailing '$' before other processing
-    exact = prefix.endswith("$")
-    if exact:
-        prefix = prefix[:-1]
-
-    m = _CONFINED_RE.search(prefix)
-    if not m:
-        return prefix, None, exact
-    confined_path = m.group(1)
-    expanded = prefix[: m.start()] + confined_path + prefix[m.end() :]
-    return expanded, confined_path, exact
-
-
 def match_prefix(segment: str, prefix: str) -> bool:
     """
     Check if a command segment matches a prefix.
@@ -224,66 +188,31 @@ def match_prefix(segment: str, prefix: str) -> bool:
     The prefix should match the beginning of the command at word boundaries.
     Accepts whitespace or '/' as valid boundaries (for kubectl resource/name syntax).
 
-    Prefixes may contain a ``{confined:/path}`` placeholder to enable path
-    confinement.  When present, the placeholder is expanded for normal prefix
-    matching **and** every segment argument that starts with the confined path
-    is resolved to verify it stays within that directory.
-
-    A trailing ``$`` on the prefix requests **exact** matching: the segment
-    must have the same number of whitespace-separated tokens as the expanded
-    prefix.  This prevents extra arguments from being smuggled in after the
-    allowed prefix (e.g. ``cat /tmp/.holmes/file /etc/passwd``).
-
     Examples:
         - "kubectl get pods" matches prefix "kubectl get"
         - "kubectl delete pod" does NOT match prefix "kubectl get"
         - "grep -r error" matches prefix "grep"
         - "kubectl get secret/my-secret" matches prefix "kubectl get secret"
-        - "cat /tmp/.holmes/uuid/f.json" matches "cat {confined:/tmp/.holmes}"
-        - "cat /tmp/.holmes/../../etc/passwd" does NOT match (path traversal)
-        - "cat /tmp/.holmes/f /etc/passwd" does NOT match "cat {confined:...}$"
-        - "kubectl get pods -o yaml" does NOT match "kubectl get pods$"
     """
     segment = segment.strip()
     prefix = prefix.strip()
 
-    expanded, confined_to, exact = _expand_prefix(prefix)
-
     # Try matching the segment as-is first, then with quotes stripped from
     # arguments (bashlex preserves quotes in raw segments).
     effective = segment
-    if not segment.startswith(expanded):
+    if not segment.startswith(prefix):
         unquoted = " ".join(part.strip("'\"") for part in segment.split())
-        if unquoted.startswith(expanded):
+        if unquoted.startswith(prefix):
             effective = unquoted
         else:
             return False
 
     # If prefix is shorter than segment, the next char must be boundary char or end
-    if len(effective) > len(expanded):
-        next_char = effective[len(expanded)]
+    if len(effective) > len(prefix):
+        next_char = effective[len(prefix)]
         # Allow whitespace or path separator as boundary
         if not (next_char.isspace() or next_char == "/"):
             return False
-
-    # Exact matching ($): segment must have the same number of tokens as the
-    # expanded prefix.  The last token may be longer (e.g. subpath via '/'),
-    # but no additional tokens are allowed.
-    if exact:
-        if len(effective.split()) != len(expanded.split()):
-            return False
-
-    # Path confinement: verify that every path argument referencing the confined
-    # directory resolves within it (prevents path traversal via "..").
-    if confined_to:
-        resolved_base = os.path.realpath(confined_to)
-        for part in segment.split():
-            # Strip surrounding quotes — bashlex preserves them in raw segments
-            unquoted = part.strip("'\"")
-            if unquoted.startswith(confined_to):
-                resolved = os.path.realpath(unquoted)
-                if resolved != resolved_base and not resolved.startswith(resolved_base + os.sep):
-                    return False
 
     return True
 

@@ -114,54 +114,6 @@ kubectl get pods | grep error | head -10
 
 This requires `kubectl get`, `grep`, and `head` to all be allowed.
 
-## Exact Match (`$`)
-
-By default, allow list entries use prefix matching — `kubectl get` allows `kubectl get pods -o yaml`. Adding a trailing `$` enforces **exact** matching: the command must have the same number of whitespace-separated tokens as the prefix. No extra arguments or flags are allowed.
-
-```yaml
-toolsets:
-  bash:
-    enabled: true
-    config:
-      allow:
-        - "kubectl get pods$"        # allows "kubectl get pods", blocks "kubectl get pods -o yaml"
-        - "echo$"                    # allows bare "echo", blocks "echo secret-data"
-```
-
-| Prefix | Command | Allowed? |
-|--------|---------|----------|
-| `kubectl get pods$` | `kubectl get pods` | Yes |
-| `kubectl get pods$` | `kubectl get pods -o yaml` | No (extra tokens) |
-| `kubectl get pods` | `kubectl get pods -o yaml` | Yes (no `$`, prefix match) |
-
-The last token can still contain subpaths via `/` — this is important for path-confined prefixes (see below).
-
-## Path-Confined Prefixes
-
-You can restrict a prefix to only allow access within a specific directory using the `{confined:/path}` syntax:
-
-```yaml
-toolsets:
-  bash:
-    enabled: true
-    config:
-      allow:
-        - "cat {confined:/var/log/myapp}$"
-        - "grep {confined:/var/log/myapp}$"
-```
-
-This allows `cat /var/log/myapp/error.log` but blocks:
-
-- `cat /var/log/myapp/../../etc/passwd` — path traversal (resolved path escapes confined dir)
-- `cat /var/log/myapp/file.log /etc/passwd` — extra arguments (blocked by `$`)
-
-Confinement and `$` are independent features that work well together:
-
-- **`{confined:/path}`** prevents path traversal via `..`
-- **`$`** prevents extra arguments being appended after the allowed path
-
-Holmes uses both internally to auto-approve `cat` for saved tool results (stored in the `HOLMES_TOOL_RESULT_STORAGE_PATH` directory, default `/tmp/.holmes`). The LLM reads the file with `cat` and pipes into other commands to filter (e.g. `cat /tmp/.holmes/.../file.json | jq '.field'`).
-
 ## Blocked Commands
 
 The following are always blocked and cannot be overridden:
