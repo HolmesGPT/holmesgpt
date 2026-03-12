@@ -397,7 +397,7 @@ jobs:
               }
             } else {
               model = '';
-              markers = 'regression';
+              markers = null;
               filter = '';
               iterations = '1';
               branch = '';
@@ -459,11 +459,12 @@ jobs:
             // Apply defaults
             if (!model) model = ${{ toJSON(vars.MODEL) }} || '';
             // Only apply regression default for automatic triggers, not for manual /eval or workflow_dispatch
-            if (!markers && !isManual) markers = 'regression';
+            // Note: markers may be '' (explicitly cleared by evals-id-* label parsing to broaden to all LLM tests)
+            if (markers == null && !isManual) markers = 'regression';
             let iterNum = Math.min(Math.max(parseInt(iterations, 10) || 1, 1), 10);
 
             core.setOutput('model', model);
-            core.setOutput('markers', markers);
+            core.setOutput('markers', markers || '');
             core.setOutput('filter', filter);
             core.setOutput('iterations', iterNum.toString());
             core.setOutput('is_manual', isManual.toString());
@@ -473,6 +474,9 @@ jobs:
             core.setOutput('branch', branch);
             core.setOutput('display_branch', displayBranch || '');
             core.setOutput('marker_expr', markers ? `llm and (${markers})` : 'llm');
+
+            // Log computed params for debugging
+            core.info(`eval-params: event=${event}, model=${model}, markers=${markers}, filter=${filter}, marker_expr=${markers ? 'llm and (' + markers + ')' : 'llm'}, pr_number=${prNumber || '<none>'}, iterations=${iterNum}`);
             core.setOutput('run_url', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
 
             // Output all common params as JSON for DRY usage in subsequent steps
@@ -892,6 +896,11 @@ jobs:
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
 
+          echo "📋 Collect step params:"
+          echo "  MODEL=${MODEL:-<unset>}"
+          echo "  EVAL_MARKER_EXPR=${EVAL_MARKER_EXPR}"
+          echo "  EVAL_FILTER=${EVAL_FILTER:-<empty>}"
+
           # Collect test files dynamically
           TEST_FILES=()
           for f in tests/llm/test_ask_holmes.py tests/llm/test_holmes_checks.py; do
@@ -903,6 +912,7 @@ jobs:
           fi
           PYTEST_ARGS=(--collect-only -q "${TEST_FILES[@]}" -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
+          echo "  pytest args: ${PYTEST_ARGS[*]}"
 
           # Collect test names
           TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" || true)
@@ -1106,6 +1116,12 @@ jobs:
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
 
+          echo "🧪 Run tests params:"
+          echo "  MODEL=${MODEL:-<unset>}"
+          echo "  EVAL_MARKER_EXPR=${EVAL_MARKER_EXPR}"
+          echo "  EVAL_FILTER=${EVAL_FILTER:-<empty>}"
+          echo "  MODEL_LIST_FILE_LOCATION=${MODEL_LIST_FILE_LOCATION:-<unset>}"
+
           START_TIME=$(date +%s)
 
           # Collect test files dynamically
@@ -1119,6 +1135,7 @@ jobs:
           fi
           PYTEST_ARGS=(--no-cov "${TEST_FILES[@]}" -s -n10 -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
+          echo "  pytest args: ${PYTEST_ARGS[*]}"
           poetry run pytest "${PYTEST_ARGS[@]}" || true
 
           DURATION=$(($(date +%s) - START_TIME))
