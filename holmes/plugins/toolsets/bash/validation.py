@@ -231,13 +231,19 @@ def match_prefix(segment: str, prefix: str) -> bool:
 
     expanded, confined_to = _expand_prefix(prefix)
 
-    # Command must start with the expanded prefix
+    # Try matching the segment as-is first, then with quotes stripped from
+    # arguments (bashlex preserves quotes in raw segments).
+    effective = segment
     if not segment.startswith(expanded):
-        return False
+        unquoted = " ".join(part.strip("'\"") for part in segment.split())
+        if unquoted.startswith(expanded):
+            effective = unquoted
+        else:
+            return False
 
     # If prefix is shorter than segment, the next char must be boundary char or end
-    if len(segment) > len(expanded):
-        next_char = segment[len(expanded)]
+    if len(effective) > len(expanded):
+        next_char = effective[len(expanded)]
         # Allow whitespace or path separator as boundary
         if not (next_char.isspace() or next_char == "/"):
             return False
@@ -247,8 +253,10 @@ def match_prefix(segment: str, prefix: str) -> bool:
     if confined_to:
         resolved_base = os.path.realpath(confined_to)
         for part in segment.split():
-            if part.startswith(confined_to):
-                resolved = os.path.realpath(part)
+            # Strip surrounding quotes — bashlex preserves them in raw segments
+            unquoted = part.strip("'\"")
+            if unquoted.startswith(confined_to):
+                resolved = os.path.realpath(unquoted)
                 if resolved != resolved_base and not resolved.startswith(resolved_base + os.sep):
                     return False
 

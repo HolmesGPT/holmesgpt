@@ -97,6 +97,24 @@ class TestMatchPrefix:
         """Test that regular prefixes are not affected by confinement."""
         assert match_prefix("kubectl get pods", "kubectl get")
 
+    def test_confined_placeholder_with_quoted_path(self):
+        """Test that quoted paths are matched after stripping quotes."""
+        assert match_prefix(
+            "cat '/tmp/.holmes/uuid/file.json'",
+            "cat {confined:/tmp/.holmes}",
+        )
+        assert match_prefix(
+            'cat "/tmp/.holmes/uuid/file.json"',
+            "cat {confined:/tmp/.holmes}",
+        )
+
+    def test_confined_placeholder_quoted_traversal_blocked(self):
+        """Test that quoted path traversal is still blocked."""
+        assert not match_prefix(
+            "cat '/tmp/.holmes/../../etc/passwd'",
+            "cat {confined:/tmp/.holmes}",
+        )
+
 
 class TestMatchPrefixForDeny:
     """Tests for the stricter deny list prefix matching."""

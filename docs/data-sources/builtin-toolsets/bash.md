@@ -114,6 +114,24 @@ kubectl get pods | grep error | head -10
 
 This requires `kubectl get`, `grep`, and `head` to all be allowed.
 
+## Path-Confined Prefixes
+
+You can restrict a prefix to only allow access within a specific directory using the `{confined:/path}` syntax:
+
+```yaml
+toolsets:
+  bash:
+    enabled: true
+    config:
+      allow:
+        - "cat {confined:/var/log/myapp}"
+        - "grep {confined:/var/log/myapp}"
+```
+
+This allows `cat /var/log/myapp/error.log` but blocks `cat /var/log/myapp/../../etc/passwd` — the path is resolved and must stay within the confined directory. This prevents path traversal attacks via `..`.
+
+Holmes uses this internally to auto-approve read commands for saved tool results (stored in the `HOLMES_TOOL_RESULT_STORAGE_PATH` directory, default `/tmp/.holmes`). The following commands are pre-approved with confinement: `cat`, `grep`, `head`, `tail`, `wc`, `jq`.
+
 ## Blocked Commands
 
 The following are always blocked and cannot be overridden:
