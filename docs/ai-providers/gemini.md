@@ -13,6 +13,10 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
     ```bash
     export GEMINI_API_KEY="your-gemini-api-key"
     export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
+    export MODEL="gemini/<your-gemini-model>"
+    holmes ask "what pods are failing?"
+
+    # Or specify the model explicitly per command:
     holmes ask "what pods are failing?" --model="gemini/<your-gemini-model>"
     ```
 
@@ -108,6 +112,7 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
 You can also pass the API key directly as a command-line parameter:
 
 ```bash
+export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 holmes ask "what pods are failing?" --model="gemini/<your-gemini-model>" --api-key="your-api-key"
 ```
 
