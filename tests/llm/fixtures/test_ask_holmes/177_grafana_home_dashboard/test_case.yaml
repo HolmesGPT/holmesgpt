@@ -72,3 +72,4 @@ tags:
   - metrics
   - kubernetes
   - grafana-dashboard
+  - jq-filter

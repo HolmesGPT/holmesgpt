@@ -22,6 +22,7 @@ tags:
   - elasticsearch
   - question-answer
   - medium
+  - jq-filter
 
 setup_timeout: 300
 

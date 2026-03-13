@@ -39,14 +39,21 @@ def test_jq_filter_applies_before_returning_data():
     assert result.data == "CPU"
 
 
-def test_invalid_jq_returns_error():
+def test_invalid_jq_returns_data_with_error_hint():
     data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
     tool = _build_tool(data)
 
     result = tool._invoke({"uid": "abc", "jq": ".["}, context=None)
 
-    assert result.status is StructuredToolResultStatus.ERROR
-    assert "Invalid jq expression" in result.error
+    # Invalid jq should return SUCCESS with the raw data preview and error hint
+    # so the LLM can see the response shape and self-correct its expression
+    assert result.status is StructuredToolResultStatus.SUCCESS
+    assert "jq_error" in result.data
+    assert "Invalid jq expression" in result.data["jq_error"]
+    assert "raw_response_preview" in result.data
+    # Preview is a size-capped string, not a dict
+    assert isinstance(result.data["raw_response_preview"], str)
+    assert "dashboard" in result.data["raw_response_preview"]
 
 
 def test_depth_applies_after_filters():

@@ -20,6 +20,7 @@ include_tool_calls: true
 tags:
   - elasticsearch
   - medium
+  - jq-filter
 
 setup_timeout: 300
 

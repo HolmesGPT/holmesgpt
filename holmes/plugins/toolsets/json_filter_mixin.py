@@ -87,9 +87,26 @@ class JsonFilterMixin:
                 return data, None
 
         if params.get("jq"):
+            original_data = parsed_data
             parsed_data, error = _apply_jq_filter(parsed_data, params["jq"])
             if error:
-                return None, error
+                # Return original data with error hint so the LLM can see the
+                # actual response shape and self-correct its jq expression.
+                # Depth-truncate and cap the serialized size to avoid flooding
+                # the context with a huge raw payload.
+                max_preview_chars = 2000
+                truncated = _truncate_to_depth(original_data, max_depth=2)
+                try:
+                    preview_str = json.dumps(truncated, separators=(",", ":"), ensure_ascii=False)
+                except (TypeError, ValueError):
+                    preview_str = repr(truncated)
+                if len(preview_str) > max_preview_chars:
+                    preview_str = preview_str[:max_preview_chars] + "…(truncated)"
+                return {
+                    "jq_error": str(error),
+                    "jq_expression": params["jq"],
+                    "raw_response_preview": preview_str,
+                }, None
 
         parsed_data = _truncate_to_depth(parsed_data, params.get("max_depth"))
         return parsed_data, None

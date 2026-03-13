@@ -9,6 +9,7 @@ expected_output:
 tags:
   - prometheus
   - question-answer
+  - jq-filter
 
 include_tool_calls: true
 

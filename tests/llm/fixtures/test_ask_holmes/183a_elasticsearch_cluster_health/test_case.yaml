@@ -23,6 +23,7 @@ tags:
   - elasticsearch
   - question-answer
   - medium
+  - jq-filter
 
 # Setup timeout in seconds (fast - just verifies connection)
 setup_timeout: 300

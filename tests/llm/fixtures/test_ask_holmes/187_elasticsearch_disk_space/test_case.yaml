@@ -25,6 +25,7 @@ expected_output:
 tags:
   - elasticsearch
   - medium
+  - jq-filter
 
 setup_timeout: 300
 
