@@ -312,6 +312,16 @@ class RemoteMCPTool(Tool):
         so that the OpenAI-formatted schema sent to the LLM accurately describes
         complex parameter types (arrays, objects).
         """
+        # Handle case where schema is a boolean (e.g., True) instead of a proper schema object
+        # This happens when MCP servers have malformed schemas like 'model': True
+        if not isinstance(schema, dict):
+            logger.warning(f"Invalid schema type in _parse_tool_parameter: {type(schema)}. Expected dict, got {schema}. Using default string type.")
+            return ToolParameter(
+                description=None,
+                type="string",
+                required=required,
+            )
+
         param_type = schema.get("type", "string")
 
         items = None
@@ -405,7 +415,7 @@ class RemoteMCPToolset(Toolset):
             CallablePrerequisite(callable=self.prerequisites_callable)
         ]
         # Set icon from config if specified
-        if self.icon_url is None and self.config:
+        if self.icon_url is None and isinstance(self.config, dict):
             self.icon_url = self.config.get("icon_url")
 
     @model_validator(mode="before")

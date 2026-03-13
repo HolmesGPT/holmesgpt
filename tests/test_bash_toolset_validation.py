@@ -27,6 +27,7 @@ from holmes.plugins.toolsets.bash.validation import (
     match_prefix,
     match_prefix_for_deny,
     parse_command_segments,
+    prefix_tokens_appear_in_order,
     validate_command,
     validate_segment,
 )
@@ -572,6 +573,127 @@ class TestValidateCommand:
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         # Should only appear once in prefixes_needing_approval
         assert result.prefixes_needing_approval == ["custom-tool"]
+
+
+class TestPrefixTokensAppearInOrder:
+    """Tests for token-based prefix matching with flags."""
+
+    def test_exact_match(self):
+        """Test that exact prefix matches work."""
+        assert prefix_tokens_appear_in_order("kubectl get pods", "kubectl get")
+        assert prefix_tokens_appear_in_order("grep error", "grep")
+
+    def test_kubectl_with_context_flag(self):
+        """Test kubectl commands with --context flag between kubectl and subcommand."""
+        assert prefix_tokens_appear_in_order(
+            "kubectl --context production get pods -A -o wide",
+            "kubectl get"
+        )
+        assert prefix_tokens_appear_in_order(
+            "kubectl --context staging describe pod my-pod",
+            "kubectl describe"
+        )
+
+    def test_kubectl_with_multiple_flags(self):
+        """Test kubectl with multiple flags between command parts."""
+        assert prefix_tokens_appear_in_order(
+            "kubectl --context prod --namespace default get pods",
+            "kubectl get"
+        )
+        assert prefix_tokens_appear_in_order(
+            "kubectl -n default --context prod get pods",
+            "kubectl get"
+        )
+
+    def test_prefix_tokens_must_be_in_order(self):
+        """Test that prefix tokens must appear in the correct order."""
+        # "get" appears before "kubectl" - should fail
+        assert not prefix_tokens_appear_in_order(
+            "get kubectl pods",
+            "kubectl get"
+        )
+
+    def test_prefix_tokens_not_present(self):
+        """Test that missing prefix tokens are detected."""
+        assert not prefix_tokens_appear_in_order(
+            "kubectl get pods",
+            "kubectl delete"
+        )
+        assert not prefix_tokens_appear_in_order(
+            "kubectl describe pod",
+            "kubectl get"
+        )
+
+    def test_empty_prefix(self):
+        """Test that empty prefix always matches."""
+        assert prefix_tokens_appear_in_order("kubectl get pods", "")
+
+    def test_piped_commands(self):
+        """Test prefix matching in piped commands."""
+        assert prefix_tokens_appear_in_order(
+            "kubectl get pods | grep error",
+            "kubectl get"
+        )
+        assert prefix_tokens_appear_in_order(
+            "kubectl get pods | grep error",
+            "grep"
+        )
+
+    def test_complex_command_with_fallback(self):
+        """Test the actual failing case from the issue."""
+        command = (
+            "kubectl --context production get pods -A -o wide "
+            "--field-selector spec.nodeName=ip-10-10-38-73 2>/dev/null || "
+            "kubectl --context production get pods -A -o wide | grep 'ip-10-10-38-73'"
+        )
+        assert prefix_tokens_appear_in_order(command, "kubectl get")
+        assert prefix_tokens_appear_in_order(command, "grep")
+
+
+class TestValidateCommandWithFlags:
+    """Test full command validation with kubectl context flags."""
+
+    def test_kubectl_with_context_allowed(self):
+        """Test that kubectl with --context flag is allowed when 'kubectl get' is in allow list."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl --context production get pods -A",
+            ["kubectl get"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_complex_kubectl_command_from_issue(self):
+        """Test the exact failing case reported in the issue."""
+        config = BashExecutorConfig(allow=["kubectl get", "grep"])
+        allow_list, deny_list = get_effective_lists(config)
+        command = (
+            "kubectl --context production get pods -A -o wide "
+            "--field-selector spec.nodeName=ip-10-10-38-73 2>/dev/null || "
+            "kubectl --context production get pods -A -o wide | grep 'ip-10-10-38-73'"
+        )
+        result = validate_command(
+            command,
+            ["kubectl get", "kubectl get", "grep"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_fabricated_prefix_still_rejected(self):
+        """Test that truly fabricated prefixes are still rejected."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl --context production get pods",
+            ["totally-fabricated"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.PREFIX_NOT_IN_COMMAND
 
 
 class TestValidationOrder:

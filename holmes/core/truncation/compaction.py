@@ -110,7 +110,7 @@ def compact_conversation_history(
 
     compacted_conversation_history.append(
         {
-            "role": "system",
+            "role": "user",
             "content": "The conversation history has been compacted to preserve available space in the context window. Continue.",
         }
     )

@@ -292,6 +292,47 @@ def validate_segment(
     )
 
 
+def prefix_tokens_appear_in_order(command: str, prefix: str) -> bool:
+    """
+    Check if all tokens from prefix appear in command in the same order.
+
+    This allows for flags and options to be inserted between prefix tokens,
+    which is common with kubectl (--context, --namespace, etc.) and other commands.
+
+    Examples:
+        - command="kubectl --context prod get pods", prefix="kubectl get" -> True
+        - command="kubectl get pods", prefix="kubectl delete" -> False
+        - command="grep foo | awk '{print $1}'", prefix="grep" -> True
+
+    Args:
+        command: The full command string
+        prefix: The prefix to check for
+
+    Returns:
+        True if all prefix tokens appear in order in the command, False otherwise
+    """
+    # Tokenize by whitespace
+    command_tokens = command.split()
+    prefix_tokens = prefix.split()
+
+    # Empty prefix is always present
+    if not prefix_tokens:
+        return True
+
+    # Track position in command_tokens
+    cmd_idx = 0
+    prefix_idx = 0
+
+    # Try to find all prefix tokens in order
+    while cmd_idx < len(command_tokens) and prefix_idx < len(prefix_tokens):
+        if command_tokens[cmd_idx] == prefix_tokens[prefix_idx]:
+            prefix_idx += 1
+        cmd_idx += 1
+
+    # Success if we found all prefix tokens
+    return prefix_idx == len(prefix_tokens)
+
+
 def validate_command(
     command: str,
     suggested_prefixes: List[str],
@@ -311,8 +352,9 @@ def validate_command(
         ValidationResult with status and details
     """
     # Verify all suggested prefixes actually appear in the command
+    # Use token-based matching to allow flags between command parts
     for prefix in suggested_prefixes:
-        if prefix not in command:
+        if not prefix_tokens_appear_in_order(command, prefix):
             return ValidationResult(
                 status=ValidationStatus.DENIED,
                 deny_reason=DenyReason.PREFIX_NOT_IN_COMMAND,
