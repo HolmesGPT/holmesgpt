@@ -628,7 +628,9 @@ class ToolCallingLLM:
                 if tools_to_call:
                     logging.info("")
 
-        raise Exception(f"Too many LLM calls - exceeded max_steps: {i}/{max_steps}")
+        # Unreachable: on the last iteration (i == max_steps), tools are set to None which
+        # forces the LLM to produce a text response, causing the function to return inside the loop.
+        raise AssertionError(f"Unreachable: exceeded max_steps={max_steps} without returning")
 
     def _directly_invoke_tool_call(
         self,
@@ -976,6 +978,7 @@ class ToolCallingLLM:
             i += 1
             logging.debug(f"running iteration {i}")
 
+            # on the last step we don't allow tools - we want to force a reply, not a request to run another tool
             tools = None if i == max_steps else tools
             tool_choice = "auto" if tools else None
 
@@ -1213,9 +1216,9 @@ class ToolCallingLLM:
                         )
                         tools = new_tools
 
-        raise Exception(
-            f"Too many LLM calls - exceeded max_steps: {i}/{self.max_steps}"
-        )
+        # Unreachable: on the last iteration (i == max_steps), tools are set to None which
+        # forces the LLM to produce a text response, causing the function to return inside the loop.
+        raise AssertionError(f"Unreachable: exceeded max_steps={max_steps} without returning")
 
     def find_assistant_tool_call_request(
         self, tool_call_id: str, messages: list[dict[str, Any]]
