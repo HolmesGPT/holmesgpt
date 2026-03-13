@@ -98,7 +98,7 @@ opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     help="Path to a custom toolsets. The status of the custom toolsets specified here won't be cached (can specify -t multiple times to add multiple toolsets)",
 )
 opt_max_steps: Optional[int] = typer.Option(
-    40,
+    100,
     "--max-steps",
     help="Advanced. Maximum number of steps the LLM can take to investigate the issue",
 )
