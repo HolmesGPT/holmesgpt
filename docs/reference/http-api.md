@@ -639,7 +639,7 @@ Emitted when the conversation history has been compacted to fit within the conte
   - `compacted_tokens` (integer): Token count after compaction
   - `compression_ratio_pct` (number): Percentage of tokens saved (e.g., 46.7 means 46.7% reduction)
   - `num_messages_before` (integer): Number of messages before compaction
-  - `num_messages_after` (integer): Number of messages after compaction (typically 3-4: system prompt, last user message, compacted summary, continuation marker)
+  - `num_messages_after` (integer): Number of messages after compaction (typically 3-4)
   - `max_context_size` (integer): Model's maximum context window size
   - `threshold_pct` (integer): Context window usage percentage that triggered compaction
   - `compaction_cost` (object, optional): Cost of the compaction LLM call
