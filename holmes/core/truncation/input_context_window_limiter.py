@@ -194,6 +194,14 @@ def limit_input_context_window(
             logging.info(compaction_message)
             conversation_history_compacted = True
 
+            # Extract the LLM-generated summary from the compacted messages
+            # Structure is: [system_prompt?, last_user_prompt?, assistant_summary, continuation_marker]
+            compaction_summary = None
+            for msg in compaction_result.messages_after_compaction:
+                if msg.get("role") == "assistant":
+                    compaction_summary = msg.get("content")
+                    break
+
             compaction_stats: dict = {
                 "initial_tokens": initial_tokens.total_tokens,
                 "compacted_tokens": compacted_total_tokens,
@@ -216,6 +224,7 @@ def limit_input_context_window(
                     event=StreamEvents.CONVERSATION_HISTORY_COMPACTED,
                     data={
                         "content": compaction_message,
+                        "compaction_summary": compaction_summary,
                         "messages": compaction_result.messages_after_compaction,
                         "metadata": compaction_stats,
                     },

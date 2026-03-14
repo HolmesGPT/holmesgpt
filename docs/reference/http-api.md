@@ -609,6 +609,7 @@ Emitted when the conversation history has been compacted to fit within the conte
 ```json
 {
   "content": "The conversation history has been compacted from 150000 to 80000 tokens",
+  "compaction_summary": "<analysis>\n1. Primary Request: User asked to investigate pod crashes...\n2. Key Technical Concepts: OOMKilled, memory limits...\n...\n</analysis>",
   "messages": [...],
   "metadata": {
     "initial_tokens": 150000,
@@ -631,6 +632,7 @@ Emitted when the conversation history has been compacted to fit within the conte
 **Fields:**
 
 - `content` (string): Human-readable description of the compaction
+- `compaction_summary` (string|null): The LLM-generated summary of the previous conversation history. This is the full text the model produced to condense the conversation, wrapped in `<analysis>` tags. Useful for debugging to verify that important context was preserved during compaction.
 - `messages` (array): The compacted conversation history
 - `metadata` (object): Detailed compaction statistics
   - `initial_tokens` (integer): Token count before compaction
