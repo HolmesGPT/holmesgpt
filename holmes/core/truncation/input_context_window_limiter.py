@@ -163,6 +163,22 @@ def limit_input_context_window(
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
+        num_messages_before = len(messages)
+        events.append(
+            StreamMessage(
+                event=StreamEvents.CONVERSATION_HISTORY_COMPACTION_START,
+                data={
+                    "content": f"Compacting conversation history ({initial_tokens.total_tokens} tokens, {num_messages_before} messages)...",
+                    "metadata": {
+                        "initial_tokens": initial_tokens.total_tokens,
+                        "num_messages": num_messages_before,
+                        "max_context_size": max_context_size,
+                        "threshold_pct": get_context_window_compaction_threshold_pct(),
+                    },
+                },
+            )
+        )
+
         compaction_result = compact_conversation_history(
             original_conversation_history=messages, llm=llm
         )
@@ -172,19 +188,36 @@ def limit_input_context_window(
 
         if compacted_total_tokens < initial_tokens.total_tokens:
             messages = compaction_result.messages_after_compaction
+            num_messages_after = len(messages)
+            compression_ratio = round((1 - compacted_total_tokens / initial_tokens.total_tokens) * 100, 1)
             compaction_message = f"The conversation history has been compacted from {initial_tokens.total_tokens} to {compacted_total_tokens} tokens"
             logging.info(compaction_message)
             conversation_history_compacted = True
+
+            compaction_stats: dict = {
+                "initial_tokens": initial_tokens.total_tokens,
+                "compacted_tokens": compacted_total_tokens,
+                "compression_ratio_pct": compression_ratio,
+                "num_messages_before": num_messages_before,
+                "num_messages_after": num_messages_after,
+                "max_context_size": max_context_size,
+                "threshold_pct": get_context_window_compaction_threshold_pct(),
+            }
+            if compaction_usage:
+                compaction_stats["compaction_cost"] = {
+                    "total_cost": compaction_usage.total_cost,
+                    "prompt_tokens": compaction_usage.prompt_tokens,
+                    "completion_tokens": compaction_usage.completion_tokens,
+                    "total_tokens": compaction_usage.total_tokens,
+                }
+
             events.append(
                 StreamMessage(
                     event=StreamEvents.CONVERSATION_HISTORY_COMPACTED,
                     data={
                         "content": compaction_message,
                         "messages": compaction_result.messages_after_compaction,
-                        "metadata": {
-                            "initial_tokens": initial_tokens.total_tokens,
-                            "compacted_tokens": compacted_total_tokens,
-                        },
+                        "metadata": compaction_stats,
                     },
                 )
             )
