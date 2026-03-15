@@ -1179,8 +1179,10 @@ jobs:
           PYTEST_ARGS=(--no-cov "${TEST_FILES[@]}" -s -n10 -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           echo "  pytest args: ${PYTEST_ARGS[*]}"
-          PYTEST_EXIT=0
-          poetry run pytest "${PYTEST_ARGS[@]}" || PYTEST_EXIT=$?
+          set +e
+          poetry run pytest "${PYTEST_ARGS[@]}"
+          PYTEST_EXIT=$?
+          set -e
           echo "pytest_exit=$PYTEST_EXIT" >> $GITHUB_OUTPUT
 
           # Exit code 1 = test failures (reported in PR comment, not a CI failure)
@@ -1261,8 +1263,8 @@ jobs:
             const notifyHeader = triggeredBy ? `@${triggeredBy} Your eval run has finished. ${statusText}\n\n---\n\n` : '';
 
             // Build current run content
-            const icon = hasPytestError ? '❌' : (p.isManual ? '🧪' : '✅');
-            const title = hasPytestError ? 'Eval Run Failed' : (p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals');
+            const icon = hasPytestError ? '❌' : hasFailures ? '⚠️' : (p.isManual ? '🧪' : '✅');
+            const title = hasPytestError ? 'Eval Run Failed' : hasFailures ? 'Eval Results (with failures)' : (p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals');
             let currentContent = buildBody(p, null, {
               icon,
               title,
