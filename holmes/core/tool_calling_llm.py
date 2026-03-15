@@ -308,7 +308,6 @@ class ToolCallingLLM:
     def _get_tools(self) -> list:
         """Get tools list, filtering restricted tools based on authorization."""
         return self.tool_executor.get_all_tools_openai_format(
-            target_model=self.llm.model,
             include_restricted=self._should_include_restricted_tools(),
         )
 

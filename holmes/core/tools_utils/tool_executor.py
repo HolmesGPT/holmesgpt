@@ -81,13 +81,11 @@ class ToolExecutor:
     @sentry_sdk.trace
     def get_all_tools_openai_format(
         self,
-        target_model: str,
         include_restricted: bool = True,
     ):
         """Get all tools in OpenAI format.
 
         Args:
-            target_model: The target LLM model name
             include_restricted: If False, filter out tools marked as restricted.
                                Set to True when runbook is in use or restricted
                                tools are explicitly enabled.
@@ -97,5 +95,5 @@ class ToolExecutor:
             # Filter out restricted tools if not authorized
             if not include_restricted and tool._is_restricted():
                 continue
-            tools.append(tool.get_openai_format(target_model=target_model))
+            tools.append(tool.get_openai_format())
         return tools

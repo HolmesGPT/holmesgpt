@@ -90,7 +90,7 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
 
 
 def format_tool_to_open_ai_standard(
-    tool_name: str, tool_description: str, tool_parameters: dict, target_model: str
+    tool_name: str, tool_description: str, tool_parameters: dict
 ):
     # Strict mode is enabled globally unless disabled via HOLMES_DISABLE_STRICT_TOOL_CALLS.
     # However, tools with dynamic-key objects (additionalProperties with a schema) are

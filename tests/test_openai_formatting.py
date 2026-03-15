@@ -95,7 +95,7 @@ def test_format_tool_strict_for_compatible_tool(monkeypatch):
     params = {
         "query": ToolParameter(type="string", required=True, description="The query"),
     }
-    result = format_tool_to_open_ai_standard("search", "Search things", params, "any-model")
+    result = format_tool_to_open_ai_standard("search", "Search things", params)
     assert result["function"]["strict"] is True
     assert result["function"]["parameters"]["additionalProperties"] is False
 
@@ -111,7 +111,7 @@ def test_format_tool_no_strict_for_dynamic_keys(monkeypatch):
             additional_properties={"type": "string"},
         ),
     }
-    result = format_tool_to_open_ai_standard("search", "Search things", params, "any-model")
+    result = format_tool_to_open_ai_standard("search", "Search things", params)
     assert "strict" not in result["function"]
 
 
@@ -120,5 +120,5 @@ def test_format_tool_disabled_via_env(monkeypatch):
     params = {
         "query": ToolParameter(type="string", required=True, description="The query"),
     }
-    result = format_tool_to_open_ai_standard("search", "Search things", params, "any-model")
+    result = format_tool_to_open_ai_standard("search", "Search things", params)
     assert "strict" not in result["function"]

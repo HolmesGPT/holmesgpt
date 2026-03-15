@@ -290,12 +290,11 @@ class Tool(ABC, BaseModel):
             logger.debug(f"Tool '{self.name}' has no transformers")
             self._transformer_instances = None
 
-    def get_openai_format(self, target_model: str):
+    def get_openai_format(self):
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
             tool_description=self.description,
             tool_parameters=self.parameters,
-            target_model=target_model,
         )
 
     def invoke(
