@@ -148,8 +148,8 @@ class TestNoOutputDuplication:
             f"Formatted result:\n{formatted}"
         )
 
-    def test_streaming_response_no_duplication(self):
-        """In the streaming response, error and data should not duplicate content."""
+    def test_tool_result_response_no_duplication(self):
+        """In the tool result response, error and data should not duplicate content."""
         from holmes.core.models import ToolCallResult
 
         raw_output = "connection refused"
@@ -170,7 +170,7 @@ class TestNoOutputDuplication:
             result=tool_result,
         )
 
-        response = tcr.as_streaming_tool_result_response()
+        response = tcr.to_client_dict()
         result_dump = response["result"]
 
         # The raw output should not appear in both error and data
