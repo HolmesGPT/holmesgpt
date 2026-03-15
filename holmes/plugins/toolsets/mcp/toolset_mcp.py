@@ -297,14 +297,78 @@ class RemoteMCPTool(Tool):
         parameters = {}
         for key, val in schema_params.items():
             parameters[key] = cls._parse_tool_parameter(
-                val, required=key in required_list
+                val, root_schema=input_schema, required=key in required_list
             )
 
         return parameters
 
     @classmethod
+    def _resolve_schema(
+        cls, schema: dict[str, Any], root_schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf."""
+        if not isinstance(schema, dict):
+            return schema
+
+        # 1. Resolve $ref
+        if "$ref" in schema:
+            ref_path = str(schema["$ref"])
+            if ref_path.startswith("#/"):
+                parts = ref_path[2:].split("/")
+                resolved = root_schema
+                for part in parts:
+                    if isinstance(resolved, dict):
+                        resolved = resolved.get(part, {})
+                    else:
+                        resolved = {}
+                        break
+
+                # Recursively resolve the matched definition in case it contains more refs/anyOf
+                resolved_schema = dict(schema)
+                resolved_schema.pop("$ref")
+                resolved_schema.update(cls._resolve_schema(resolved, root_schema))
+                return resolved_schema
+
+        # 2. Handle anyOf / oneOf / allOf for nullable or union types
+        for compound_key in ["anyOf", "oneOf", "allOf"]:
+            if compound_key in schema and isinstance(schema[compound_key], list):
+                if compound_key == "allOf":
+                    merged = dict(schema)
+                    merged.pop(compound_key)
+                    for sub_schema in schema[compound_key]:
+                        if isinstance(sub_schema, dict):
+                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            if resolved_sub.get("type") != "null":
+                                for k, v in resolved_sub.items():
+                                    if k == "properties" and isinstance(v, dict):
+                                        merged.setdefault("properties", {}).update(v)
+                                    elif k == "required" and isinstance(v, list):
+                                        reqs = merged.setdefault("required", [])
+                                        for req in v:
+                                            if req not in reqs:
+                                                reqs.append(req)
+                                    elif k == "type":
+                                        if "type" not in merged or merged["type"] == "null":
+                                            merged["type"] = v
+                                    else:
+                                        merged[k] = v
+                    return merged
+                else:
+                    for sub_schema in schema[compound_key]:
+                        if isinstance(sub_schema, dict):
+                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            # Skip null types, pick the first valid underlying schema type
+                            if resolved_sub.get("type") != "null":
+                                merged = dict(schema)
+                                merged.pop(compound_key)
+                                merged.update(resolved_sub)
+                                return merged
+
+        return schema
+
+    @classmethod
     def _parse_tool_parameter(
-        cls, schema: dict[str, Any], required: bool = True
+        cls, schema: dict[str, Any], root_schema: dict[str, Any], required: bool = True
     ) -> ToolParameter:
         """Recursively parse a JSON Schema property into a ToolParameter.
 
@@ -312,18 +376,22 @@ class RemoteMCPTool(Tool):
         so that the OpenAI-formatted schema sent to the LLM accurately describes
         complex parameter types (arrays, objects).
         """
+        schema = cls._resolve_schema(schema, root_schema)
+
         param_type = schema.get("type", "string")
 
         items = None
         if "items" in schema and isinstance(schema["items"], dict):
-            items = cls._parse_tool_parameter(schema["items"], required=True)
+            items = cls._parse_tool_parameter(
+                schema["items"], root_schema, required=True
+            )
 
         properties = None
         if "properties" in schema and isinstance(schema["properties"], dict):
             nested_required = schema.get("required", [])
             properties = {
                 name: cls._parse_tool_parameter(
-                    prop, required=name in nested_required
+                    prop, root_schema, required=name in nested_required
                 )
                 for name, prop in schema["properties"].items()
             }
