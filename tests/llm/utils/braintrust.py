@@ -7,7 +7,7 @@ import braintrust
 from braintrust import Dataset, Experiment, ReadonlyExperiment, Span
 from pydantic import BaseModel
 
-from holmes.core.llm import TokenCountMetadata
+from holmes.core.llm import ContextWindowUsage
 from holmes.core.tool_calling_llm import LLMResult
 from holmes.core.tracing import (
     BRAINTRUST_API_KEY,
@@ -28,8 +28,8 @@ class CompactionResult(BaseModel):
     """Result wrapper for compaction tests to use with log_to_braintrust."""
 
     result: str  # The summary content
-    original_tokens: TokenCountMetadata
-    compacted_tokens: TokenCountMetadata
+    original_tokens: ContextWindowUsage
+    compacted_tokens: ContextWindowUsage
     compression_ratio: float
 
 
@@ -236,8 +236,6 @@ def log_to_braintrust(
                 None
             )
             prompt = system_msg["content"] if system_msg else "<NO SYSTEM PROMPT FOUND>"
-        elif result and hasattr(result, "prompt"):
-            prompt = result.prompt
 
     # Build comprehensive metadata
     # Extract base test case ID without variant suffix (e.g., "91a_datadog[0]" -> "91a_datadog")

@@ -172,7 +172,11 @@ def _investigate_issue(
         f"\n #This is context from the issue:\n{issue.raw}",
         context={},
     )
-    return ai.prompt_call(system_prompt, user_prompt)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    return ai.call(messages)
 
 
 # TODO: add streaming output
@@ -713,7 +717,11 @@ def ticket(
         )
 
         ticket_user_prompt = generate_user_prompt(prompt, context={})
-        result = ai.prompt_call(system_prompt, ticket_user_prompt)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": ticket_user_prompt},
+        ]
+        result = ai.call(messages)
 
         console.print(Rule())
         console.print(
