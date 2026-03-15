@@ -543,7 +543,12 @@ class SourceFactory(BaseModel):
         ticket_username: Optional[str],
         ticket_api_key: Optional[str],
         ticket_id: Optional[str],
+        model: Optional[str] = None,
     ) -> TicketSource:
+        from holmes.plugins.sources.jira import JiraServiceManagementSource
+        from holmes.plugins.sources.pagerduty import PagerDutySource
+
+        TicketSource.model_rebuild()
         supported_sources = [s.value for s in SupportedTicketSources]
         if source not in supported_sources:
             raise ValueError(
@@ -554,7 +559,7 @@ class SourceFactory(BaseModel):
             config = Config.load_from_file(
                 config_file=config_file,
                 api_key=None,
-                model=None,
+                model=model,
                 max_steps=None,
                 jira_url=ticket_url,
                 jira_username=ticket_username,
@@ -587,7 +592,7 @@ class SourceFactory(BaseModel):
             config = Config.load_from_file(
                 config_file=config_file,
                 api_key=None,
-                model=None,
+                model=model,
                 max_steps=None,
                 pagerduty_api_key=ticket_api_key,
                 pagerduty_user_email=ticket_username,
