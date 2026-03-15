@@ -1044,6 +1044,7 @@ jobs:
         if: steps.check-tests.outputs.should-run == 'true'
         shell: bash
         run: |
+          echo "🔑 CANARY: kind-wait-v7-PINEAPPLE-ZEBRA"
           echo "Waiting for background KIND cluster setup to complete..."
           KIND_PID=$(cat /tmp/kind-setup-pid)
           # Poll until the background process finishes (can't use wait across shell invocations)
@@ -1156,6 +1157,7 @@ jobs:
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
           EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
         run: |
+          echo "🔑 CANARY: run-tests-v7-PINEAPPLE-ZEBRA"
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
 
@@ -1164,6 +1166,7 @@ jobs:
           echo "  EVAL_MARKER_EXPR=${EVAL_MARKER_EXPR}"
           echo "  EVAL_FILTER=${EVAL_FILTER:-<empty>}"
           echo "  MODEL_LIST_FILE_LOCATION=${MODEL_LIST_FILE_LOCATION:-<unset>}"
+          echo "  pwd=$(pwd)"
 
           START_TIME=$(date +%s)
 
@@ -1183,6 +1186,7 @@ jobs:
           poetry run pytest "${PYTEST_ARGS[@]}"
           PYTEST_EXIT=$?
           set -e
+          echo "🔑 DEBUG: PYTEST_EXIT=$PYTEST_EXIT"
           echo "pytest_exit=$PYTEST_EXIT" >> $GITHUB_OUTPUT
 
           # Exit code 1 = test failures (reported in PR comment, not a CI failure)
@@ -1190,7 +1194,9 @@ jobs:
           # Exit code 3 = interrupted by user
           # Exit code 4 = internal pytest error
           # Exit code 5 = no tests collected (markers/filters matched nothing)
-          if [[ $PYTEST_EXIT -eq 2 || $PYTEST_EXIT -eq 5 ]]; then
+          if [[ $PYTEST_EXIT -eq 0 || $PYTEST_EXIT -eq 1 ]]; then
+            echo "🔑 DEBUG: pytest ok or test failures, no error report needed"
+          elif [[ $PYTEST_EXIT -eq 2 || $PYTEST_EXIT -eq 5 ]]; then
             echo "❌ pytest failed with exit code $PYTEST_EXIT (collection error)"
             echo "pytest_error=collection" >> $GITHUB_OUTPUT
             {
@@ -1202,6 +1208,8 @@ jobs:
               echo ""
               echo "Check the [workflow logs](${{ steps.eval-params.outputs.run_url }}) for details."
             } > evals_report.md
+            echo "🔑 DEBUG: wrote evals_report.md, contents:"
+            cat evals_report.md
           elif [[ $PYTEST_EXIT -eq 3 || $PYTEST_EXIT -eq 4 ]]; then
             echo "❌ pytest failed with exit code $PYTEST_EXIT (infrastructure error)"
             echo "pytest_error=infrastructure" >> $GITHUB_OUTPUT
@@ -1214,7 +1222,15 @@ jobs:
               echo ""
               echo "Check the [workflow logs](${{ steps.eval-params.outputs.run_url }}) for details."
             } > evals_report.md
+            echo "🔑 DEBUG: wrote evals_report.md for infrastructure error"
+          else
+            echo "❌ pytest failed with unexpected exit code $PYTEST_EXIT"
+            echo "pytest_error=unknown" >> $GITHUB_OUTPUT
+            echo "## ❌ Pytest Failed (exit code $PYTEST_EXIT)" > evals_report.md
+            echo "🔑 DEBUG: wrote evals_report.md for unknown error"
           fi
+
+          echo "🔑 DEBUG: checking evals_report.md exists: $(ls -la evals_report.md 2>&1 || echo 'NOT FOUND')"
 
           DURATION=$(($(date +%s) - START_TIME))
           if [[ $DURATION -ge 3600 ]]; then
@@ -1231,6 +1247,21 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            console.log('🔑 CANARY: post-results-v7-PINEAPPLE-ZEBRA');
+            console.log('🔑 DEBUG: cwd=' + process.cwd());
+            console.log('🔑 DEBUG: evals step outcome=' + '${{ steps.evals.outcome }}');
+            console.log('🔑 DEBUG: evals step conclusion=' + '${{ steps.evals.conclusion }}');
+            console.log('🔑 DEBUG: evals.outputs.pytest_exit=' + ${{ toJSON(steps.evals.outputs.pytest_exit) }});
+            console.log('🔑 DEBUG: evals.outputs.pytest_error=' + ${{ toJSON(steps.evals.outputs.pytest_error) }});
+            console.log('🔑 DEBUG: evals.outputs.duration=' + ${{ toJSON(steps.evals.outputs.duration) }});
+            console.log('🔑 DEBUG: code/evals_report.md exists=' + fs.existsSync('code/evals_report.md'));
+            console.log('🔑 DEBUG: code/regressions.txt exists=' + fs.existsSync('code/regressions.txt'));
+            // List files in code/ to see what exists
+            try {
+              const files = fs.readdirSync('code').filter(f => f.includes('report') || f.includes('regression') || f.includes('eval'));
+              console.log('🔑 DEBUG: relevant files in code/: ' + JSON.stringify(files));
+            } catch(e) { console.log('🔑 DEBUG: could not list code/: ' + e.message); }
+
             // SECURITY: Load helpers from trusted checkout (base branch) to prevent code injection from PRs
             const {
               buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory
@@ -1244,12 +1275,16 @@ jobs:
               valid_models: ${{ toJSON(steps.test-preview.outputs.valid_models) }},
               triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
+            console.log('🔑 DEBUG: isPersistent=' + (${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true'));
+            console.log('🔑 DEBUG: commentId=' + p.commentId);
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const report = fs.existsSync('code/evals_report.md') ? fs.readFileSync('code/evals_report.md', 'utf8') : '';
+            console.log('🔑 DEBUG: report length=' + report.length + ', first 200 chars=' + JSON.stringify(report.substring(0, 200)));
             const failures = fs.existsSync('code/regressions.txt') ? fs.readFileSync('code/regressions.txt', 'utf8').trim() : '';
             const hasFailures = failures && failures !== '0';
             const pytestError = ${{ toJSON(steps.evals.outputs.pytest_error) }} || '';
             const hasPytestError = pytestError !== '';
+            console.log('🔑 DEBUG: hasFailures=' + hasFailures + ', hasPytestError=' + hasPytestError + ', pytestError=' + pytestError);
 
             // Build notification header for the user who triggered the eval (only for manual runs)
             const triggeredBy = p.triggered_by || '';
