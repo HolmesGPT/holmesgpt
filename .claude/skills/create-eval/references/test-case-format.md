@@ -38,7 +38,7 @@ Test categorization. Only use tags from `pyproject.toml` markers. Invalid tags c
 
 Common tags:
 - Difficulty: `easy`, `medium`, `hard`
-- Infrastructure: `kubernetes`, `prometheus`, `loki`, `grafana-dashboard`, `elasticsearch`, `datadog`
+- Infrastructure: `kubernetes`, `prometheus`, `loki`, `grafana`, `elasticsearch`, `datadog`
 - Type: `question-answer`, `chain-of-causation`, `logs`, `metrics`, `traces`
 - Special: `regression` (must always pass), `no-cicd` (skip in CI), `fast` (quick tests)
 
