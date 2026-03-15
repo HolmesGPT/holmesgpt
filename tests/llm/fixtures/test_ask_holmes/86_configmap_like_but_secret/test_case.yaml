@@ -14,4 +14,3 @@ after_test: |
 tags:
   - kubernetes
   - easy
-  - regression
