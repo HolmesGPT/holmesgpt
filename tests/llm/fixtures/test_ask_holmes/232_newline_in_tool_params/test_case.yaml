@@ -1,18 +1,44 @@
+# Test: LLM produces multi-line jq expression as a tool parameter
+# Verifies that newlines in LLM-generated parameters don't break shell execution.
+#
+# Without the sanitize() fix, an LLM writing a multi-line jq expression would
+# inject literal newlines into the shell command, causing syntax errors or
+# corrupted argument parsing in subprocess.run(shell=True).
+#
+# This eval uses a mock kubectl that returns fleet JSON data, so no real cluster
+# is needed. The kubernetes_jq_query tool pipes kubectl output through jq,
+# and the LLM naturally writes multi-line jq expressions for complex queries.
+
 user_prompt: >
-  Use the kubernetes_jq_query tool to get a detailed breakdown of all pods. For each pod,
-  I need: the pod name, namespace, the node it runs on, each container's name with its
-  restart count and last termination exit code and reason, and whether any volume mount
-  references a configmap. Structure the jq expression for readability.
+  Use the kubernetes_jq_query tool with kind "configmaps" to query the fleet inventory.
+  Find all services where at least one instance is unhealthy. For each such service,
+  report: the service name, the region, how many instances are healthy vs unhealthy,
+  and the trace_id from the most recent health check of any unhealthy instance.
+  Write a readable, well-structured jq expression.
 
 expected_output:
-  - Must call kubernetes_jq_query tool
-  - The tool output must not contain 'syntax error near unexpected token' which would indicate newlines in parameters broke the shell command
+  - "Must call kubernetes_jq_query tool successfully (no syntax error in output)"
+  - "Must report service name 'payment-gateway' as having unhealthy instances"
+  - "Must report service name 'session-store' as having unhealthy instances"
+  - "Must include the trace_id EVAL-232-f7k9x2m4 (payment-gateway unhealthy instance)"
+  - "Must NOT report 'order-processor' as unhealthy (all its instances are healthy)"
 
 include_tool_calls: true
 
 runbooks: {}
 
+# Prepend mock kubectl directory to PATH during test execution
+test_env_vars:
+  PATH: "/tmp/eval-232-mock-bin:$PATH"
+
+setup_timeout: 30
+
 tags:
-  - llm
-  - kubernetes
-  - medium
+  - fast
+  - easy
+
+before_test: |
+  bash ./setup_mock_kubectl.sh
+
+after_test: |
+  rm -rf /tmp/eval-232-mock-bin /tmp/eval-232-fleet.json
