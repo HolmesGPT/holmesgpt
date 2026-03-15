@@ -180,6 +180,11 @@ class Config(RobustaBaseConfig):
         if config_file is not None and config_file.exists():
             result._config_file_path = config_file
 
+        if result.model is None:
+            model_from_env = os.environ.get("MODEL")
+            if model_from_env and model_from_env.strip():
+                result.model = model_from_env
+
         result.log_useful_info()
         return result
 

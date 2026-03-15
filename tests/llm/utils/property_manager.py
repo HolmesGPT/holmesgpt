@@ -247,6 +247,10 @@ def update_test_results(
             request.node.user_properties.append(
                 ("max_completion_tokens_per_call", result.max_completion_tokens_per_call)
             )
+        if hasattr(result, "max_prompt_tokens_per_call"):
+            request.node.user_properties.append(
+                ("max_prompt_tokens_per_call", result.max_prompt_tokens_per_call)
+            )
         if hasattr(result, "num_compactions"):
             request.node.user_properties.append(
                 ("num_compactions", result.num_compactions)

@@ -202,7 +202,7 @@ def test_format_tool_result_data_error_without_message_with_unserializable():
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
-def test_as_tool_call_message_without_params():
+def test_to_llm_message_without_params():
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS, data="hello"
     )
@@ -212,7 +212,7 @@ def test_as_tool_call_message_without_params():
         description="desc",
         result=structured,
     )
-    message = tcr.as_tool_call_message()
+    message = tcr.to_llm_message()
     expected_content = (
         'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
     )
@@ -224,7 +224,7 @@ def test_as_tool_call_message_without_params():
     }
 
 
-def test_as_tool_call_message_with_params():
+def test_to_llm_message_with_params():
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS,
         data="hello",
@@ -236,7 +236,7 @@ def test_as_tool_call_message_with_params():
         description="desc",
         result=structured,
     )
-    message = tcr.as_tool_call_message()
+    message = tcr.to_llm_message()
     expected_content = (
         'Params used for the tool call: {"pod_name": "my-pod", "namespace": "my-namespace"}. The tool call output follows on the next line.\n'
         'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
@@ -249,7 +249,7 @@ def test_as_tool_call_message_with_params():
     }
 
 
-def test_as_tool_result_response():
+def test_to_client_dict():
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS, data="hello"
     )
@@ -259,33 +259,13 @@ def test_as_tool_result_response():
         description="desc",
         result=structured,
     )
-    response = tcr.as_tool_result_response()
+    response = tcr.to_client_dict()
     assert response["tool_call_id"] == "call1"
     assert response["tool_name"] == "toolX"
+    assert response["name"] == "toolX"  # both keys carry the same value
     assert response["description"] == "desc"
     assert response["role"] == "tool"
 
     expected_dump = structured.model_dump()
     expected_dump["data"] = structured.get_stringified_data()
     assert response["result"] == expected_dump
-
-
-def test_as_streaming_tool_result_response():
-    structured = StructuredToolResult(
-        status=StructuredToolResultStatus.SUCCESS, data="hello"
-    )
-    tcr = ToolCallResult(
-        tool_call_id="call2",
-        tool_name="toolY",
-        description="desc2",
-        result=structured,
-    )
-    streaming = tcr.as_streaming_tool_result_response()
-    assert streaming["tool_call_id"] == "call2"
-    assert streaming["role"] == "tool"
-    assert streaming["description"] == "desc2"
-    assert streaming["name"] == "toolY"
-
-    expected_dump = structured.model_dump()
-    expected_dump["data"] = structured.get_stringified_data()
-    assert streaming["result"] == expected_dump

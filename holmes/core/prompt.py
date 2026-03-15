@@ -27,6 +27,10 @@ class PromptComponent(str, Enum):
     SYSTEM_PROMPT_ADDITIONS = "system_prompt_additions"
 
 
+# Components that are disabled by default (can be explicitly enabled via overrides or env var)
+DISABLED_BY_DEFAULT = {PromptComponent.AI_SAFETY}
+
+
 class InvalidImageDictError(ValueError):
     """Raised when an image dict is missing required keys or is malformed."""
 
@@ -98,16 +102,17 @@ def is_component_enabled(
     """
     Check if a prompt component is enabled, considering both env var and API overrides.
 
-    Precedence: env var > API override > default (enabled)
+    Precedence: env var > API override > default
     - If env var disables component: always disabled (API can't override)
-    - If env var allows component: API override decides, or default enabled
+    - If env var allows component: API override decides, or use default
+    - Default is enabled for most components, except those in DISABLED_BY_DEFAULT
     """
     env_allowed = is_prompt_allowed_by_env(component)
     if not env_allowed:
         return False  # env var wins, can't override to enabled
     if overrides and component in overrides:
         return overrides[component]  # env allows, API decides
-    return True  # env allows, no override, default enabled
+    return component not in DISABLED_BY_DEFAULT  # env allows, no override, use default
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:

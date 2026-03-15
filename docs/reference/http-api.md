@@ -58,6 +58,68 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
 | enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions    |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
+| behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode--prompt-controls)) |
+
+#### Fast Mode & Prompt Controls
+
+The `behavior_controls` field lets you selectively enable or disable sections of the system and user prompts. This is the API equivalent of the CLI's `--fast-mode` flag and gives you fine-grained control over which prompt components HolmesGPT includes.
+
+**Fast mode example** — skip the TodoWrite planning phase for faster, more direct responses:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Why is my pod crashing?",
+    "behavior_controls": {
+      "todowrite_instructions": false,
+      "todowrite_reminder": false
+    }
+  }'
+```
+
+**Minimal prompt example** — disable most sections to reduce token usage and latency:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "List all pods in the default namespace",
+    "behavior_controls": {
+      "todowrite_instructions": false,
+      "todowrite_reminder": false,
+      "ai_safety": false,
+      "style_guide": false,
+      "general_instructions": false
+    }
+  }'
+```
+
+**Precedence rules:**
+
+1. **`ENABLED_PROMPTS` env var** (highest) — If set on the server, it restricts which sections are allowed. The API cannot re-enable a section the env var disables.
+2. **`behavior_controls`** — Enables or disables sections within what the env var allows.
+3. **Default** (lowest) — All sections are enabled.
+
+The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.g., `"files,ai_safety,toolset_instructions"`) or `"none"` to disable all sections.
+
+**Available prompt sections:**
+
+| Section Key               | Prompt   | Description                                  |
+|---------------------------|----------|----------------------------------------------|
+| `intro`                   | System   | Introduction and identity                   |
+| `ask_user`                | System   | Instructions for asking clarifying questions |
+| `todowrite_instructions`  | System   | TodoWrite planning tool instructions         |
+| `ai_safety`               | System   | Safety guidelines (disabled by default)      |
+| `toolset_instructions`    | System   | Tool definitions and usage instructions      |
+| `permission_errors`       | System   | Permission error handling guidance           |
+| `general_instructions`    | System   | General investigation instructions           |
+| `style_guide`             | System   | Output formatting and style guide            |
+| `cluster_name`            | System   | Kubernetes cluster name context              |
+| `system_prompt_additions` | System   | Custom additions from configuration          |
+| `files`                   | User     | Attached file contents                       |
+| `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
+| `time_runbooks`           | User     | Runbook content and custom instructions      |
 
 #### Structured Output with `response_format`
 
@@ -511,18 +573,58 @@ Emitted periodically to provide token usage updates during the chat. This event 
 
 ---
 
-#### `conversation_history_compacted`
+#### `conversation_history_compaction_start`
 
-Emitted when the conversation history has been compacted to fit within the context window. This happens automatically when the conversation grows too large.
+Emitted when the conversation history is about to be compacted. This event fires before the compaction LLM call, allowing clients to show a loading state.
 
 **Payload:**
 ```json
 {
-  "content": "Conversation history was compacted to fit within context limits.",
+  "content": "Compacting conversation history (150000 tokens, 42 messages)...",
+  "metadata": {
+    "initial_tokens": 150000,
+    "num_messages": 42,
+    "max_context_size": 128000,
+    "threshold_pct": 95
+  }
+}
+```
+
+**Fields:**
+
+- `content` (string): Human-readable status message
+- `metadata` (object): Context window state before compaction
+  - `initial_tokens` (integer): Current token count triggering compaction
+  - `num_messages` (integer): Number of messages in the conversation
+  - `max_context_size` (integer): Model's maximum context window size
+  - `threshold_pct` (integer): Context window usage percentage that triggered compaction
+
+---
+
+#### `conversation_history_compacted`
+
+Emitted when the conversation history has been compacted to fit within the context window. This happens automatically when the conversation grows too large. Contains detailed statistics about the compaction result.
+
+**Payload:**
+```json
+{
+  "content": "The conversation history has been compacted from 150000 to 80000 tokens",
+  "compaction_summary": "<analysis>\n1. Primary Request: User asked to investigate pod crashes...\n2. Key Technical Concepts: OOMKilled, memory limits...\n...\n</analysis>",
   "messages": [...],
   "metadata": {
     "initial_tokens": 150000,
-    "compacted_tokens": 80000
+    "compacted_tokens": 80000,
+    "compression_ratio_pct": 46.7,
+    "num_messages_before": 42,
+    "num_messages_after": 4,
+    "max_context_size": 128000,
+    "threshold_pct": 95,
+    "compaction_cost": {
+      "total_cost": 0.003542,
+      "prompt_tokens": 12000,
+      "completion_tokens": 800,
+      "total_tokens": 12800
+    }
   }
 }
 ```
@@ -530,10 +632,21 @@ Emitted when the conversation history has been compacted to fit within the conte
 **Fields:**
 
 - `content` (string): Human-readable description of the compaction
+- `compaction_summary` (string|null): The LLM-generated summary of the previous conversation history. This is the full text the model produced to condense the conversation, wrapped in `<analysis>` tags. Useful for debugging to verify that important context was preserved during compaction.
 - `messages` (array): The compacted conversation history
-- `metadata` (object): Token information about the compaction
+- `metadata` (object): Detailed compaction statistics
   - `initial_tokens` (integer): Token count before compaction
   - `compacted_tokens` (integer): Token count after compaction
+  - `compression_ratio_pct` (number): Percentage of tokens saved (e.g., 46.7 means 46.7% reduction)
+  - `num_messages_before` (integer): Number of messages before compaction
+  - `num_messages_after` (integer): Number of messages after compaction (typically 3-4)
+  - `max_context_size` (integer): Model's maximum context window size
+  - `threshold_pct` (integer): Context window usage percentage that triggered compaction
+  - `compaction_cost` (object, optional): Cost of the compaction LLM call
+    - `total_cost` (number): Dollar cost of the compaction call
+    - `prompt_tokens` (integer): Prompt tokens used for compaction
+    - `completion_tokens` (integer): Completion tokens generated during compaction
+    - `total_tokens` (integer): Total tokens used for compaction
 
 ---
 
@@ -584,9 +697,11 @@ Emitted when an error occurs during processing.
 ### Chat with History Compaction
 
 ```
-1. conversation_history_compacted
-2. start_tool_calling (tool 1)
-3. tool_calling_result (tool 1)
-4. token_count
-5. ai_answer_end
+1. conversation_history_compaction_start
+2. conversation_history_compacted
+3. ai_message (compaction notice)
+4. start_tool_calling (tool 1)
+5. tool_calling_result (tool 1)
+6. token_count
+7. ai_answer_end
 ```
