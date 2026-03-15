@@ -1,0 +1,15 @@
+user_prompt:
+  - "Show me the bitrate and error_rate time series for the last 5 minutes, filtered to only the cloudfront CDN provider. I need the verification code, and all values at each timestamp."
+
+expected_output:
+  - "Must contain verification code TS-EVAL-8k3m5n"
+  - "Must report bitrate values including 4500.2, 4480.7, and 4520.1"
+  - "Must report error_rate values including 0.8, 0.9, and 0.7"
+  - "Must show the cloudfront filter was applied"
+  - "The get_realtime_timeseries tool call must send time_range as a JSON object (not a string), containing a minutes field"
+  - "The get_realtime_timeseries tool call must send filters as a JSON object (not a string), with cdn_provider as a key"
+
+include_tool_calls: true
+
+tags:
+  - mcp
