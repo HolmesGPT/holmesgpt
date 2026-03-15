@@ -1,4 +1,4 @@
-from holmes.core.tools import sanitize, sanitize_params
+from holmes.core.tools import ToolParameter, YAMLTool, sanitize, sanitize_params
 
 
 class TestSanitize:
@@ -40,3 +40,53 @@ class TestSanitizeParams:
         result = sanitize_params(params)
         for v in result.values():
             assert "\n" not in v
+
+
+class TestYAMLToolNewlineInParams:
+    """End-to-end tests verifying that newlines in LLM-provided parameter values
+    do not cause shell syntax errors when YAML tool commands are executed.
+
+    Without the sanitize() fix, embedded newlines in parameters produce:
+        /bin/sh: -c: line N: syntax error near unexpected token `newline'
+    """
+
+    def test_command_with_newline_in_param_does_not_produce_syntax_error(self):
+        """A multi-line jq expression passed as a parameter must not break the shell."""
+        tool = YAMLTool(
+            name="test_echo_expr",
+            description="Echo a query expression",
+            command="echo {{ expression }}",
+            parameters={
+                "expression": ToolParameter(
+                    type="string", description="A query expression"
+                )
+            },
+        )
+        multiline_expr = ".items[]\n| {name: .metadata.name,\n  ns: .metadata.namespace}"
+        # Call private __invoke_command via name mangling
+        output, return_code, invocation = tool._YAMLTool__invoke_command(
+            params={"expression": multiline_expr},
+        )
+        assert "syntax error" not in output.lower()
+        assert "unexpected token" not in output.lower()
+        assert return_code == 0
+
+    def test_script_with_newline_in_param_does_not_produce_syntax_error(self):
+        """A multi-line parameter in a script-based tool must not break execution."""
+        tool = YAMLTool(
+            name="test_script_expr",
+            description="Echo a query expression via script",
+            script="#!/bin/bash\necho {{ expression }}",
+            parameters={
+                "expression": ToolParameter(
+                    type="string", description="A query expression"
+                )
+            },
+        )
+        multiline_expr = "select(.status == \"running\")\n| .name"
+        output, return_code, invocation = tool._YAMLTool__invoke_script(
+            params={"expression": multiline_expr},
+        )
+        assert "syntax error" not in output.lower()
+        assert "unexpected token" not in output.lower()
+        assert return_code == 0

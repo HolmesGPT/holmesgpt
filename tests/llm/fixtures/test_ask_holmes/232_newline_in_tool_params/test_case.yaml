@@ -1,0 +1,18 @@
+user_prompt: >
+  Use the kubernetes_jq_query tool to get a detailed breakdown of all pods. For each pod,
+  I need: the pod name, namespace, the node it runs on, each container's name with its
+  restart count and last termination exit code and reason, and whether any volume mount
+  references a configmap. Structure the jq expression for readability.
+
+expected_output:
+  - Must call kubernetes_jq_query tool
+  - The tool output must not contain 'syntax error near unexpected token' which would indicate newlines in parameters broke the shell command
+
+include_tool_calls: true
+
+runbooks: {}
+
+tags:
+  - llm
+  - kubernetes
+  - medium
