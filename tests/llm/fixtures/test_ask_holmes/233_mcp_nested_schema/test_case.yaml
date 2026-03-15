@@ -1,0 +1,12 @@
+user_prompt:
+  - "Query the response_time and error_rate metrics grouped by service_name for the last 5 minutes. Sort by response_time descending and limit to the top 3 services. Tell me the verification code, which service has the highest response time, and its error rate."
+
+expected_output:
+  - "Must contain verification code APM-EVAL-9r3k7w"
+  - "Must identify inventory-db as having the highest response time of 512.1"
+  - "Must report inventory-db error rate of 5.7"
+
+include_tool_calls: true
+
+tags:
+  - mcp
