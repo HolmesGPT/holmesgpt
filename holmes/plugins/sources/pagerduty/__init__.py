@@ -82,7 +82,11 @@ class PagerDutySource(SourcePlugin):
             incident_data = response.json().get("incident")
 
             if incident_data:
-                return self.convert_to_issue(incident_data)
+                issue = self.convert_to_issue(incident_data)
+                issue.description = self._enrich_with_alert_details(
+                    id, headers, issue.description
+                )
+                return issue
             else:
                 logging.warning(f"No incident data found for {id}.")
                 return None
@@ -98,8 +102,39 @@ class PagerDutySource(SourcePlugin):
             source_type="pagerduty",
             source_instance_id=self.api_url,
             url=f"{source_issue['html_url']}",
+            description=source_issue.get("description"),
             raw=source_issue,
         )
+
+    def _enrich_with_alert_details(
+        self, incident_id: str, headers: dict, base_description: Optional[str]
+    ) -> Optional[str]:
+        """Fetch alerts for an incident and append their body details to the description.
+
+        PagerDuty incidents created by integrations (Grafana, Datadog, etc.) store
+        rich context (labels, annotations, firing info) in the alert body rather
+        than in the incident description.  This method fetches those details via
+        GET /incidents/{id}/alerts and appends them so the LLM has full context.
+        """
+        try:
+            resp = requests.get(
+                f"{self.api_url}/incidents/{incident_id}/alerts",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            parts = [base_description] if base_description else []
+            for alert in resp.json().get("alerts", []):
+                body_details = (alert.get("body") or {}).get("details") or {}
+                for key, value in body_details.items():
+                    if value and str(value).strip():
+                        parts.append(f"{key}: {value}")
+            return "\n\n".join(parts) if parts else base_description
+        except Exception:
+            logging.debug(
+                f"Failed to fetch alert details for incident {incident_id}",
+                exc_info=True,
+            )
+            return base_description
 
     def write_back_result(self, issue_id: str, result_data: LLMResult) -> None:
         logging.info(f"Writing back result to issue {issue_id}")
