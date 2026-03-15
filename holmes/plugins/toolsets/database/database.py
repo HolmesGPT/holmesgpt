@@ -57,16 +57,25 @@ _DRIVER_MAP: Dict[str, str] = {
 
 
 def _normalise_url(raw_url: str) -> str:
-    """Rewrite a connection URL to use a pure-Python driver when possible."""
+    """Rewrite a connection URL to use a pure-Python driver when possible.
+
+    If the user already specified an explicit driver via ``scheme+driver``
+    (e.g. ``postgresql+psycopg2``), the URL is returned unchanged so that
+    the user's choice is respected.  Only bare scheme names (``postgresql``,
+    ``postgres``, ``mysql``, etc.) are rewritten to the bundled pure-Python
+    driver.
+    """
     parsed = urlparse(raw_url)
     scheme = parsed.scheme  # e.g. "postgresql", "mysql+pymysql", "postgres"
 
-    for prefix, replacement in _DRIVER_MAP.items():
-        if scheme == prefix or scheme.startswith(prefix + "+"):
-            # Only replace if the user hasn't already picked the right driver
-            if scheme != replacement:
-                return raw_url.replace(scheme, replacement, 1)
-            return raw_url
+    # If the scheme already contains an explicit driver (has a '+'),
+    # respect the user's choice and return as-is.
+    if "+" in scheme:
+        return raw_url
+
+    replacement = _DRIVER_MAP.get(scheme)
+    if replacement and scheme != replacement:
+        return raw_url.replace(scheme, replacement, 1)
 
     # Unknown scheme – return as-is and let SQLAlchemy handle it
     return raw_url
@@ -227,9 +236,12 @@ class DatabaseToolset(Toolset):
         connect_args = {}
 
         if not self.database_config.verify_ssl:
-            if "postgresql" in url:
+            if "pg8000" in url:
                 # pg8000 uses ssl_context parameter
                 connect_args["ssl_context"] = None
+            elif "psycopg2" in url or ("postgresql" in url and "pg8000" not in url):
+                # psycopg2 uses sslmode parameter
+                connect_args["sslmode"] = "disable"
             elif "mysql" in url or "pymysql" in url:
                 connect_args["ssl_disabled"] = True
             elif "clickhouse" in url:
@@ -312,6 +324,16 @@ class DatabaseToolset(Toolset):
                         "truncated": False,
                         "rows_affected": result.rowcount if result.rowcount >= 0 else None,
                     }
+        except TypeError as e:
+            if "not supported between instances" in str(e):
+                raise ValueError(
+                    f"Driver type-comparison error: {e}. "
+                    f"This is a known issue with the pg8000 driver when query results "
+                    f"contain columns with mixed types (e.g. integers and strings). "
+                    f"Try using explicit CAST() on columns that may have mixed types, "
+                    f"or cast all selected columns to TEXT. SQL: {sql[:200]}"
+                ) from e
+            raise
         finally:
             engine.dispose()
 

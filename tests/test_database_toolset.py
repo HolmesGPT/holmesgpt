@@ -71,10 +71,18 @@ class TestNormaliseUrl:
         url = "cockroachdb://user:pass@host/db"
         assert _normalise_url(url) == url
 
-    def test_mysql_mysqldb_rewritten(self):
+    def test_mysql_mysqldb_passthrough(self):
+        # Explicit driver (has +) is now respected, not rewritten
         assert (
             _normalise_url("mysql+mysqldb://user:pass@host/db")
-            == "mysql+pymysql://user:pass@host/db"
+            == "mysql+mysqldb://user:pass@host/db"
+        )
+
+    def test_psycopg2_passthrough(self):
+        # User-specified psycopg2 driver should not be overwritten to pg8000
+        assert (
+            _normalise_url("postgresql+psycopg2://user:pass@host/db")
+            == "postgresql+psycopg2://user:pass@host/db"
         )
 
 
