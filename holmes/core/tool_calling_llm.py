@@ -745,6 +745,16 @@ class ToolCallingLLM:
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata
 
+            # After compaction, emit a fresh token count so clients can update
+            if limit_result.conversation_history_compacted:
+                yield build_stream_event_token_count(
+                    metadata={
+                        "tokens": limit_result.tokens.model_dump(),
+                        "max_tokens": limit_result.max_context_size,
+                        "max_output_tokens": limit_result.maximum_output_token,
+                    }
+                )
+
             # Accumulate compaction costs
             compaction = limit_result.compaction_usage
             if compaction and compaction.total_tokens > 0:
