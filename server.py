@@ -389,6 +389,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     tool_decisions=chat_request.tool_decisions,
                     response_format=chat_request.response_format,
                     request_context=request_context,
+                    iteration_offset=chat_request.iteration_offset,
                 ),
                 [f.model_dump() for f in follow_up_actions],
             )

@@ -262,7 +262,7 @@ Main configuration class (`holmes.config.Config`).
 |-----------|------|---------|-------------|
 | `api_key` | `str` | Auto-detected | LLM API key. Reads from `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc. if not provided. |
 | `model` | `str` | *None* | Model identifier, e.g. `"anthropic/claude-sonnet-4-5-20250929"`. Required. |
-| `max_steps` | `int` | `40` | Maximum tool-calling steps per request. |
+| `max_steps` | `int` | `100` | Maximum tool-calling steps per request. |
 | `custom_toolsets` | `list[path]` | *None* | Paths to custom YAML toolset files. |
 | `additional_toolsets` | `list[Toolset]` | *None* | Python `Toolset` instances to load alongside built-in toolsets. |
 | `toolsets` | `dict` | *None* | Inline toolset configuration overrides. |
