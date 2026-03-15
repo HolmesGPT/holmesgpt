@@ -408,7 +408,7 @@ jobs:
               // Parse PR labels for evals-tag-*, evals-id-*, and evals-model-* to augment the regression run
               if (event === 'pull_request' && context.payload.pull_request.labels) {
                 const labelSafe = /^[a-zA-Z0-9_\-]+$/;
-                // Model names can contain slashes, dots, and colons (e.g. anthropic/claude-sonnet-4-5-20250929)
+                // Model names can contain slashes, dots, and colons (e.g. sonnet-4.5, anthropic/claude-sonnet-4-5-20250929)
                 const modelSafe = /^[a-zA-Z0-9_.,:\/-]+$/;
                 const labels = context.payload.pull_request.labels.map(l => l.name);
                 const tagLabels = labels
