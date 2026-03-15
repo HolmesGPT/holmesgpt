@@ -455,9 +455,15 @@ jobs:
                 const evalLabels = (context.payload.pull_request.labels || [])
                   .map(l => l.name)
                   .filter(n => {
-                    if (!n.startsWith('evals-')) return false;
-                    const value = n.replace(/^evals-(tag|id|model)-/, '');
-                    return n.startsWith('evals-model-') ? displayModelSafe.test(value) : displayLabelSafe.test(n);
+                    if (n.startsWith('evals-model-')) {
+                      const suffix = n.slice('evals-model-'.length);
+                      return suffix.length > 0 && displayModelSafe.test(suffix);
+                    }
+                    if (n.startsWith('evals-tag-') || n.startsWith('evals-id-')) {
+                      const suffix = n.startsWith('evals-tag-') ? n.slice('evals-tag-'.length) : n.slice('evals-id-'.length);
+                      return suffix.length > 0 && displayLabelSafe.test(suffix);
+                    }
+                    return false;
                   });
                 const labelSuffix = evalLabels.length > 0 ? ` (labels: ${evalLabels.map(l => '\`' + l + '\`').join(', ')})` : '';
                 triggerSource = `commit ${sha} on branch \`${prBranch}\`` + labelSuffix;
@@ -1178,18 +1184,31 @@ jobs:
           echo "pytest_exit=$PYTEST_EXIT" >> $GITHUB_OUTPUT
 
           # Exit code 1 = test failures (reported in PR comment, not a CI failure)
-          # Exit code 2 = collection errors (e.g. invalid MODEL, bad markers)
-          # Exit code 3 = interrupted, 4 = internal error, 5 = no tests collected
-          if [[ $PYTEST_EXIT -ge 2 ]]; then
-            echo "❌ pytest failed with exit code $PYTEST_EXIT (collection or internal error)"
-            echo "collection_error=true" >> $GITHUB_OUTPUT
-            # Write error to report file so it shows in the PR comment
+          # Exit code 2 = collection errors (e.g. invalid MODEL, import error)
+          # Exit code 3 = interrupted by user
+          # Exit code 4 = internal pytest error
+          # Exit code 5 = no tests collected (markers/filters matched nothing)
+          if [[ $PYTEST_EXIT -eq 2 || $PYTEST_EXIT -eq 5 ]]; then
+            echo "❌ pytest failed with exit code $PYTEST_EXIT (collection error)"
+            echo "pytest_error=collection" >> $GITHUB_OUTPUT
             {
               echo "## ❌ Test Collection Failed"
               echo ""
               echo "pytest exited with code $PYTEST_EXIT. This usually means:"
               echo "- **Exit 2**: Collection error (invalid MODEL name, import error, bad markers)"
               echo "- **Exit 5**: No tests matched the given markers/filters"
+              echo ""
+              echo "Check the [workflow logs](${{ steps.eval-params.outputs.run_url }}) for details."
+            } > evals_report.md
+          elif [[ $PYTEST_EXIT -eq 3 || $PYTEST_EXIT -eq 4 ]]; then
+            echo "❌ pytest failed with exit code $PYTEST_EXIT (infrastructure error)"
+            echo "pytest_error=infrastructure" >> $GITHUB_OUTPUT
+            {
+              echo "## ❌ Pytest Internal Error"
+              echo ""
+              echo "pytest exited with code $PYTEST_EXIT. This usually means:"
+              echo "- **Exit 3**: Test run was interrupted"
+              echo "- **Exit 4**: Internal pytest error"
               echo ""
               echo "Check the [workflow logs](${{ steps.eval-params.outputs.run_url }}) for details."
             } > evals_report.md
@@ -1227,20 +1246,23 @@ jobs:
             const report = fs.existsSync('code/evals_report.md') ? fs.readFileSync('code/evals_report.md', 'utf8') : '';
             const failures = fs.existsSync('code/regressions.txt') ? fs.readFileSync('code/regressions.txt', 'utf8').trim() : '';
             const hasFailures = failures && failures !== '0';
-            const hasCollectionError = ${{ toJSON(steps.evals.outputs.collection_error) }} === 'true';
+            const pytestError = ${{ toJSON(steps.evals.outputs.pytest_error) }} || '';
+            const hasPytestError = pytestError !== '';
 
             // Build notification header for the user who triggered the eval (only for manual runs)
             const triggeredBy = p.triggered_by || '';
-            const statusText = hasCollectionError
-              ? '❌ Test collection failed (no tests ran)'
+            const statusText = hasPytestError
+              ? pytestError === 'collection'
+                ? '❌ Test collection failed (no tests ran)'
+                : '❌ Pytest internal error (no tests ran)'
               : hasFailures
                 ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
                 : '✅ Completed successfully';
             const notifyHeader = triggeredBy ? `@${triggeredBy} Your eval run has finished. ${statusText}\n\n---\n\n` : '';
 
             // Build current run content
-            const icon = hasCollectionError ? '❌' : (p.isManual ? '🧪' : '✅');
-            const title = hasCollectionError ? 'Eval Run Failed' : (p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals');
+            const icon = hasPytestError ? '❌' : (p.isManual ? '🧪' : '✅');
+            const title = hasPytestError ? 'Eval Run Failed' : (p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals');
             let currentContent = buildBody(p, null, {
               icon,
               title,
