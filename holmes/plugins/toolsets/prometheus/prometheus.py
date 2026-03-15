@@ -520,6 +520,12 @@ def adjust_step_for_max_points(
                 f"step ({step!r}) is not a valid number, will calculate default"
             )
             step = None
+        else:
+            if step <= 0:
+                logging.warning(
+                    f"step ({step!r}) must be positive, will calculate default"
+                )
+                step = None
     if step is None:
         step = max(1, time_range_seconds / max_points)
         logging.debug(
