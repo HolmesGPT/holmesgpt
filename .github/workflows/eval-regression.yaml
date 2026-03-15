@@ -899,6 +899,13 @@ jobs:
               body: body
             });
 
+      - name: Create model list file
+        if: steps.check-tests.outputs.should-run == 'true'
+        run: |
+          cat > /tmp/model_list.yaml << 'EOF'
+          ${{ secrets.MODEL_LIST_YAML }}
+          EOF
+
       - name: Collect evals to run
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         id: test-preview
@@ -908,6 +915,7 @@ jobs:
           MODEL: ${{ steps.eval-params.outputs.model }}
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
+          MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
@@ -946,6 +954,19 @@ jobs:
           PYEOF
           )
 
+          # Collect valid model names from model list file (top-level YAML keys)
+          VALID_MODELS=$(python3 << 'PYEOF'
+          import yaml, os
+          path = os.environ.get('MODEL_LIST_FILE_LOCATION', '')
+          try:
+              with open(path) as f:
+                  data = yaml.safe_load(f) or {}
+              print(','.join(sorted(data.keys())))
+          except Exception:
+              print('')
+          PYEOF
+          )
+
           # Output for next steps
           echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
 
@@ -957,6 +978,11 @@ jobs:
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "valid_markers<<$EOF" >> $GITHUB_OUTPUT
           echo "$VALID_MARKERS" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "valid_models<<$EOF" >> $GITHUB_OUTPUT
+          echo "$VALID_MODELS" >> $GITHUB_OUTPUT
           echo "$EOF" >> $GITHUB_OUTPUT
 
       - name: Update progress - evals collected
@@ -974,7 +1000,8 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
-              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              valid_models: ${{ toJSON(steps.test-preview.outputs.valid_models) }}
             });
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
@@ -1048,7 +1075,8 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
-              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              valid_models: ${{ toJSON(steps.test-preview.outputs.valid_models) }}
             });
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
@@ -1080,13 +1108,6 @@ jobs:
               comment_id: p.commentId,
               body: body
             });
-
-      - name: Create model list file
-        if: steps.check-tests.outputs.should-run == 'true'
-        run: |
-          cat > /tmp/model_list.yaml << 'EOF'
-          ${{ secrets.MODEL_LIST_YAML }}
-          EOF
 
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
@@ -1199,6 +1220,7 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               duration: ${{ toJSON(steps.evals.outputs.duration) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              valid_models: ${{ toJSON(steps.test-preview.outputs.valid_models) }},
               triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
