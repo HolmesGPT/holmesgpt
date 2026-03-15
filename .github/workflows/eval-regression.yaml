@@ -405,9 +405,11 @@ jobs:
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
               triggeredBy = '';
 
-              // Parse PR labels for evals-tag-* and evals-id-* to augment the regression run
+              // Parse PR labels for evals-tag-*, evals-id-*, and evals-model-* to augment the regression run
               if (event === 'pull_request' && context.payload.pull_request.labels) {
                 const labelSafe = /^[a-zA-Z0-9_\-]+$/;
+                // Model names can contain slashes, dots, and colons (e.g. anthropic/claude-sonnet-4-5-20250929)
+                const modelSafe = /^[a-zA-Z0-9_.,:\/-]+$/;
                 const labels = context.payload.pull_request.labels.map(l => l.name);
                 const tagLabels = labels
                   .filter(n => n.startsWith('evals-tag-'))
@@ -417,6 +419,10 @@ jobs:
                   .filter(n => n.startsWith('evals-id-'))
                   .map(n => n.replace('evals-id-', ''))
                   .filter(n => labelSafe.test(n));
+                const modelLabels = labels
+                  .filter(n => n.startsWith('evals-model-'))
+                  .map(n => n.replace('evals-model-', ''))
+                  .filter(n => modelSafe.test(n));
 
                 if (idLabels.length > 0 && tagLabels.length === 0) {
                   // Only IDs specified: broaden markers to all LLM tests, filter by ID
@@ -431,6 +437,11 @@ jobs:
                   filter = idLabels.join(' or ');
                 }
                 // else: no evals-* labels, keep defaults (markers = 'regression')
+
+                // Override model if evals-model-* label is present
+                if (modelLabels.length > 0) {
+                  model = modelLabels.join(',');
+                }
               }
 
               // Build descriptive trigger source for automatic runs
@@ -438,11 +449,16 @@ jobs:
                 const sha = context.payload.pull_request.head.sha.substring(0, 7);
                 const prBranch = context.payload.pull_request.head.ref;
                 displayBranch = prBranch;
-                // Only display labels that pass the safe character check (reuse labelSafe from above)
+                // Only display labels that pass safe character checks
                 const displayLabelSafe = /^[a-zA-Z0-9_\-]+$/;
+                const displayModelSafe = /^[a-zA-Z0-9_.,:\/-]+$/;
                 const evalLabels = (context.payload.pull_request.labels || [])
                   .map(l => l.name)
-                  .filter(n => n.startsWith('evals-') && displayLabelSafe.test(n));
+                  .filter(n => {
+                    if (!n.startsWith('evals-')) return false;
+                    const value = n.replace(/^evals-(tag|id|model)-/, '');
+                    return n.startsWith('evals-model-') ? displayModelSafe.test(value) : displayLabelSafe.test(n);
+                  });
                 const labelSuffix = evalLabels.length > 0 ? ` (labels: ${evalLabels.map(l => '\`' + l + '\`').join(', ')})` : '';
                 triggerSource = `commit ${sha} on branch \`${prBranch}\`` + labelSuffix;
               } else if (event === 'push') {
