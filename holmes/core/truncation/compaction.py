@@ -5,24 +5,15 @@ from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
 from holmes.core.llm import LLM
-from holmes.core.llm_usage import extract_usage_from_response
+from holmes.core.llm_usage import RequestStats
 from holmes.plugins.prompts import load_and_render_prompt
-
-
-class CompactionUsage(BaseModel):
-    """Token and cost usage from a compaction LLM call."""
-
-    total_tokens: int = 0
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    cost: float = 0.0
 
 
 class CompactionResult(BaseModel):
     """Result of conversation history compaction."""
 
     messages_after_compaction: list[dict]
-    usage: CompactionUsage = CompactionUsage()
+    usage: Optional[RequestStats] = None
 
 
 def strip_system_prompt(
@@ -46,17 +37,6 @@ def find_last_user_prompt(conversation_history: list[dict]) -> Optional[dict]:
     return last_user_prompt
 
 
-def _extract_compaction_usage(response: ModelResponse) -> CompactionUsage:
-    """Extract token and cost usage from a compaction LLM response."""
-    raw = extract_usage_from_response(response)
-    return CompactionUsage(
-        total_tokens=raw.total_tokens,
-        prompt_tokens=raw.prompt_tokens,
-        completion_tokens=raw.completion_tokens,
-        cost=raw.cost,
-    )
-
-
 def compact_conversation_history(
     original_conversation_history: list[dict], llm: LLM
 ) -> CompactionResult:
@@ -78,7 +58,7 @@ def compact_conversation_history(
     response: ModelResponse = llm.completion(
         messages=conversation_history, drop_params=True
     )  # type: ignore
-    compaction_usage = _extract_compaction_usage(response)
+    compaction_usage = RequestStats.from_response(response)
 
     response_message = None
     if (

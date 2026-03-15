@@ -8,7 +8,7 @@ Tests the full client experience:
 
 This test mocks LLM and bash tool responses but uses the real:
 - Server endpoints
-- process_tool_decisions()
+- _execute_tool_decisions()
 - extract_bash_session_prefixes()
 """
 
@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from holmes.core.llm import LLM, TokenCountMetadata
+from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import Tool, ToolInvokeContext, ToolParameter, Toolset
@@ -189,7 +189,7 @@ def test_bash_session_prefix_memory_flow(
 
     # Create mock LLM
     mock_llm = MagicMock(spec=LLM)
-    mock_llm.count_tokens.return_value = TokenCountMetadata(
+    mock_llm.count_tokens.return_value = ContextWindowUsage(
         total_tokens=100,
         system_tokens=0,
         tools_to_call_tokens=0,
@@ -345,7 +345,7 @@ def test_bash_session_prefix_memory_flow(
     # available for the NEXT request, not the current one
     #
     # Actually, let me trace through:
-    # 1. process_tool_decisions runs, executes call_1, injects prefixes into message
+    # 1. _execute_tool_decisions runs, executes call_1, injects prefixes into message
     # 2. LLM is called again, returns call_2 (kubectl get nodes)
     # 3. call_2 is executed - but at this point, the message with prefixes
     #    IS in the conversation, so extract_bash_session_prefixes should find it
