@@ -9,6 +9,7 @@ tags:
   - kubernetes
   - traces
   - coralogix
+  - mcp
 
 toolsets_matrix:
   - toolsets.yaml
