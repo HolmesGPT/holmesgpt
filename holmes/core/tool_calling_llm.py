@@ -725,6 +725,8 @@ class ToolCallingLLM:
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
+        if iteration_offset < 0:
+            raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
 
         while i < max_steps:
