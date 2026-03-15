@@ -110,10 +110,6 @@ class ChatRequestBaseModel(BaseModel):
     trace_span: Optional[Any] = (
         None  # Optional span for tracing and heartbeat callbacks
     )
-    iteration_offset: int = Field(
-        default=0,
-        description="Number of iterations already consumed in previous rounds (e.g. approval rounds). Used to enforce max_steps across multiple call_stream invocations.",
-    )
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],
