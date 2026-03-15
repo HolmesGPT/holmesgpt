@@ -9,7 +9,7 @@ from holmes.core.feedback import (
     FeedbackMetadata,
     UserFeedback,
 )
-from holmes.core.llm import LLM, TokenCountMetadata
+from holmes.core.llm import LLM, ContextWindowUsage
 
 
 class MockLLM(LLM):
@@ -27,8 +27,8 @@ class MockLLM(LLM):
 
     def count_tokens(
         self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
-    ) -> TokenCountMetadata:
-        return TokenCountMetadata(
+    ) -> ContextWindowUsage:
+        return ContextWindowUsage(
             total_tokens=100,
             system_tokens=0,
             tools_to_call_tokens=0,
