@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
-from holmes.core.llm import LLM, TokenCountMetadata
+from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.prompt import generate_user_prompt
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import Tool
@@ -21,8 +21,8 @@ class MyCustomLLM(LLM):
 
     def count_tokens(
         self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
-    ) -> TokenCountMetadata:
-        return TokenCountMetadata(
+    ) -> ContextWindowUsage:
+        return ContextWindowUsage(
             total_tokens=1000,
             tools_to_call_tokens=100,
             system_tokens=200,
@@ -71,7 +71,11 @@ def ask_holmes():
     ai = ToolCallingLLM(tool_executor, max_steps=40, llm=MyCustomLLM())
 
     user_prompt = generate_user_prompt(prompt, context={})
-    response = ai.prompt_call(system_prompt, user_prompt)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    response = ai.call(messages)
 
     print(response.model_dump())
 

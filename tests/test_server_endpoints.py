@@ -20,7 +20,7 @@ def test_api_chat_all_fields(
     client,
 ):
     mock_ai = MagicMock()
-    mock_ai.messages_call.return_value = MagicMock(
+    mock_ai.call.return_value = MagicMock(
         result="This is a mock analysis with tools and follow-up actions.",
         tool_calls=[
             {
@@ -100,7 +100,7 @@ def test_api_chat_with_images(
             metadata={},
         )
 
-    mock_ai.messages_call.side_effect = capture_messages
+    mock_ai.call.side_effect = capture_messages
     mock_create_toolcalling_llm.return_value = mock_ai
     mock_get_global_instructions.return_value = []
 
@@ -174,7 +174,7 @@ def test_api_chat_with_images_advanced_format(
             metadata={},
         )
 
-    mock_ai.messages_call.side_effect = capture_messages
+    mock_ai.call.side_effect = capture_messages
     mock_create_toolcalling_llm.return_value = mock_ai
     mock_get_global_instructions.return_value = []
 
@@ -255,7 +255,7 @@ def test_api_chat_with_images_missing_url_key(
 ):
     """Test /api/chat endpoint raises error when image dict missing 'url' key."""
     mock_ai = MagicMock()
-    mock_ai.messages_call.return_value = MagicMock(
+    mock_ai.call.return_value = MagicMock(
         result="This should not be reached.",
         tool_calls=[],
         messages=[],
