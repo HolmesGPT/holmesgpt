@@ -11,15 +11,50 @@ from holmes.common.env_vars import (
 )
 from holmes.core.llm import (
     LLM,
-    TokenCountMetadata,
+    ContextWindowUsage,
     get_context_window_compaction_threshold_pct,
 )
+from holmes.core.llm_usage import RequestStats
 from holmes.core.models import TruncationMetadata, TruncationResult
-from holmes.core.truncation.compaction import CompactionUsage, compact_conversation_history
+from holmes.core.truncation.compaction import compact_conversation_history
 from holmes.utils import sentry_helper
 from holmes.utils.stream import StreamEvents, StreamMessage
 
 TRUNCATION_NOTICE = "\n\n[TRUNCATED]"
+
+
+def check_compaction_needed(
+    llm: "LLM", messages: list[dict], tools: Optional[list[dict[str, Any]]]
+) -> Optional[StreamMessage]:
+    """Check if compaction is needed and return a COMPACTION_START event if so.
+
+    This is separated from limit_input_context_window so the caller can yield
+    the START event to the SSE stream *before* the blocking compaction call.
+    """
+    if not ENABLE_CONVERSATION_HISTORY_COMPACTION:
+        return None
+
+    initial_tokens = llm.count_tokens(messages=messages, tools=tools)  # type: ignore
+    max_context_size = llm.get_context_window_size()
+    maximum_output_token = llm.get_maximum_output_token()
+
+    if (initial_tokens.total_tokens + maximum_output_token) > (
+        max_context_size * get_context_window_compaction_threshold_pct() / 100
+    ):
+        num_messages = len(messages)
+        return StreamMessage(
+            event=StreamEvents.CONVERSATION_HISTORY_COMPACTION_START,
+            data={
+                "content": f"Compacting conversation history ({initial_tokens.total_tokens} tokens, {num_messages} messages)...",
+                "metadata": {
+                    "initial_tokens": initial_tokens.total_tokens,
+                    "num_messages": num_messages,
+                    "max_context_size": max_context_size,
+                    "threshold_pct": get_context_window_compaction_threshold_pct(),
+                },
+            },
+        )
+    return None
 
 
 def _truncate_tool_message(
@@ -142,9 +177,9 @@ class ContextWindowLimiterOutput(BaseModel):
     events: list[StreamMessage]
     max_context_size: int
     maximum_output_token: int
-    tokens: TokenCountMetadata
+    tokens: ContextWindowUsage
     conversation_history_compacted: bool
-    compaction_usage: CompactionUsage = CompactionUsage()
+    compaction_usage: Optional["RequestStats"] = None
 
 
 @sentry_sdk.trace
@@ -158,10 +193,11 @@ def limit_input_context_window(
     max_context_size = llm.get_context_window_size()
     maximum_output_token = llm.get_maximum_output_token()
     conversation_history_compacted = False
-    compaction_usage = CompactionUsage()
+    compaction_usage = RequestStats()
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
+        num_messages_before = len(messages)
         compaction_result = compact_conversation_history(
             original_conversation_history=messages, llm=llm
         )
@@ -171,19 +207,45 @@ def limit_input_context_window(
 
         if compacted_total_tokens < initial_tokens.total_tokens:
             messages = compaction_result.messages_after_compaction
+            num_messages_after = len(messages)
+            compression_ratio = round((1 - compacted_total_tokens / initial_tokens.total_tokens) * 100, 1)
             compaction_message = f"The conversation history has been compacted from {initial_tokens.total_tokens} to {compacted_total_tokens} tokens"
             logging.info(compaction_message)
             conversation_history_compacted = True
+
+            # Extract the LLM-generated summary from the compacted messages
+            # Structure is: [system_prompt?, last_user_prompt?, assistant_summary, continuation_marker]
+            compaction_summary = None
+            for msg in compaction_result.messages_after_compaction:
+                if msg.get("role") == "assistant":
+                    compaction_summary = msg.get("content")
+                    break
+
+            compaction_stats: dict = {
+                "initial_tokens": initial_tokens.total_tokens,
+                "compacted_tokens": compacted_total_tokens,
+                "compression_ratio_pct": compression_ratio,
+                "num_messages_before": num_messages_before,
+                "num_messages_after": num_messages_after,
+                "max_context_size": max_context_size,
+                "threshold_pct": get_context_window_compaction_threshold_pct(),
+            }
+            if compaction_usage:
+                compaction_stats["compaction_cost"] = {
+                    "total_cost": compaction_usage.total_cost,
+                    "prompt_tokens": compaction_usage.prompt_tokens,
+                    "completion_tokens": compaction_usage.completion_tokens,
+                    "total_tokens": compaction_usage.total_tokens,
+                }
+
             events.append(
                 StreamMessage(
                     event=StreamEvents.CONVERSATION_HISTORY_COMPACTED,
                     data={
                         "content": compaction_message,
+                        "compaction_summary": compaction_summary,
                         "messages": compaction_result.messages_after_compaction,
-                        "metadata": {
-                            "initial_tokens": initial_tokens.total_tokens,
-                            "compacted_tokens": compacted_total_tokens,
-                        },
+                        "metadata": compaction_stats,
                     },
                 )
             )

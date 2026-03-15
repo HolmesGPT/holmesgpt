@@ -26,7 +26,7 @@ class TestRedundantFetchPodLogs:
                         "end_time": "2024-01-02",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         # Current call with filter
@@ -61,7 +61,7 @@ class TestRedundantFetchPodLogs:
                         "namespace": "services",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         # Current call with filter
@@ -95,7 +95,7 @@ class TestRedundantFetchPodLogs:
                         "end_time": "2024-01-02",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         # Current call with filter
@@ -128,7 +128,7 @@ class TestRedundantFetchPodLogs:
                         "namespace": "services",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         # Current call with filter but different pod
@@ -159,7 +159,7 @@ class TestRedundantFetchPodLogs:
                         "namespace": "services",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         # Current call without filter (not redundant)
@@ -202,7 +202,7 @@ class TestHasPreviousUnfilteredPodLogsCall:
                         "namespace": "default",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         # Current params with filter
@@ -231,7 +231,7 @@ class TestHasPreviousUnfilteredPodLogsCall:
                         "namespace": "default",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         tool_params = {
@@ -259,7 +259,7 @@ class TestHasPreviousUnfilteredPodLogsCall:
                         "namespace": "other-namespace",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         tool_params = {
@@ -291,7 +291,7 @@ class TestHasPreviousExactSameToolCall:
                     status=StructuredToolResultStatus.SUCCESS,
                     params=params,
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         assert (
@@ -309,7 +309,7 @@ class TestHasPreviousExactSameToolCall:
                     status=StructuredToolResultStatus.SUCCESS,
                     params={"different": "params"},
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         params = {
@@ -337,7 +337,7 @@ class TestHasPreviousExactSameToolCall:
                     status=StructuredToolResultStatus.SUCCESS,
                     params=params,
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         assert (
@@ -359,7 +359,7 @@ class TestPreventOverlyRepeatedToolCall:
                     status=StructuredToolResultStatus.SUCCESS,
                     params=params,
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         result = prevent_overly_repeated_tool_call(
@@ -384,7 +384,7 @@ class TestPreventOverlyRepeatedToolCall:
                         "namespace": "default",
                     },
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         # Current call with filter
@@ -425,7 +425,7 @@ class TestPreventOverlyRepeatedToolCall:
                     status=StructuredToolResultStatus.SUCCESS,
                     params={"different": "params"},
                 ),
-            ).as_tool_result_response()
+            ).to_client_dict()
         ]
 
         params = {"pod_name": "my-pod", "namespace": "default"}
@@ -456,7 +456,7 @@ class TestEdgeCases:
                     status=StructuredToolResultStatus.SUCCESS,
                     params={"different": "params"},
                 ),
-            ).as_tool_result_response(),
+            ).to_client_dict(),
             ToolCallResult(
                 tool_call_id="2",
                 tool_name="my_tool",
@@ -465,7 +465,7 @@ class TestEdgeCases:
                     status=StructuredToolResultStatus.SUCCESS,
                     params={"pod_name": "my-pod"},
                 ),
-            ).as_tool_result_response(),
+            ).to_client_dict(),
         ]
 
         assert (

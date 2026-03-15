@@ -56,7 +56,7 @@ class Config(RobustaBaseConfig):
     api_base: Optional[str] = None
     api_version: Optional[str] = None
     fast_model: Optional[str] = None
-    max_steps: int = 40
+    max_steps: int = 100
     cluster_name: Optional[str] = None
 
     alertmanager_url: Optional[str] = None
