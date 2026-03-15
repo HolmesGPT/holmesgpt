@@ -100,7 +100,7 @@ nohup poetry run pytest -k "test_name" --no-cov > test.log 2>&1 &
 Only use tags from `pyproject.toml` markers section. Invalid tags cause test collection failures.
 
 Tag naming conventions:
-- Service-specific: `grafana-dashboard`, `prometheus`, `loki`
+- Service-specific: `grafana`, `prometheus`, `loki`
 - Functionality: `question-answer`, `chain-of-causation`
 - Difficulty: `easy`, `medium`, `hard`
 - Infrastructure: `kubernetes`, `database`, `traces`
