@@ -1,4 +1,4 @@
-# Model Comparison Summary - March 15, 2026
+# Recommendations
 
 **Date**: 2026-03-15  
 **Scope**: Consolidated benchmark results for model success rate, runtime, and cost.
