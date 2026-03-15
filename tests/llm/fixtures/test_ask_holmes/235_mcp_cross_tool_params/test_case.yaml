@@ -1,14 +1,14 @@
 user_prompt:
-  - "What's the bitrate and error rate for the last 5 minutes? Filter to cloudfront only. Give me the verification code and all timestamp values."
+  - "What is the current quality index for smart_tv clients in France? Give me the verification code and all timestamp values."
 
 expected_output:
   - "Must contain verification code TS-EVAL-8k3m5n"
-  - "Must report bitrate values including 4500.2, 4480.7, and 4520.1"
-  - "Must report error_rate values including 0.8, 0.9, and 0.7"
-  - "Must show the cloudfront filter was applied"
-  - "The get_realtime_timeseries tool call must send time_range as a JSON object (not a string), containing a minutes field"
-  - "The get_realtime_timeseries tool call must send filters as a JSON object (not a string), with cdn_provider as a key"
-  - "The tool call must NOT use relative_time_interval parameter - that belongs to flow tools only"
+  - "Must report quality_index values including 87.3, 86.9, and 88.1"
+  - "Must show the timestamps 2026-03-15T21:10:00Z, 2026-03-15T21:11:00Z, 2026-03-15T21:12:00Z"
+  - "The get_content_realtime_timeseries tool call must send time_range as a JSON object (not a string), containing a minutes field"
+  - "The get_content_realtime_timeseries tool call must send filters as a JSON object (not a string), with device_name and geo_country_code as keys"
+  - "The tool call must NOT use relative_time_interval parameter - that belongs to network analytics tools only"
+  - "The tool call must NOT send metrics as a comma-separated string - it must be an array"
 
 include_tool_calls: true
 
