@@ -1208,7 +1208,6 @@ jobs:
                 echo "## ❌ Test Collection Failed"
                 echo ""
                 echo "pytest exited with code 1 but produced no results."
-                echo "With \`pytest-xdist\` (\`-n\`), collection errors return exit code 1 instead of 2."
                 echo ""
                 echo "Common causes:"
                 echo "- **Invalid MODEL name** — check that the model short name exists in the model list"
