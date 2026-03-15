@@ -1,0 +1,15 @@
+toolsets:
+  metrics-mcp:
+    type: mcp
+    enabled: true
+    description: "Metrics database MCP server for querying infrastructure metrics"
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/232_mcp_complex_schema/mcp_metrics_server.py"]
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

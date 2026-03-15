@@ -1,0 +1,11 @@
+user_prompt:
+  - "Query the cpu_usage metrics for namespace app-232. Tell me the verification code and the average metric value."
+
+expected_output:
+  - "Must contain verification code HOLMES-MCP-7k9x2m"
+  - "Must report average value of 73.5"
+
+include_tool_calls: true
+
+tags:
+  - mcp
