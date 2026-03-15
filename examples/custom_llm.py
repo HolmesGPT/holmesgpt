@@ -68,7 +68,7 @@ def ask_holmes():
     )
 
     tool_executor = ToolExecutor(load_builtin_toolsets())
-    ai = ToolCallingLLM(tool_executor, max_steps=40, llm=MyCustomLLM())
+    ai = ToolCallingLLM(tool_executor, max_steps=100, llm=MyCustomLLM())
 
     user_prompt = generate_user_prompt(prompt, context={})
     messages = [
