@@ -23,6 +23,40 @@ from holmes.utils.stream import StreamEvents, StreamMessage
 TRUNCATION_NOTICE = "\n\n[TRUNCATED]"
 
 
+def check_compaction_needed(
+    llm: "LLM", messages: list[dict], tools: Optional[list[dict[str, Any]]]
+) -> Optional[StreamMessage]:
+    """Check if compaction is needed and return a COMPACTION_START event if so.
+
+    This is separated from limit_input_context_window so the caller can yield
+    the START event to the SSE stream *before* the blocking compaction call.
+    """
+    if not ENABLE_CONVERSATION_HISTORY_COMPACTION:
+        return None
+
+    initial_tokens = llm.count_tokens(messages=messages, tools=tools)  # type: ignore
+    max_context_size = llm.get_context_window_size()
+    maximum_output_token = llm.get_maximum_output_token()
+
+    if (initial_tokens.total_tokens + maximum_output_token) > (
+        max_context_size * get_context_window_compaction_threshold_pct() / 100
+    ):
+        num_messages = len(messages)
+        return StreamMessage(
+            event=StreamEvents.CONVERSATION_HISTORY_COMPACTION_START,
+            data={
+                "content": f"Compacting conversation history ({initial_tokens.total_tokens} tokens, {num_messages} messages)...",
+                "metadata": {
+                    "initial_tokens": initial_tokens.total_tokens,
+                    "num_messages": num_messages,
+                    "max_context_size": max_context_size,
+                    "threshold_pct": get_context_window_compaction_threshold_pct(),
+                },
+            },
+        )
+    return None
+
+
 def _truncate_tool_message(
     msg: dict, allocated_space: int, needed_space: int
 ) -> TruncationMetadata:
@@ -164,21 +198,6 @@ def limit_input_context_window(
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
         num_messages_before = len(messages)
-        events.append(
-            StreamMessage(
-                event=StreamEvents.CONVERSATION_HISTORY_COMPACTION_START,
-                data={
-                    "content": f"Compacting conversation history ({initial_tokens.total_tokens} tokens, {num_messages_before} messages)...",
-                    "metadata": {
-                        "initial_tokens": initial_tokens.total_tokens,
-                        "num_messages": num_messages_before,
-                        "max_context_size": max_context_size,
-                        "threshold_pct": get_context_window_compaction_threshold_pct(),
-                    },
-                },
-            )
-        )
-
         compaction_result = compact_conversation_history(
             original_conversation_history=messages, llm=llm
         )
