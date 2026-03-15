@@ -60,7 +60,7 @@ def get_context_window_compaction_threshold_pct() -> int:
 ROBUSTA_AI_MODEL_NAME = "Robusta"
 
 
-class TokenCountMetadata(BaseModel):
+class ContextWindowUsage(BaseModel):
     total_tokens: int
     tools_tokens: int
     system_tokens: int
@@ -123,7 +123,7 @@ class LLM:
     @abstractmethod
     def count_tokens(
         self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
-    ) -> TokenCountMetadata:
+    ) -> ContextWindowUsage:
         pass
 
     @abstractmethod
@@ -336,7 +336,7 @@ class DefaultLLM(LLM):
     @sentry_sdk.trace
     def count_tokens(
         self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
-    ) -> TokenCountMetadata:
+    ) -> ContextWindowUsage:
         t0 = time.monotonic()
         tools_tokens = 0
         system_tokens = 0
@@ -387,7 +387,7 @@ class DefaultLLM(LLM):
             f"count_tokens: {elapsed_ms:.1f}ms | {len(messages)} msgs ({cached_count} cached, {counted_count} counted) | total={total_tokens}"
         )
 
-        return TokenCountMetadata(
+        return ContextWindowUsage(
             total_tokens=total_tokens,
             system_tokens=system_tokens,
             user_tokens=user_tokens,
@@ -653,7 +653,12 @@ class LLMModelRegistry:
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
         with self._lock:
             if not self._llms:
-                raise Exception("No llm models were loaded")
+                raise Exception(
+                    "No LLM models were loaded. Configure a model using one of: "
+                    "--model '<provider/model>', export MODEL='<provider/model>', "
+                    "or MODEL_LIST_FILE_LOCATION/config model list. "
+                    "Setting only an API key (for example OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AZURE_API_KEY) is not enough without a model."
+                )
 
             if model_key:
                 model_params = self._llms.get(model_key)
@@ -736,13 +741,13 @@ class LLMModelRegistry:
         )
 
 
-def get_llm_usage(
+def build_usage_metadata(
     llm_response: Union[ModelResponse, CustomStreamWrapper, TextCompletionResponse],
 ) -> dict:
     if isinstance(llm_response, CustomStreamWrapper):
         complete_response = litellm.stream_chunk_builder(chunks=llm_response)  # type: ignore
         if complete_response:
-            return get_llm_usage(complete_response)
+            return build_usage_metadata(complete_response)
         return {}
 
     if not (
@@ -754,12 +759,12 @@ def get_llm_usage(
 
     raw = extract_usage_from_response(llm_response)  # type: ignore[arg-type]
     usage: dict = {
-        "prompt_tokens": raw.prompt_tokens,
-        "completion_tokens": raw.completion_tokens,
-        "total_tokens": raw.total_tokens,
+        "prompt_tokens": raw["prompt_tokens"],
+        "completion_tokens": raw["completion_tokens"],
+        "total_tokens": raw["total_tokens"],
     }
-    if raw.cached_tokens is not None:
-        usage["cached_tokens"] = raw.cached_tokens
-    if raw.reasoning_tokens:
-        usage["reasoning_tokens"] = raw.reasoning_tokens
+    if raw["cached_tokens"] is not None:
+        usage["cached_tokens"] = raw["cached_tokens"]
+    if raw["reasoning_tokens"]:
+        usage["reasoning_tokens"] = raw["reasoning_tokens"]
     return usage

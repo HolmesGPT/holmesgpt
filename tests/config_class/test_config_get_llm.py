@@ -73,14 +73,40 @@ def test_cli_config_get_llm_loads_default_gpt_4o(monkeypatch):
 
 
 def test_cli_config_get_llm_loads_model_from_env_var(monkeypatch):
+    test_model = "bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
     monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "access_key_id")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret_access_key")
-    cli_config = get_cli_config(model="bedrock/sonnet-4 preview")
+    cli_config = get_cli_config(model=test_model)
     llm: DefaultLLM = cli_config._get_llm()
-    assert llm.name == "bedrock/sonnet-4 preview"
-    assert llm.model == "bedrock/sonnet-4 preview"
+    assert llm.name == test_model
+    assert llm.model == test_model
     assert llm.api_base is None
 
     assert len(cli_config.llm_model_registry._llms) == 1
-    assert cli_config.get_models_list() == ["bedrock/sonnet-4 preview"]
+    assert cli_config.get_models_list() == [test_model]
+
+
+def test_cli_config_get_llm_loads_model_from_MODEL_env_var(monkeypatch):
+    test_model = "bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
+    monkeypatch.setenv("MODEL", test_model)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "access_key_id")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret_access_key")
+    cli_config = get_cli_config()
+    assert cli_config.model == test_model
+    llm: DefaultLLM = cli_config._get_llm()
+    assert llm.name == test_model
+    assert llm.model == test_model
+    assert llm.api_base is None
+
+    assert len(cli_config.llm_model_registry._llms) == 1
+    assert cli_config.get_models_list() == [test_model]
+
+
+def test_cli_config_ignores_blank_MODEL_env_var(monkeypatch):
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
+    monkeypatch.setenv("MODEL", "   ")
+    cli_config = get_cli_config()
+
+    assert cli_config.model is None

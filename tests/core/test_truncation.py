@@ -1,17 +1,17 @@
 import pytest
 
-from holmes.core.llm import TokenCountMetadata
+from holmes.core.llm import ContextWindowUsage
 from holmes.core.truncation.input_context_window_limiter import (
     truncate_messages_to_fit_context,
 )
 
 
-def simple_token_counter(messages) -> TokenCountMetadata:
+def simple_token_counter(messages) -> ContextWindowUsage:
     """Simple token counter that counts characters for testing."""
     total = 0
     for message in messages:
         total += len(message.get("content", ""))
-    return TokenCountMetadata(
+    return ContextWindowUsage(
         total_tokens=total,
         system_tokens=0,
         tools_to_call_tokens=0,
@@ -206,7 +206,7 @@ class TestTruncateMessagesToFitContextEdgeCases:
 
         def count_tokens_fn(msgs):
             total = sum(len(m.get("content", "")) for m in msgs)
-            return TokenCountMetadata(
+            return ContextWindowUsage(
                 total_tokens=total,
                 system_tokens=0,
                 tools_to_call_tokens=0,
@@ -245,7 +245,7 @@ class TestTruncateMessagesToFitContextEdgeCases:
 
         def count_tokens_fn(msgs):
             total = sum(len(m.get("content", "")) for m in msgs)
-            return TokenCountMetadata(
+            return ContextWindowUsage(
                 total_tokens=total,
                 system_tokens=0,
                 tools_to_call_tokens=0,
@@ -291,7 +291,7 @@ class TestTruncateMessagesToFitContextEdgeCases:
 
         def count_tokens_fn(msgs):
             total = sum(len(m.get("content", "")) for m in msgs)
-            return TokenCountMetadata(
+            return ContextWindowUsage(
                 total_tokens=total,
                 system_tokens=0,
                 tools_to_call_tokens=0,

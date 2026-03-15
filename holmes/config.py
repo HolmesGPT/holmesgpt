@@ -56,7 +56,7 @@ class Config(RobustaBaseConfig):
     api_base: Optional[str] = None
     api_version: Optional[str] = None
     fast_model: Optional[str] = None
-    max_steps: int = 40
+    max_steps: int = 100
     cluster_name: Optional[str] = None
 
     alertmanager_url: Optional[str] = None
@@ -179,6 +179,11 @@ class Config(RobustaBaseConfig):
 
         if config_file is not None and config_file.exists():
             result._config_file_path = config_file
+
+        if result.model is None:
+            model_from_env = os.environ.get("MODEL")
+            if model_from_env and model_from_env.strip():
+                result.model = model_from_env
 
         result.log_useful_info()
         return result
