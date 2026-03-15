@@ -398,6 +398,16 @@ class RemoteMCPTool(Tool):
 
         enum = schema.get("enum")
 
+        additional_properties = None
+        raw_ap = schema.get("additionalProperties")
+        if raw_ap is not None:
+            if isinstance(raw_ap, bool):
+                additional_properties = raw_ap
+            elif isinstance(raw_ap, dict):
+                # Preserve the additionalProperties schema for dynamic-key objects.
+                # Resolve any $ref/anyOf inside it so the LLM sees concrete types.
+                additional_properties = cls._resolve_schema(raw_ap, root_schema)
+
         return ToolParameter(
             description=schema.get("description"),
             type=param_type,
@@ -405,6 +415,7 @@ class RemoteMCPTool(Tool):
             items=items,
             properties=properties,
             enum=enum,
+            additional_properties=additional_properties,
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:

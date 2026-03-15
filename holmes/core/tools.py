@@ -177,6 +177,30 @@ class ToolParameter(BaseModel):
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
     enum: Optional[List[str]] = None  # For restricting to specific values
+    # For object types: stores the additionalProperties JSON Schema value.
+    # None = not specified, False = no additional properties allowed,
+    # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
+    additional_properties: Optional[Union[bool, Dict[str, Any]]] = None
+
+    def is_strict_compatible(self) -> bool:
+        """Check if this parameter (and all nested parameters) can be used in strict mode.
+
+        Strict mode requires additionalProperties: false on all objects.
+        Parameters with dynamic keys (additionalProperties set to a schema dict or True)
+        are incompatible with strict mode.
+        """
+        # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
+        if self.additional_properties is not None and self.additional_properties is not False:
+            return False
+        # Recursively check nested properties
+        if self.properties:
+            for prop in self.properties.values():
+                if not prop.is_strict_compatible():
+                    return False
+        # Recursively check array items
+        if self.items and not self.items.is_strict_compatible():
+            return False
+        return True
 
 
 class ToolInvokeContext(BaseModel):

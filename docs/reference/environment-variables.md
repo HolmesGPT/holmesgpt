@@ -32,19 +32,16 @@ This page documents all environment variables that can be used to configure Holm
 
 ## LLM Tool Calling Configuration
 
-### LLMS_WITH_STRICT_TOOL_CALLS
-**Default:** `"azure/gpt-4.1, openai/*"`
+### HOLMES_DISABLE_STRICT_TOOL_CALLS
+**Default:** `false`
 
-Comma-separated list of model patterns that support strict tool calling. When a model matches one of these patterns, HolmesGPT will:
-- Enable the `strict` flag for function definitions
-- Set `additionalProperties: false` in tool parameter schemas
-- Enforce stricter schema validation for tool calls
+When set to `true`, disables strict tool calling for all models. By default, strict mode is enabled universally — HolmesGPT sets `strict: true` and `additionalProperties: false` on all tool schemas. This prevents LLMs from hallucinating parameter names or sending malformed arguments.
 
-This improves reliability of tool calling for supported models by ensuring the LLM adheres more strictly to the defined tool schemas.
+Tools with dynamic-key parameters (`additionalProperties` with a schema, e.g., filter maps) are automatically excluded from strict mode on a per-tool basis, since both OpenAI and Anthropic require `additionalProperties: false` on all objects in strict mode.
 
 **Example:**
 ```bash
-export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4.1,openai/*,anthropic/claude-sonnet-4*"
+export HOLMES_DISABLE_STRICT_TOOL_CALLS=true
 ```
 
 ### TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS

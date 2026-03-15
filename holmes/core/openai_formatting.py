@@ -2,18 +2,21 @@ import re
 from typing import Any, Optional
 
 from holmes.common.env_vars import (
-    LLMS_WITH_STRICT_TOOL_CALLS,
+    STRICT_TOOL_CALLS_ENABLED,
     TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS,
 )
-from holmes.utils.llms import model_matches_list
 
 # parses both simple types: "int", "array", "string"
 # but also arrays of those simpler types: "array[int]", "array[string]", etc.
 pattern = r"^(array\[(?P<inner_type>\w+)\])|(?P<simple_type>\w+)$"
 
-LLMS_WITH_STRICT_TOOL_CALLS_LIST = [
-    llm.strip() for llm in LLMS_WITH_STRICT_TOOL_CALLS.split(",")
-]
+
+def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
+    """Check if all parameters in a tool are compatible with strict mode."""
+    for param in tool_parameters.values():
+        if hasattr(param, "is_strict_compatible") and not param.is_strict_compatible():
+            return False
+    return True
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
@@ -33,8 +36,6 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
 
     if param_type == "object":
         type_obj = {"type": "object"}
-        if strict_mode:
-            type_obj["additionalProperties"] = False
 
         # Use explicit properties if provided
         if hasattr(param_attributes, "properties") and param_attributes.properties:
@@ -44,6 +45,13 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
             }
             if strict_mode:
                 type_obj["required"] = list(param_attributes.properties.keys())
+                type_obj["additionalProperties"] = False
+
+        # Preserve additionalProperties schema for dynamic-key objects
+        elif hasattr(param_attributes, "additional_properties") and param_attributes.additional_properties not in (None, False):
+            type_obj["additionalProperties"] = param_attributes.additional_properties
+        elif strict_mode:
+            type_obj["additionalProperties"] = False
 
     elif param_type == "array":
         # Handle arrays with explicit item schemas
@@ -84,9 +92,13 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
 def format_tool_to_open_ai_standard(
     tool_name: str, tool_description: str, tool_parameters: dict, target_model: str
 ):
-    tool_properties = {}
+    # Strict mode is enabled globally unless disabled via HOLMES_DISABLE_STRICT_TOOL_CALLS.
+    # However, tools with dynamic-key objects (additionalProperties with a schema) are
+    # automatically excluded from strict mode since both OpenAI and Anthropic require
+    # additionalProperties: false on all objects in strict mode.
+    strict_mode = STRICT_TOOL_CALLS_ENABLED and _is_tool_strict_compatible(tool_parameters)
 
-    strict_mode = model_matches_list(target_model, LLMS_WITH_STRICT_TOOL_CALLS_LIST)
+    tool_properties = {}
 
     for param_name, param_attributes in tool_parameters.items():
         tool_properties[param_name] = type_to_open_ai_schema(
