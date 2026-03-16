@@ -143,7 +143,7 @@ def limit_input_context_window(
                 )
             )
         else:
-            logging.debug(
+            logging.error(
                 f"Failed to reduce token count when compacting conversation history. Original tokens:{initial_tokens.total_tokens}. Compacted tokens:{compacted_total_tokens}"
             )
 
