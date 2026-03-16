@@ -38,6 +38,7 @@ from holmes.core.tools_utils.tool_context_window_limiter import (
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import DummySpan
 from holmes.core.truncation.input_context_window_limiter import (
+    CompactionInsufficientError,
     check_compaction_needed,
     limit_input_context_window,
 )
@@ -308,7 +309,6 @@ class ToolCallingLLM:
     def _get_tools(self) -> list:
         """Get tools list, filtering restricted tools based on authorization."""
         return self.tool_executor.get_all_tools_openai_format(
-            target_model=self.llm.model,
             include_restricted=self._should_include_restricted_tools(),
         )
 
@@ -743,9 +743,16 @@ class ToolCallingLLM:
             if compaction_start_event:
                 yield compaction_start_event
 
-            limit_result = limit_input_context_window(
-                llm=self.llm, messages=messages, tools=tools
-            )
+            try:
+                limit_result = limit_input_context_window(
+                    llm=self.llm, messages=messages, tools=tools
+                )
+            except CompactionInsufficientError as e:
+                yield from e.events
+                if e.compaction_usage and e.compaction_usage.total_tokens > 0:
+                    stats += e.compaction_usage
+                raise
+
             yield from limit_result.events
             messages = limit_result.messages
             metadata = metadata | limit_result.metadata

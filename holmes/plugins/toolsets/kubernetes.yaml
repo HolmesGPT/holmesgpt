@@ -29,6 +29,11 @@ toolsets:
         script: |
           #!/bin/bash
 
+          # Collapse multi-line jq expressions (LLMs sometimes write multi-line jq)
+          # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
+          JQ_FILTER={{ jq_expr }}
+          JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr $'\n\r' '  ')
+
           err_file=$(mktemp)
 
           # Get the API path for the resource kind using kubectl
@@ -114,7 +119,7 @@ toolsets:
 
             ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
 
-            MATCHES=$(echo "$OUTPUT" | jq -c {{ jq_expr }} 2>>"$err_file")
+            MATCHES=$(echo "$OUTPUT" | jq -c "$JQ_FILTER" 2>>"$err_file")
             jq_exit=$?
             if [ $jq_exit -ne 0 ]; then
               err_content=$(cat "$err_file" 2>/dev/null)

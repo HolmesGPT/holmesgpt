@@ -26,6 +26,8 @@ from typing import (
 )
 
 from jinja2 import Template
+
+from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
@@ -177,6 +179,43 @@ class ToolParameter(BaseModel):
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
     enum: Optional[List[str]] = None  # For restricting to specific values
+    # For object types: stores the additionalProperties JSON Schema value.
+    # None = not specified, False = no additional properties allowed,
+    # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
+    additional_properties: Optional[Union[bool, Dict[str, Any]]] = None
+    # JSON Schema validation keywords (minItems, maxItems, minimum, maximum,
+    # minLength, maxLength, pattern, etc.) preserved from the source schema.
+    # These are passed through to the OpenAI-formatted schema so the LLM
+    # knows about constraints.
+    json_schema_extra: Optional[Dict[str, Any]] = None
+
+    def is_strict_compatible(self) -> bool:
+        """Check if this parameter (and all nested parameters) can be used in strict mode.
+
+        Strict mode requires additionalProperties: false on all objects.
+        Parameters with dynamic keys (additionalProperties set to a schema dict or True)
+        are incompatible with strict mode.
+        """
+        # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
+        if self.additional_properties is not None and self.additional_properties is not False:
+            return False
+        # Recursively check nested properties
+        if self.properties:
+            for prop in self.properties.values():
+                if not prop.is_strict_compatible():
+                    return False
+        # Recursively check array items
+        if self.items and not self.items.is_strict_compatible():
+            return False
+        return True
+
+    @property
+    def primary_type(self) -> str:
+        """Return the primary (non-null) type as a string."""
+        if isinstance(self.type, list):
+            non_null = [t for t in self.type if t != "null"]
+            return non_null[0] if non_null else "string"
+        return self.type
 
 
 class ToolInvokeContext(BaseModel):
@@ -266,12 +305,19 @@ class Tool(ABC, BaseModel):
             logger.debug(f"Tool '{self.name}' has no transformers")
             self._transformer_instances = None
 
-    def get_openai_format(self, target_model: str):
+    def _coerce_params(self, params: Dict) -> Dict:
+        """Coerce LLM tool-call parameters to match their JSON Schema types.
+
+        Delegates to :func:`holmes.core.json_schema_coerce.coerce_params`.
+        See that module's docstring for the full rationale and design notes.
+        """
+        return coerce_params(params, self.parameters, tool_name=self.name)
+
+    def get_openai_format(self):
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
             tool_description=self.description,
             tool_parameters=self.parameters,
-            target_model=target_model,
         )
 
     def invoke(
@@ -299,6 +345,8 @@ class Tool(ABC, BaseModel):
                     params=params,
                     invocation=self.get_parameterized_one_liner(params),
                 )
+
+        params = self._coerce_params(params)
 
         start_time = time.time()
         result = self._invoke(params=params, context=context)
@@ -592,6 +640,7 @@ class YAMLTool(Tool, BaseModel):
             result = subprocess.run(
                 protected_cmd,
                 shell=True,
+                executable="/bin/bash",
                 text=True,
                 check=False,  # do not throw error, we just return the error code
                 stdin=subprocess.DEVNULL,
