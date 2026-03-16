@@ -197,8 +197,9 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
-- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`). When using OpenRouter, you must also set `CLASSIFIER_MODEL` to an OpenRouter model (e.g., `CLASSIFIER_MODEL="openrouter/openai/gpt-4.1"`) because the default classifier model is not available via OpenRouter.
 - `MODEL`: Override default model(s) - supports comma-separated list
+- `CLASSIFIER_MODEL`: Override the classifier model used internally. Required when using OpenRouter (e.g., `openrouter/openai/gpt-4.1`)
 - `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
