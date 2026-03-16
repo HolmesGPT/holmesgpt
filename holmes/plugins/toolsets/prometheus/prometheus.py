@@ -1561,7 +1561,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
                     required=False,
                 ),
                 "output_type": ToolParameter(
-                    description="Specifies how to interpret the Prometheus result. Use 'Plain' for raw values, 'Bytes' to format byte values, 'Percentage' to scale 0–1 values into 0–100%, or 'CPUUsage' to convert values to cores (e.g., 500 becomes 500m, 2000 becomes 2).",
+                    description="Specifies how to interpret the Prometheus result. Use 'Plain' for raw values, 'Bytes' to format byte values, 'Percentage' to scale 0–1 values into 0–100%, or 'CPUUsage' to convert values to cores (e.g., 500 becomes 500m, 2000 becomes 2). Do NOT convert on your own in the query. E.g. if setting output_type=Percentage it is a mistake to have * 100 in the query and convert numbers yourself in the query from 0-1 range to 0-100. This will cause a double conversion as further conversion happens at formatting time",
                     type="string",
                     required=True,
                 ),
