@@ -205,7 +205,7 @@ def build_system_prompt(
             PromptComponent.GENERAL_INSTRUCTIONS
         ),
         "style_guide_enabled": is_enabled(PromptComponent.STYLE_GUIDE),
-        "runbooks_enabled": bool(runbooks)
+        "runbooks_enabled": bool(runbooks and getattr(runbooks, "catalog", True))
         and is_enabled(PromptComponent.TIME_RUNBOOKS),
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
