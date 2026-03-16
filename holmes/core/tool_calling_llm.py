@@ -341,6 +341,7 @@ class ToolCallingLLM:
                 cancel_event=cancel_event,
                 tool_number_offset=tool_number_offset,
                 request_context=request_context,
+                iteration_offset=total_num_llm_calls,
             )
 
             tool_decisions = None
@@ -385,8 +386,9 @@ class ToolCallingLLM:
             if not terminal_data:
                 raise Exception("Stream ended without ANSWER_END or APPROVAL_REQUIRED")
 
-            # Both terminal events carry costs and num_llm_calls
-            total_num_llm_calls += terminal_data.get("num_llm_calls", 0)
+            # call_stream returns the absolute iteration count (including offset),
+            # so we assign rather than accumulate to avoid double-counting.
+            total_num_llm_calls = terminal_data.get("num_llm_calls", 0)
             accumulated_stats += RequestStats(**terminal_data.get("costs", {}))
 
             if terminal_event == StreamEvents.APPROVAL_REQUIRED:
@@ -694,6 +696,7 @@ class ToolCallingLLM:
         trace_span: Any = None,
         cancel_event: Optional[threading.Event] = None,
         tool_number_offset: int = 0,
+        iteration_offset: int = 0,
     ):
         """
         This function DOES NOT call llm.completion(stream=true).
@@ -722,7 +725,9 @@ class ToolCallingLLM:
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
-        i = 0
+        if iteration_offset < 0:
+            raise ValueError("iteration_offset must be non-negative")
+        i = iteration_offset
 
         while i < max_steps:
             if cancel_event and cancel_event.is_set():

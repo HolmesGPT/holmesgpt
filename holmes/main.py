@@ -98,7 +98,7 @@ opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     help="Path to a custom toolsets. The status of the custom toolsets specified here won't be cached (can specify -t multiple times to add multiple toolsets)",
 )
 opt_max_steps: Optional[int] = typer.Option(
-    40,
+    100,
     "--max-steps",
     help="Advanced. Maximum number of steps the LLM can take to investigate the issue",
 )
@@ -672,6 +672,7 @@ def ticket(
             ticket_username=ticket_username,
             ticket_api_key=ticket_api_key,
             ticket_id=ticket_id,
+            model=model,
         )
     except Exception as e:
         console.print(f"[bold red]Error: {str(e)}[/bold red]")

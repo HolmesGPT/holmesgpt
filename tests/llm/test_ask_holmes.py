@@ -190,7 +190,7 @@ def ask_holmes(
     with tool_result_storage() as tool_results_dir:
         ai = ToolCallingLLM(
             tool_executor=tool_executor,
-            max_steps=40,
+            max_steps=100,
             llm=create_eval_llm(model=model, tracer=tracer),
             tool_results_dir=tool_results_dir,
         )
