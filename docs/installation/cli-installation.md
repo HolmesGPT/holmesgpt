@@ -83,32 +83,6 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 
     > **Note:** Use `-e` flags to pass API keys for your provider (e.g., `-e ANTHROPIC_API_KEY`, `-e GEMINI_API_KEY`). See [Environment Variables Reference](../reference/environment-variables.md) for the complete list.
 
-=== "Docker Compose"
-
-    Run the HolmesGPT HTTP server using Docker Compose — no Kubernetes or Helm chart required:
-
-    1. Clone the repository (or just download `docker-compose.yaml`):
-       ```bash
-       git clone https://github.com/HolmesGPT/holmesgpt.git
-       cd holmesgpt
-       ```
-
-    2. Set your API key:
-       ```bash
-       export OPENAI_API_KEY="your-api-key"
-       ```
-
-    3. Start the server:
-       ```bash
-       docker compose up
-       ```
-
-    4. The API is available at `http://localhost:5050`. Verify with:
-       ```bash
-       curl http://localhost:5050/healthz
-       ```
-
-    Edit `docker-compose.yaml` to uncomment additional API keys or adjust volume mounts for your environment.
 
 ## Quick Start
 
