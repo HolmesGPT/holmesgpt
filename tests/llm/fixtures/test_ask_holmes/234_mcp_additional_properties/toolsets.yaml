@@ -1,8 +1,8 @@
 toolsets:
-  cdn-analytics:
+  streaming-analytics:
     type: mcp
     enabled: true
-    description: "CDN streaming analytics platform for video delivery monitoring"
+    description: "Streaming analytics platform for real-time video delivery monitoring"
     config:
       mode: stdio
       command: "python"
