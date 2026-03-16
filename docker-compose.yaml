@@ -19,7 +19,7 @@ services:
       - ~/.kube/config:/root/.kube/config:ro
       - ~/.aws:/root/.aws:ro
       - ~/.config/gcloud:/root/.config/gcloud:ro
-    command: ["python3", "-u", "server.py"]
+    entrypoint: ["python", "-u", "server.py"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5050/healthz"]
       interval: 30s
