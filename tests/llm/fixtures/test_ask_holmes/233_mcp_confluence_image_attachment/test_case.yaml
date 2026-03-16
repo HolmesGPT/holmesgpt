@@ -34,14 +34,11 @@ before_test: |
   [ -n "${CONFLUENCE_SA_USER:-}" ] || { echo "Missing env var: CONFLUENCE_SA_USER"; exit 1; }
   [ -n "${CONFLUENCE_SA_API_KEY:-}" ] || { echo "Missing env var: CONFLUENCE_SA_API_KEY"; exit 1; }
 
-  # Derive the API base URL (handles scoped tokens via Atlassian API gateway)
-  if [ -n "${CONFLUENCE_SA_BASE_URL:-}" ]; then
-    API_BASE="${CONFLUENCE_SA_BASE_URL}"
-  else
-    API_BASE="${CONFLUENCE_BASE_URL}"
-  fi
+  # Use API gateway URL (auto-derived by conftest.py or set explicitly)
+  # Direct instance URL does not work with scoped API tokens
+  [ -n "${CONFLUENCE_SA_BASE_URL:-}" ] || { echo "Missing env var: CONFLUENCE_SA_BASE_URL (should be auto-derived by conftest.py)"; exit 1; }
+  API_BASE="${CONFLUENCE_SA_BASE_URL}"
 
-  AUTH=$(echo -n "${CONFLUENCE_SA_USER}:${CONFLUENCE_SA_API_KEY}" | base64)
   SPACE_KEY="HOLMESIMG"
   SPACE_NAME="Holmes Image Test"
   PAGE_TITLE="Image Verification Page"
@@ -50,7 +47,7 @@ before_test: |
   echo "Creating Confluence space ${SPACE_KEY}..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${API_BASE}/wiki/rest/api/space" \
-    -H "Authorization: Basic ${AUTH}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
       \"key\": \"${SPACE_KEY}\",
@@ -68,7 +65,7 @@ before_test: |
 
   if [ "$HTTP_CODE" -eq 200 ]; then
     echo "Space created."
-  elif [ "$HTTP_CODE" -eq 409 ]; then
+  elif echo "$BODY" | grep -q "already exists"; then
     echo "Space already exists, reusing."
   else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
@@ -80,7 +77,7 @@ before_test: |
   echo "Creating page..."
   PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${API_BASE}/wiki/rest/api/content" \
-    -H "Authorization: Basic ${AUTH}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
       \"type\": \"page\",
@@ -105,7 +102,7 @@ before_test: |
       "${API_BASE}/wiki/rest/api/content" \
       --data-urlencode "title=${PAGE_TITLE}" \
       --data-urlencode "spaceKey=${SPACE_KEY}" \
-      -H "Authorization: Basic ${AUTH}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
       | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
     if [ -z "$PAGE_ID" ]; then
       echo "Failed to create or find page."
@@ -143,7 +140,7 @@ before_test: |
   echo "Uploading image attachment to page ${PAGE_ID}..."
   ATTACH_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${API_BASE}/wiki/rest/api/content/${PAGE_ID}/child/attachment" \
-    -H "Authorization: Basic ${AUTH}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
     -H "X-Atlassian-Token: nocheck" \
     -F "file=@/tmp/verification_code_233.png;filename=verification_code.png" \
     -F "comment=Verification code image for eval test")
@@ -153,6 +150,8 @@ before_test: |
 
   if [ "$ATTACH_HTTP" -eq 200 ]; then
     echo "Image attached successfully"
+  elif echo "$ATTACH_BODY" | grep -q "same file name"; then
+    echo "Attachment already exists, reusing."
   else
     echo "Attachment upload returned HTTP ${ATTACH_HTTP}: ${ATTACH_BODY}"
     exit 1
@@ -161,7 +160,7 @@ before_test: |
   echo "Verifying attachment exists..."
   VERIFY=$(curl -L -s \
     "${API_BASE}/wiki/rest/api/content/${PAGE_ID}/child/attachment" \
-    -H "Authorization: Basic ${AUTH}")
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
 
   ATTACHMENT_COUNT=$(echo "$VERIFY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["size"])')
   if [ "$ATTACHMENT_COUNT" -gt 0 ]; then
@@ -177,19 +176,14 @@ before_test: |
 after_test: |
   set -e
 
-  if [ -n "${CONFLUENCE_SA_BASE_URL:-}" ]; then
-    API_BASE="${CONFLUENCE_SA_BASE_URL}"
-  else
-    API_BASE="${CONFLUENCE_BASE_URL}"
-  fi
-
-  AUTH=$(echo -n "${CONFLUENCE_SA_USER}:${CONFLUENCE_SA_API_KEY}" | base64)
+  [ -n "${CONFLUENCE_SA_BASE_URL:-}" ] || { echo "Missing CONFLUENCE_SA_BASE_URL"; exit 0; }
+  API_BASE="${CONFLUENCE_SA_BASE_URL}"
   SPACE_KEY="HOLMESIMG"
 
   echo "Deleting space ${SPACE_KEY}..."
   HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
     "${API_BASE}/wiki/rest/api/space/${SPACE_KEY}" \
-    -H "Authorization: Basic ${AUTH}")
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
 
   if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
     echo "Cleanup complete"
