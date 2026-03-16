@@ -1,4 +1,4 @@
-user_prompt: "Check deployments in namespace app-232 for hardcoded passwords or API keys in environment variables. Report what you find including the verification code embedded in each secret value."
+user_prompt: "This is a massive cluster with thousands of deployments. Check all deployments for hardcoded passwords or API keys in environment variables using a jq query to filter efficiently. Report what you find including the full secret values."
 
 # Core criteria: the kubernetes_jq_query tool must succeed (not error from shell parsing)
 # and Holmes must discover the verification code proving it actually read the data.
