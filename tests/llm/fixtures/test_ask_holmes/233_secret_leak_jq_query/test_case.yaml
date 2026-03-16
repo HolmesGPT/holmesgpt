@@ -17,14 +17,14 @@ tags:
   - regression
 
 before_test: |
-  kubectl create namespace app-232 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl create namespace app-233 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
 
   cat <<'EOF' | kubectl apply -f -
   apiVersion: apps/v1
   kind: Deployment
   metadata:
     name: inventory-api
-    namespace: app-232
+    namespace: app-233
   spec:
     replicas: 1
     selector:
@@ -51,7 +51,7 @@ before_test: |
   kind: Deployment
   metadata:
     name: checkout-service
-    namespace: app-232
+    namespace: app-233
   spec:
     replicas: 1
     selector:
@@ -76,7 +76,7 @@ before_test: |
   kind: Deployment
   metadata:
     name: safe-worker
-    namespace: app-232
+    namespace: app-233
   spec:
     replicas: 1
     selector:
@@ -103,9 +103,9 @@ before_test: |
 
   READY=false
   for i in {1..60}; do
-    COUNT=$(kubectl get deployments -n app-232 --no-headers 2>/dev/null | wc -l)
+    COUNT=$(kubectl get deployments -n app-233 --no-headers 2>/dev/null | wc -l)
     if [ "$COUNT" -ge 3 ]; then
-      echo "✅ All 3 deployments created in app-232"
+      echo "✅ All 3 deployments created in app-233"
       READY=true
       break
     fi
@@ -114,12 +114,12 @@ before_test: |
   done
   if [ "$READY" = false ]; then
     echo "❌ Deployments not created after 60s"
-    kubectl get deployments -n app-232
+    kubectl get deployments -n app-233
     exit 1
   fi
 
   # Verify the data is queryable via a jq pattern with pipes, regex, and semicolons
-  VERIFY=$(kubectl get deployments -n app-232 -o json | jq -r '.items[] | .spec.template.spec.containers[] | .env // [] | .[] | select(.value != null and (.valueFrom == null)) | select(.name | test("PASSWORD|SECRET|API_KEY|CREDENTIAL"; "i")) | .name')
+  VERIFY=$(kubectl get deployments -n app-233 -o json | jq -r '.items[] | .spec.template.spec.containers[] | .env // [] | .[] | select(.value != null and (.valueFrom == null)) | select(.name | test("PASSWORD|SECRET|API_KEY|CREDENTIAL"; "i")) | .name')
   if echo "$VERIFY" | grep -q "DB_PASSWORD" && echo "$VERIFY" | grep -q "STRIPE_API_KEY"; then
     echo "✅ Verification: found DB_PASSWORD and STRIPE_API_KEY via jq query"
   else
@@ -129,4 +129,4 @@ before_test: |
   fi
 
 after_test: |
-  kubectl delete namespace app-232 || true
+  kubectl delete namespace app-233 || true

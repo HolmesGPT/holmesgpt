@@ -36,16 +36,12 @@ toolsets:
 
           err_file=$(mktemp)
 
-          # Write jq expression to a temp file to avoid shell interpretation issues
-          jq_file=$(mktemp)
-          printf '%s' {{ jq_expr }} > "$jq_file"
-
           # Get the API path for the resource kind using kubectl
           API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
-            rm -f "$err_file" "$jq_file"
+            rm -f "$err_file"
             jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
@@ -58,7 +54,7 @@ toolsets:
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
           else
             err_content=$(cat "$err_file" 2>/dev/null)
-            rm -f "$err_file" "$jq_file"
+            rm -f "$err_file"
             jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
@@ -82,7 +78,7 @@ toolsets:
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
-            rm -f "$err_file" "$jq_file"
+            rm -f "$err_file"
             jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
@@ -114,7 +110,7 @@ toolsets:
 
             if [ $exit_code -ne 0 ]; then
               err_content=$(cat "$err_file" 2>/dev/null)
-              rm -f "$err_file" "$jq_file"
+              rm -f "$err_file"
               jq -n --arg stderr "kubectl get --raw failed for $QUERY. $err_content" \
                 --argjson total "$PROCESSED" \
                 '{total_items_processed: $total, matches_found: 0, results: [], stderr: $stderr}'
@@ -123,11 +119,11 @@ toolsets:
 
             ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
 
-            MATCHES=$(echo "$OUTPUT" | jq -c -f "$jq_file" 2>>"$err_file")
+            MATCHES=$(echo "$OUTPUT" | jq -c "$JQ_FILTER" 2>>"$err_file")
             jq_exit=$?
             if [ $jq_exit -ne 0 ]; then
               err_content=$(cat "$err_file" 2>/dev/null)
-              rm -f "$err_file" "$jq_file"
+              rm -f "$err_file"
               jq -n --arg stderr "jq expression failed. $err_content" \
                 --argjson total "$PROCESSED" \
                 '{total_items_processed: $total, matches_found: 0, results: [], stderr: $stderr}'
@@ -155,7 +151,7 @@ toolsets:
           done
 
           err_content=$(cat "$err_file" 2>/dev/null)
-          rm -f "$err_file" "$jq_file"
+          rm -f "$err_file"
 
           # Output results as a JSON object with metadata
           if [ -n "$ALL_MATCHES" ]; then
@@ -296,16 +292,12 @@ toolsets:
 
           err_file=$(mktemp)
 
-          # Write jq expression to a temp file to avoid shell interpretation issues
-          jq_file=$(mktemp)
-          printf '%s' {{ jq_expr }} > "$jq_file"
-
           # Get the API path for the resource kind
           API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
-            rm -f "$err_file" "$jq_file"
+            rm -f "$err_file"
             jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
@@ -317,7 +309,7 @@ toolsets:
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
           else
             err_content=$(cat "$err_file" 2>/dev/null)
-            rm -f "$err_file" "$jq_file"
+            rm -f "$err_file"
             jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
@@ -340,7 +332,7 @@ toolsets:
 
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
-            rm -f "$err_file" "$jq_file"
+            rm -f "$err_file"
             jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
@@ -371,7 +363,7 @@ toolsets:
 
             if [ $exit_code -ne 0 ]; then
               err_content=$(cat "$err_file" 2>/dev/null)
-              rm -f "$err_file" "$jq_file"
+              rm -f "$err_file"
               jq -n --arg stderr "kubectl get --raw failed for $QUERY. $err_content" \
                 --argjson total "$TOTAL_PROCESSED" \
                 '{total_items_processed: $total, matches_found: 0, preview: [], stderr: $stderr}'
@@ -381,11 +373,11 @@ toolsets:
             ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
             TOTAL_PROCESSED=$((TOTAL_PROCESSED + ITEMS_COUNT))
 
-            BATCH_MATCHES=$(echo "$OUTPUT" | jq -c -r -f "$jq_file" 2>>"$err_file")
+            BATCH_MATCHES=$(echo "$OUTPUT" | jq -c -r {{ jq_expr }} 2>>"$err_file")
             jq_exit=$?
             if [ $jq_exit -ne 0 ]; then
               err_content=$(cat "$err_file" 2>/dev/null)
-              rm -f "$err_file" "$jq_file"
+              rm -f "$err_file"
               jq -n --arg stderr "jq expression failed. $err_content" \
                 --argjson total "$TOTAL_PROCESSED" \
                 '{total_items_processed: $total, matches_found: 0, preview: [], stderr: $stderr}'
@@ -407,7 +399,7 @@ toolsets:
           done
 
           err_content=$(cat "$err_file" 2>/dev/null)
-          rm -f "$err_file" "$jq_file"
+          rm -f "$err_file"
 
           # Count and preview the collected matches
           filtered_matches=$(echo "$ALL_MATCHES" | grep -v '^$' | grep -v '^null$')
