@@ -1,0 +1,22 @@
+# Test: LLM produces multi-line jq expression as a tool parameter
+# Verifies that newlines in LLM-generated jq expressions don't break shell execution.
+#
+# The kubernetes_jq_query tool collapses multi-line jq via tr before passing to jq.
+# This eval verifies that works end-to-end with a real cluster.
+
+user_prompt: >
+  Use the kubernetes_jq_query tool with kind "pods" to find all pods across all namespaces.
+  Write a readable, well-structured, MULTI-LINE jq expression that extracts each pod's
+  name, namespace, and phase. Format the jq expression with line breaks for readability.
+
+expected_output:
+  - "Must call kubernetes_jq_query tool successfully on the FIRST attempt (no syntax error or jq failure in output). If the tool was called multiple times because the first call failed and was retried, this criterion FAILS."
+  - "Must return pod names and namespaces from the cluster"
+
+include_tool_calls: true
+
+runbooks: {}
+
+tags:
+  - fast
+  - easy

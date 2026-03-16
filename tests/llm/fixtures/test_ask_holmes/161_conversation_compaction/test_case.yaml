@@ -21,5 +21,6 @@ test_type: server
 
 tags:
   - kubernetes
+  - compaction
 
 setup_timeout: 600

@@ -125,7 +125,8 @@ class ElasticsearchBaseToolset(Toolset):
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         """Check if the Elasticsearch configuration is valid and the cluster is reachable."""
         try:
-            self.config = ElasticsearchConfig(**config)
+            config_class = self.config_classes[0] if self.config_classes else ElasticsearchConfig
+            self.config = config_class(**config)
             return self._perform_health_check()
         except Exception as e:
             return False, f"Failed to validate Elasticsearch configuration: {str(e)}"

@@ -398,6 +398,34 @@ class RemoteMCPTool(Tool):
 
         enum = schema.get("enum")
 
+        additional_properties = None
+        raw_ap = schema.get("additionalProperties")
+        if raw_ap is not None:
+            if isinstance(raw_ap, bool):
+                additional_properties = raw_ap
+            elif isinstance(raw_ap, dict):
+                # Resolve $ref pointers so the LLM sees concrete types, but
+                # preserve compound keywords (anyOf/oneOf) intact — _resolve_schema
+                # collapses those to a single branch which loses type information
+                # (e.g. string|array becomes just string).
+                if "$ref" in raw_ap:
+                    additional_properties = cls._resolve_schema(raw_ap, root_schema)
+                else:
+                    additional_properties = raw_ap
+
+        # Capture JSON Schema validation keywords that aren't modeled as
+        # dedicated ToolParameter fields.  These are passed through to the
+        # OpenAI-formatted schema so the LLM sees constraints like array
+        # length limits, numeric ranges, and string patterns.
+        _PASSTHROUGH_KEYWORDS = {
+            "minItems", "maxItems",
+            "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+            "minLength", "maxLength",
+            "pattern",
+            "default",
+        }
+        json_schema_extra = {k: v for k, v in schema.items() if k in _PASSTHROUGH_KEYWORDS}
+
         return ToolParameter(
             description=schema.get("description"),
             type=param_type,
@@ -405,6 +433,8 @@ class RemoteMCPTool(Tool):
             items=items,
             properties=properties,
             enum=enum,
+            additional_properties=additional_properties,
+            json_schema_extra=json_schema_extra or None,
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:

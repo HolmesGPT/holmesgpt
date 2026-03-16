@@ -216,7 +216,7 @@ jobs:
             core.setOutput('last_eval_comment_id', lastEvalCommentId ? lastEvalCommentId.toString() : '');
             core.setOutput('resolved_body', body);
 
-            // Parse branch parameter from comment if specified (for cross-branch comparison)
+            // Parse branch parameter: runs Holmes code from that branch with eval fixtures from the PR
             let targetBranch = '';
             for (const line of body.split('\n').slice(1)) {
               const colonIdx = line.indexOf(':');
@@ -247,9 +247,22 @@ jobs:
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
         uses: actions/checkout@v4
         with:
-          # For /eval with branch: checkout the specified branch; otherwise checkout PR SHA or current ref
-          ref: ${{ steps.eval-comment.outputs.branch || steps.eval-comment.outputs.pr_sha || github.ref }}
+          # Always checkout PR code first (includes eval fixtures in tests/)
+          ref: ${{ steps.eval-comment.outputs.pr_sha || github.ref }}
           path: code
+
+      # When branch: is specified in /eval, overlay Holmes source code from that branch
+      # while keeping tests/ (eval fixtures + framework) from the PR branch.
+      # This allows running master's Holmes code against a PR's new eval tests.
+      - name: Overlay Holmes code from target branch
+        if: (github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success') && steps.eval-comment.outputs.branch != ''
+        working-directory: code
+        run: |
+          git fetch origin "$TARGET_BRANCH"
+          # Replace all files except tests/ with versions from the target branch
+          git checkout "origin/$TARGET_BRANCH" -- . ':!tests/'
+        env:
+          TARGET_BRANCH: ${{ steps.eval-comment.outputs.branch }}
 
       - name: Checkout trusted helpers from base branch
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
