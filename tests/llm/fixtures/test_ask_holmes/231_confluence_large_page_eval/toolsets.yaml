@@ -1,8 +1,3 @@
-# Confluence-only toolset config.  Bash is explicitly disabled to simulate
-# deployments without shell access (Slack bot, API server).  Without bash,
-# the filesystem-storage fallback for oversized tool responses is unavailable,
-# so pages exceeding the per-tool token limit (~25K tokens) will have their
-# content dropped entirely.
 toolsets:
   confluence:
     enabled: true
@@ -17,7 +12,7 @@ toolsets:
   helm/core:
     enabled: false
   bash:
-    enabled: false
+    enabled: true
   internet:
     enabled: false
   connectivity_check:

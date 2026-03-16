@@ -49,13 +49,15 @@ from holmes.core.feedback import (
     UserFeedback,
 )
 from holmes.core.prompt import PromptComponent, build_initial_ask_messages
+from holmes.core.models import PendingToolApproval
 from holmes.core.tool_calling_llm import (
+    ApprovalCallback,
     LLMInterruptedError,
     LLMResult,
     ToolCallingLLM,
     ToolCallResult,
 )
-from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
+from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
     enable_cli_mode,
@@ -717,7 +719,7 @@ def _run_inline_menu(options: list[str], console: Console) -> Optional[int]:
 
 
 def handle_tool_approval(
-    tool_result: StructuredToolResult,
+    pending_approval: PendingToolApproval,
     style: Style,
     console: Console,
 ) -> tuple[bool, Optional[str]]:
@@ -730,7 +732,7 @@ def handle_tool_approval(
     3. Type feedback to tell Holmes what to do differently
 
     Args:
-        tool_result: The StructuredToolResult containing command and prefixes
+        pending_approval: The PendingToolApproval describing what needs approval
         style: Style for prompts
         console: Rich console for output
 
@@ -739,10 +741,8 @@ def handle_tool_approval(
         - approved: True if user approves, False if denied
         - feedback: User's optional feedback message when denying
     """
-    command = tool_result.invocation
-    prefixes = (
-        tool_result.params.get("suggested_prefixes", []) if tool_result.params else []
-    )
+    command = pending_approval.description
+    prefixes = pending_approval.params.get("suggested_prefixes", [])
 
     # Format prefixes for display
     if prefixes:
@@ -1189,23 +1189,23 @@ def run_interactive_loop(
     )
 
     # Set up approval callback based on CLI flags
-    # --bash-always-deny: don't set callback, let default behavior deny
-    # --bash-always-allow: set callback that always approves
-    # default: set interactive approval handler
+    # --bash-always-deny: None (default behavior denies)
+    # --bash-always-allow: callback that always approves
+    # default: interactive approval handler
+    approval_callback: Optional[ApprovalCallback] = None
     if bash_always_allow:
-        ai.approval_callback = lambda _: (True, None)
+        approval_callback = lambda _: (True, None)
     elif not bash_always_deny:
-        # Default: interactive approval
         def approval_handler(
-            tool_call_result: StructuredToolResult,
+            pending_approval: PendingToolApproval,
         ) -> tuple[bool, Optional[str]]:
             return handle_tool_approval(
-                tool_result=tool_call_result,
+                pending_approval=pending_approval,
                 style=style,
                 console=console,
             )
 
-        ai.approval_callback = approval_handler
+        approval_callback = approval_handler
 
     # Create merged completer with slash commands, conditional executables, show command, and smart paths
     # TODO: remove unsupported_commands support once we implement feedback callback
@@ -1478,12 +1478,12 @@ def run_interactive_loop(
             terminal_restored = threading.Event()
 
             # Wrap approval callback to coordinate terminal access with escape listener
-            original_approval = ai.approval_callback
-            if original_approval:
+            call_approval_callback = approval_callback
+            if approval_callback:
 
                 def _wrapped_approval(
-                    tool_result: StructuredToolResult,
-                    _orig=original_approval,
+                    pending_approval: PendingToolApproval,
+                    _orig=approval_callback,
                     _approval_active=approval_active,
                     _terminal_restored=terminal_restored,
                 ) -> tuple[bool, Optional[str]]:
@@ -1492,11 +1492,11 @@ def run_interactive_loop(
                     # from cbreak mode before launching the prompt_toolkit UI.
                     _terminal_restored.wait(timeout=2.0)
                     try:
-                        return _orig(tool_result)
+                        return _orig(pending_approval)
                     finally:
                         _approval_active.clear()
 
-                ai.approval_callback = _wrapped_approval
+                call_approval_callback = _wrapped_approval
 
             call_result: List[Optional[LLMResult]] = [None]
             call_error: List[Optional[Exception]] = [None]
@@ -1513,6 +1513,7 @@ def run_interactive_loop(
                     _messages=messages,
                     _trace_span=trace_span,
                     _cancel_event=cancel_event,
+                    _approval_callback=call_approval_callback,
                 ) -> None:
                     try:
                         _call_result[0] = ai.call(
@@ -1520,6 +1521,7 @@ def run_interactive_loop(
                             trace_span=_trace_span,
                             tool_number_offset=len(all_tool_calls_history),
                             cancel_event=_cancel_event,
+                            approval_callback=_approval_callback,
                         )
                     except Exception as exc:  # noqa: BLE001
                         _call_error[0] = exc
@@ -1527,17 +1529,10 @@ def run_interactive_loop(
                 ai_thread = threading.Thread(target=_run_ai_call, daemon=True)
                 ai_thread.start()
 
-                try:
-                    interrupted = _wait_for_completion_or_escape(
-                        ai_thread, cancel_event, approval_active,
-                        terminal_restored,
-                    )
-                finally:
-                    # Restore original approval callback even if the escape
-                    # listener raises (e.g. termios.error), so ai doesn't
-                    # keep a _wrapped_approval referencing a stale event.
-                    if original_approval:
-                        ai.approval_callback = original_approval
+                interrupted = _wait_for_completion_or_escape(
+                    ai_thread, cancel_event, approval_active,
+                    terminal_restored,
+                )
 
                 if interrupted or isinstance(call_error[0], LLMInterruptedError):
                     messages = messages_snapshot

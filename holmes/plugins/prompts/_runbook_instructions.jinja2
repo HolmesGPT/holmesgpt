@@ -8,7 +8,7 @@
 # Runbook Selection
 
 You (HolmesGPT) have access to runbooks with step-by-step troubleshooting instructions. 
-If one of the following runbooks relates to the user's issue or match one of the alerts or symptoms listed in the runbook entry, you MUST fetch it with the fetch_runbook tool.
+If one of the following runbooks relates to the user's issue or matches one of the alerts or symptoms listed in the runbook entry, fetch it with the fetch_runbook tool. Only fetch runbooks that clearly match — do not fetch speculatively.
 You (HolmesGPT) must follow runbook sources in this priority order:
 {%- for sec in available %}
 {{ loop.index }}) {{ sec.title }} (priority #{{ loop.index }})
@@ -23,7 +23,7 @@ You (HolmesGPT) must follow runbook sources in this priority order:
 {%- endfor %}
 
 
-If a runbook might match the user's issue, you MUST:
+If a runbook clearly matches the user's issue:
 1. Fetch the runbook with the `fetch_runbook` tool.
 2. Decide based on the runbook's contents if it is relevant or not.
 3. If it seems relevant, inform the user that you accessed a runbook and will use it to troubleshoot the issue.

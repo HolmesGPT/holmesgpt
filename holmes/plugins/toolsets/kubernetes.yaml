@@ -29,6 +29,11 @@ toolsets:
         script: |
           #!/bin/bash
 
+          # Collapse multi-line jq expressions (LLMs sometimes write multi-line jq)
+          # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
+          JQ_FILTER={{ jq_expr }}
+          JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr $'\n\r' '  ')
+
           err_file=$(mktemp)
 
           # Write jq expression to a temp file to avoid shell interpretation issues

@@ -14,6 +14,8 @@ from typing import List, Optional, Tuple
 import bashlex
 from bashlex import ast
 
+from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH, load_bool
+
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,
@@ -75,7 +77,20 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     else:
         builtin = []
 
-    allow_list = sorted(set(builtin + config.allow))
+    # Auto-allow read-only commands for the tool result storage directory so the
+    # LLM can access saved large tool results without approval prompts.
+    tool_result_prefixes: List[str] = []
+    if load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
+        storage_path = HOLMES_TOOL_RESULT_STORAGE_PATH
+        tool_result_prefixes = [
+            f"cat {storage_path}",
+            f"head {storage_path}",
+            f"tail {storage_path}",
+            f"wc {storage_path}",
+            f"jq {storage_path}",
+        ]
+
+    allow_list = sorted(set(builtin + config.allow + tool_result_prefixes))
     deny_list = sorted(set(DEFAULT_DENY_LIST + config.deny))
 
     return allow_list, deny_list
@@ -182,7 +197,6 @@ def match_prefix(segment: str, prefix: str) -> bool:
     segment = segment.strip()
     prefix = prefix.strip()
 
-    # Command must start with the prefix
     if not segment.startswith(prefix):
         return False
 

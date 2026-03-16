@@ -98,7 +98,7 @@ opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     help="Path to a custom toolsets. The status of the custom toolsets specified here won't be cached (can specify -t multiple times to add multiple toolsets)",
 )
 opt_max_steps: Optional[int] = typer.Option(
-    40,
+    100,
     "--max-steps",
     help="Advanced. Maximum number of steps the LLM can take to investigate the issue",
 )
@@ -172,7 +172,11 @@ def _investigate_issue(
         f"\n #This is context from the issue:\n{issue.raw}",
         context={},
     )
-    return ai.prompt_call(system_prompt, user_prompt)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    return ai.call(messages)
 
 
 # TODO: add streaming output
@@ -668,6 +672,7 @@ def ticket(
             ticket_username=ticket_username,
             ticket_api_key=ticket_api_key,
             ticket_id=ticket_id,
+            model=model,
         )
     except Exception as e:
         console.print(f"[bold red]Error: {str(e)}[/bold red]")
@@ -713,7 +718,11 @@ def ticket(
         )
 
         ticket_user_prompt = generate_user_prompt(prompt, context={})
-        result = ai.prompt_call(system_prompt, ticket_user_prompt)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": ticket_user_prompt},
+        ]
+        result = ai.call(messages)
 
         console.print(Rule())
         console.print(

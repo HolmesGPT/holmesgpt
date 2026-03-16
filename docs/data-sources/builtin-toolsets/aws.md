@@ -245,9 +245,12 @@ Choose your installation method:
     kubectl logs -l app.kubernetes.io/name=aws-mcp-server
     ```
 
-## Multi-Account Setup (Alternative)
+## Multi-Account Setup
 
-If you need to access multiple AWS accounts from your EKS clusters, use this setup instead of the single account setup above.
+If you have a single Holmes agent that needs to query AWS resources across multiple accounts (e.g., a staging account and a production account), use this setup instead of the single account setup above.
+
+!!! note "Alternative: One agent per account"
+    You can also deploy a separate Holmes agent in each AWS account. If you use [Robusta](https://home.robusta.dev/), you can manage a fleet of agents across environments from a single pane of glass. The multi-account setup below is for when you want **one agent** to reach into **multiple accounts**.
 
 ??? info "How It Works"
     When multi-account mode is enabled, the MCP server:

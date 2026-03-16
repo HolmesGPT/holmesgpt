@@ -262,7 +262,7 @@ Main configuration class (`holmes.config.Config`).
 |-----------|------|---------|-------------|
 | `api_key` | `str` | Auto-detected | LLM API key. Reads from `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc. if not provided. |
 | `model` | `str` | *None* | Model identifier, e.g. `"anthropic/claude-sonnet-4-5-20250929"`. Required. |
-| `max_steps` | `int` | `40` | Maximum tool-calling steps per request. |
+| `max_steps` | `int` | `100` | Maximum tool-calling steps per request. |
 | `custom_toolsets` | `list[path]` | *None* | Paths to custom YAML toolset files. |
 | `additional_toolsets` | `list[Toolset]` | *None* | Python `Toolset` instances to load alongside built-in toolsets. |
 | `toolsets` | `dict` | *None* | Inline toolset configuration overrides. |
@@ -282,13 +282,12 @@ Core AI engine for tool-calling interactions (`holmes.core.tool_calling_llm.Tool
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `call(messages)` | `LLMResult` | Run a tool-calling conversation with a full message list. |
-| `prompt_call(system_prompt, user_prompt)` | `LLMResult` | Single-turn call with system and user prompts. |
-| `messages_call(messages)` | `LLMResult` | Call with a message list (simpler signature than `call`). |
+| `call(messages, approval_callback=None)` | `LLMResult` | Run a tool-calling conversation with a full message list. |
+| `call_stream(msgs)` | `Generator[StreamMessage]` | Streaming version that yields events between iterations. |
 
 ### `LLMResult`
 
-Response object returned by `call()` and `prompt_call()`.
+Response object returned by `call()`.
 
 | Field | Type | Description |
 |-------|------|-------------|
