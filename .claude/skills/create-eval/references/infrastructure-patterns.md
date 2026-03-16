@@ -176,7 +176,31 @@ For tests against cloud services (Elasticsearch, external APIs):
 
 3. Add required secrets to `.github/workflows/eval-regression.yaml`
 
-4. `before_test` creates test data, `after_test` cleans up
+4. `before_test` creates test data idempotently (see reentrancy below)
+
+### Cloud Service Eval Reentrancy
+
+The same eval can run in parallel across multiple PRs in CI. Unlike Kubernetes evals (which get isolated namespaces), cloud service evals share a single account/instance. This means:
+
+- **`before_test` must be idempotent**: create-or-reuse resources, never fail if they already exist. Handle "already exists" responses from APIs (e.g., HTTP 400/409 with "already exists" in body).
+- **`after_test` must NOT delete shared resources**: another parallel run may still be using them. Either omit `after_test` entirely or restrict cleanup to resources with a unique run-scoped identifier.
+- **Use test-ID-based resource names** (e.g., `HLMS233` for Confluence space keys) to avoid collisions between different evals, while accepting that the *same* eval can overlap with itself across parallel PR runs.
+
+```yaml
+# GOOD - idempotent setup, no destructive cleanup
+before_test: |
+  # Create space (or reuse if exists)
+  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST .../space ...)
+  if [ "$HTTP_CODE" -eq 200 ]; then echo "Created."
+  elif echo "$BODY" | grep -q "already exists"; then echo "Reusing."
+  else exit 1; fi
+
+# No after_test — resources are tiny, reused across runs
+
+# BAD - deletes resources that a parallel run may be using
+after_test: |
+  curl -X DELETE .../space/HLMS233  # Another CI run may be mid-test!
+```
 
 ## Cleanup Pattern
 

@@ -10,9 +10,14 @@
 #   CONFLUENCE_BASE_URL - Atlassian instance URL (e.g. https://robusta-llm-test.atlassian.net)
 #   CONFLUENCE_SA_USER - Service account email
 #   CONFLUENCE_SA_API_KEY - Service account API token
+#
+# Reentrancy: This test is fully idempotent. The space, page, and attachment
+# use static names and are created-or-reused on each run. after_test is a no-op
+# so parallel CI runs on different PRs never delete resources out from under
+# each other.
 
 user_prompt: |
-  In the Confluence space 'HOLMESIMG', find the page titled 'Image Verification Page'
+  In the Confluence space 'HLMS233', find the page titled 'Image Verification Page'
   and look at the image attached to it. Tell me the verification code shown in the image.
 
 expected_output:
@@ -39,12 +44,12 @@ before_test: |
   [ -n "${CONFLUENCE_SA_BASE_URL:-}" ] || { echo "Missing env var: CONFLUENCE_SA_BASE_URL (should be auto-derived by conftest.py)"; exit 1; }
   API_BASE="${CONFLUENCE_SA_BASE_URL}"
 
-  SPACE_KEY="HOLMESIMG"
-  SPACE_NAME="Holmes Image Test"
+  SPACE_KEY="HLMS233"
+  SPACE_NAME="Holmes Eval 233"
   PAGE_TITLE="Image Verification Page"
   VERIFICATION_CODE="IMGVERIFY-7Q3X9P"
 
-  echo "Creating Confluence space ${SPACE_KEY}..."
+  echo "Creating Confluence space ${SPACE_KEY} (idempotent)..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${API_BASE}/wiki/rest/api/space" \
     -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
@@ -74,7 +79,7 @@ before_test: |
 
   sleep 2
 
-  echo "Creating page..."
+  echo "Creating page (idempotent)..."
   PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${API_BASE}/wiki/rest/api/content" \
     -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
@@ -137,7 +142,7 @@ before_test: |
     exit 1
   fi
 
-  echo "Uploading image attachment to page ${PAGE_ID}..."
+  echo "Uploading image attachment to page ${PAGE_ID} (idempotent)..."
   ATTACH_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${API_BASE}/wiki/rest/api/content/${PAGE_ID}/child/attachment" \
     -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
@@ -173,20 +178,7 @@ before_test: |
   rm -f /tmp/verification_code_233.png
   echo "Setup complete"
 
-after_test: |
-  set -e
-
-  [ -n "${CONFLUENCE_SA_BASE_URL:-}" ] || { echo "Missing CONFLUENCE_SA_BASE_URL"; exit 0; }
-  API_BASE="${CONFLUENCE_SA_BASE_URL}"
-  SPACE_KEY="HOLMESIMG"
-
-  echo "Deleting space ${SPACE_KEY}..."
-  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
-    "${API_BASE}/wiki/rest/api/space/${SPACE_KEY}" \
-    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
-
-  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
-    echo "Cleanup complete"
-  else
-    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
-  fi
+# No after_test cleanup — intentionally omitted for reentrancy.
+# Cloud service evals with static resource names must NOT delete resources
+# in after_test because parallel CI runs would race. The space/page/attachment
+# are tiny and reused across runs. See CLAUDE.md "Cloud Service Eval Reentrancy".
