@@ -592,6 +592,7 @@ class YAMLTool(Tool, BaseModel):
             result = subprocess.run(
                 protected_cmd,
                 shell=True,
+                executable="/bin/bash",
                 text=True,
                 check=False,  # do not throw error, we just return the error code
                 stdin=subprocess.DEVNULL,
