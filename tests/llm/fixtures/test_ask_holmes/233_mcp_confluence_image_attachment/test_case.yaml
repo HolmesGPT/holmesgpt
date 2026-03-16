@@ -17,11 +17,11 @@
 # each other.
 
 user_prompt: |
-  In the Confluence space 'HLMS233', find the page titled 'Image Verification Page'
-  and look at the image attached to it. Tell me the verification code shown in the image.
+  In the Confluence space 'HLMS233', find the page titled 'Platform Credentials'
+  and look at the image attached to it. Tell me the code shown in the image.
 
 expected_output:
-  - "Must report the verification code from the image: IMGVERIFY-7Q3X9P"
+  - "Must report the code from the image: IMGVERIFY-7Q3X9P"
 
 include_tool_calls: true
 
@@ -46,7 +46,7 @@ before_test: |
 
   SPACE_KEY="HLMS233"
   SPACE_NAME="Holmes Eval 233"
-  PAGE_TITLE="Image Verification Page"
+  PAGE_TITLE="Platform Credentials"
   VERIFICATION_CODE="IMGVERIFY-7Q3X9P"
 
   echo "Creating Confluence space ${SPACE_KEY} (idempotent)..."
@@ -77,7 +77,20 @@ before_test: |
     exit 1
   fi
 
-  sleep 2
+  # Poll until space is queryable (eventual consistency)
+  SPACE_READY=false
+  for i in $(seq 1 15); do
+    if curl -L -s "${API_BASE}/wiki/rest/api/space/${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" | grep -q "${SPACE_KEY}"; then
+      SPACE_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$SPACE_READY" = false ]; then
+    echo "Space not queryable after 15s"
+    exit 1
+  fi
 
   echo "Creating page (idempotent)..."
   PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
@@ -90,7 +103,7 @@ before_test: |
       \"space\": {\"key\": \"${SPACE_KEY}\"},
       \"body\": {
         \"storage\": {
-          \"value\": \"<p>This page has an image attachment containing a verification code. Look at the attached image to find it.</p>\",
+          \"value\": \"<p>This page has an image attachment. Look at the attached image to find the code.</p>\",
           \"representation\": \"storage\"
         }
       }
@@ -117,7 +130,7 @@ before_test: |
   fi
   echo "Page ID: ${PAGE_ID}"
 
-  echo "Generating verification image with code: ${VERIFICATION_CODE}"
+  echo "Generating image with code: ${VERIFICATION_CODE}"
   python3 -c "
   from PIL import Image, ImageDraw, ImageFont
 
@@ -129,7 +142,7 @@ before_test: |
   except (IOError, OSError):
       font = ImageFont.load_default()
 
-  draw.text((30, 30), 'Verification Code:', fill='black', font=font)
+  draw.text((30, 30), 'Access Code:', fill='black', font=font)
   draw.text((30, 90), '${VERIFICATION_CODE}', fill='red', font=font)
   draw.rectangle([20, 20, 380, 180], outline='black', width=3)
 
@@ -147,8 +160,8 @@ before_test: |
     "${API_BASE}/wiki/rest/api/content/${PAGE_ID}/child/attachment" \
     -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
     -H "X-Atlassian-Token: nocheck" \
-    -F "file=@/tmp/verification_code_233.png;filename=verification_code.png" \
-    -F "comment=Verification code image for eval test")
+    -F "file=@/tmp/verification_code_233.png;filename=credentials.png" \
+    -F "comment=Platform access credentials")
 
   ATTACH_HTTP=$(echo "$ATTACH_RESPONSE" | tail -n1)
   ATTACH_BODY=$(echo "$ATTACH_RESPONSE" | sed '$d')
@@ -162,16 +175,22 @@ before_test: |
     exit 1
   fi
 
-  echo "Verifying attachment exists..."
-  VERIFY=$(curl -L -s \
-    "${API_BASE}/wiki/rest/api/content/${PAGE_ID}/child/attachment" \
-    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
-
-  ATTACHMENT_COUNT=$(echo "$VERIFY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["size"])')
-  if [ "$ATTACHMENT_COUNT" -gt 0 ]; then
-    echo "Verified: ${ATTACHMENT_COUNT} attachment(s) on page ${PAGE_ID}"
-  else
-    echo "No attachments found on page"
+  # Poll until attachment is visible (eventual consistency)
+  ATTACH_VERIFIED=false
+  for i in $(seq 1 15); do
+    COUNT=$(curl -L -s \
+      "${API_BASE}/wiki/rest/api/content/${PAGE_ID}/child/attachment" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; print(json.load(sys.stdin)["size"])' 2>/dev/null || echo "0")
+    if [ "$COUNT" -gt 0 ]; then
+      echo "Verified: ${COUNT} attachment(s) on page ${PAGE_ID}"
+      ATTACH_VERIFIED=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ATTACH_VERIFIED" = false ]; then
+    echo "No attachments found after 15s"
     exit 1
   fi
 

@@ -183,7 +183,10 @@ For tests against cloud services (Elasticsearch, external APIs):
 The same eval can run in parallel across multiple PRs in CI. Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs. This means:
 
 - **`before_test` must be idempotent**: create-or-reuse resources, never fail if they already exist. Handle "already exists" responses from APIs (e.g., HTTP 400/409 with "already exists" in body).
-- **`after_test` must NOT delete shared resources**: another parallel run may still be using them. Either omit `after_test` entirely or restrict cleanup to resources with a unique run-scoped identifier.
+- **`after_test` cleanup depends on naming strategy**:
+  - **Test-ID-only names** (e.g., `HLMS233`): NOT safe to delete — the same eval on another PR may be using them. Omit `after_test` entirely.
+  - **Run-scoped unique names** (e.g., `HLMS233-${GITHUB_RUN_ID}`): Safe to delete — each run owns its resources. But this requires dynamic names in `user_prompt`, which the test framework doesn't currently support.
+  - In practice, most cloud service evals use test-ID-only names and skip cleanup.
 - **Use test-ID-based resource names** (e.g., `HLMS233` for Confluence space keys) to avoid collisions between different evals, while accepting that the *same* eval can overlap with itself across parallel PR runs.
 
 ```yaml
@@ -213,3 +216,5 @@ after_test: |
 ```
 
 Use `--ignore-not-found` to prevent cleanup failures if resources don't exist.
+
+**Note:** This pattern applies to Kubernetes evals where each PR gets its own KIND cluster. For cloud service evals that share a single account across PR runs, see [Cloud Service Eval Reentrancy](#cloud-service-eval-reentrancy) — deleting resources in `after_test` is often unsafe.
