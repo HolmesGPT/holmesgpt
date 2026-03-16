@@ -49,7 +49,7 @@ before_test: |
 
   if [ "$HTTP_CODE" -eq 200 ]; then
     echo "Space created."
-  elif [ "$HTTP_CODE" -eq 409 ]; then
+  elif echo "$BODY" | grep -q "already exists"; then
     echo "Space already exists, reusing."
   else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
