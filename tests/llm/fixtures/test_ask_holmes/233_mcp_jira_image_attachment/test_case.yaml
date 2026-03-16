@@ -1,0 +1,195 @@
+# Test: MCP server image support - Jira attachment with image content
+# Tests that Holmes can receive and interpret images returned by MCP tools.
+# The mcp-atlassian server's jira_get_issue_images tool returns ImageContent
+# blocks, which Holmes must pass through to the vision-capable LLM.
+#
+# Currently RED: MCP tool results only extract text content (c.type == "text"),
+# dropping image content blocks entirely. Holmes cannot see images from MCP tools.
+#
+# Requirements:
+#   CONFLUENCE_BASE_URL - Atlassian instance URL (shared with Confluence evals)
+#   CONFLUENCE_SA_USER - Service account email (shared with Confluence evals)
+#   CONFLUENCE_SA_API_KEY - Service account API token (shared with Confluence evals)
+
+user_prompt: |
+  Look at the image attached to Jira issue HOLMESIMG-1 and tell me the
+  verification code written in the image.
+
+expected_output:
+  - "Must report the verification code from the image: IMGVERIFY-7Q3X9P"
+
+include_tool_calls: true
+
+tags:
+  - question-answer
+  - hard
+  - fast
+  - no-cicd
+
+before_test: |
+  set -e
+
+  # Validate required environment variables
+  [ -n "${CONFLUENCE_BASE_URL:-}" ] || { echo "Missing env var: CONFLUENCE_BASE_URL"; exit 1; }
+  [ -n "${CONFLUENCE_SA_USER:-}" ] || { echo "Missing env var: CONFLUENCE_SA_USER"; exit 1; }
+  [ -n "${CONFLUENCE_SA_API_KEY:-}" ] || { echo "Missing env var: CONFLUENCE_SA_API_KEY"; exit 1; }
+
+  JIRA_BASE="${CONFLUENCE_BASE_URL}"
+  AUTH=$(echo -n "${CONFLUENCE_SA_USER}:${CONFLUENCE_SA_API_KEY}" | base64)
+  PROJECT_KEY="HOLMESIMG"
+  PROJECT_NAME="Holmes Image Test"
+  VERIFICATION_CODE="IMGVERIFY-7Q3X9P"
+
+  echo "Creating Jira project ${PROJECT_KEY}..."
+  PROJECT_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${JIRA_BASE}/rest/api/3/project" \
+    -H "Authorization: Basic ${AUTH}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${PROJECT_KEY}\",
+      \"name\": \"${PROJECT_NAME}\",
+      \"projectTypeKey\": \"software\",
+      \"leadAccountId\": \"$(curl -L -s \
+        "${JIRA_BASE}/rest/api/3/myself" \
+        -H "Authorization: Basic ${AUTH}" | python3 -c 'import sys,json; print(json.load(sys.stdin)["accountId"])')\"
+    }")
+
+  PROJECT_HTTP=$(echo "$PROJECT_RESPONSE" | tail -n1)
+  PROJECT_BODY=$(echo "$PROJECT_RESPONSE" | sed '$d')
+
+  if [ "$PROJECT_HTTP" -eq 201 ]; then
+    echo "Project created."
+  elif [ "$PROJECT_HTTP" -eq 409 ]; then
+    echo "Project already exists, reusing."
+  else
+    echo "Project creation returned HTTP ${PROJECT_HTTP}: ${PROJECT_BODY}"
+    echo "Attempting to use existing project..."
+  fi
+
+  sleep 2
+
+  echo "Creating Jira issue..."
+  ISSUE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${JIRA_BASE}/rest/api/3/issue" \
+    -H "Authorization: Basic ${AUTH}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"fields\": {
+        \"project\": {\"key\": \"${PROJECT_KEY}\"},
+        \"summary\": \"Image verification test\",
+        \"description\": {
+          \"type\": \"doc\",
+          \"version\": 1,
+          \"content\": [{
+            \"type\": \"paragraph\",
+            \"content\": [{
+              \"type\": \"text\",
+              \"text\": \"This issue has an image attachment containing a verification code.\"
+            }]
+          }]
+        },
+        \"issuetype\": {\"name\": \"Task\"}
+      }
+    }")
+
+  ISSUE_HTTP=$(echo "$ISSUE_RESPONSE" | tail -n1)
+  ISSUE_BODY=$(echo "$ISSUE_RESPONSE" | sed '$d')
+
+  if [ "$ISSUE_HTTP" -ne 201 ]; then
+    echo "Searching for existing issue..."
+    EXISTING=$(curl -L -s \
+      "${JIRA_BASE}/rest/api/3/search?jql=project=${PROJECT_KEY}+AND+summary~'Image+verification+test'&maxResults=1" \
+      -H "Authorization: Basic ${AUTH}")
+    ISSUE_KEY=$(echo "$EXISTING" | python3 -c 'import sys,json; r=json.load(sys.stdin); print(r["issues"][0]["key"])' 2>/dev/null || true)
+    if [ -z "$ISSUE_KEY" ]; then
+      echo "Failed to create or find issue. HTTP ${ISSUE_HTTP}: ${ISSUE_BODY}"
+      exit 1
+    fi
+    echo "Found existing issue: ${ISSUE_KEY}"
+  else
+    ISSUE_KEY=$(echo "$ISSUE_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["key"])')
+    echo "Issue created: ${ISSUE_KEY}"
+  fi
+
+  # Verify this is HOLMESIMG-1
+  if [ "$ISSUE_KEY" != "HOLMESIMG-1" ]; then
+    echo "Warning: Issue key is ${ISSUE_KEY}, not HOLMESIMG-1. Updating user_prompt may be needed."
+  fi
+
+  echo "Generating verification image with code: ${VERIFICATION_CODE}"
+  python3 -c "
+  from PIL import Image, ImageDraw, ImageFont
+  import sys
+
+  img = Image.new('RGB', (400, 200), color='white')
+  draw = ImageDraw.Draw(img)
+
+  # Draw verification code text
+  try:
+      font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 28)
+  except (IOError, OSError):
+      font = ImageFont.load_default()
+
+  draw.text((30, 30), 'Verification Code:', fill='black', font=font)
+  draw.text((30, 90), '${VERIFICATION_CODE}', fill='red', font=font)
+  draw.rectangle([20, 20, 380, 180], outline='black', width=3)
+
+  img.save('/tmp/verification_code.png')
+  print('Image generated successfully')
+  "
+
+  if [ ! -f /tmp/verification_code.png ]; then
+    echo "Failed to generate image"
+    exit 1
+  fi
+
+  echo "Uploading image attachment to ${ISSUE_KEY}..."
+  ATTACH_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${JIRA_BASE}/rest/api/3/issue/${ISSUE_KEY}/attachments" \
+    -H "Authorization: Basic ${AUTH}" \
+    -H "X-Atlassian-Token: no-check" \
+    -F "file=@/tmp/verification_code.png;filename=verification_code.png")
+
+  ATTACH_HTTP=$(echo "$ATTACH_RESPONSE" | tail -n1)
+  ATTACH_BODY=$(echo "$ATTACH_RESPONSE" | sed '$d')
+
+  if [ "$ATTACH_HTTP" -eq 200 ]; then
+    echo "Image attached successfully"
+  else
+    echo "Attachment upload returned HTTP ${ATTACH_HTTP}: ${ATTACH_BODY}"
+    exit 1
+  fi
+
+  echo "Verifying attachment exists..."
+  VERIFY=$(curl -L -s \
+    "${JIRA_BASE}/rest/api/3/issue/${ISSUE_KEY}?fields=attachment" \
+    -H "Authorization: Basic ${AUTH}")
+
+  ATTACHMENT_COUNT=$(echo "$VERIFY" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["fields"]["attachment"]))')
+  if [ "$ATTACHMENT_COUNT" -gt 0 ]; then
+    echo "Verified: ${ATTACHMENT_COUNT} attachment(s) on ${ISSUE_KEY}"
+  else
+    echo "No attachments found on issue"
+    exit 1
+  fi
+
+  rm -f /tmp/verification_code.png
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  JIRA_BASE="${CONFLUENCE_BASE_URL}"
+  AUTH=$(echo -n "${CONFLUENCE_SA_USER}:${CONFLUENCE_SA_API_KEY}" | base64)
+  PROJECT_KEY="HOLMESIMG"
+
+  echo "Deleting Jira project ${PROJECT_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${JIRA_BASE}/rest/api/3/project/${PROJECT_KEY}?enableUndo=false" \
+    -H "Authorization: Basic ${AUTH}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi
