@@ -672,6 +672,7 @@ def ticket(
             ticket_username=ticket_username,
             ticket_api_key=ticket_api_key,
             ticket_id=ticket_id,
+            model=model,
         )
     except Exception as e:
         console.print(f"[bold red]Error: {str(e)}[/bold red]")
