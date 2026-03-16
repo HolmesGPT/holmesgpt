@@ -140,11 +140,7 @@ def sanitize(param):
     if param == "":
         return ""
 
-    # Strip newlines/carriage returns that the LLM may inject into parameter values.
-    # Even when shlex.quote() wraps them in single quotes, embedded newlines break
-    # /bin/sh -c invocations with "syntax error near unexpected token `newline'".
-    cleaned = str(param).replace("\n", " ").replace("\r", " ")
-    return shlex.quote(cleaned)
+    return shlex.quote(str(param))
 
 
 def sanitize_params(params):

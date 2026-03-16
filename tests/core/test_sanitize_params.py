@@ -1,4 +1,3 @@
-import shlex
 import subprocess
 
 from holmes.core.tools import ToolParameter, YAMLTool, sanitize, sanitize_params
@@ -16,113 +15,46 @@ class TestSanitize:
         result = sanitize("hello world")
         assert "hello world" in result
 
-    def test_newline_replaced_with_space(self):
+    def test_special_characters_are_quoted(self):
+        result = sanitize("hello; rm -rf /")
+        # shlex.quote wraps in single quotes to prevent injection
+        assert result.startswith("'")
+
+    def test_newlines_preserved_in_shlex_quote(self):
+        """sanitize() delegates to shlex.quote which preserves newlines inside quotes."""
         result = sanitize("hello\nworld")
-        assert "\n" not in result
-        assert "hello world" in result
-
-    def test_carriage_return_replaced_with_space(self):
-        result = sanitize("hello\rworld")
-        assert "\r" not in result
-        assert "hello world" in result
-
-    def test_crlf_replaced_with_spaces(self):
-        result = sanitize("hello\r\nworld")
-        assert "\r" not in result
-        assert "\n" not in result
-
-    def test_multiple_newlines_replaced(self):
-        result = sanitize("a\nb\nc")
-        assert "\n" not in result
-        assert "a b c" in result
+        assert "\n" in result
 
 
 class TestSanitizeParams:
-    def test_newlines_stripped_from_all_params(self):
-        params = {"name": "my\nresource", "namespace": "default\n"}
+    def test_all_values_are_sanitized(self):
+        params = {"name": "my resource", "namespace": "default"}
         result = sanitize_params(params)
-        for v in result.values():
-            assert "\n" not in v
+        assert "'my resource'" == result["name"]
+        assert result["namespace"] == "default"
 
 
-class TestNewlineRenderedCommandIntegrity:
-    """Verify that the sanitize fix prevents newline corruption in rendered
-    commands by comparing old (broken) vs new (fixed) behavior end-to-end.
+class TestKubernetesJqToolNewlineHandling:
+    """Tests that the kubernetes_jq_query tool script handles multi-line jq expressions.
 
-    These tests prove:
-    1. WITHOUT the fix: rendered commands contain literal newlines, splitting
-       them into multiple shell lines and corrupting argument parsing.
-    2. WITH the fix: rendered commands are single-line with clean arguments.
+    LLMs sometimes write multi-line jq expressions. The kubernetes_jq_query script
+    collapses them to a single line via tr before passing to jq.
     """
 
-    def _sanitize_without_fix(self, param):
-        """Simulate old sanitize() that preserves newlines."""
-        if param == "":
-            return ""
-        return shlex.quote(str(param))
+    def test_jq_script_collapses_multiline_expression(self):
+        """Simulate the JQ_FILTER assignment + tr pattern from kubernetes.yaml."""
+        multiline_jq = ".items[]\n| select(.status == \"unhealthy\")\n| .name"
 
-    def test_old_sanitize_produces_multiline_command(self):
-        """Without the fix, a newline in a param creates a multi-line command."""
-        from jinja2 import Template
-
-        template = Template("kubectl logs {{ pod_name }} -n {{ namespace }}")
-        pod_name = "my-pod\n-n kube-system"
-
-        # Old behavior: newline preserved
-        old_quoted = self._sanitize_without_fix(pod_name)
-        old_cmd = template.render(pod_name=old_quoted, namespace="default")
-        assert "\n" in old_cmd, "Old sanitize should preserve newlines (the bug)"
-        assert old_cmd.count("\n") >= 1
-
-    def test_new_sanitize_produces_singleline_command(self):
-        """With the fix, newlines are replaced so the command stays single-line."""
-        from jinja2 import Template
-
-        template = Template("kubectl logs {{ pod_name }} -n {{ namespace }}")
-        pod_name = "my-pod\n-n kube-system"
-
-        new_quoted = sanitize(pod_name)
-        new_cmd = template.render(pod_name=new_quoted, namespace="default")
-        assert "\n" not in new_cmd, "Fixed sanitize must strip newlines"
-
-    def test_old_sanitize_corrupts_argument_in_subprocess(self):
-        """Without the fix, subprocess receives an argument with an embedded
-        newline, which corrupts the pod name passed to the tool."""
-        from jinja2 import Template
-
-        # Use echo + wc -l to count lines — a newline in the argument
-        # means echo outputs 2 lines instead of 1.
-        template = Template("echo {{ pod_name }} | wc -l")
-        pod_name = "my-pod\n-n kube-system"
-
-        old_quoted = self._sanitize_without_fix(pod_name)
-        old_cmd = template.render(pod_name=old_quoted)
-
+        # This mirrors what the kubernetes.yaml script does:
+        # JQ_FILTER=<shlex-quoted expr>
+        # JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr '\n\r' '  ')
+        script = f"""#!/bin/bash
+JQ_FILTER={sanitize(multiline_jq)}
+JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr '\\n\\r' '  ')
+echo '{{"items":[{{"status":"unhealthy","name":"pod-a"}},{{"status":"healthy","name":"pod-b"}}]}}' | jq -c "$JQ_FILTER"
+"""
         result = subprocess.run(
-            old_cmd,
-            shell=True,
-            text=True,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        # The embedded newline causes echo to output 2 lines
-        line_count = int(result.stdout.strip())
-        assert line_count == 2, f"Expected 2 lines (newline in arg), got {line_count}"
-
-    def test_new_sanitize_clean_argument_in_subprocess(self):
-        """With the fix, subprocess receives a clean single-line argument."""
-        from jinja2 import Template
-
-        template = Template("echo {{ pod_name }} | wc -l")
-        pod_name = "my-pod\n-n kube-system"
-
-        new_quoted = sanitize(pod_name)
-        new_cmd = template.render(pod_name=new_quoted)
-
-        result = subprocess.run(
-            new_cmd,
+            script,
             shell=True,
             text=True,
             check=False,
@@ -131,21 +63,38 @@ class TestNewlineRenderedCommandIntegrity:
             stderr=subprocess.STDOUT,
         )
         assert result.returncode == 0
-        # With the fix, the argument is single-line
-        line_count = int(result.stdout.strip())
-        assert line_count == 1, f"Expected 1 line (no newline), got {line_count}"
+        assert "pod-a" in result.stdout
+        assert "pod-b" not in result.stdout
+
+    def test_singleline_jq_still_works(self):
+        """A normal single-line jq expression still works after the tr step."""
+        jq_expr = '.items[] | select(.status == "unhealthy") | .name'
+
+        script = f"""#!/bin/bash
+JQ_FILTER={sanitize(jq_expr)}
+JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr '\\n\\r' '  ')
+echo '{{"items":[{{"status":"unhealthy","name":"pod-a"}},{{"status":"healthy","name":"pod-b"}}]}}' | jq -c "$JQ_FILTER"
+"""
+        result = subprocess.run(
+            script,
+            shell=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        assert result.returncode == 0
+        assert "pod-a" in result.stdout
 
 
 class TestYAMLToolNewlineInParams:
-    """End-to-end tests verifying that newlines in LLM-provided parameter values
-    do not cause shell syntax errors when YAML tool commands are executed.
-
-    Without the sanitize() fix, embedded newlines in parameters produce:
-        /bin/sh: -c: line N: syntax error near unexpected token `newline'
+    """Newlines in shlex-quoted params inside single quotes are valid bash.
+    These tests verify that commands and scripts don't break with newlines in params.
     """
 
     def test_command_with_newline_in_param_does_not_produce_syntax_error(self):
-        """A multi-line jq expression passed as a parameter must not break the shell."""
+        """A multi-line expression passed as a parameter must not break the shell."""
         tool = YAMLTool(
             name="test_echo_expr",
             description="Echo a query expression",
@@ -157,7 +106,6 @@ class TestYAMLToolNewlineInParams:
             },
         )
         multiline_expr = ".items[]\n| {name: .metadata.name,\n  ns: .metadata.namespace}"
-        # Call private __invoke_command via name mangling
         output, return_code, invocation = tool._YAMLTool__invoke_command(
             params={"expression": multiline_expr},
         )
