@@ -290,7 +290,7 @@ For creating, running, and debugging LLM eval tests, use the `/create-eval` skil
   - `before_test` must be **idempotent**: create-or-reuse resources, never fail if they already exist
   - `after_test` must **NOT delete shared resources** that another parallel run may be using. Either omit `after_test` entirely, or limit cleanup to resources with a unique run-scoped identifier
   - Use test-ID-based resource names (e.g., `HLMS233` for space keys) to avoid collisions with other evals, but accept that the same eval may overlap with itself across parallel PR runs
-  - This differs from Kubernetes evals where each run gets its own isolated namespace
+  - Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs
 
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`

@@ -180,7 +180,7 @@ For tests against cloud services (Elasticsearch, external APIs):
 
 ### Cloud Service Eval Reentrancy
 
-The same eval can run in parallel across multiple PRs in CI. Unlike Kubernetes evals (which get isolated namespaces), cloud service evals share a single account/instance. This means:
+The same eval can run in parallel across multiple PRs in CI. Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs. This means:
 
 - **`before_test` must be idempotent**: create-or-reuse resources, never fail if they already exist. Handle "already exists" responses from APIs (e.g., HTTP 400/409 with "already exists" in body).
 - **`after_test` must NOT delete shared resources**: another parallel run may still be using them. Either omit `after_test` entirely or restrict cleanup to resources with a unique run-scoped identifier.
