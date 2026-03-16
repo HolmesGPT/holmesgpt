@@ -333,11 +333,13 @@ class TestMCPGeneral:
                 type="object",
                 required=False,
                 description="Query model for retrieving a specific incident with optional parameters.",
+                json_schema_extra={"default": None},
                 properties={
                     "include": ToolParameter(
                         type="array",
                         description="List of additional information to include in the response. Available options: 'users', 'services', 'assignments', 'acknowledgers', 'custom_fields', 'teams', 'escalation_policies', 'notes', 'urgencies', 'priorities'",
-                        required=False, items=ToolParameter(type="string", required=True, description=None)
+                        required=False, items=ToolParameter(type="string", required=True, description=None),
+                        json_schema_extra={"default": None},
                     ),
                 },
             ),
@@ -571,6 +573,162 @@ class TestMCPGeneral:
         )
         assert result[0] is True
         assert mcp_toolset._mcp_config.mode == MCPMode.STREAMABLE_HTTP
+
+
+class TestMCPSchemaPreservation:
+    """Tests for preserving JSON Schema features from MCP tool schemas."""
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_additional_properties_anyof_preserved(self) -> None:
+        """Test that additionalProperties with anyOf is not flattened.
+
+        MCP servers may define dynamic-key objects where values can be
+        multiple types (e.g., string | string[]).  The anyOf must be
+        preserved so the LLM sees the full type information.
+        """
+        mcp_tool = Tool(
+            name="query_tool",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filters": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "anyOf": [
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}},
+                            ]
+                        },
+                        "description": "Dimensional filters",
+                    },
+                },
+                "required": [],
+            },
+            description="Query with filters",
+            annotations=None,
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        filters_param = tool.parameters["filters"]
+        assert filters_param.additional_properties == {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+            ]
+        }
+
+        # Verify it flows through to OpenAI format
+        openai_format = tool.get_openai_format()
+        filters_schema = openai_format["function"]["parameters"]["properties"]["filters"]
+        assert "additionalProperties" in filters_schema
+        assert "anyOf" in filters_schema["additionalProperties"]
+        assert len(filters_schema["additionalProperties"]["anyOf"]) == 2
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_json_schema_validation_keywords_preserved(self) -> None:
+        """Test that minItems, maxItems, minimum, maximum etc. are preserved."""
+        mcp_tool = Tool(
+            name="query_metrics",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "metrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 12,
+                        "description": "Metrics to query",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "default": 100,
+                        "description": "Result limit",
+                    },
+                    "name_pattern": {
+                        "type": "string",
+                        "pattern": "^[a-z]+$",
+                        "minLength": 1,
+                        "maxLength": 255,
+                        "description": "Name filter",
+                    },
+                },
+                "required": ["metrics"],
+            },
+            description="Query metrics",
+            annotations=None,
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        # Check ToolParameter captures the keywords
+        metrics_param = tool.parameters["metrics"]
+        assert metrics_param.json_schema_extra == {"minItems": 1, "maxItems": 12}
+
+        limit_param = tool.parameters["limit"]
+        assert limit_param.json_schema_extra == {"minimum": 1, "maximum": 1000, "default": 100}
+
+        name_param = tool.parameters["name_pattern"]
+        assert name_param.json_schema_extra == {"pattern": "^[a-z]+$", "minLength": 1, "maxLength": 255}
+
+        # Verify they flow through to OpenAI format
+        openai_format = tool.get_openai_format()
+        props = openai_format["function"]["parameters"]["properties"]
+
+        assert props["metrics"]["minItems"] == 1
+        assert props["metrics"]["maxItems"] == 12
+
+        # Optional params may be wrapped in anyOf for nullability;
+        # the validation keywords live on the base type branch.
+        limit_base = props["limit"]
+        if "anyOf" in limit_base:
+            limit_base = limit_base["anyOf"][0]
+        assert limit_base["minimum"] == 1
+        assert limit_base["maximum"] == 1000
+        assert limit_base["default"] == 100
+
+        name_base = props["name_pattern"]
+        if "anyOf" in name_base:
+            name_base = name_base["anyOf"][0]
+        assert name_base["pattern"] == "^[a-z]+$"
+        assert name_base["minLength"] == 1
+        assert name_base["maxLength"] == 255
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_no_extra_keywords_when_absent(self) -> None:
+        """Test that json_schema_extra is None when no validation keywords present."""
+        mcp_tool = Tool(
+            name="simple_tool",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "A name"},
+                },
+                "required": ["name"],
+            },
+            description="Simple tool",
+            annotations=None,
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+        assert tool.parameters["name"].json_schema_extra is None
 
 
 class TestExceptionGroupUnwrapping:

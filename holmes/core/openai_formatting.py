@@ -80,6 +80,11 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
         else:
             type_obj = {"type": match.group("simple_type")}
 
+    # Merge passthrough JSON Schema keywords (minItems, maxItems, minimum, etc.)
+    # so the LLM sees validation constraints from the source schema.
+    if type_obj and hasattr(param_attributes, "json_schema_extra") and param_attributes.json_schema_extra:
+        type_obj.update(param_attributes.json_schema_extra)
+
     # Add nullability using anyOf per the OpenAI Structured Outputs spec when strict mode
     # requires optional params to accept null, or when the source schema explicitly marks
     # the field as nullable (e.g., MCP ["string", "null"]).

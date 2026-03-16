@@ -181,6 +181,11 @@ class ToolParameter(BaseModel):
     # None = not specified, False = no additional properties allowed,
     # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
     additional_properties: Optional[Union[bool, Dict[str, Any]]] = None
+    # JSON Schema validation keywords (minItems, maxItems, minimum, maximum,
+    # minLength, maxLength, pattern, etc.) preserved from the source schema.
+    # These are passed through to the OpenAI-formatted schema so the LLM
+    # knows about constraints.
+    json_schema_extra: Optional[Dict[str, Any]] = None
 
     def is_strict_compatible(self) -> bool:
         """Check if this parameter (and all nested parameters) can be used in strict mode.
