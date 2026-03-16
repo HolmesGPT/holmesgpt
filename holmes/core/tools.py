@@ -207,6 +207,14 @@ class ToolParameter(BaseModel):
             return False
         return True
 
+    @property
+    def primary_type(self) -> str:
+        """Return the primary (non-null) type as a string."""
+        if isinstance(self.type, list):
+            non_null = [t for t in self.type if t != "null"]
+            return non_null[0] if non_null else "string"
+        return self.type
+
 
 class ToolInvokeContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -295,6 +303,38 @@ class Tool(ABC, BaseModel):
             logger.debug(f"Tool '{self.name}' has no transformers")
             self._transformer_instances = None
 
+    def _coerce_params(self, params: Dict) -> Dict:
+        """Coerce stringified JSON values to their schema-expected types.
+
+        LLMs sometimes send serialized JSON strings for array/object parameters,
+        especially when strict mode is disabled. This detects the mismatch and
+        parses the string into the correct type before forwarding to the tool.
+        """
+        if not self.parameters or not params:
+            return params
+
+        coerced = dict(params)
+        for name, schema in self.parameters.items():
+            if name not in coerced:
+                continue
+            value = coerced[name]
+            if not isinstance(value, str):
+                continue
+            expected = schema.primary_type
+            if expected not in ("array", "object"):
+                continue
+            try:
+                parsed = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if expected == "array" and isinstance(parsed, list):
+                coerced[name] = parsed
+                logger.debug(f"Coerced param '{name}' from string to array for tool '{self.name}'")
+            elif expected == "object" and isinstance(parsed, dict):
+                coerced[name] = parsed
+                logger.debug(f"Coerced param '{name}' from string to object for tool '{self.name}'")
+        return coerced
+
     def get_openai_format(self):
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
@@ -327,6 +367,8 @@ class Tool(ABC, BaseModel):
                     params=params,
                     invocation=self.get_parameterized_one_liner(params),
                 )
+
+        params = self._coerce_params(params)
 
         start_time = time.time()
         result = self._invoke(params=params, context=context)
