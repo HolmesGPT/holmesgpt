@@ -749,6 +749,8 @@ class ToolCallingLLM:
                 )
             except CompactionInsufficientError as e:
                 yield from e.events
+                if e.compaction_usage and e.compaction_usage.total_tokens > 0:
+                    stats += e.compaction_usage
                 raise
 
             yield from limit_result.events

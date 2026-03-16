@@ -53,9 +53,10 @@ def check_compaction_needed(
 class CompactionInsufficientError(Exception):
     """Raised when conversation compaction was not sufficient to fit the context window."""
 
-    def __init__(self, message: str, events: list[StreamMessage]):
+    def __init__(self, message: str, events: list[StreamMessage], compaction_usage: Optional[RequestStats] = None):
         super().__init__(message)
         self.events = events
+        self.compaction_usage = compaction_usage
 
 
 class ContextWindowLimiterOutput(BaseModel):
@@ -149,12 +150,20 @@ def limit_input_context_window(
 
     tokens = llm.count_tokens(messages=messages, tools=tools)  # type: ignore
     if (tokens.total_tokens + maximum_output_token) > max_context_size:
-        failure_msg = (
-            f"Conversation history compaction failed to reduce tokens sufficiently. "
-            f"Current: {tokens.total_tokens} tokens + {maximum_output_token} max output = "
-            f"{tokens.total_tokens + maximum_output_token}, but context window is {max_context_size}. "
-            f"Please start a new conversation."
-        )
+        if ENABLE_CONVERSATION_HISTORY_COMPACTION:
+            failure_msg = (
+                f"Conversation history compaction failed to reduce tokens sufficiently. "
+                f"Current: {tokens.total_tokens} tokens + {maximum_output_token} max output = "
+                f"{tokens.total_tokens + maximum_output_token}, but context window is {max_context_size}. "
+                f"Please start a new conversation."
+            )
+        else:
+            failure_msg = (
+                f"Conversation history exceeds the context window and compaction is disabled. "
+                f"Current: {tokens.total_tokens} tokens + {maximum_output_token} max output = "
+                f"{tokens.total_tokens + maximum_output_token}, but context window is {max_context_size}. "
+                f"Please start a new conversation."
+            )
         logging.error(failure_msg)
         events.append(
             StreamMessage(
@@ -162,7 +171,7 @@ def limit_input_context_window(
                 data={"content": failure_msg},
             )
         )
-        raise CompactionInsufficientError(failure_msg, events=events)
+        raise CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
 
     elapsed_ms = (time.monotonic() - t0) * 1000
     logging.debug(f"limit_input_context_window: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")
