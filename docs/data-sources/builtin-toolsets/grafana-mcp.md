@@ -349,7 +349,7 @@ The Grafana MCP server exposes ~57 tools organized by category:
 
 For the full list of tools, see the [Grafana MCP Server documentation](https://github.com/grafana/mcp-grafana).
 
-## Out-of-Cluster Grafana (Grafana Cloud)
+## Out-of-Cluster Grafana MCP server
 
 For connecting to a Grafana instance outside the cluster (e.g., Grafana Cloud). In this setup, Holmes connects directly to the Grafana MCP endpoint — no self-hosted MCP server deployment needed.
 
