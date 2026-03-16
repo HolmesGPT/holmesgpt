@@ -27,8 +27,14 @@ The critical schema pattern for `filters`:
 
 Without proper additionalProperties handling:
 - filters inner schema (Union[str, List[str]] values) is lost
-- LLM sees bare {type: "object"} → may send JSON string or wrong structure
+- LLM sees bare {type: "object"} -> may send JSON string or wrong structure
 - In strict mode, additionalProperties: false contradicts the dynamic-keys intent
+
+This version is hardened:
+- No summary/shortcut tool that leaks answers
+- Returns WRONG verification code on malformed filter usage
+- Requires exact array syntax for multi-select filters
+- Adds decoy metrics in unfiltered results to punish skipping filters
 """
 
 from enum import Enum
@@ -71,11 +77,15 @@ ANALYTICS_DATA = {
         {"dimension_value": "cloudfront", "bitrate": 4500.2},
         {"dimension_value": "akamai", "bitrate": 4200.8},
         {"dimension_value": "fastly", "bitrate": 3800.5},
+        {"dimension_value": "stackpath", "bitrate": 3100.9},
+        {"dimension_value": "limelight", "bitrate": 2900.4},
     ],
     ("error_rate", "cdn_provider"): [
         {"dimension_value": "cloudfront", "error_rate": 0.8},
         {"dimension_value": "akamai", "error_rate": 1.2},
         {"dimension_value": "fastly", "error_rate": 2.1},
+        {"dimension_value": "stackpath", "error_rate": 3.4},
+        {"dimension_value": "limelight", "error_rate": 4.7},
     ],
     ("rebuffer_ratio", "cdn_provider"): [
         {"dimension_value": "cloudfront", "rebuffer_ratio": 0.3},
@@ -94,19 +104,45 @@ ANALYTICS_DATA = {
     ],
 }
 
-VERIFICATION_CODE = "CDN-EVAL-4m8p2x"
+CORRECT_VERIFICATION_CODE = "CDN-EVAL-4m8p2x"
+WRONG_VERIFICATION_CODE = "CDN-EVAL-WRONG-0z0z0z"
+
+
+def _filters_are_correct(filters: Optional[Dict[str, Union[str, List[str]]]]) -> bool:
+    """Check that filters were passed correctly as a dict with proper types."""
+    if filters is None:
+        return False
+    if not isinstance(filters, dict):
+        return False
+    # Check that at least one filter has an array value (multi-select)
+    has_array_filter = any(isinstance(v, list) for v in filters.values())
+    if not has_array_filter:
+        return False
+    # Check that array values contain strings
+    for v in filters.values():
+        if isinstance(v, list):
+            if not all(isinstance(item, str) for item in v):
+                return False
+    return True
 
 
 @mcp.tool()
 def get_analytics_metadata() -> str:
-    """Get available metrics, dimensions, and filter options for querying."""
+    """Get available metrics, dimensions, and filter options for querying.
+
+    Returns the full catalog of available metrics and dimensions.
+    Filters use key-value pairs where the key is a dimension name
+    and the value is a string or array of strings for multi-select.
+    """
     return (
         f"Available metrics: {', '.join(VALID_METRICS)}\n"
         f"Available dimensions: {', '.join(VALID_DIMENSIONS)}\n"
         "Filters: key-value pairs where key is a dimension name and value is "
         "either a single string or array of strings for multi-select.\n"
         "Example filters: {\"cdn_provider\": \"cloudfront\"} or "
-        "{\"cdn_provider\": [\"cloudfront\", \"akamai\"]}"
+        "{\"cdn_provider\": [\"cloudfront\", \"akamai\"]}\n"
+        "IMPORTANT: When filtering for multiple values, you MUST use an array. "
+        "Passing a comma-separated string will NOT work."
     )
 
 
@@ -147,7 +183,11 @@ def query_streaming_analytics(
             f"{type(filters).__name__} = {filters!r}"
         )
 
-    results_lines = [f"Verification: {VERIFICATION_CODE}"]
+    # Determine verification code based on filter correctness
+    filters_ok = _filters_are_correct(filters)
+    verification = CORRECT_VERIFICATION_CODE if filters_ok else WRONG_VERIFICATION_CODE
+
+    results_lines = [f"Verification: {verification}"]
     results_lines.append(
         f"Query: metrics={metrics}, dimensions={dimensions}, "
         f"granularity={time_range.granularity}"
@@ -155,6 +195,8 @@ def query_streaming_analytics(
 
     if filters:
         results_lines.append(f"Active filters: {filters}")
+    else:
+        results_lines.append("WARNING: No filters applied - returning ALL providers")
 
     effective_group = group_by if group_by else dimensions[:1]
 
@@ -193,18 +235,6 @@ def query_streaming_analytics(
                 results_lines.append(f"    {dim_val}: {val}")
 
     return "\n".join(results_lines)
-
-
-@mcp.tool()
-def get_cdn_summary() -> str:
-    """Get a quick overview of CDN performance. No parameters needed."""
-    return (
-        "CDN Performance Summary (last 5 min):\n"
-        "  cloudfront: bitrate=4500.2, errors=0.8%, rebuffer=0.3%\n"
-        "  akamai: bitrate=4200.8, errors=1.2%, rebuffer=0.5%\n"
-        "  fastly: bitrate=3800.5, errors=2.1%, rebuffer=1.1%\n"
-        "Note: Use query_streaming_analytics for detailed breakdowns."
-    )
 
 
 if __name__ == "__main__":

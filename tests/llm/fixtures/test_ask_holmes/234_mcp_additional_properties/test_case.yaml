@@ -2,12 +2,13 @@ user_prompt:
   - "Query the bitrate and error_rate metrics for the cdn_provider dimension over the last 10 minutes. Filter to only include cloudfront and akamai providers (use a multi-select filter with both values as an array). Tell me the verification code, each provider's bitrate, and each provider's error rate."
 
 expected_output:
-  - "Must contain verification code CDN-EVAL-4m8p2x"
+  - "Must contain the CORRECT verification code CDN-EVAL-4m8p2x (NOT CDN-EVAL-WRONG-0z0z0z)"
   - "Must report cloudfront bitrate of 4500.2"
   - "Must report akamai bitrate of 4200.8"
-  - "Must NOT include fastly in the results since it was filtered out"
+  - "Must NOT include fastly, stackpath, or limelight in the results since they were filtered out"
   - "Must report cloudfront error rate of 0.8"
   - "Must report akamai error rate of 1.2"
+  - "The query_streaming_analytics tool must have been called correctly on the FIRST attempt with filters as a proper dict containing an array value - there must be NO prior failed or error tool calls to query_streaming_analytics before the successful one. If the tool was called multiple times, the test FAILS."
 
 include_tool_calls: true
 
