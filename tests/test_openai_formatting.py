@@ -154,10 +154,11 @@ class TestParameterCoercion:
         result = tool._coerce_params({"metrics": original})
         assert result["metrics"] is original
 
-    def test_no_coercion_for_invalid_json(self):
+    def test_invalid_json_wrapped_in_array(self):
+        """Non-JSON string for an array param is now wrapped as a single-element array."""
         tool = self._make_tool({"metrics": ToolParameter(type="array")})
         result = tool._coerce_params({"metrics": "not json at all"})
-        assert result["metrics"] == "not json at all"
+        assert result["metrics"] == ["not json at all"]
 
     def test_no_coercion_when_parsed_type_mismatches(self):
         """String parses as JSON but to wrong type — e.g. a string that parses

@@ -26,6 +26,8 @@ from typing import (
 )
 
 from jinja2 import Template
+
+from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
@@ -304,36 +306,12 @@ class Tool(ABC, BaseModel):
             self._transformer_instances = None
 
     def _coerce_params(self, params: Dict) -> Dict:
-        """Coerce stringified JSON values to their schema-expected types.
+        """Coerce LLM tool-call parameters to match their JSON Schema types.
 
-        LLMs sometimes send serialized JSON strings for array/object parameters,
-        especially when strict mode is disabled. This detects the mismatch and
-        parses the string into the correct type before forwarding to the tool.
+        Delegates to :func:`holmes.core.json_schema_coerce.coerce_params`.
+        See that module's docstring for the full rationale and design notes.
         """
-        if not self.parameters or not params:
-            return params
-
-        coerced = dict(params)
-        for name, schema in self.parameters.items():
-            if name not in coerced:
-                continue
-            value = coerced[name]
-            if not isinstance(value, str):
-                continue
-            expected = schema.primary_type
-            if expected not in ("array", "object"):
-                continue
-            try:
-                parsed = json.loads(value)
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if expected == "array" and isinstance(parsed, list):
-                coerced[name] = parsed
-                logger.debug(f"Coerced param '{name}' from string to array for tool '{self.name}'")
-            elif expected == "object" and isinstance(parsed, dict):
-                coerced[name] = parsed
-                logger.debug(f"Coerced param '{name}' from string to object for tool '{self.name}'")
-        return coerced
+        return coerce_params(params, self.parameters, tool_name=self.name)
 
     def get_openai_format(self):
         return format_tool_to_open_ai_standard(
