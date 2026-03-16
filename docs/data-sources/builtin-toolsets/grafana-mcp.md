@@ -202,19 +202,7 @@ Choose the setup that matches your Grafana version and deployment:
       -n <namespace>
     ```
 
-    The Holmes configuration is the same as the service account token setup above — only the secret and MCP deployment differ. See the tabs in the "Self-Hosted MCP — Service Account Token" section for CLI, Holmes Helm, and Robusta Helm examples.
-
-=== "Out-of-Cluster MCP — Service Account Token"
-
-    For connecting to a Grafana instance outside the cluster (e.g., Grafana Cloud). In this setup, Holmes connects directly to the Grafana MCP endpoint — no self-hosted MCP server deployment needed.
-
-    **Create a service account token:**
-
-    1. In Grafana, go to **Administration** → **Users and Access** → **Service Accounts**
-    2. Click **Add service account** and set the role to **Viewer**
-    3. Click **Create**, then go into the created service account
-    4. Click **Add service account token** → **Generate token**
-    5. Copy the token (starts with `glsa_...`)
+    **Configure Holmes:**
 
     === "Holmes CLI"
 
@@ -225,10 +213,8 @@ Choose the setup that matches your Grafana version and deployment:
           grafana:
             description: "Grafana observability and dashboards"
             config:
-              url: "https://your-grafana-instance.grafana.net/mcp"
+              url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
               mode: streamable-http
-              extra_headers:
-                X-Grafana-API-Key: "<YOUR_TOKEN>"
             icon_url: "https://cdn.simpleicons.org/grafana/F46800"
             llm_instructions: |
               This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
@@ -256,37 +242,18 @@ Choose the setup that matches your Grafana version and deployment:
                 << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
         ```
 
-        Replace `<YOUR_TOKEN>` with your Grafana service account token.
-
         --8<-- "snippets/toolset_refresh_warning.md"
 
     === "Holmes Helm Chart"
 
-        **Create Kubernetes Secret:**
-        ```bash
-        kubectl create secret generic holmes-secrets \
-          --from-literal=grafana-api-key="glsa_..." \
-          -n <namespace>
-        ```
-
-        **Configure Helm Values:**
         ```yaml
         # values.yaml
-        additionalEnvVars:
-          - name: GRAFANA_API_KEY
-            valueFrom:
-              secretKeyRef:
-                name: holmes-secrets
-                key: grafana-api-key
-
         mcp_servers:
           grafana:
             description: "Grafana observability and dashboards"
             config:
-              url: "https://your-grafana-instance.grafana.net/mcp"
+              url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
               mode: streamable-http
-              extra_headers:
-                X-Grafana-API-Key: "{{ env.GRAFANA_API_KEY }}"
             icon_url: "https://cdn.simpleicons.org/grafana/F46800"
             llm_instructions: |
               This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
@@ -320,32 +287,15 @@ Choose the setup that matches your Grafana version and deployment:
 
     === "Robusta Helm Chart"
 
-        **Create Kubernetes Secret:**
-        ```bash
-        kubectl create secret generic holmes-secrets \
-          --from-literal=grafana-api-key="glsa_..." \
-          -n <namespace>
-        ```
-
-        **Configure Helm Values:**
         ```yaml
         # generated_values.yaml
         holmes:
-          additionalEnvVars:
-            - name: GRAFANA_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: holmes-secrets
-                  key: grafana-api-key
-
           mcp_servers:
             grafana:
               description: "Grafana observability and dashboards"
               config:
-                url: "https://your-grafana-instance.grafana.net/mcp"
+                url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
                 mode: streamable-http
-                extra_headers:
-                  X-Grafana-API-Key: "{{ env.GRAFANA_API_KEY }}"
               icon_url: "https://cdn.simpleicons.org/grafana/F46800"
               llm_instructions: |
                   This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
@@ -398,6 +348,179 @@ The Grafana MCP server exposes ~57 tools organized by category:
 | **Navigation** | `generate_deeplink` | Generate deeplink URLs for Grafana resources |
 
 For the full list of tools, see the [Grafana MCP Server documentation](https://github.com/grafana/mcp-grafana).
+
+## Out-of-Cluster Grafana (Grafana Cloud)
+
+For connecting to a Grafana instance outside the cluster (e.g., Grafana Cloud). In this setup, Holmes connects directly to the Grafana MCP endpoint — no self-hosted MCP server deployment needed.
+
+**Create a service account token:**
+
+1. In Grafana, go to **Administration** → **Users and Access** → **Service Accounts**
+2. Click **Add service account** and set the role to **Viewer**
+3. Click **Create**, then go into the created service account
+4. Click **Add service account token** → **Generate token**
+5. Copy the token (starts with `glsa_...`)
+
+=== "Holmes CLI"
+
+    Add the following to **~/.holmes/config.yaml**:
+
+    ```yaml
+    mcp_servers:
+      grafana:
+        description: "Grafana observability and dashboards"
+        config:
+          url: "https://your-grafana-instance.grafana.net/mcp"
+          mode: streamable-http
+          extra_headers:
+            X-Grafana-API-Key: "<YOUR_TOKEN>"
+        icon_url: "https://cdn.simpleicons.org/grafana/F46800"
+        llm_instructions: |
+          This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
+          **⚠️ OVERRIDE NOTICE: The following rules SUPERSEDE any conflicting instructions elsewhere in this prompt, including the "Chart Generation Capability" section.**
+
+          ### Tool Requirements
+          - ALWAYS use Grafana tools (e.g., `query_prometheus`) for metrics/PromQL queries
+          - NEVER use `kubectl top` or the `prometheus/metrics` toolset
+
+          ### Query Result Handling
+          - NEVER answer based on truncated query results
+          - If truncation occurs, refine the query with `topk`, `bottomk`, or additional filters until complete
+          - For high-cardinality metrics (>10 series), first check with `count()` if needed, then ALWAYS use `topk(5, <query>)`
+
+          ### Standard Metrics Reference
+          - CPU: `container_cpu_usage_seconds_total`
+          - Memory: `container_memory_working_set_bytes`
+          - Throttling: `container_cpu_cfs_throttled_periods_total`
+
+          ### Visualization Rules (CRITICAL OVERRIDE)
+          **This section OVERRIDES the instruction "NEVER generate Chart.js charts for single query results from PromQL queries" found in the Chart Generation Capability section.**
+
+          - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
+          - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
+            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+    ```
+
+    Replace `<YOUR_TOKEN>` with your Grafana service account token.
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    **Create Kubernetes Secret:**
+    ```bash
+    kubectl create secret generic holmes-secrets \
+      --from-literal=grafana-api-key="glsa_..." \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+    ```yaml
+    # values.yaml
+    additionalEnvVars:
+      - name: GRAFANA_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: holmes-secrets
+            key: grafana-api-key
+
+    mcp_servers:
+      grafana:
+        description: "Grafana observability and dashboards"
+        config:
+          url: "https://your-grafana-instance.grafana.net/mcp"
+          mode: streamable-http
+          extra_headers:
+            X-Grafana-API-Key: "{{ env.GRAFANA_API_KEY }}"
+        icon_url: "https://cdn.simpleicons.org/grafana/F46800"
+        llm_instructions: |
+          This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
+          **⚠️ OVERRIDE NOTICE: The following rules SUPERSEDE any conflicting instructions elsewhere in this prompt, including the "Chart Generation Capability" section.**
+
+          ### Tool Requirements
+          - ALWAYS use Grafana tools (e.g., `query_prometheus`) for metrics/PromQL queries
+          - NEVER use `kubectl top` or the `prometheus/metrics` toolset
+
+          ### Query Result Handling
+          - NEVER answer based on truncated query results
+          - If truncation occurs, refine the query with `topk`, `bottomk`, or additional filters until complete
+          - For high-cardinality metrics (>10 series), first check with `count()` if needed, then ALWAYS use `topk(5, <query>)`
+
+          ### Standard Metrics Reference
+          - CPU: `container_cpu_usage_seconds_total`
+          - Memory: `container_memory_working_set_bytes`
+          - Throttling: `container_cpu_cfs_throttled_periods_total`
+
+          ### Visualization Rules (CRITICAL OVERRIDE)
+          **This section OVERRIDES the instruction "NEVER generate Chart.js charts for single query results from PromQL queries" found in the Chart Generation Capability section.**
+
+          - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
+          - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
+            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+    ```
+
+    ```bash
+    helm upgrade --install holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    **Create Kubernetes Secret:**
+    ```bash
+    kubectl create secret generic holmes-secrets \
+      --from-literal=grafana-api-key="glsa_..." \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
+    ```yaml
+    # generated_values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: GRAFANA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: holmes-secrets
+              key: grafana-api-key
+
+      mcp_servers:
+        grafana:
+          description: "Grafana observability and dashboards"
+          config:
+            url: "https://your-grafana-instance.grafana.net/mcp"
+            mode: streamable-http
+            extra_headers:
+              X-Grafana-API-Key: "{{ env.GRAFANA_API_KEY }}"
+          icon_url: "https://cdn.simpleicons.org/grafana/F46800"
+          llm_instructions: |
+              This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
+              **⚠️ OVERRIDE NOTICE: The following rules SUPERSEDE any conflicting instructions elsewhere in this prompt, including the "Chart Generation Capability" section.**
+
+              ### Tool Requirements
+              - ALWAYS use Grafana tools (e.g., `query_prometheus`) for metrics/PromQL queries
+              - NEVER use `kubectl top` or the `prometheus/metrics` toolset
+
+              ### Query Result Handling
+              - NEVER answer based on truncated query results
+              - If truncation occurs, refine the query with `topk`, `bottomk`, or additional filters until complete
+              - For high-cardinality metrics (>10 series), first check with `count()` if needed, then ALWAYS use `topk(5, <query>)`
+
+              ### Standard Metrics Reference
+              - CPU: `container_cpu_usage_seconds_total`
+              - Memory: `container_memory_working_set_bytes`
+              - Throttling: `container_cpu_cfs_throttled_periods_total`
+
+              ### Visualization Rules (CRITICAL OVERRIDE)
+              **This section OVERRIDES the instruction "NEVER generate Chart.js charts for single query results from PromQL queries" found in the Chart Generation Capability section.**
+
+              - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
+              - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
+                << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+    ```
+
+    ```bash
+    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    ```
 
 ## Testing the Connection
 
