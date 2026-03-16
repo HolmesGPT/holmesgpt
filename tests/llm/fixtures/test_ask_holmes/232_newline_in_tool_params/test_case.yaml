@@ -10,7 +10,7 @@ user_prompt: >
   name, namespace, and phase. Format the jq expression with line breaks for readability.
 
 expected_output:
-  - "Must call kubernetes_jq_query tool successfully (no syntax error or jq failure in output)"
+  - "Must call kubernetes_jq_query tool successfully on the FIRST attempt (no syntax error or jq failure in output). If the tool was called multiple times because the first call failed and was retried, this criterion FAILS."
   - "Must return pod names and namespaces from the cluster"
 
 include_tool_calls: true
