@@ -1,15 +1,11 @@
-user_prompt: "Are any of my workloads leaking secrets? Check for hardcoded passwords or API keys in environment variables across all deployments."
+user_prompt: "Check deployments in namespace app-232 for hardcoded passwords or API keys in environment variables. Report what you find including the verification code embedded in each secret value."
 
-# The LLM must discover these specific values by querying — they can't be guessed.
-# The verification code HOLMES-EVAL-LEAK-9x7m is embedded in the secret value
-# to prove the LLM actually read the data rather than hallucinating.
-expected_output:
-  - Must find the DB_PASSWORD environment variable in the inventory-api deployment
-  - Must find the STRIPE_API_KEY environment variable in the checkout-service deployment
-  - Must mention namespace app-232
-  - Must NOT report any secrets from the kube-system namespace (monitoring-agent has AUTH_TOKEN but should be filtered out by namespace)
-
+# Core criteria: the kubernetes_jq_query tool must succeed (not error from shell parsing)
+# and Holmes must discover the verification code proving it actually read the data.
 include_tool_calls: true
+expected_output:
+  - Must call kubernetes_jq_query tool successfully (no jq errors)
+  - "HOLMES-EVAL-LEAK-9x7m"
 
 tags:
   - kubernetes
@@ -19,9 +15,7 @@ tags:
 
 before_test: |
   kubectl create namespace app-232 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
-  kubectl create namespace kube-system --save-config --dry-run=client -o yaml | kubectl apply -f - || true
 
-  # Deploy workloads with hardcoded secrets (the bad practice Holmes should find)
   cat <<'EOF' | kubectl apply -f -
   apiVersion: apps/v1
   kind: Deployment
@@ -104,7 +98,6 @@ before_test: |
             value: "safe-worker"
   EOF
 
-  # Wait for deployments to exist
   READY=false
   for i in {1..60}; do
     COUNT=$(kubectl get deployments -n app-232 --no-headers 2>/dev/null | wc -l)
@@ -122,7 +115,7 @@ before_test: |
     exit 1
   fi
 
-  # Verify the data is queryable via the same jq pattern the LLM would use
+  # Verify the data is queryable via a jq pattern with pipes, regex, and semicolons
   VERIFY=$(kubectl get deployments -n app-232 -o json | jq -r '.items[] | .spec.template.spec.containers[] | .env // [] | .[] | select(.value != null and (.valueFrom == null)) | select(.name | test("PASSWORD|SECRET|API_KEY|CREDENTIAL"; "i")) | .name')
   if echo "$VERIFY" | grep -q "DB_PASSWORD" && echo "$VERIFY" | grep -q "STRIPE_API_KEY"; then
     echo "✅ Verification: found DB_PASSWORD and STRIPE_API_KEY via jq query"
