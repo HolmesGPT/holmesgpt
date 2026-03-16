@@ -48,7 +48,7 @@ def _build_grafana_dashboard_url(
 
 
 class GrafanaToolset(BaseGrafanaToolset):
-    config_class: ClassVar[Type[GrafanaDashboardConfig]] = GrafanaDashboardConfig
+    config_classes: ClassVar[list[Type[GrafanaDashboardConfig]]] = [GrafanaDashboardConfig]
 
     def __init__(self):
         super().__init__(

@@ -200,6 +200,7 @@ function buildParams(raw) {
     testPreview: raw.test_preview || '',
     duration: raw.duration || 'N/A',
     validMarkers: raw.valid_markers || '',
+    validModels: raw.valid_models || '',
     triggered_by: raw.triggered_by || ''
   };
 }
@@ -293,8 +294,9 @@ function buildRerunFooter(p, context, options = {}) {
   const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`;
   const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
 
-  // Format markers as comma-separated code-styled names
+  // Format markers and models as comma-separated code-styled names
   const markersFormatted = formatAsCodes(p.validMarkers);
+  const modelsFormatted = formatAsCodes(p.validModels);
 
   // gh CLI command to run workflow from PR branch (include empty filter= for easy copy-paste)
   // Note: workflow_dispatch still uses 'markers' parameter name
@@ -341,11 +343,15 @@ function buildRerunFooter(p, context, options = {}) {
     '**Option 3: Add PR labels** to include extra evals in automatic regression runs:\n\n' +
     '| Label | Effect |\n|-------|--------|\n' +
     '| `evals-tag-<name>` | Run tests with tag `<name>` alongside regression |\n' +
-    '| `evals-id-<name>` | Run a specific eval by test ID |\n\n' +
-    'Examples: `evals-tag-easy`, `evals-id-09_crashpod`\n' +
+    '| `evals-id-<name>` | Run a specific eval by test ID |\n' +
+    '| `evals-model-<name>` | Override the model (use model list name, e.g. `sonnet-4.5`) |\n\n' +
+    'Examples: `evals-tag-easy`, `evals-id-09_crashpod`, `evals-model-sonnet-4.5`\n' +
     '</details>\n' +
     '\n<details>\n<summary>🏷️ <b>Valid tags</b></summary>\n\n' +
     markersFormatted +
+    '\n</details>\n' +
+    '\n<details>\n<summary>🤖 <b>Valid models</b></summary>\n\n' +
+    modelsFormatted +
     '\n</details>\n' +
     '\n---\n**Commands:** `/eval` · `/rerun` · `/list`\n\n' +
     '**CLI:** `' + ghCommand + '`\n';
