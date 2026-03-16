@@ -30,7 +30,6 @@ tags:
   - question-answer
   - hard
   - fast
-  - no-cicd  # Requires uvx + mcp-atlassian which are not installed in CI
 
 before_test: |
   set -e
