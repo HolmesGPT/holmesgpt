@@ -5,19 +5,24 @@
 # Scenario: Customer asks about an alert from cluster "us-prod-eks" but Holmes is connected
 # to the "ci-cd" cluster. The app (lambda-dashboard-monitoring) doesn't exist in ci-cd.
 # An empty "us-prod-eks" namespace exists in the ci-cd cluster, which is a red herring.
-# Change history for ci-cd shows no relevant changes.
+# Change history shows only CI/CD tool changes — nothing related to the alert.
+#
+# This mirrors a real customer issue where Holmes found nothing relevant but still
+# provided a full root cause analysis instead of flagging the cluster mismatch.
 #
 # Requirements:
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
 # - ELASTICSEARCH_API_KEY: API key for authentication
 #
-# Anti-hallucination: The test injects a specific deployment ID (DEP-K8M9X2) and version
-# (v2.4.7-rc3) into the change history for us-prod-eks. Holmes must discover these by
-# querying ES to prove it actually searched the data.
+# Anti-hallucination: The CI/CD change history contains a specific build reference
+# (BUILD-7X4Q9M for Jenkins). Holmes must discover this by querying ES to prove
+# it actually searched. The key test is that Holmes finds ONLY irrelevant CI/CD
+# changes and NO data about the alerting app.
 #
 # TDD: This test should initially FAIL (red) because Holmes currently provides a root cause
-# analysis even when it detects it's in the wrong cluster. The test passes (green) when
-# Holmes correctly identifies the mismatch and refuses to provide a speculative diagnosis.
+# analysis even when it finds no relevant data and detects a cluster mismatch. The test
+# passes (green) when Holmes correctly identifies the mismatch and refuses to provide
+# a speculative diagnosis.
 
 user_prompt: |
   I'm connected to the ci-cd cluster. We got a P1 alert and need help finding the root cause:
@@ -43,13 +48,14 @@ user_prompt: |
   ]
   The alert started right after a deployment. Can you check what's the root cause?
 
+include_tool_calls: true
+
 expected_output:
-  - "Must identify that lambda-dashboard-monitoring is NOT found in the ci-cd cluster"
-  - "Must recognize the alert is for cluster us-prod-eks, which is different from the current ci-cd cluster"
+  - "Must search for lambda-dashboard-monitoring, clientorg-alpha, or the alerting app in the Elasticsearch indices and find NO matching results"
+  - "Must recognize the alert is for cluster us-prod-eks, which is different from the current ci-cd cluster where it's investigating"
   - "Must clearly state that it cannot properly investigate because it's connected to the wrong cluster (ci-cd instead of us-prod-eks)"
-  - "Must NOT provide a root cause analysis or diagnosis for the alert"
-  - "Must recommend connecting to the us-prod-eks cluster to investigate"
-  - "Should mention finding deployment DEP-K8M9X2 (version v2.4.7-rc3) in the change history for us-prod-eks, showing a recent deploy happened but cannot be investigated from ci-cd"
+  - "Must NOT provide a root cause analysis, diagnosis, or speculative conclusions about what caused the alert"
+  - "Must recommend connecting to the us-prod-eks cluster to properly investigate the alert"
 
 tags:
   - elasticsearch
@@ -73,7 +79,10 @@ before_test: |
   curl -sf -X DELETE "${ELASTICSEARCH_URL}/${CHANGES_INDEX}" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
-  # --- Index 1: Cluster Inventory (deployment registry) ---
+  # --- Index 1: Cluster Inventory ---
+  # Only contains what's visible from the ci-cd cluster.
+  # The alert's app (lambda-dashboard-monitoring) is NOT here.
+  # An empty "us-prod-eks" namespace exists as a red herring.
   echo "⏳ Creating cluster inventory index..."
   CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
@@ -100,16 +109,6 @@ before_test: |
   BULK_FILE=$(es_temp_file "inventory" "234")
   cat > "$BULK_FILE" << 'BULK_EOF'
   {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"production","app_name":"lambda-dashboard-monitoring","kind":"Deployment","status":"Running","replicas":3,"image":"company/lambda-dashboard-monitoring:v2.4.7-rc3","last_updated":"2025-01-15T19:32:00Z"}
-  {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"production","app_name":"clientorg-alpha-collector","kind":"Deployment","status":"Running","replicas":2,"image":"company/collector:v1.8.2","last_updated":"2025-01-10T14:00:00Z"}
-  {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"production","app_name":"clientorg-alpha-analysis","kind":"Deployment","status":"Running","replicas":2,"image":"company/analysis-server:v3.1.0","last_updated":"2025-01-10T14:00:00Z"}
-  {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"monitoring","app_name":"vmalert-ha","kind":"StatefulSet","status":"Running","replicas":2,"image":"victoriametrics/vmalert:v1.96.0","last_updated":"2025-01-05T10:00:00Z"}
-  {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"monitoring","app_name":"prometheus","kind":"StatefulSet","status":"Running","replicas":2,"image":"prom/prometheus:v2.48.0","last_updated":"2025-01-05T10:00:00Z"}
-  {"index":{}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","kind":"Deployment","status":"Running","replicas":1,"image":"jenkins/jenkins:2.426.3-lts","last_updated":"2025-01-12T09:00:00Z"}
   {"index":{}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","kind":"Deployment","status":"Running","replicas":2,"image":"quay.io/argoproj/argocd:v2.9.3","last_updated":"2025-01-12T09:00:00Z"}
@@ -118,7 +117,9 @@ before_test: |
   {"index":{}}
   {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","kind":"Deployment","status":"Running","replicas":1,"image":"fluxcd/flux:v2.2.1","last_updated":"2025-01-08T16:00:00Z"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"us-prod-eks","app_name":"placeholder","kind":"Namespace","status":"Active","replicas":0,"image":"","last_updated":"2024-12-01T00:00:00Z"}
+  {"cluster":"ci-cd","namespace":"cd","app_name":"tekton-pipelines","kind":"Deployment","status":"Running","replicas":1,"image":"gcr.io/tekton-releases/pipeline:v0.54.0","last_updated":"2025-01-10T14:30:00Z"}
+  {"index":{}}
+  {"cluster":"ci-cd","namespace":"us-prod-eks","app_name":"","kind":"Namespace","status":"Active","replicas":0,"image":"","last_updated":"2024-12-01T00:00:00Z"}
   BULK_EOF
   sed -i 's/^  //' "$BULK_FILE"
 
@@ -127,13 +128,16 @@ before_test: |
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @"$BULK_FILE")
   if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
-    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    echo "❌ Bulk insert had errors (inventory): $BULK_RESPONSE"
     rm -f "$BULK_FILE"
     exit 1
   fi
   rm -f "$BULK_FILE"
 
   # --- Index 2: Change History ---
+  # Only CI/CD tool changes. Nothing related to lambda-dashboard-monitoring,
+  # clientorg-alpha, or the us-prod-eks namespace. Mirrors the real scenario
+  # where Robusta's fetch_configuration_changes_metadata returned 0 changes.
   echo "⏳ Creating change history index..."
   CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${CHANGES_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
@@ -145,7 +149,7 @@ before_test: |
         "namespace": {"type": "keyword"},
         "app_name": {"type": "keyword"},
         "change_type": {"type": "keyword"},
-        "deployment_id": {"type": "keyword"},
+        "change_id": {"type": "keyword"},
         "version": {"type": "keyword"},
         "previous_version": {"type": "keyword"},
         "changed_by": {"type": "keyword"},
@@ -162,17 +166,13 @@ before_test: |
   BULK_FILE=$(es_temp_file "changes" "234")
   cat > "$BULK_FILE" << 'BULK_EOF'
   {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"production","app_name":"lambda-dashboard-monitoring","change_type":"deployment","deployment_id":"DEP-K8M9X2","version":"v2.4.7-rc3","previous_version":"v2.4.6","changed_by":"deploy-bot","timestamp":"2025-01-15T19:30:00Z","description":"Rolling update of lambda-dashboard-monitoring from v2.4.6 to v2.4.7-rc3"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","change_type":"deployment","change_id":"BUILD-7X4Q9M","version":"2.426.3-lts","previous_version":"2.426.2-lts","changed_by":"infra-team","timestamp":"2025-01-12T09:00:00Z","description":"Jenkins LTS version bump to 2.426.3"}
   {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"production","app_name":"lambda-dashboard-monitoring","change_type":"config-update","deployment_id":"DEP-K8M9X1","version":"v2.4.6","previous_version":"v2.4.6","changed_by":"sre-team","timestamp":"2025-01-14T15:00:00Z","description":"Updated environment variables for dashboard monitoring thresholds"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","change_type":"deployment","change_id":"BUILD-3NR8Y1","version":"v2.9.3","previous_version":"v2.9.2","changed_by":"infra-team","timestamp":"2025-01-12T09:30:00Z","description":"ArgoCD security patch update"}
   {"index":{}}
-  {"cluster":"us-prod-eks","namespace":"production","app_name":"clientorg-alpha-collector","change_type":"deployment","deployment_id":"DEP-J7L4N9","version":"v1.8.2","previous_version":"v1.8.1","changed_by":"deploy-bot","timestamp":"2025-01-10T14:00:00Z","description":"Patch release for collector stability fixes"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","change_type":"scale","change_id":"BUILD-5PW2K6","version":"v16.7.0","previous_version":"v16.7.0","changed_by":"infra-team","timestamp":"2025-01-13T11:00:00Z","description":"Scaled gitlab-runner from 2 to 3 replicas for faster pipeline throughput"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","change_type":"deployment","deployment_id":"DEP-CI-0042","version":"2.426.3-lts","previous_version":"2.426.2-lts","changed_by":"infra-team","timestamp":"2025-01-12T09:00:00Z","description":"Jenkins LTS version bump"}
-  {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","change_type":"deployment","deployment_id":"DEP-CI-0043","version":"v2.9.3","previous_version":"v2.9.2","changed_by":"infra-team","timestamp":"2025-01-12T09:30:00Z","description":"ArgoCD security patch"}
-  {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","change_type":"scale","deployment_id":"DEP-CI-0044","version":"v16.7.0","previous_version":"v16.7.0","changed_by":"infra-team","timestamp":"2025-01-13T11:00:00Z","description":"Scaled gitlab-runner from 2 to 3 replicas"}
+  {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","change_type":"config-update","change_id":"BUILD-9TL6V3","version":"v2.2.1","previous_version":"v2.2.1","changed_by":"platform-team","timestamp":"2025-01-08T16:00:00Z","description":"Updated flux sync interval from 5m to 3m"}
   BULK_EOF
   sed -i 's/^  //' "$BULK_FILE"
 
@@ -181,7 +181,7 @@ before_test: |
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @"$BULK_FILE")
   if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
-    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    echo "❌ Bulk insert had errors (changes): $BULK_RESPONSE"
     rm -f "$BULK_FILE"
     exit 1
   fi
@@ -193,35 +193,36 @@ before_test: |
   curl -sf -X POST "${ELASTICSEARCH_URL}/${CHANGES_INDEX}/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
-  # Verify: inventory should have 10 records
+  # Verify: inventory should have 6 records (all ci-cd, none us-prod-eks apps)
   INV_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}/_count" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
-  if [ "$INV_COUNT" != "10" ]; then
-    echo "❌ Expected 10 inventory records but found: $INV_COUNT"
+  if [ "$INV_COUNT" != "6" ]; then
+    echo "❌ Expected 6 inventory records but found: $INV_COUNT"
     exit 1
   fi
 
-  # Verify: us-prod-eks deployments should include lambda-dashboard-monitoring
-  PROD_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}/_count" \
+  # Verify: NO lambda-dashboard-monitoring exists anywhere
+  APP_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}/_count" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{"query":{"bool":{"must":[{"term":{"cluster":"us-prod-eks"}},{"term":{"app_name":"lambda-dashboard-monitoring"}}]}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
-  if [ "$PROD_COUNT" != "1" ]; then
-    echo "❌ Expected 1 lambda-dashboard-monitoring in us-prod-eks but found: $PROD_COUNT"
+    -d '{"query":{"term":{"app_name":"lambda-dashboard-monitoring"}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  if [ "$APP_COUNT" != "0" ]; then
+    echo "❌ Expected 0 lambda-dashboard-monitoring records but found: $APP_COUNT"
     exit 1
   fi
 
-  # Verify: change history should have 6 records
+  # Verify: change history should have 4 records (all ci-cd)
   CHG_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${CHANGES_INDEX}/_count" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
-  if [ "$CHG_COUNT" != "6" ]; then
-    echo "❌ Expected 6 change history records but found: $CHG_COUNT"
+  if [ "$CHG_COUNT" != "4" ]; then
+    echo "❌ Expected 4 change history records but found: $CHG_COUNT"
     exit 1
   fi
 
   echo "✅ Test data ready: $INV_COUNT inventory records, $CHG_COUNT change history records"
-  echo "✅ lambda-dashboard-monitoring deployed only in us-prod-eks (not in ci-cd)"
-  echo "✅ Recent deployment DEP-K8M9X2 (v2.4.7-rc3) in us-prod-eks at 2025-01-15T19:30:00Z"
+  echo "✅ All data is from ci-cd cluster only — NO lambda-dashboard-monitoring or clientorg-alpha present"
+  echo "✅ Empty us-prod-eks namespace exists as red herring"
+  echo "✅ Change history contains only CI/CD tool changes (BUILD-7X4Q9M, BUILD-3NR8Y1, etc.)"
 
 after_test: |
   echo "⏳ Cleaning up test indices..."
