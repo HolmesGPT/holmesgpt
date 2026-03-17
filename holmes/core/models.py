@@ -45,7 +45,7 @@ def format_tool_result_data(
     tool_call_id: str,
     tool_name: str,
     extra_metadata: Optional[Dict[str, Any]] = None,
-) -> str:
+) -> Union[str, List[Dict[str, Any]]]:
     tool_call_metadata: Dict[str, Any] = {}
     if extra_metadata:
         tool_call_metadata.update(extra_metadata)
@@ -64,7 +64,16 @@ def format_tool_result_data(
             f"Params used for the tool call: {json.dumps(tool_result.params)}. The tool call output follows on the next line.\n"
             + tool_response
         )
-    return tool_response
+
+    if not tool_result.images:
+        return tool_response
+
+    # Return multimodal content: text block + image_url blocks (OpenAI vision format)
+    content: List[Dict[str, Any]] = [{"type": "text", "text": tool_response}]
+    for img in tool_result.images:
+        data_uri = f"data:{img['mimeType']};base64,{img['data']}"
+        content.append({"type": "image_url", "image_url": {"url": data_uri}})
+    return content
 
 
 class PendingToolApproval(BaseModel):

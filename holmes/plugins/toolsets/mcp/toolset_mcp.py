@@ -263,6 +263,13 @@ class RemoteMCPTool(Tool):
             tool_result = await session.call_tool(self.name, params)
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
+
+        images = [
+            {"data": c.data, "mimeType": c.mimeType}
+            for c in tool_result.content
+            if c.type == "image"
+        ] or None
+
         return StructuredToolResult(
             status=(
                 StructuredToolResultStatus.ERROR
@@ -270,6 +277,7 @@ class RemoteMCPTool(Tool):
                 else StructuredToolResultStatus.SUCCESS
             ),
             data=merged_text,
+            images=images,
             params=params,
             invocation=f"MCPtool {self.name} with params {params}",
         )

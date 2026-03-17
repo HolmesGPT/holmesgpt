@@ -7,7 +7,7 @@ import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+from mcp.types import CallToolResult, ImageContent, ListToolsResult, TextContent, Tool
 
 if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
@@ -984,6 +984,103 @@ class TestStreamableHttp:
         assert len(result.tools) == 2
         assert result.tools[0].name == "tool1"
         assert result.tools[1].name == "tool2"
+
+    def test_invoke_async_extracts_image_content(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """MCP ImageContent blocks are extracted into result.images."""
+        tool = Tool(
+            name="get_page_images",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Get page images",
+        )
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mock_toolset, "_get_server_tools", mock_get_server_tools)
+        mock_toolset.prerequisites_callable(config=mock_toolset.config)
+        mcp_tool = RemoteMCPTool.create(tool, mock_toolset)
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        call_tool_result = CallToolResult(
+            content=[
+                TextContent(type="text", text="Page has 1 image"),
+                ImageContent(
+                    type="image", data="iVBORw0KGgo=", mimeType="image/png"
+                ),
+            ],
+            isError=False,
+        )
+        mock_session.call_tool = AsyncMock(return_value=call_tool_result)
+
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+
+        with client_patch, session_patch:
+            result = asyncio.run(mcp_tool._invoke_async({}, None))
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "Page has 1 image" in result.data
+        assert result.images is not None
+        assert len(result.images) == 1
+        assert result.images[0]["data"] == "iVBORw0KGgo="
+        assert result.images[0]["mimeType"] == "image/png"
+
+    def test_invoke_async_text_only_has_no_images(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """When no ImageContent blocks, result.images is None."""
+        tool = Tool(
+            name="get_page",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Get page",
+        )
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mock_toolset, "_get_server_tools", mock_get_server_tools)
+        mock_toolset.prerequisites_callable(config=mock_toolset.config)
+        mcp_tool = RemoteMCPTool.create(tool, mock_toolset)
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        call_tool_result = CallToolResult(
+            content=[TextContent(type="text", text="text only")],
+            isError=False,
+        )
+        mock_session.call_tool = AsyncMock(return_value=call_tool_result)
+
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+
+        with client_patch, session_patch:
+            result = asyncio.run(mcp_tool._invoke_async({}, None))
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.images is None
 
 
 class TestSSE:

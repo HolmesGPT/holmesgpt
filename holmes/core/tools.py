@@ -91,6 +91,7 @@ class StructuredToolResult(BaseModel):
     error: Optional[str] = None
     return_code: Optional[int] = None
     data: Optional[Any] = None
+    images: Optional[List[Dict[str, str]]] = None
     url: Optional[str] = None
     invocation: Optional[str] = None
     params: Optional[Dict] = None
