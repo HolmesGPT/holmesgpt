@@ -9,7 +9,7 @@
 
 user_prompt: |
   Look up the environment matrix page titled 'Platform Services Environment Matrix'
-  in Confluence space 'HOLMES225'. What is the production endpoint for the
+  in Confluence space 'HLMS225'. What is the production endpoint for the
   inventory-service?
 
 expected_output:
@@ -23,8 +23,8 @@ tags:
 before_test: |
   set -e
 
-  SPACE_KEY="HOLMES225"
-  SPACE_NAME="Holmes Test Space 225"
+  SPACE_KEY="HLMS225"
+  SPACE_NAME="Holmes Eval 225"
   PAGE_TITLE="Platform Services Environment Matrix"
   VERIFICATION_ENDPOINT="https://inventory.prod.internal.acme.io:8443/api/v2"
 

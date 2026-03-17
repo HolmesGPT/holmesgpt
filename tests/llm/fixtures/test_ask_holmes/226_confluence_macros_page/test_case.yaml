@@ -7,7 +7,7 @@
 #   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
 
 user_prompt: |
-  In the Confluence space 'HOLMES226', find the page titled 'Service Recovery Procedures'.
+  In the Confluence space 'HLMS226', find the page titled 'Service Recovery Procedures'.
   Tell me: (1) the build hash referenced in the rollback script, (2) the critical
   memory threshold percentage from the warning, and (3) the current status of the
   Payment Gateway.
@@ -25,8 +25,8 @@ tags:
 before_test: |
   set -e
 
-  SPACE_KEY="HOLMES226"
-  SPACE_NAME="Holmes Test Space 226"
+  SPACE_KEY="HLMS226"
+  SPACE_NAME="Holmes Eval 226"
   PAGE_TITLE="Service Recovery Procedures"
 
   echo "Creating Confluence space ${SPACE_KEY}..."

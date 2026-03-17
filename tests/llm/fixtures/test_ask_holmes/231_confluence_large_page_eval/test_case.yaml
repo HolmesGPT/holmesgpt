@@ -11,7 +11,7 @@
 #   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
 
 user_prompt: |
-  In the Confluence space 'HOLMES231', find the page titled 'Platform Incident
+  In the Confluence space 'HLMS231', find the page titled 'Platform Incident
   Post-Mortem Catalogue 2023-2025'.  What is the audit reference code for Q4 2024
   listed in the Quarterly Reliability Summary table?
 
@@ -28,8 +28,8 @@ tags:
 before_test: |
   set -e
 
-  SPACE_KEY="HOLMES231"
-  SPACE_NAME="Holmes Test Space 231"
+  SPACE_KEY="HLMS231"
+  SPACE_NAME="Holmes Eval 231"
   PAGE_TITLE="Platform Incident Post-Mortem Catalogue 2023-2025"
   VERIFICATION_CODE="HOLMES-EVAL-vK7w3nR9pL"
   TMPFILE=$(mktemp /tmp/holmes231_page_XXXXXX.json)
