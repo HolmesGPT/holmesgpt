@@ -43,6 +43,20 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 RUN chmod 777 kube-lineage
 RUN ./kube-lineage --version
 
+# Set up ArgoCD (pre-built with Go 1.25.7 for CVE-2025-68121)
+# ArgoCD v3.3.4 ships with Go 1.25.5 which is vulnerable.
+# Rebuild with: ./scripts/build_go_binaries.sh
+# Revert to official binary when ArgoCD releases a version built with Go >= 1.25.7.
+ARG TARGETARCH
+COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
+RUN gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd
+
+# Set up Helm
+ARG HELM_VERSION=v3.20.1
+RUN curl -sSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz | tar xz -C /tmp \
+    && mv /tmp/linux-${TARGETARCH}/helm /helm \
+    && rm -rf /tmp/linux-${TARGETARCH}
+
 # Set up poetry
 ARG PRIVATE_PACKAGE_REGISTRY="none"
 RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
@@ -109,20 +123,12 @@ RUN VERSION_ID=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2 | cut -d '.' 
 COPY --from=builder /kube-lineage /usr/local/bin
 RUN kube-lineage --version
 
-# Set up ArgoCD (pre-built with Go 1.25.7 for CVE-2025-68121)
-# ArgoCD v3.3.4 ships with Go 1.25.5 which is vulnerable.
-# Rebuild with: ./scripts/build_go_binaries.sh
-# Revert to official binary when ArgoCD releases a version built with Go >= 1.25.7.
-ARG TARGETARCH
-COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
-RUN gunzip /tmp/argocd.gz && mv /tmp/argocd /usr/local/bin/argocd && chmod +x /usr/local/bin/argocd
+# Set up ArgoCD
+COPY --from=builder /argocd /usr/local/bin/argocd
 RUN argocd --help
 
 # Set up Helm
-ARG HELM_VERSION=v3.20.1
-RUN curl -sSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz | tar xz -C /tmp \
-    && mv /tmp/linux-${TARGETARCH}/helm /usr/local/bin/helm \
-    && rm -rf /tmp/linux-${TARGETARCH}
+COPY --from=builder /helm /usr/local/bin/helm
 RUN helm version
 
 ARG AWS_DEFAULT_PROFILE
