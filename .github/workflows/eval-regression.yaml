@@ -23,7 +23,7 @@ on:
         required: false
         default: ''
       filter:
-        description: 'Pytest -k filter (e.g., 09_crashpod, checkout)'
+        description: 'Eval ID / pytest -k filter (e.g., 09_crashpod, checkout). Use "id:" in /eval comments.'
         required: false
         default: ''
       iterations:
@@ -107,7 +107,7 @@ jobs:
             const askHolmesEvals = getEvalNames(askHolmesPath);
 
             const body = `## 📋 Available Eval Names\n\n` +
-              `Use these with \`filter:\` in your \`/eval\` command.\n\n` +
+              `Use these with \`id:\` in your \`/eval\` command.\n\n` +
               `**test_ask_holmes:**\n${askHolmesEvals}`;
 
             await github.rest.issues.createComment({
@@ -232,6 +232,7 @@ jobs:
 
             core.setOutput('pr_sha', pr.data.head.sha);
             core.setOutput('pr_branch', pr.data.head.ref);
+            core.setOutput('pr_labels', JSON.stringify((pr.data.labels || []).map(l => l.name)));
 
             // Add eyes reaction to indicate the comment was seen and is being processed
             await github.rest.reactions.createForIssueComment({
@@ -304,8 +305,8 @@ jobs:
             function parseComment(body) {
               const params = { model: '', markers: '', filter: '', iterations: '1', branch: '' };
               const validKeys = new Set(Object.keys(params));
-              // Aliases: tag/tags -> markers (preferred), marker -> markers (legacy), filters -> filter
-              const keyAliases = { tag: 'markers', tags: 'markers', marker: 'markers', filters: 'filter' };
+              // Aliases: tag/tags -> markers (preferred), marker -> markers (legacy), filters/filter -> filter (legacy), id -> filter (preferred)
+              const keyAliases = { tag: 'markers', tags: 'markers', marker: 'markers', filters: 'filter', filter: 'filter', id: 'filter' };
               for (const line of body.split('\n').slice(1)) {
                 const colonIdx = line.indexOf(':');
                 if (colonIdx === -1) continue;
@@ -347,6 +348,38 @@ jobs:
                 triggerSource = `[/rerun](${currentCommentUrl}) → [/eval](${evalCommentUrl})`;
               } else {
                 triggerSource = branch ? `[/eval on branch \`${branch}\`](${currentCommentUrl})` : `[/eval comment](${currentCommentUrl})`;
+              }
+
+              // Apply PR labels as defaults (comment params override labels)
+              const prLabelsJson = ${{ toJSON(steps.eval-comment.outputs.pr_labels) }} || '[]';
+              const prLabels = JSON.parse(prLabelsJson);
+              if (prLabels.length > 0) {
+                const labelSafe = /^[a-zA-Z0-9_\-]+$/;
+                const modelSafe = /^[a-zA-Z0-9_.,:\/-]+$/;
+                const labels = prLabels;
+                const tagLabels = labels
+                  .filter(n => n.startsWith('evals-tag-'))
+                  .map(n => n.replace('evals-tag-', ''))
+                  .filter(n => labelSafe.test(n));
+                const idLabels = labels
+                  .filter(n => n.startsWith('evals-id-'))
+                  .map(n => n.replace('evals-id-', ''))
+                  .filter(n => labelSafe.test(n));
+                const modelLabels = labels
+                  .filter(n => n.startsWith('evals-model-'))
+                  .map(n => n.replace('evals-model-', ''))
+                  .filter(n => modelSafe.test(n));
+
+                // Only apply label defaults when the corresponding comment param was not specified
+                if (!markers && tagLabels.length > 0) {
+                  markers = tagLabels.join(' or ');
+                }
+                if (!filter && idLabels.length > 0) {
+                  filter = idLabels.join(' or ');
+                }
+                if (!model && modelLabels.length > 0) {
+                  model = modelLabels.join(',');
+                }
               }
 
               prNumber = context.issue.number;

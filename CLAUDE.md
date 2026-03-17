@@ -282,10 +282,15 @@ For creating, running, and debugging LLM eval tests, use the `/create-eval` skil
 **Cloud Service Evals (No Kubernetes Required)**:
 - Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
-- `before_test` creates test data in the cloud service, `after_test` cleans up
+- `before_test` creates test data in the cloud service; `after_test` cleans up **only if safe** (see reentrancy below)
 - Use `toolsets.yaml` to configure the toolset with env var references: `api_url: "{{ env.ELASTICSEARCH_URL }}"`
 - **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 - **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
+- **Cloud Service Eval Reentrancy**: The same eval can run on multiple PRs in parallel in CI. Cloud service evals that create resources with static names (e.g., Confluence spaces, Elasticsearch indices) must be **reentrant**:
+  - `before_test` must be **idempotent**: create-or-reuse resources, never fail if they already exist
+  - `after_test` must **NOT delete shared resources** that another parallel run may be using. Either omit `after_test` entirely, or limit cleanup to resources with a unique run-scoped identifier
+  - Use test-ID-based resource names (e.g., `HLMS233` for space keys) to avoid collisions with other evals, but accept that the same eval may overlap with itself across parallel PR runs
+  - Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs
 
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`

@@ -1,0 +1,320 @@
+[
+  {
+    "id": "aws-mcp",
+    "name": "AWS",
+    "description": "CloudTrail, EC2, RDS, EKS, Load Balancers, Cost Explorer",
+    "categories": ["Cloud Providers"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/amazonaws.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/aws/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.aws",
+    "minRobustaVersion": "0.29.2",
+    "backendToolsetNames": ["aws_api", "aws-mcp", "aws"]
+  },
+  {
+    "id": "azure-mcp",
+    "name": "Azure",
+    "description": "Activity Logs, AKS, NSGs, VNets, Key Vault, Storage, Cost analysis",
+    "categories": ["Cloud Providers"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/microsoftazure.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/azure-mcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.azure",
+    "minRobustaVersion": "0.31.2",
+    "backendToolsetNames": ["azure_api", "azure-mcp", "azure"]
+  },
+  {
+    "id": "gcp-mcp",
+    "name": "GCP",
+    "description": "GKE, networking, IAM, Cloud Logging, Monitoring, Storage",
+    "categories": ["Cloud Providers"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/googlecloud.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/gcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.gcp",
+    "minRobustaVersion": "0.31.2",
+    "backendToolsetNames": ["gcp_gcloud", "gcp_observability", "gcp_storage", "gcp-mcp", "gcp"]
+  },
+  {
+    "id": "mariadb-mcp",
+    "name": "MariaDB",
+    "description": "Performance analysis, deadlock investigation, query optimization",
+    "categories": ["Databases"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/mariadb.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/mariadb-mcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.mariadb",
+    "minRobustaVersion": "0.29.2",
+    "backendToolsetNames": ["mariadb", "mariadb-mcp"]
+  },
+  {
+    "id": "mongodb-atlas",
+    "name": "MongoDB Atlas",
+    "description": "Cluster monitoring, performance analysis, query diagnostics",
+    "categories": ["Databases"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/mongodb.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/mongodb-atlas/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["atlas_mongodb", "MongoDBAtlas", "mongodbatlas"]
+  },
+  {
+    "id": "azure-sql",
+    "name": "Azure SQL",
+    "description": "Database monitoring, performance analysis, query diagnostics",
+    "categories": ["Databases"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/microsoftazure.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/azure-sql/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["azure_sql", "Azure/Sql", "azure/sql"]
+  },
+  {
+    "id": "github-mcp",
+    "name": "GitHub",
+    "description": "Repositories, PRs, issues, Actions workflows",
+    "categories": ["Source Control & CI/CD"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/github.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.github",
+    "minRobustaVersion": "0.32.0",
+    "backendToolsetNames": ["github", "github-mcp"]
+  },
+  {
+    "id": "argocd/core",
+    "name": "ArgoCD",
+    "description": "GitOps continuous delivery for Kubernetes",
+    "categories": ["Source Control & CI/CD"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/argo.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["argocd/core"]
+  },
+  {
+    "id": "splunk-mcp",
+    "name": "Splunk",
+    "description": "Search, indexes, security events, application logs",
+    "categories": ["Logs"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/splunk.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/splunk-mcp/?tab=robusta-helm-chart",
+    "configType": "mcp",
+    "backendToolsetNames": ["splunk", "splunk-mcp"]
+  },
+  {
+    "id": "datadog/logs",
+    "name": "Datadog Logs",
+    "description": "Log management and analytics",
+    "categories": ["Logs"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/datadog.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["datadog/logs"]
+  },
+  {
+    "id": "grafana/loki",
+    "name": "Grafana Loki",
+    "description": "Log aggregation system",
+    "categories": ["Logs"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/grafana.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["grafana/loki"]
+  },
+  {
+    "id": "opensearch/logs",
+    "name": "OpenSearch Logs",
+    "description": "Search and log analytics",
+    "categories": ["Logs"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opensearch.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["opensearch/logs", "elasticsearch/data", "opensearch/query_assist"]
+  },
+  {
+    "id": "elasticsearch/data",
+    "name": "Elasticsearch",
+    "description": "Search and analytics engine",
+    "categories": ["Logs", "Metrics", "Traces"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/elasticsearch.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["elasticsearch/data"]
+  },
+  {
+    "id": "prometheus/metrics",
+    "name": "Prometheus",
+    "description": "Metrics and alerting",
+    "categories": ["Metrics"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/prometheus.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["prometheus/metrics"]
+  },
+  {
+    "id": "datadog/metrics",
+    "name": "Datadog Metrics",
+    "description": "Infrastructure and application metrics",
+    "categories": ["Metrics"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/datadog.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["datadog/metrics"]
+  },
+  {
+    "id": "opensearch/metrics",
+    "name": "OpenSearch Metrics",
+    "description": "Metrics analytics",
+    "categories": ["Metrics"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opensearch.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["opensearch/metrics", "elasticsearch/data"]
+  },
+  {
+    "id": "grafana/tempo",
+    "name": "Grafana Tempo",
+    "description": "Distributed tracing backend",
+    "categories": ["Traces"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/grafana.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/grafanatempo/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["grafana/tempo"]
+  },
+  {
+    "id": "datadog/traces",
+    "name": "Datadog APM",
+    "description": "Application performance monitoring and tracing",
+    "categories": ["Traces"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/datadog.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["datadog/traces"]
+  },
+  {
+    "id": "opensearch/traces",
+    "name": "OpenSearch Traces",
+    "description": "Trace analytics",
+    "categories": ["Traces"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opensearch.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["opensearch/traces", "elasticsearch/data"]
+  },
+  {
+    "id": "newrelic",
+    "name": "New Relic",
+    "description": "Full-stack observability platform",
+    "categories": ["Logs", "Metrics", "Traces"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/newrelic.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["newrelic"]
+  },
+  {
+    "id": "coralogix",
+    "name": "Coralogix",
+    "description": "Full-stack observability platform",
+    "categories": ["Logs", "Metrics", "Traces"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/coralogix.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/coralogix-logs/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["coralogix"]
+  },
+  {
+    "id": "dynatrace-mcp",
+    "name": "Dynatrace",
+    "description": "Full-stack observability, logs, metrics, traces",
+    "categories": ["Logs", "Metrics", "Traces"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/dynatrace.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/remote-mcp-servers/?tab=robusta-helm-chart",
+    "configType": "mcp",
+    "backendToolsetNames": ["dynatrace", "dynatrace-mcp"]
+  },
+  {
+    "id": "servicenow/tables",
+    "name": "ServiceNow",
+    "description": "IT service management and ticketing",
+    "categories": ["ITSM and Knowledgebase"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/servicenow.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/servicenow/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["servicenow/tables"]
+  },
+  {
+    "id": "confluence",
+    "name": "Confluence",
+    "description": "Team collaboration and documentation",
+    "categories": ["ITSM and Knowledgebase"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/confluence.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["confluence"]
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "description": "Team workspace and documentation",
+    "categories": ["ITSM and Knowledgebase"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/notion.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/notion/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["notion"]
+  },
+  {
+    "id": "slab",
+    "name": "Slab",
+    "description": "Knowledge base and documentation",
+    "categories": ["ITSM and Knowledgebase"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/slab.svg",
+    "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/slab/?tab=robusta-helm-chart",
+    "configType": "native",
+    "backendToolsetNames": ["slab"]
+  },
+  {
+    "id": "confluence-mcp",
+    "name": "Confluence (MCP)",
+    "description": "CQL search, page retrieval, comments, optional write operations",
+    "categories": ["ITSM and Knowledgebase"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/confluence.svg",
+    "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/confluence-mcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.confluenceMcp",
+    "minRobustaVersion": "0.33.0",
+    "backendToolsetNames": ["confluence-mcp", "confluence_mcp"]
+  },
+  {
+    "id": "sentry-mcp",
+    "name": "Sentry",
+    "description": "Error tracking, issue searching, stack trace retrieval, crash investigation",
+    "categories": ["Other"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/sentry.svg",
+    "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/sentry-mcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.sentryMcp",
+    "minRobustaVersion": "0.33.0",
+    "backendToolsetNames": ["sentry", "sentry-mcp"]
+  },
+  {
+    "id": "prefect-mcp",
+    "name": "Prefect",
+    "description": "Workflow orchestration, flow run inspection, log retrieval, worker health checks",
+    "categories": ["Other"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/prefect.svg",
+    "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/prefect-mcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.prefectMcp",
+    "minRobustaVersion": "0.33.0",
+    "backendToolsetNames": ["prefect", "prefect-mcp"]
+  },
+  {
+    "id": "kubernetes-remediation-mcp",
+    "name": "Kubernetes Remediation",
+    "description": "Safe kubectl command execution with security controls and RBAC enforcement",
+    "categories": ["Other"],
+    "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/kubernetes.svg",
+    "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/kubernetes-remediation-mcp/?tab=robusta-helm-chart",
+    "configType": "native-mcp",
+    "helmPath": "holmes.mcpAddons.kubernetesRemediation",
+    "minRobustaVersion": "0.33.0",
+    "backendToolsetNames": ["kubernetes-remediation", "kubernetes_remediation", "kubernetes-remediation-mcp"]
+  }
+]
