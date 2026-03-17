@@ -14,16 +14,31 @@ class ToolCallResult(BaseModel):
     size: Optional[int] = None
 
     def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
+        text_content = format_tool_result_data(
+            tool_result=self.result,
+            tool_call_id=self.tool_call_id,
+            tool_name=self.tool_name,
+            extra_metadata=extra_metadata,
+        )
+        if self.result.images:
+            text_content += _build_image_embed_hint(
+                tool_call_id=self.tool_call_id,
+                url=self.result.url,
+            )
+            content: List[Dict[str, Any]] = [{"type": "text", "text": text_content}]
+            for img in self.result.images:
+                content.append({"type": "image_url", "image_url": img})
+            return {
+                "tool_call_id": self.tool_call_id,
+                "role": "tool",
+                "name": self.tool_name,
+                "content": content,
+            }
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
             "name": self.tool_name,
-            "content": format_tool_result_data(
-                tool_result=self.result,
-                tool_call_id=self.tool_call_id,
-                tool_name=self.tool_name,
-                extra_metadata=extra_metadata,
-            ),
+            "content": text_content,
         }
 
     def to_client_dict(self):
@@ -38,6 +53,24 @@ class ToolCallResult(BaseModel):
             "role": "tool",
             "result": result_dump,
         }
+
+
+def _build_image_embed_hint(tool_call_id: str, url: Optional[str] = None) -> str:
+    """Build a hint for the LLM explaining how to embed this image in its response.
+
+    The LLM can use ![caption](tool-image://<tool_call_id>) syntax in its analysis.
+    The frontend resolves these references against the tool_calls array, rendering
+    the base64 image as a clickable link to the source URL (e.g. Grafana dashboard).
+    """
+    hint = (
+        f"\n\nTo embed this image in your response, use exactly this markdown syntax:\n"
+        f"![<descriptive caption>](tool-image://{tool_call_id})\n"
+        f"The client will render the image inline in your response"
+    )
+    if url:
+        hint += f" with a link to {url}"
+    hint += "."
+    return hint
 
 
 def format_tool_result_data(
