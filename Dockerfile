@@ -1,4 +1,6 @@
 # Go builder stage - rebuild Go binaries with Go 1.25.7 to fix CVE-2025-68121
+# Currently both argocd and helm are built with Go 1.25.6, which is vulnerable to CVE-2025-68121. We need to rebuild them with Go 1.25.7 to fix the vulnerability.
+# This should be reverted when argocd & helm release version which fixed the cve.
 FROM golang:1.25.7-bookworm AS go-builder
 ARG ARGOCD_VERSION=v3.3.2
 ARG HELM_VERSION=v3.20.0
