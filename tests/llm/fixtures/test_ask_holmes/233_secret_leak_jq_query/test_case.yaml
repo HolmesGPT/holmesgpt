@@ -13,7 +13,6 @@ expected_output:
 tags:
   - kubernetes
   - medium
-  - regression
 
 before_test: |
   kubectl create namespace app-233 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
