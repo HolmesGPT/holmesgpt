@@ -330,3 +330,33 @@ def test_to_llm_message_with_images():
     assert message["content"][0]["type"] == "text"
     assert message["content"][1]["type"] == "image_url"
     assert "data:image/png;base64,AAAA" in message["content"][1]["image_url"]["url"]
+
+
+def test_truncate_tool_messages_string_content():
+    """truncate_tool_messages truncates string content normally."""
+    from holmes.core.conversations import truncate_tool_messages
+
+    history = [{"role": "tool", "content": "a" * 100}]
+    truncate_tool_messages(history, 10)
+    assert history[0]["content"] == "a" * 10
+
+
+def test_truncate_tool_messages_list_content_preserves_images():
+    """truncate_tool_messages truncates only the text block in multimodal content."""
+    from holmes.core.conversations import truncate_tool_messages
+
+    history = [
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "a" * 100},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,ABC"}},
+            ],
+        }
+    ]
+    truncate_tool_messages(history, 10)
+    # Text block truncated
+    assert history[0]["content"][0]["text"] == "a" * 10
+    # Image block preserved
+    assert history[0]["content"][1]["type"] == "image_url"
+    assert history[0]["content"][1]["image_url"]["url"] == "data:image/png;base64,ABC"

@@ -469,6 +469,7 @@ class RemoteMCPToolset(Toolset):
         MCPConfig,
         StdioMCPConfig,
     ]
+    description: str = "MCP server toolset"
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
 

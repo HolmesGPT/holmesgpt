@@ -41,7 +41,14 @@ def calculate_tool_size(
 def truncate_tool_messages(conversation_history: list, tool_size: int) -> None:
     for message in conversation_history:
         if message.get("role") == "tool":
-            message["content"] = message["content"][:tool_size]
+            content = message["content"]
+            if isinstance(content, str):
+                message["content"] = content[:tool_size]
+            elif isinstance(content, list):
+                # Multimodal content (text + images): truncate only the text block
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        block["text"] = block["text"][:tool_size]
 
 
 def add_or_update_system_prompt(
