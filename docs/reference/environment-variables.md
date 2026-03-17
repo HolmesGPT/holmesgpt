@@ -32,19 +32,16 @@ This page documents all environment variables that can be used to configure Holm
 
 ## LLM Tool Calling Configuration
 
-### LLMS_WITH_STRICT_TOOL_CALLS
-**Default:** `"azure/gpt-4.1, openai/*"`
+### HOLMES_DISABLE_STRICT_TOOL_CALLS
+**Default:** `false`
 
-Comma-separated list of model patterns that support strict tool calling. When a model matches one of these patterns, HolmesGPT will:
-- Enable the `strict` flag for function definitions
-- Set `additionalProperties: false` in tool parameter schemas
-- Enforce stricter schema validation for tool calls
+When set to `true`, disables strict tool calling for all models. By default, strict mode is enabled universally — HolmesGPT sets `strict: true` and `additionalProperties: false` on all tool schemas. This prevents LLMs from hallucinating parameter names or sending malformed arguments.
 
-This improves reliability of tool calling for supported models by ensuring the LLM adheres more strictly to the defined tool schemas.
+Tools with dynamic-key parameters (`additionalProperties` with a schema, e.g., filter maps) are automatically excluded from strict mode on a per-tool basis, since both OpenAI and Anthropic require `additionalProperties: false` on all objects in strict mode.
 
 **Example:**
 ```bash
-export LLMS_WITH_STRICT_TOOL_CALLS="azure/gpt-4.1,openai/*,anthropic/claude-sonnet-4*"
+export HOLMES_DISABLE_STRICT_TOOL_CALLS=true
 ```
 
 ### TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
@@ -59,7 +56,42 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## SSL/TLS
+
+### CERTIFICATE
+
+Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the certificate is appended to the default CA bundle so that HolmesGPT trusts your private CA for all connections (LLM APIs, Elasticsearch, Prometheus, etc.).
+
+=== "Holmes CLI"
+
+    ```bash
+    export CERTIFICATE="$(base64 -w0 /path/to/ca.crt)"
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    certificate: "<base64-encoded CA cert>"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      certificate: "<base64-encoded CA cert>"
+    ```
+
 ## HolmesGPT Configuration
+
+### MODEL_LIST_FILE_LOCATION
+Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
+
+**Example:**
+```bash
+export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
+```
+
+See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for the model list file format and usage.
 
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.
@@ -83,15 +115,30 @@ export HOLMES_LOG_LEVEL="DEBUG"
 ### HOLMES_CACHE_DIR
 Directory for caching HolmesGPT data and temporary files.
 
+### HOLMES_PASSTHROUGH_BLOCKED_HEADERS
+**Default:** `"authorization,cookie,set-cookie"`
+
+Comma-separated list of HTTP header names that should **not** be forwarded from incoming requests to toolsets via `request_context`. Case-insensitive.
+
+**Example:**
+```bash
+# Also block a custom internal header
+export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-internal-only"
+```
+
+See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
+
 ## Data Source Configuration
 
 ### Prometheus
 - `PROMETHEUS_URL` - URL of the Prometheus server
 
 ### Confluence
-- `CONFLUENCE_BASE_URL` - Base URL of Confluence instance
-- `CONFLUENCE_EMAIL` - Email for Confluence authentication
-- `CONFLUENCE_API_KEY` - API key for Confluence
+
+- `CONFLUENCE_API_URL` - Base URL of Confluence instance (e.g., `https://mycompany.atlassian.net`)
+- `CONFLUENCE_USER` - User email (Cloud) or username (Data Center) for authentication
+- `CONFLUENCE_API_KEY` - API token (Cloud) or password (Data Center)
+- `CONFLUENCE_PAT` - Personal Access Token (Data Center, used with `auth_type: bearer`)
 
 ### GitHub
 - `GITHUB_TOKEN` - Personal access token for GitHub API

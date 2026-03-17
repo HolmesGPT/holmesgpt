@@ -1,0 +1,17 @@
+# Coralogix MCP server configuration for test 175
+# Uses the official Coralogix MCP server via streamable HTTP
+
+toolsets:
+  coralogix-mcp:
+    type: mcp
+    enabled: true
+    config:
+      url: "https://api.eu2.coralogix.com/mgmt/api/v1/mcp"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{env.CORALOGIX_API_KEY}}"
+      icon_url: "https://cdn.simpleicons.org/coralogix"
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: true

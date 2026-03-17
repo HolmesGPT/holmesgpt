@@ -20,7 +20,7 @@ autoscaling:
 image: holmes:0.0.0
 registry: robustadev
 
-sentryDSN: https://aa95c183188a6ddf134ebfffe85fd108@o4510692373299200.ingest.de.sentry.io/4510707946094672
+sentryDSN: ""
 
 enableAccountsCreate: true
 revisionHistoryLimit: 10
@@ -82,6 +82,24 @@ resources:
 
 additionalVolumes: []
 additionalVolumeMounts: []
+
+# Init containers run before the main Holmes container starts
+# Useful for fetching secrets from external sources (e.g., vault, secret managers)
+# Example:
+# initContainers:
+#   - name: fetch-secret
+#     image: curlimages/curl:8.5.0
+#     command: ["sh", "-c", "curl -s http://vault:8200/v1/secret/api-key > /shared/api-key"]
+#     volumeMounts:
+#       - name: shared-data
+#         mountPath: /shared
+initContainers: []
+
+# Additional arguments to pass to the Holmes server
+# Example:
+# args:
+#   - "--config=/etc/holmes/custom-config.yaml"
+args: []
 
 priorityClassName: ""
 
@@ -323,19 +341,18 @@ mcpAddons:
 
   # GitHub MCP Server Configuration
   # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
-  # Uses a prebuilt image that bundles GitHub MCP server with Supergateway for HTTP transport
   #
-  # AUTHENTICATION:
-  # Create a GitHub Personal Access Token (PAT) with appropriate permissions:
-  # - repo: Full control of private repositories (or public_repo for public only)
-  # - workflow: Update GitHub Action workflows (for CI/CD debugging)
-  # Then create a Kubernetes secret:
+  # AUTHENTICATION (choose one):
+  # Option 1 - PAT: Deploys a self-hosted MCP server using the standard github-mcp image
   #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
+  # Option 2 - GitHub App: Deploys a self-hosted MCP server using the github-app-mcp image
+  #   which generates and auto-refreshes installation tokens from GitHub App credentials
+  #   kubectl create secret generic github-app-secret --from-literal=GITHUB_APP_ID=... -n <NAMESPACE>
   #
   # GITHUB ENTERPRISE:
   # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
   #
-  # CUSTOM IMAGE (optional):
+  # CUSTOM IMAGE (PAT only):
   # To build your own image, see: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/github
   github:
     enabled: false
@@ -344,10 +361,25 @@ mcpAddons:
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
-    # Authentication - PAT from Kubernetes secret
+    # Authentication - choose ONE of the two methods below
     auth:
-      secretName: ""      # Required: name of K8s secret containing the GitHub PAT
+      # Option 1: Personal Access Token (PAT)
+      # Create a secret: kubectl create secret generic github-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
+      secretName: ""      # Name of K8s secret containing the GitHub PAT
       secretKey: "token"  # Key in secret (default: "token")
+
+      # Option 2: GitHub App installation token
+      # Deploys a self-hosted MCP server that generates and refreshes installation tokens
+      # from GitHub App credentials. Uses a separate image with built-in token management.
+      #   kubectl create secret generic github-app-secret \
+      #     --from-literal=GITHUB_APP_ID=<APP_ID> \
+      #     --from-literal=GITHUB_APP_INSTALLATION_ID=<INSTALLATION_ID> \
+      #     --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
+      #     -n <NAMESPACE>
+      githubApp:
+        secretName: ""                                          # Name of K8s secret containing GitHub App credentials
+        image: "github-app-mcp:1.0.0"                          # Image with GitHub App token management
+        registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)

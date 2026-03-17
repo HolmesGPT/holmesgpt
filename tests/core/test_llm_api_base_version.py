@@ -88,56 +88,25 @@ class TestDefaultLLMCheckLLM:
         )
 
     @patch("litellm.get_llm_provider")
-    @patch("litellm.validate_environment")
     def test_check_llm_azure_api_version_handling(
-        self, mock_validate, mock_get_provider
+        self, mock_get_provider, monkeypatch
     ):
         """Test Azure-specific api_version handling in check_llm."""
-        mock_get_provider.return_value = ("test-model", "azure")
-        mock_validate.return_value = {
-            "keys_in_environment": False,
-            "missing_keys": ["AZURE_API_VERSION"],
-        }
+        mock_get_provider.return_value = ("azure/gpt-4o", "azure")
+        monkeypatch.setenv("AZURE_API_KEY", "test-key")
+        monkeypatch.setenv("AZURE_API_BASE", "https://test.api.base")
+        monkeypatch.setenv("AZURE_API_VERSION", "2023-12-01")
 
         llm = DefaultLLM.__new__(DefaultLLM)
         llm.is_robusta_model = False
+        llm.model = "azure/gpt-4o"
+        # Should not raise exception when all Azure env vars are set
         llm.check_llm(
             model="azure/gpt-4o",
             api_key="test-key",
             api_base="https://test.api.base",
             api_version="2023-12-01",
         )
-
-        # Should not raise exception due to api_version being provided
-        mock_validate.assert_called_once_with(
-            model="azure/gpt-4o", api_key="test-key", api_base="https://test.api.base"
-        )
-
-    @patch("litellm.get_llm_provider")
-    @patch("litellm.validate_environment")
-    def test_check_llm_azure_missing_api_version_raises(
-        self, mock_validate, mock_get_provider
-    ):
-        """Test Azure provider raises exception when api_version is missing."""
-        mock_get_provider.return_value = ("test-model", "azure")
-        mock_validate.return_value = {
-            "keys_in_environment": False,
-            "missing_keys": ["AZURE_API_VERSION"],
-        }
-
-        llm = DefaultLLM.__new__(DefaultLLM)
-        llm.is_robusta_model = False
-
-        with pytest.raises(
-            Exception,
-            match="model azure/gpt-4o requires the following environment variables",
-        ):
-            llm.check_llm(
-                model="azure/gpt-4o",
-                api_key="test-key",
-                api_base="https://test.api.base",
-                api_version=None,  # Missing api_version
-            )
 
     @patch("litellm.get_llm_provider")
     @patch("litellm.validate_environment")
@@ -163,6 +132,124 @@ class TestDefaultLLMCheckLLM:
                 api_key="test-key",
                 api_base="https://test.api.base",
                 api_version="2023-12-01",
+            )
+
+    @patch("litellm.get_llm_provider")
+    def test_check_llm_azure_env_vars_remove_missing_keys(
+        self, mock_get_provider, monkeypatch
+    ):
+        """Test Azure provider removes keys from missing_keys when they exist in the environment."""
+        mock_get_provider.return_value = ("azure/gpt-4o", "azure")
+        # Only set AZURE_API_KEY and AZURE_API_BASE in env, leave AZURE_API_VERSION unset
+        monkeypatch.setenv("AZURE_API_KEY", "test-key")
+        monkeypatch.setenv("AZURE_API_BASE", "https://test.api.base")
+        monkeypatch.delenv("AZURE_API_VERSION", raising=False)
+
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.is_robusta_model = False
+        llm.model = "azure/gpt-4o"
+
+        with pytest.raises(
+            Exception,
+            match=r"model azure/gpt-4o requires the following environment variables: \['AZURE_API_VERSION'\]",
+        ):
+            llm.check_llm(
+                model="azure/gpt-4o",
+                api_key="test-key",
+                api_base="https://test.api.base",
+                api_version=None,
+            )
+
+    @patch("litellm.get_llm_provider")
+    def test_check_llm_azure_all_env_vars_set_passes(
+        self, mock_get_provider, monkeypatch
+    ):
+        """Test Azure provider passes when all AZURE_* env vars are set, even if validate_environment reports them missing."""
+        mock_get_provider.return_value = ("gpt-4o", "azure")
+        monkeypatch.setenv("AZURE_API_KEY", "test-key")
+        monkeypatch.setenv("AZURE_API_BASE", "https://test.api.base")
+        monkeypatch.setenv("AZURE_API_VERSION", "2024-02-01")
+
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.is_robusta_model = False
+        llm.model = "azure/gpt-4o"
+        # Should not raise - env vars cover all required keys
+        llm.check_llm(
+            model="azure/gpt-4o",
+            api_key=None,
+            api_base=None,
+            api_version=None,
+        )
+
+    @patch("litellm.get_llm_provider")
+    def test_check_llm_azure_all_config_passes(
+        self, mock_get_provider, monkeypatch
+    ):
+        """Test Azure provider passes when all variables from configuration."""
+        mock_get_provider.return_value = ("gpt-4o", "azure")
+        monkeypatch.delenv("AZURE_API_KEY", raising=False)
+        monkeypatch.delenv("AZURE_API_BASE", raising=False)
+        monkeypatch.delenv("AZURE_API_VERSION", raising=False)
+
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.is_robusta_model = False
+        llm.model = "azure/gpt-4o"
+        # Should not raise - env vars cover all required keys
+        llm.check_llm(
+            model="azure/gpt-4o",
+            api_key="test-key",
+            api_base="https://test.api.base",
+            api_version="2024-02-01",
+        )
+
+    @patch("holmes.core.llm.AZURE_AD_TOKEN_AUTH", True)
+    @patch("litellm.get_llm_provider")
+    def test_check_llm_azure_ad_token_auth_removes_api_key_requirement(
+        self, mock_get_provider, monkeypatch
+    ):
+        """Test Azure AD token auth removes AZURE_API_KEY from missing_keys."""
+        mock_get_provider.return_value = ("gpt-4o", "azure")
+        # Set AZURE_API_BASE and AZURE_API_VERSION but not AZURE_API_KEY
+        monkeypatch.delenv("AZURE_API_KEY", raising=False)
+        monkeypatch.setenv("AZURE_API_BASE", "https://test.api.base")
+        monkeypatch.setenv("AZURE_API_VERSION", "2024-02-01")
+
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.is_robusta_model = False
+        llm.model = "azure/gpt-4o"
+        # Should not raise - AZURE_AD_TOKEN_AUTH=True makes AZURE_API_KEY optional
+        llm.check_llm(
+            model="azure/gpt-4o",
+            api_key=None,
+            api_base="https://test.api.base",
+            api_version="2024-02-01",
+        )
+
+    @patch("holmes.core.llm.AZURE_AD_TOKEN_AUTH", False)
+    @patch("litellm.get_llm_provider")
+    def test_check_llm_azure_no_ad_token_auth_requires_api_key(
+        self, mock_get_provider, monkeypatch
+    ):
+        """Test Azure provider still requires AZURE_API_KEY when AZURE_AD_TOKEN_AUTH is disabled."""
+        mock_get_provider.return_value = ("gpt-4o", "azure")
+        monkeypatch.delenv("AZURE_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("AZURE_API_BASE", "https://test.api.base")
+        monkeypatch.setenv("AZURE_API_VERSION", "2024-02-01")
+
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.is_robusta_model = False
+        llm.model = "azure/gpt-4o"
+
+        with pytest.raises(
+            Exception,
+            match=r"azure/gpt-4o requires the following environment variables: \['AZURE_API_KEY'\]",
+        ):
+            llm.check_llm(
+                model="azure/gpt-4o",
+                api_key=None,
+                api_base="https://test.api.base",
+                api_version="2024-02-01",
             )
 
     @patch("litellm.get_llm_provider")

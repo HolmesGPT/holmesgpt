@@ -197,8 +197,9 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
-- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`). When using OpenRouter, you must also set `CLASSIFIER_MODEL` to an OpenRouter model (e.g., `CLASSIFIER_MODEL="openrouter/openai/gpt-4.1"`) because the default classifier model is not available via OpenRouter.
 - `MODEL`: Override default model(s) - supports comma-separated list
+- `CLASSIFIER_MODEL`: Override the classifier model used internally. Required when using OpenRouter (e.g., `openrouter/openai/gpt-4.1`)
 - `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
@@ -214,11 +215,11 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - **NEVER run `pre-commit`, `ruff`, or `mypy` unless the user explicitly asks you to**. These tools are triggered by commit hooks which are not installed on all machines, and running them causes widespread formatting/type changes to files unrelated to your task. Only lint/format files you are actively editing, and only if asked.
 
 **Documentation Examples**:
-- **ALWAYS use Anthropic Claude models** in code examples and documentation:
+- **Primary examples should use the latest Anthropic Claude models**:
   - Recommended: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101`
-  - Use the latest Claude 4.5 family models (Sonnet or Opus)
+  - Use the latest Claude 4.5 family models (Sonnet or Opus) as the default/primary examples
+- You may include other providers (OpenAI, Gemini, etc.) where it would be useful for users, such as in model listing sections or provider-specific documentation
 - Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
-- Do NOT use GPT-4o or Gemini models in documentation examples
 
 **Testing Requirements**:
 - All new features require unit tests
@@ -468,6 +469,24 @@ toolsets:
 2. `poetry run pytest -k "test_name" --no-cov` — run full test
 3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
 
+## Reading CodeRabbit Review Comments
+
+In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:
+
+1. **Find the PR number** via the GitHub API (unauthenticated, one call):
+   ```bash
+   curl -s "https://api.github.com/repos/HolmesGPT/holmesgpt/pulls?head=HolmesGPT:BRANCH_NAME&state=open" \
+     | python3 -c "import sys,json; [print(f'PR #{p[\"number\"]}') for p in json.load(sys.stdin)]"
+   ```
+2. **Fetch comments with WebFetch** (not rate-limited):
+   Use the `WebFetch` tool on `https://github.com/HolmesGPT/holmesgpt/pull/<NUMBER>` and ask it to extract all CodeRabbit comments, including file/line references, full text, and code suggestions.
+
+**What does NOT work:**
+
+- `gh` CLI — not installed in the sandbox
+- Multiple `curl` calls to `api.github.com` — hits unauthenticated rate limits (60/hour) fast
+- The local git proxy (`127.0.0.1`) — only supports git protocol, not the GitHub REST API
+
 ## Documentation Lookup
 
 When asked about content from the HolmesGPT documentation website (https://holmesgpt.dev/), look in the local `docs/` directory:
@@ -476,6 +495,10 @@ When asked about content from the HolmesGPT documentation website (https://holme
 - Kubernetes deployment: `docs/installation/kubernetes-installation.md`
 - Toolset documentation: `docs/data-sources/builtin-toolsets/`
 - API reference: `docs/reference/`
+
+## MkDocs Navigation
+
+The docs site uses the `awesome-nav` plugin. Navigation is controlled by `.nav.yml` files in each `docs/` subdirectory, **not** by the `nav:` section in `mkdocs.yml`. When adding a new docs page, you must add it to the `.nav.yml` file in the corresponding directory (e.g., `docs/reference/.nav.yml` for reference pages).
 
 ## MkDocs Formatting Notes
 

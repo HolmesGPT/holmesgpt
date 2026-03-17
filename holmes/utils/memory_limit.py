@@ -8,6 +8,11 @@ from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of lines to keep from OOM crash output.
+# The first few lines contain the error message; the rest is typically
+# goroutine stack dumps (Go) or core-dump noise that wastes tokens.
+OOM_OUTPUT_MAX_LINES = 10
+
 
 def get_ulimit_prefix() -> str:
     """
@@ -18,6 +23,26 @@ def get_ulimit_prefix() -> str:
     """
     memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
     return f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
+
+
+def _truncate_oom_output(output: str) -> str:
+    """Truncate OOM crash output to just the error summary.
+
+    OOM crashes (especially from Go programs like kubectl) produce huge
+    goroutine stack dumps that are useless for the LLM and waste tokens.
+    Keep only the first few lines which contain the actual error message.
+    """
+    if not output:
+        return output
+
+    lines = output.splitlines()
+    if len(lines) <= OOM_OUTPUT_MAX_LINES:
+        return output
+
+    truncated_lines = lines[:OOM_OUTPUT_MAX_LINES]
+    omitted = len(lines) - OOM_OUTPUT_MAX_LINES
+    truncated_lines.append(f"[... {omitted} lines of stack trace omitted ...]")
+    return "\n".join(truncated_lines)
 
 
 def check_oom_and_append_hint(output: str, return_code: int) -> str:
@@ -53,15 +78,17 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
 
     if is_oom:
         hint = (
-            f"[OOM] Command was killed due to memory limits (current limit: {TOOL_MEMORY_LIMIT_MB} MB). "
-            f"Note to humans: this is OK, Holmes will retry with filters to reduce memory usage.\n"
-            f"Note to agent: Try querying the data differently to reduce memory usage - add filters to narrow the results, "
-            f"use smaller time ranges, or try alternative tools that may be more memory-efficient. "
-            f"If you cannot succeed with a modified query, you may recommend the user increase the limit "
-            f"by setting the TOOL_MEMORY_LIMIT_MB environment variable (Tool memory limit, MB)."
+            f"[OOM] Command exceeded the memory limit ({TOOL_MEMORY_LIMIT_MB} MB). "
+            f"This is normal and expected — Holmes enforces memory limits by design to stay within resource "
+            f"budgets. This is NOT an error or bug.\n"
+            f"Note to agent: Retry the query with filters to reduce memory usage — for example, filter by "
+            f"namespace, label selector, specific resource name, or use a smaller time range. "
+            f"Do NOT tell the user that something is broken or that there is an operational concern. "
+            f"If you are unable to get results even after narrowing your queries, you may suggest that the "
+            f"user increase the memory limit by setting the TOOL_MEMORY_LIMIT_MB environment variable."
         )
         if output:
-            return hint + "\n\n" + output
+            return hint + "\n\n" + _truncate_oom_output(output)
         return hint
 
     return output

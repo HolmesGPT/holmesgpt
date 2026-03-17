@@ -8,7 +8,7 @@ exclude_docs: |
     _*
     snippets/
     README.md
-    cncf-self-assesment.md
+    data-sources/permissions.md
 
 nav:
     - Home: index.md
@@ -32,7 +32,6 @@ nav:
           - "Health Checks": operator/health-checks.md
           - "Scheduled Health Checks": operator/scheduled-health-checks.md
           - "Configuration": operator/configuration.md
-          - "Troubleshooting": operator/troubleshooting.md
           - "Development Guide": operator/development.md
     - "AI Providers":
           - "Overview": ai-providers/index.md
@@ -56,6 +55,7 @@ nav:
                 - "AKS Node Health": data-sources/builtin-toolsets/aks-node-health.md
                 - "ArgoCD": data-sources/builtin-toolsets/argocd.md
                 - "AWS (MCP)": data-sources/builtin-toolsets/aws.md
+                - "Azure (MCP)": data-sources/builtin-toolsets/azure-mcp.md
                 - "Azure Kubernetes Service": data-sources/builtin-toolsets/aks.md
                 - "Azure SQL Database": data-sources/builtin-toolsets/azure-sql.md
                 - "Bash": data-sources/builtin-toolsets/bash.md
@@ -64,6 +64,7 @@ nav:
                 - "Confluence (MCP)": data-sources/builtin-toolsets/confluence-mcp.md
                 - "Connectivity Check": data-sources/builtin-toolsets/connectivity-check.md
                 - "Coralogix": data-sources/builtin-toolsets/coralogix-logs.md
+                - "ClickHouse": data-sources/builtin-toolsets/database-clickhouse.md
                 - "DataDog": data-sources/builtin-toolsets/datadog.md
                 - "Docker": data-sources/builtin-toolsets/docker.md
                 - "Elasticsearch / OpenSearch": data-sources/builtin-toolsets/elasticsearch.md
@@ -74,16 +75,22 @@ nav:
                 - "Loki": data-sources/builtin-toolsets/grafanaloki.md
                 - "Tempo": data-sources/builtin-toolsets/grafanatempo.md
                 - "Helm": data-sources/builtin-toolsets/helm.md
+                - "Inspektor Gadget": data-sources/builtin-toolsets/inspektor-gadget.md
                 - "Internet": data-sources/builtin-toolsets/internet.md
                 - "Kafka": data-sources/builtin-toolsets/kafka.md
                 - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
                 - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
                 - "Kubernetes Remediation (MCP)": data-sources/builtin-toolsets/kubernetes-remediation-mcp.md
+                - "KubeVela": data-sources/builtin-toolsets/kubevela.md
+                - "MariaDB": data-sources/builtin-toolsets/database-mariadb.md
                 - "MariaDB (MCP)": data-sources/builtin-toolsets/mariadb-mcp.md
+                - "MongoDB": data-sources/builtin-toolsets/mongodb.md
                 - "MongoDB Atlas": data-sources/builtin-toolsets/mongodb-atlas.md
+                - "MySQL": data-sources/builtin-toolsets/database-mysql.md
                 - "New Relic": data-sources/builtin-toolsets/newrelic.md
                 - "Notion": data-sources/builtin-toolsets/notion.md
                 - "OpenShift": data-sources/builtin-toolsets/openshift.md
+                - "PostgreSQL": data-sources/builtin-toolsets/database-postgresql.md
                 - "Prefect (MCP)": data-sources/builtin-toolsets/prefect-mcp.md
                 - "Prometheus": data-sources/builtin-toolsets/prometheus.md
                 - "RabbitMQ": data-sources/builtin-toolsets/rabbitmq.md
@@ -91,10 +98,14 @@ nav:
                 - "Sentry (MCP)": data-sources/builtin-toolsets/sentry-mcp.md
                 - "ServiceNow": data-sources/builtin-toolsets/servicenow.md
                 - "Slab": data-sources/builtin-toolsets/slab.md
+                - "SQL Server": data-sources/builtin-toolsets/database-sqlserver.md
+                - "SQLite": data-sources/builtin-toolsets/database-sqlite.md
                 - "Splunk (MCP)": data-sources/builtin-toolsets/splunk-mcp.md
           - "HTTP Connectors": data-sources/api-toolsets.md
+          - "Database Connectors": data-sources/database-connectors.md
           - "Custom Toolsets": data-sources/custom-toolsets.md
           - "MCP Servers": data-sources/remote-mcp-servers.md
+          - "HTTP Header Propagation": data-sources/header-propagation.md
     - Benchmarks:
           - "Overview": development/evaluations/index.md
           - "Latest Results": development/evaluations/latest-results.md
@@ -114,14 +125,15 @@ nav:
           - "Overview": development/index.md
           - "Tool Output Transformers": development/transformers.md
     - Reference:
+          - "Python SDK": reference/python-sdk.md
           - "Environment Variables": reference/environment-variables.md
           - "Helm Configuration": reference/helm-configuration.md
           - "Kubernetes Permissions": reference/kubernetes-permissions.md
           - "HTTP API": reference/http-api.md
+          - "Runbooks": reference/runbooks.md
           - "Slash Commands": reference/slash-commands.md
           - "Troubleshooting": reference/troubleshooting.md
     - Community: community.md
-    - "CNCF Self Assessment": cncf-self-assesment.md
 
 theme:
     name: material
@@ -132,6 +144,7 @@ theme:
         - content.action.view
         - content.code.annotate
         - content.code.copy
+        - content.tabs.link
         - content.tooltips
         - navigation.footer
         - navigation.indexes

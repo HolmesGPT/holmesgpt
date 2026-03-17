@@ -73,6 +73,10 @@ class TestMatchPrefix:
         assert match_prefix("  kubectl get pods  ", "kubectl get")
         assert match_prefix("kubectl get pods", "  kubectl get  ")
 
+    def test_path_prefix_allows_subpath(self):
+        """Test that path prefixes allow subpaths via / boundary."""
+        assert match_prefix("cat /tmp/.holmes/uuid/file.json", "cat /tmp/.holmes")
+
 
 class TestMatchPrefixForDeny:
     """Tests for the stricter deny list prefix matching."""
@@ -273,10 +277,11 @@ class TestGetEffectiveLists:
     """Tests for effective allow/deny list computation."""
 
     def test_none_config(self):
-        """Test with builtin_allowlist='none'."""
+        """Test with builtin_allowlist='none' still includes tool result prefixes."""
         config = BashExecutorConfig(builtin_allowlist="none")
         allow_list, deny_list = get_effective_lists(config)
-        assert allow_list == []
+        # Tool result storage prefixes are always included so the LLM can read saved results
+        assert len(allow_list) > 0 and all("/.holmes" in p for p in allow_list)
         assert deny_list == []
 
     def test_core_config_default(self):
@@ -343,7 +348,8 @@ class TestGetEffectiveLists:
         config = BashExecutorConfig(include_default_allow_deny_list=False)
         assert config.builtin_allowlist == "none"
         allow_list, deny_list = get_effective_lists(config)
-        assert allow_list == []
+        # Tool result storage prefixes are always included
+        assert len(allow_list) > 0 and all("/.holmes" in p for p in allow_list)
 
     def test_default_lists_content(self):
         """Verify default lists have expected content."""
@@ -404,6 +410,18 @@ class TestValidateSegment:
             deny_list=[],
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
+
+    def test_tool_result_path_prefix_allows_valid_path(self):
+        """Test that commands accessing a tool result storage path are allowed."""
+        from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+
+        storage = HOLMES_TOOL_RESULT_STORAGE_PATH
+        result = validate_segment(
+            f"cat {storage}/abc-123/tool_results/file.json",
+            allow_list=[f"cat {storage}"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.ALLOWED
 
 
 class TestValidateCommand:

@@ -1,6 +1,6 @@
 # HolmesGPT
 
-SRE Agent for Large-Scale Production Environments.
+Open-source SRE agent for investigating production incidents across any infrastructure — Kubernetes, VMs, cloud services, databases, and more.
 
 ![HolmesGPT Investigation](assets/HolmesInvestigation.gif)
 

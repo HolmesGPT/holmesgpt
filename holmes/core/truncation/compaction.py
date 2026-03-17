@@ -1,11 +1,19 @@
 import logging
 from typing import Optional
 
-import litellm
 from litellm.types.utils import ModelResponse
+from pydantic import BaseModel
 
 from holmes.core.llm import LLM
+from holmes.core.llm_usage import RequestStats
 from holmes.plugins.prompts import load_and_render_prompt
+
+
+class CompactionResult(BaseModel):
+    """Result of conversation history compaction."""
+
+    messages_after_compaction: list[dict]
+    usage: Optional[RequestStats] = None
 
 
 def strip_system_prompt(
@@ -31,7 +39,7 @@ def find_last_user_prompt(conversation_history: list[dict]) -> Optional[dict]:
 
 def compact_conversation_history(
     original_conversation_history: list[dict], llm: LLM
-) -> list[dict]:
+) -> CompactionResult:
     """
     The compacted conversation history contains:
       1. Original system prompt, uncompacted (if present)
@@ -47,16 +55,11 @@ def compact_conversation_history(
     )
     conversation_history.append({"role": "user", "content": compaction_instructions})
 
-    # Set modify_params to handle providers like Anthropic that require tools
-    # when conversation history contains tool calls
-    original_modify_params = litellm.modify_params
-    try:
-        litellm.modify_params = True  # necessary when using anthropic
-        response: ModelResponse = llm.completion(
-            messages=conversation_history, drop_params=True
-        )  # type: ignore
-    finally:
-        litellm.modify_params = original_modify_params
+    response: ModelResponse = llm.completion(
+        messages=conversation_history, drop_params=True
+    )  # type: ignore
+    compaction_usage = RequestStats.from_response(response)
+
     response_message = None
     if (
         response
@@ -69,7 +72,7 @@ def compact_conversation_history(
         logging.error(
             "Failed to compact conversation history. Unexpected LLM's response for compaction"
         )
-        return original_conversation_history
+        return CompactionResult(messages_after_compaction=original_conversation_history, usage=compaction_usage)
 
     compacted_conversation_history: list[dict] = []
     if system_prompt_message:
@@ -91,4 +94,6 @@ def compact_conversation_history(
             "content": "The conversation history has been compacted to preserve available space in the context window. Continue.",
         }
     )
-    return compacted_conversation_history
+    return CompactionResult(
+        messages_after_compaction=compacted_conversation_history, usage=compaction_usage
+    )

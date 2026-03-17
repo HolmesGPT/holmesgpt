@@ -35,7 +35,14 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 <div class="grid cards" markdown>
 
+-   [:simple-clickhouse:{ .lg .middle } **ClickHouse**](database-clickhouse.md)
+-   [:simple-mariadb:{ .lg .middle } **MariaDB**](database-mariadb.md)
+-   [:simple-mysql:{ .lg .middle } **MySQL**](database-mysql.md)
+-   [:simple-postgresql:{ .lg .middle } **PostgreSQL**](database-postgresql.md)
+-   [:simple-sqlite:{ .lg .middle } **SQLite**](database-sqlite.md)
+-   [:simple-microsoftsqlserver:{ .lg .middle } **SQL Server**](database-sqlserver.md)
 -   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
+-   [:simple-mongodb:{ .lg .middle } **MongoDB**](mongodb.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
 

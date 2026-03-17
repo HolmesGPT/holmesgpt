@@ -90,6 +90,15 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 !!! tip "Which Model to Use"
     We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
+!!! info "No Kubernetes Required"
+    The examples below use a Kubernetes pod for a quick guided demo, but HolmesGPT works with any infrastructure. If you don't use Kubernetes, skip the `kubectl apply` step and ask about your own systems instead:
+    ```bash
+    holmes ask "what Prometheus alerts are currently firing and why?"
+    holmes ask "what is the health of my Elasticsearch cluster?"
+    holmes ask "are there any issues with my production databases?"
+    ```
+    See [data sources](../data-sources/builtin-toolsets/index.md) for all supported integrations.
+
 === "Anthropic Claude"
 
     1. **Set up API key**:
@@ -190,6 +199,8 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
     1. **Set up API key**:
         ```bash
         export GEMINI_API_KEY="your-gemini-api-key"
+        export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
+        export MODEL="gemini/<your-gemini-model>"
         ```
 
     2. **Create a test pod** to investigate:
@@ -199,6 +210,9 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 
     3. **Ask your first question**:
         ```bash
+        holmes ask "what is wrong with the user-profile-import pod?"
+
+        # Or specify the model explicitly per command:
         holmes ask "what is wrong with the user-profile-import pod?" --model="gemini/<your-gemini-model>"
         ```
 
@@ -250,50 +264,9 @@ _After running the command, HolmesGPT begins its automated investigation, as sho
 _Once the analysis completes, HolmesGPT provides a clear root-cause summary and fix suggestions._
 ![image](../assets/cli-installation/cli-analysis-result.png)
 
-## Using Model Lists
+## Using Multiple Models
 
-You can define multiple models in a YAML file and reference them by name in the CLI. This is useful when you have multiple model configurations with different API keys, endpoints, or parameters.
-
-**1. Create a model list file:**
-
-```yaml
-# model_list.yaml
-sonnet:
-    aws_access_key_id: "your-access-key"
-    aws_region_name: us-east-1
-    aws_secret_access_key: "your-secret-key"
-    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-    temperature: 1
-    thinking:
-        budget_tokens: 10000
-        type: enabled
-
-azure-5:
-    api_base: https://your-resource.openai.azure.com
-    api_key: "your-api-key"
-    api_version: 2025-01-01-preview
-    model: azure/gpt-5
-    temperature: 0
-```
-
-**2. Set the environment variable:**
-
-```bash
-export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
-```
-
-**3. Use models by name:**
-
-```bash
-holmes ask "what pods are failing?" --model=sonnet --no-interactive
-holmes ask "analyze deployment" --model=azure-5 --no-interactive
-```
-
-When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
-
-**Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
-
-See [Environment Variables Reference](../reference/environment-variables.md) for more details.
+If you work with multiple AI providers or model configurations, you can define them in a YAML file and switch between them by name with `--model=<name>`. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for setup instructions.
 
 ## Next Steps
 

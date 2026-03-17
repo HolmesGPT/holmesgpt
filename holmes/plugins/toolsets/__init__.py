@@ -16,9 +16,11 @@ from holmes.core.tools import Toolset, ToolsetType, ToolsetYamlFromConfig, YAMLT
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
+from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
 from holmes.plugins.toolsets.database.database import DatabaseToolset
+from holmes.plugins.toolsets.mongodb.mongodb import MongoDBToolset
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
     DatadogGeneralToolset,
 )
@@ -109,6 +111,7 @@ def load_python_toolsets(
         RabbitMQToolset(),
         BashExecutorToolset(),
         KubectlRunToolset(),
+        ConfluenceToolset(),
         MongoDBAtlasToolset(),
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
@@ -197,8 +200,20 @@ def load_toolsets_from_config(
             # Resolve env var placeholders before creating the Toolset.
             # If done after, .override_with() will overwrite resolved values with placeholders
             # because model_dump() returns the original, unprocessed config from YAML.
+            #
+            # For MCP servers, preserve extra_headers templates so they can be
+            # dynamically resolved at request time (e.g., for refreshing tokens).
+            saved_extra_headers = None
+            if toolset_type == ToolsetType.MCP.value and isinstance(
+                config.get("config"), dict
+            ):
+                saved_extra_headers = config["config"].pop("extra_headers", None)
+
             if config:
                 config = env_utils.replace_env_vars_values(config)
+
+            if saved_extra_headers is not None:
+                config.setdefault("config", {})["extra_headers"] = saved_extra_headers
 
             validated_toolset: Optional[Toolset] = None
             # MCP server is not a built-in toolset, so we need to set the type explicitly
@@ -208,6 +223,8 @@ def load_toolsets_from_config(
                 validated_toolset = HttpToolset(name=name, **config)
             elif toolset_type == ToolsetType.DATABASE.value:
                 validated_toolset = DatabaseToolset(name=name, **config)
+            elif toolset_type == ToolsetType.MONGODB.value:
+                validated_toolset = MongoDBToolset(name=name, **config)
             elif strict_check:
                 validated_toolset = YAMLToolset(**config, name=name)  # type: ignore
             else:

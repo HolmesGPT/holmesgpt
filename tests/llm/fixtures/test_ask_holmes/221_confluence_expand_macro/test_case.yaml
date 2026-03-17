@@ -1,0 +1,213 @@
+# Test: Extract information hidden inside expand/collapse macros
+# The page uses ac:structured-macro name="expand" sections that contain nested
+# macros (code blocks, warnings, tips) in Confluence storage format. The content
+# is buried inside multiple layers of nested ac: XHTML elements.
+#
+# Requirements:
+#   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
+
+user_prompt: |
+  In the Confluence space 'HOLMES221', look up the page 'Operations Playbook'.
+  From the 'Database Recovery' section, tell me the standby database hostname
+  and port, and the maximum connection limit for the standby replica.
+
+expected_output:
+  - "Must report the standby database host and port: standby-db.prod.internal.acme.io:5432"
+  - "Must report the maximum connection limit: 25"
+
+tags:
+  - confluence
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES221"
+  SPACE_NAME="Holmes Test Space 221"
+  PAGE_TITLE="Operations Playbook"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 221\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif [ "$HTTP_CODE" -eq 409 ]; then
+    echo "Space already exists, reusing."
+  else
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+  sleep 2
+
+  # Page body uses expand macros with nested code blocks, warnings, and tips.
+  # Each expand section contains specific values that the LLM must discover.
+  # The nesting is: expand > rich-text-body > (code | warning | tip) > content
+  read -r -d '' PAGE_BODY << 'PAGEEOF' || true
+  <h1>Operations Playbook</h1>
+  <p>Confidential operations reference for the platform team. Each section contains procedures that should only be followed by authorized SREs. Click on a section to expand its contents.</p>
+
+  <h2>Emergency Procedures</h2>
+
+  <ac:structured-macro ac:name="expand">
+    <ac:parameter ac:name="title">Database Recovery</ac:parameter>
+    <ac:rich-text-body>
+      <p>In case of primary database failure, connect to the standby replica using the following connection string:</p>
+      <ac:structured-macro ac:name="code">
+        <ac:parameter ac:name="language">text</ac:parameter>
+        <ac:plain-text-body><![CDATA[postgresql://sre_admin:KxP9mR2vL7@standby-db.prod.internal.acme.io:5432/platform_core?sslmode=verify-full&sslrootcert=/etc/ssl/acme-ca.pem]]></ac:plain-text-body>
+      </ac:structured-macro>
+      <ac:structured-macro ac:name="warning">
+        <ac:parameter ac:name="title">Connection Limit</ac:parameter>
+        <ac:rich-text-body>
+          <p>The standby replica has a maximum connection limit of <strong>25 concurrent connections</strong>. Exceeding this will cause connection rejections and potential data inconsistency during failover.</p>
+        </ac:rich-text-body>
+      </ac:structured-macro>
+    </ac:rich-text-body>
+  </ac:structured-macro>
+
+  <ac:structured-macro ac:name="expand">
+    <ac:parameter ac:name="title">Cache Invalidation</ac:parameter>
+    <ac:rich-text-body>
+      <p>To perform a full cache invalidation across all Redis clusters:</p>
+      <ac:structured-macro ac:name="code">
+        <ac:parameter ac:name="language">bash</ac:parameter>
+        <ac:plain-text-body><![CDATA[redis-cli -h redis-shared.prod.acme.io -p 6379 -a "Nm8kQ4wT1z" --scan --pattern "*" | xargs redis-cli -h redis-shared.prod.acme.io -p 6379 -a "Nm8kQ4wT1z" DEL]]></ac:plain-text-body>
+      </ac:structured-macro>
+      <ac:structured-macro ac:name="tip">
+        <ac:parameter ac:name="title">Verification</ac:parameter>
+        <ac:rich-text-body>
+          <p>After cache invalidation, verify cache is empty by checking the key count. Expected output should show <code>db0:keys=0</code> for all databases. The monitoring dashboard reference ID is <strong>DASH-7G4K2P</strong>.</p>
+        </ac:rich-text-body>
+      </ac:structured-macro>
+    </ac:rich-text-body>
+  </ac:structured-macro>
+
+  <ac:structured-macro ac:name="expand">
+    <ac:parameter ac:name="title">DNS Failover</ac:parameter>
+    <ac:rich-text-body>
+      <p>DNS failover is managed through Route 53. The failover record set ID is <strong>Z3P8M2K9X1</strong>. To trigger manual failover:</p>
+      <ac:structured-macro ac:name="code">
+        <ac:parameter ac:name="language">bash</ac:parameter>
+        <ac:plain-text-body><![CDATA[aws route53 change-resource-record-sets \
+    --hosted-zone-id Z3P8M2K9X1 \
+    --change-batch '{"Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"api.prod.acme.io","Type":"A","SetIdentifier":"primary","Failover":"SECONDARY"}}]}']]></ac:plain-text-body>
+      </ac:structured-macro>
+    </ac:rich-text-body>
+  </ac:structured-macro>
+
+  <h2>Routine Maintenance</h2>
+
+  <ac:structured-macro ac:name="expand">
+    <ac:parameter ac:name="title">Certificate Rotation</ac:parameter>
+    <ac:rich-text-body>
+      <p>Internal TLS certificates are rotated automatically by Vault. Manual rotation is required for the external wildcard certificate. The current certificate serial number is <strong>SN-8472-ACME-PROD</strong> and expires on 2025-12-31.</p>
+      <ac:structured-macro ac:name="note">
+        <ac:rich-text-body>
+          <p>Certificate rotation requires approval from the Security team. File a request in ServiceNow using template CERT-ROTATE-001.</p>
+        </ac:rich-text-body>
+      </ac:structured-macro>
+    </ac:rich-text-body>
+  </ac:structured-macro>
+
+  <ac:structured-macro ac:name="expand">
+    <ac:parameter ac:name="title">Log Retention Cleanup</ac:parameter>
+    <ac:rich-text-body>
+      <p>OpenSearch indices older than the retention policy are cleaned up by a weekly CronJob. The cleanup schedule is:</p>
+      <ul>
+        <li>Dev: 7 days retention, cleanup runs Sunday 02:00 UTC</li>
+        <li>Staging: 30 days retention, cleanup runs Sunday 03:00 UTC</li>
+        <li>Production: 90 days retention, cleanup runs Sunday 04:00 UTC</li>
+      </ul>
+      <p>The cleanup job name is <code>opensearch-curator-weekly</code> in the <code>logging</code> namespace.</p>
+    </ac:rich-text-body>
+  </ac:structured-macro>
+  PAGEEOF
+
+  echo "Creating page..."
+  ESCAPED_BODY=$(echo "$PAGE_BODY" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"type\": \"page\",
+      \"title\": \"${PAGE_TITLE}\",
+      \"space\": {
+        \"key\": \"${SPACE_KEY}\"
+      },
+      \"body\": {
+        \"storage\": {
+          \"value\": ${ESCAPED_BODY},
+          \"representation\": \"storage\"
+        }
+      }
+    }")
+
+  PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
+  PAGE_BODY_RESP=$(echo "$PAGE_RESPONSE" | sed '$d')
+
+  if [ "$PAGE_HTTP_CODE" -eq 200 ]; then
+    PAGE_ID=$(echo "$PAGE_BODY_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
+    PAGE_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${PAGE_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PAGE_ID" ]; then
+      echo "Failed to create or find page."
+      exit 1
+    fi
+    echo "Found existing page."
+  fi
+  echo "Page created with ID: ${PAGE_ID}"
+
+  echo "Verifying page content..."
+  VERIFY=$(curl -L -s \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content/${PAGE_ID}?expand=body.storage" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if echo "$VERIFY" | grep -q "standby-db.prod.internal.acme.io"; then
+    echo "Page content verified - standby host found"
+  else
+    echo "Page verification failed - standby host not found in content"
+    exit 1
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES221"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

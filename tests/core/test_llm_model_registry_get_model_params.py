@@ -17,6 +17,7 @@ class TestLLMModelRegistryGetModelParams:
         # LLMModelRegistry accesses these config attributes during initialization
         # (see holmes/core/llm.py lines 490-497)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("MODEL", raising=False)
         config = MagicMock(spec=Config)
         config.should_try_robusta_ai = False
         config.model = None
@@ -146,3 +147,50 @@ class TestLLMModelRegistryGetModelParams:
 
         assert model_params.model == "gpt-5o"
         assert model_params.name == "gpt5"
+
+    def test_get_model_params_with_no_models_raises_helpful_error(
+        self, mock_config, mock_dal, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "holmes.core.llm.LLMModelRegistry._parse_models_file",
+            lambda self, path: {},
+        )
+        registry = LLMModelRegistry(mock_config, mock_dal)
+
+        with pytest.raises(Exception) as exc:
+            registry.get_model_params()
+
+        error = str(exc.value)
+        assert "No LLM models were loaded" in error
+        assert "--model '<provider/model>'" in error
+        assert "export MODEL='<provider/model>'" in error
+        assert "MODEL_LIST_FILE_LOCATION/config model list" in error
+        assert "is not enough without a model" in error
+
+    def test_model_env_matching_model_list_keeps_full_model_entry(
+        self, mock_config, mock_dal, monkeypatch
+    ):
+        model_key = "gemini-alias"
+        model_entry = ModelEntry(
+            model="gemini/gemini-2.0-flash",
+            name=model_key,
+            api_key=SecretStr("gemini-key"),
+            api_base="https://generativelanguage.googleapis.com",
+            custom_args={"temperature": 0.2},
+        )
+        monkeypatch.setattr(
+            "holmes.core.llm.LLMModelRegistry._parse_models_file",
+            lambda self, path: {model_key: model_entry},
+        )
+        monkeypatch.setenv("MODEL", model_key)
+        mock_config.model = model_key
+
+        registry = LLMModelRegistry(mock_config, mock_dal)
+
+        loaded_entry = registry.models[model_key]
+        assert loaded_entry.model == "gemini/gemini-2.0-flash"
+        assert loaded_entry.name == model_key
+        assert loaded_entry.api_key is not None
+        assert loaded_entry.api_key.get_secret_value() == "gemini-key"
+        assert loaded_entry.api_base == "https://generativelanguage.googleapis.com"
+        assert loaded_entry.custom_args == {"temperature": 0.2}
