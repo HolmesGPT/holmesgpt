@@ -43,17 +43,12 @@ Edit `docker-compose.yaml` to configure your setup:
 - **Cloud credentials**: AWS and GCloud credential directories are mounted read-only
 - **Holmes config**: `~/.holmes` is mounted for custom configuration
 
-## API Endpoints
+## API Reference
 
-The server exposes these main endpoints:
-
-- `POST /api/chat` — Chat with tool calling
-- `POST /api/investigate` — Investigate an issue
-- `GET /api/model` — List available models
-- `GET /healthz` — Health check
-- `GET /readyz` — Readiness check
+See the [HTTP API Reference](../reference/http-api.md) for full documentation on available endpoints, request/response formats, and usage examples.
 
 ## Next Steps
 
+- **[HTTP API Reference](../reference/http-api.md)** — Full API documentation
 - **[Helm Chart](kubernetes-installation.md)** — Deploy the HTTP server on Kubernetes
 - **[CLI Installation](cli-installation.md)** — Run HolmesGPT as a command-line tool instead
