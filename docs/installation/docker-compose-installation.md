@@ -43,6 +43,17 @@ Edit `docker-compose.yaml` to configure your setup:
 - **Cloud credentials**: AWS and GCloud credential directories are mounted read-only
 - **Holmes config**: `~/.holmes` is mounted for custom configuration
 
+!!! warning "Kubeconfig with localhost clusters"
+
+    If your kubeconfig points to `127.0.0.1` or `localhost` (common with Docker Desktop, minikube, kind), the Kubernetes API will be unreachable from inside the container because localhost resolves to the container itself, not the host.
+
+    **Workarounds:**
+
+    - Add `network_mode: "host"` to the `holmes` service in `docker-compose.yaml` (simplest fix, but the container shares the host network — use `-p` port mapping won't work, the server is available on the host's port 5050 directly)
+    - Replace `127.0.0.1` in your kubeconfig with `host.docker.internal` (works on Docker Desktop for Mac/Windows)
+
+    Remote clusters (EKS, GKE, AKS, etc.) are not affected.
+
 ## API Reference
 
 See the [HTTP API Reference](../reference/http-api.md) for full documentation on available endpoints, request/response formats, and usage examples.

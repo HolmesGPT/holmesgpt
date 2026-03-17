@@ -495,6 +495,23 @@ When asked about content from the HolmesGPT documentation website (https://holme
 - Toolset documentation: `docs/data-sources/builtin-toolsets/`
 - API reference: `docs/reference/`
 
+## MkDocs Navigation (awesome-nav plugin)
+
+This project uses the `mkdocs-awesome-nav` plugin for navigation. Each `docs/` subdirectory has a `.nav.yml` file that controls page ordering within that section. **The `nav` section in `mkdocs.yml` is overridden by these `.nav.yml` files.**
+
+When adding a new docs page:
+1. Create the `.md` file in the appropriate `docs/` subdirectory
+2. Add an entry to the `.nav.yml` file in that same directory — this is what controls whether the page appears in the sidebar and its position
+3. Also update the `nav` in `mkdocs.yml` to keep it in sync (it serves as a fallback/reference)
+
+Example `.nav.yml`:
+```yaml
+nav:
+    - CLI: cli-installation.md
+    - HTTP Server: docker-compose-installation.md
+    - Helm Chart: kubernetes-installation.md
+```
+
 ## MkDocs Formatting Notes
 
 When writing documentation in the `docs/` directory:
