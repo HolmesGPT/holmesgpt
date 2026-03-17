@@ -448,6 +448,7 @@ class DefaultLLM(LLM):
         user_tokens = 0
         other_tokens = 0
         tools_to_call_tokens = 0
+        anthropic_image_tokens = 0
         cached_count = 0
         counted_count = 0
         for message in messages:
@@ -462,7 +463,9 @@ class DefaultLLM(LLM):
                 token_count = litellm.token_counter(  # type: ignore
                     model=self.model, messages=[stripped]
                 )
-                token_count += _count_anthropic_image_tokens(message)
+                img_tokens = _count_anthropic_image_tokens(message)
+                token_count += img_tokens
+                anthropic_image_tokens += img_tokens
                 message["token_count"] = token_count
                 counted_count += 1
             else:
@@ -484,8 +487,8 @@ class DefaultLLM(LLM):
                 other_tokens += token_count
 
         # For Anthropic, strip images from bulk calls so litellm doesn't apply its
-        # wrong 85-per-image estimate. The correct image tokens are already included
-        # in per-message token_count values above.
+        # wrong 85-per-image estimate. We add back the correct image tokens
+        # (already computed in the per-message loop) after.
         if is_anthropic:
             bulk_messages = [_strip_images(m) if _has_images(m) else m for m in messages]
         else:
@@ -502,12 +505,7 @@ class DefaultLLM(LLM):
         )
 
         tools_to_call_tokens = max(0, total_tokens - messages_token_count_without_tools)
-
-        # For Anthropic, add back the correct image tokens computed per-message
-        if is_anthropic:
-            total_tokens += sum(
-                _count_anthropic_image_tokens(m) for m in messages if _has_images(m)
-            )
+        total_tokens += anthropic_image_tokens
 
         elapsed_ms = (time.monotonic() - t0) * 1000
         logging.debug(
