@@ -1,0 +1,80 @@
+user_prompt: |
+  We are testing conversation history compaction. Your goal is to fill up the context window
+  by pulling as much data as possible from Prometheus until compaction is triggered.
+
+  Start by listing all available metrics, then systematically query each metric category
+  using range queries with a 1-hour time window. Query at least 10 different metrics using
+  range queries. After each batch of queries, check if you have received a message that
+  conversation history has been compacted.
+
+  Once compaction has occurred (you will see a system message about it), report:
+  1. The name of the metric with the highest number of time series
+  2. The total number of distinct metrics you discovered before compaction
+
+expected_output:
+  - Must report a specific Prometheus metric name (like prometheus_tsdb_head_series, go_goroutines, or another real self-monitoring metric)
+  - Must report a specific number of distinct metrics discovered (not a vague answer)
+  - Must have continued answering after compaction occurred (the answer should reference data gathered both before and after compaction)
+
+include_tool_calls: true
+
+tags:
+  - compaction
+  - prometheus
+  - hard
+  - no-cicd
+
+test_type: server
+
+port_forwards:
+  - namespace: app-233
+    service: prometheus
+    local_port: 10233
+    remote_port: 9090
+
+before_test: |
+  set -e
+  NAMESPACE="app-233"
+
+  echo "Creating namespace..."
+  kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "Applying Prometheus config..."
+  kubectl apply -f prometheus-config.yaml -n $NAMESPACE
+
+  echo "Deploying shared Prometheus..."
+  kubectl apply -f ../../shared/prometheus.yaml -n $NAMESPACE
+
+  echo "Waiting for Prometheus pod..."
+  POD_READY=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n $NAMESPACE --timeout=5s 2>/dev/null; then
+      echo "Prometheus pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$POD_READY" = false ]; then
+    echo "Prometheus pod failed to become ready"
+    kubectl get pods -n $NAMESPACE
+    kubectl logs -l app=prometheus -n $NAMESPACE --tail=20 || true
+    exit 1
+  fi
+
+  echo "Waiting for Prometheus to scrape itself (30s)..."
+  sleep 30
+
+  echo "Verifying Prometheus has metrics..."
+  METRIC_COUNT=$(kubectl exec -n $NAMESPACE deploy/prometheus -- wget -q -O- 'http://localhost:9090/api/v1/label/__name__/values' | python3 -c "import sys,json; print(len(json.load(sys.stdin)['data']))")
+  echo "Prometheus has $METRIC_COUNT metrics"
+  if [ "$METRIC_COUNT" -lt 100 ]; then
+    echo "Expected at least 100 self-monitoring metrics, got $METRIC_COUNT"
+    exit 1
+  fi
+  echo "Setup complete!"
+
+after_test: |
+  kubectl delete namespace app-233 --wait=false --ignore-not-found || true
+
+setup_timeout: 300
