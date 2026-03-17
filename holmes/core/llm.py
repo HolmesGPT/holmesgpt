@@ -483,25 +483,31 @@ class DefaultLLM(LLM):
             else:
                 other_tokens += token_count
 
+        # For Anthropic, strip images from bulk calls so litellm doesn't apply its
+        # wrong 85-per-image estimate. The correct image tokens are already included
+        # in per-message token_count values above.
+        if is_anthropic:
+            bulk_messages = [_strip_images(m) if _has_images(m) else m for m in messages]
+        else:
+            bulk_messages = messages
+
         messages_token_count_without_tools = litellm.token_counter(  # type: ignore
-            model=self.model, messages=messages
+            model=self.model, messages=bulk_messages
         )
 
         total_tokens = litellm.token_counter(  # type: ignore
             model=self.model,
-            messages=messages,
+            messages=bulk_messages,
             tools=tools,  # type: ignore
         )
 
         tools_to_call_tokens = max(0, total_tokens - messages_token_count_without_tools)
 
-        # For Anthropic models, litellm's bulk token_counter uses its default
-        # 85-token-per-image estimate. Apply the delta between our corrected
-        # per-message image counts and litellm's defaults so total_tokens
-        # reflects the accurate (w*h)/750 formula used by the context limiter.
+        # For Anthropic, add back the correct image tokens computed per-message
         if is_anthropic:
-            corrected_sum = sum(m.get("token_count", 0) for m in messages)
-            total_tokens += corrected_sum - messages_token_count_without_tools
+            total_tokens += sum(
+                _count_anthropic_image_tokens(m) for m in messages if _has_images(m)
+            )
 
         elapsed_ms = (time.monotonic() - t0) * 1000
         logging.debug(

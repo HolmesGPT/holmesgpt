@@ -200,10 +200,6 @@ def test_count_tokens_multi_image_conversation(
     assert text_msg["token_count"] == text_tokens
     assert img_msg["token_count"] == text_tokens + expected_total_image_tokens
 
-    # total_tokens: litellm base + delta from corrected per-message sums
-    if is_anthropic_model(model):
-        corrected_msg_sum = text_tokens + (text_tokens + expected_total_image_tokens)
-        expected_total = text_tokens + (corrected_msg_sum - text_tokens)
-        assert result.total_tokens == expected_total
-    else:
-        assert result.total_tokens == text_tokens
+    # total_tokens = litellm bulk (on stripped msgs) + image tokens
+    expected_total = text_tokens + expected_total_image_tokens if is_anthropic_model(model) else text_tokens
+    assert result.total_tokens == expected_total
