@@ -56,7 +56,7 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | response_format         | No       |         | object    | JSON schema for structured output (see below)   |
 | images                  | No       |         | array     | Image URLs, base64 data URIs, or objects with `url` (required), `detail` (low/high/auto), and `format` (MIME type). Requires vision-enabled model. See [Image Analysis](#image-analysis) |
 | stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
-| enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions    |
+| enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions (see [Tool Approval Behavior](#tool-approval-behavior))    |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
 | behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode--prompt-controls)) |
 
@@ -288,6 +288,20 @@ For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision D
 | url    | string | Image URL or base64 data URI (required)                |
 | detail | string | OpenAI-specific: `low`, `high`, or `auto` for resolution control |
 | format | string | MIME type (e.g., `image/jpeg`) for providers that need explicit format |
+
+#### Tool Approval Behavior
+
+The `enable_tool_approval` field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that bashlex cannot parse).
+
+**When `enable_tool_approval: true` (interactive clients):**
+
+The stream pauses and emits an `approval_required` event with the pending tool calls. The client must send a follow-up request with `tool_decisions` to approve or deny each tool call. See the [approval_required](#approval_required) event for details.
+
+**When `enable_tool_approval: false` (default, server/automation):**
+
+Tools that would require approval are automatically converted to errors. The error message is fed back to the LLM as a tool result, giving it a chance to self-correct and retry with a valid command. For example, if the LLM generates a bash command with unquoted special characters that can't be parsed, it receives an error and can retry with proper quoting.
+
+This means server-mode integrations (e.g., Keep workflows) do not need a human in the loop — the LLM handles recoverable validation failures automatically.
 
 ---
 
