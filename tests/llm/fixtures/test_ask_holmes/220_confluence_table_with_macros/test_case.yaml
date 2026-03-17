@@ -215,5 +215,18 @@ before_test: |
 
   echo "Setup complete"
 
-# No after_test cleanup — cloud service evals must not delete shared resources.
-# Parallel CI runs share the same Confluence instance. See CLAUDE.md "Cloud Service Eval Reentrancy".
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES220"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi
