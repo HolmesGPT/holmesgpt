@@ -13,7 +13,6 @@ expected_output:
 tags:
   - kubernetes
   - medium
-  - leaked-information
   - regression
 
 before_test: |
