@@ -81,6 +81,55 @@ Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the 
       certificate: "<base64-encoded CA cert>"
     ```
 
+## Tool Result Size Limits
+
+These variables control how HolmesGPT handles large tool responses that exceed the LLM context window.
+
+When a tool returns more data than the context window can hold, Holmes can either save the result to disk (so the LLM can access it via `cat`, `grep`, etc.) or drop the data with an error asking the LLM to narrow its query.
+
+### HOLMES_TOOL_RESULT_STORAGE_ENABLED
+**Default:** `true`
+
+Controls whether large tool results are saved to the filesystem. When enabled, oversized results are written to a temp directory and the LLM receives a file path it can read with bash commands. When disabled, oversized results are dropped and the LLM is asked to retry with a narrower query.
+
+**Example:**
+```bash
+# Disable filesystem storage for large results
+export HOLMES_TOOL_RESULT_STORAGE_ENABLED=false
+```
+
+### HOLMES_TOOL_RESULT_STORAGE_PATH
+**Default:** System temp directory + `/.holmes` (e.g., `/tmp/.holmes`)
+
+Directory where large tool results are saved. Each chat session creates a subdirectory that is automatically cleaned up when the session ends.
+
+**Example:**
+```bash
+export HOLMES_TOOL_RESULT_STORAGE_PATH="/var/holmes/tool_results"
+```
+
+### TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT
+**Default:** `15`
+
+Maximum percentage of the LLM context window that a single tool response can use. If a tool result exceeds this limit, it triggers the large-result handling (filesystem storage or truncation). Set to `0` or a value above `100` to disable percentage-based limiting.
+
+**Example:**
+```bash
+# Allow each tool response to use up to 25% of context window
+export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT=25
+```
+
+### TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS
+**Default:** `25000`
+
+Absolute maximum tokens for a single tool response, regardless of context window size. The effective limit is the **minimum** of this value and the percentage-based limit above.
+
+**Example:**
+```bash
+# Raise the absolute cap to 50,000 tokens
+export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
+```
+
 ## HolmesGPT Configuration
 
 ### MODEL_LIST_FILE_LOCATION
