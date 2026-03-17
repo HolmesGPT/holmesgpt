@@ -1,18 +1,3 @@
-# Go builder stage - rebuild Go binaries with Go 1.25.7 to fix CVE-2025-68121
-# Currently both argocd and helm are built with Go 1.25.6, which is vulnerable to CVE-2025-68121. We need to rebuild them with Go 1.25.7 to fix the vulnerability.
-# This should be reverted when argocd & helm release version which fixed the cve.
-FROM golang:1.25.7-bookworm AS go-builder
-ARG ARGOCD_VERSION=v3.3.2
-ARG HELM_VERSION=v3.20.0
-# Build ArgoCD CLI with patched Go
-RUN git clone --depth 1 --branch ${ARGOCD_VERSION} https://github.com/argoproj/argo-cd.git /build/argo-cd
-WORKDIR /build/argo-cd
-RUN CGO_ENABLED=0 go build -ldflags "-X github.com/argoproj/argo-cd/v3/common.version=${ARGOCD_VERSION}" -o /go/bin/argocd ./cmd
-# Build Helm with patched Go
-RUN git clone --depth 1 --branch ${HELM_VERSION} https://github.com/helm/helm.git /build/helm
-WORKDIR /build/helm
-RUN CGO_ENABLED=0 go build -ldflags "-X helm.sh/helm/v3/internal/version.version=${HELM_VERSION}" -o /go/bin/helm ./cmd/helm
-
 # Build stage
 FROM python:3.11-slim-bookworm as builder
 ENV PATH="/root/.local/bin/:$PATH"
@@ -124,12 +109,20 @@ RUN VERSION_ID=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2 | cut -d '.' 
 COPY --from=builder /kube-lineage /usr/local/bin
 RUN kube-lineage --version
 
-# Set up ArgoCD (built from source with patched Go for CVE-2025-68121)
-COPY --from=go-builder /go/bin/argocd /usr/local/bin/argocd
+# Set up ArgoCD (pre-built with Go 1.25.7 for CVE-2025-68121)
+# ArgoCD v3.3.4 ships with Go 1.25.5 which is vulnerable.
+# Rebuild with: ./scripts/build_go_binaries.sh
+# Revert to official binary when ArgoCD releases a version built with Go >= 1.25.7.
+ARG TARGETARCH
+COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
+RUN gunzip /tmp/argocd.gz && mv /tmp/argocd /usr/local/bin/argocd && chmod +x /usr/local/bin/argocd
 RUN argocd --help
 
-# Set up Helm (built from source with patched Go for CVE-2025-68121)
-COPY --from=go-builder /go/bin/helm /usr/local/bin/helm
+# Set up Helm
+ARG HELM_VERSION=v3.20.1
+RUN curl -sSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz | tar xz -C /tmp \
+    && mv /tmp/linux-${TARGETARCH}/helm /usr/local/bin/helm \
+    && rm -rf /tmp/linux-${TARGETARCH}
 RUN helm version
 
 ARG AWS_DEFAULT_PROFILE
