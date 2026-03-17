@@ -14,7 +14,6 @@ from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetTyp
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
 from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
-from holmes.utils.github_app_token_manager import ensure_github_app_token_env
 
 if TYPE_CHECKING:
     pass
@@ -115,10 +114,6 @@ class ToolsetManager:
         2. Toolsets defined in self.toolsets can override both built-in and add new custom toolsets
         3. custom toolset from config can override both built-in and add new custom toolsets # for backward compatibility
         """
-        # Ensure GitHub App token is generated and background refresh is running
-        # before any toolset config resolution that may reference AUTO_GENERATED_GITHUB_TOKEN
-        ensure_github_app_token_env()
-
         # Load built-in toolsets
         # Extract search paths from custom catalog files
         additional_search_paths = None

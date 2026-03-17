@@ -6,19 +6,6 @@ from pydantic import BaseModel, Field, model_validator
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
 
-class TruncationMetadata(BaseModel):
-    tool_call_id: str
-    start_index: int
-    end_index: int
-    tool_name: str
-    original_token_count: int
-
-
-class TruncationResult(BaseModel):
-    truncated_messages: list[dict]
-    truncations: list[TruncationMetadata]
-
-
 class ToolCallResult(BaseModel):
     tool_call_id: str
     tool_name: str
@@ -26,7 +13,7 @@ class ToolCallResult(BaseModel):
     result: StructuredToolResult
     size: Optional[int] = None
 
-    def as_tool_call_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
+    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
@@ -39,27 +26,16 @@ class ToolCallResult(BaseModel):
             ),
         }
 
-    def as_tool_result_response(self):
+    def to_client_dict(self):
         result_dump = self.result.model_dump()
         result_dump["data"] = self.result.get_stringified_data()
 
         return {
             "tool_call_id": self.tool_call_id,
             "tool_name": self.tool_name,
+            "name": self.tool_name,  # backwards compat: streaming consumers read "name"
             "description": self.description,
             "role": "tool",
-            "result": result_dump,
-        }
-
-    def as_streaming_tool_result_response(self):
-        result_dump = self.result.model_dump()
-        result_dump["data"] = self.result.get_stringified_data()
-
-        return {
-            "tool_call_id": self.tool_call_id,
-            "role": "tool",
-            "description": self.description,
-            "name": self.tool_name,
             "result": result_dump,
         }
 
@@ -106,6 +82,7 @@ class ToolApprovalDecision(BaseModel):
     tool_call_id: str
     approved: bool
     save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
+    feedback: Optional[str] = None  # User feedback when denying a tool call
 
 
 class ChatRequestBaseModel(BaseModel):

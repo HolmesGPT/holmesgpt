@@ -73,6 +73,7 @@ pg8000 = "^1.31.5"
 pymysql = "^1.1.2"
 clickhouse-sqlalchemy = "^0.3.2"
 pymssql = "^2.3.0"
+pymongo = "^4.7.0"
 
 [tool.poetry.group.dev]
 optional = true
@@ -158,7 +159,7 @@ markers = [
     "coralogix: Runs coralogix evals",
     "fast: Fast cloud-only tests that don't require Kubernetes infrastructure",
     "frontend: Run frontend tests",
-    "grafana-dashboard: Tests involving Grafana dashboard interactions",
+    "grafana: Tests involving Grafana dashboard interactions",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
     "integration: Integration tests requiring external services (e.g., running server, real APIs)",
     "confluence: Tests for Confluence page fetching toolset",

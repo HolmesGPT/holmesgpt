@@ -56,7 +56,7 @@ class Config(RobustaBaseConfig):
     api_base: Optional[str] = None
     api_version: Optional[str] = None
     fast_model: Optional[str] = None
-    max_steps: int = 40
+    max_steps: int = 100
     cluster_name: Optional[str] = None
 
     alertmanager_url: Optional[str] = None
@@ -179,6 +179,11 @@ class Config(RobustaBaseConfig):
 
         if config_file is not None and config_file.exists():
             result._config_file_path = config_file
+
+        if result.model is None:
+            model_from_env = os.environ.get("MODEL")
+            if model_from_env and model_from_env.strip():
+                result.model = model_from_env
 
         result.log_useful_info()
         return result
@@ -538,7 +543,12 @@ class SourceFactory(BaseModel):
         ticket_username: Optional[str],
         ticket_api_key: Optional[str],
         ticket_id: Optional[str],
+        model: Optional[str] = None,
     ) -> TicketSource:
+        from holmes.plugins.sources.jira import JiraServiceManagementSource
+        from holmes.plugins.sources.pagerduty import PagerDutySource
+
+        TicketSource.model_rebuild()
         supported_sources = [s.value for s in SupportedTicketSources]
         if source not in supported_sources:
             raise ValueError(
@@ -549,7 +559,7 @@ class SourceFactory(BaseModel):
             config = Config.load_from_file(
                 config_file=config_file,
                 api_key=None,
-                model=None,
+                model=model,
                 max_steps=None,
                 jira_url=ticket_url,
                 jira_username=ticket_username,
@@ -582,7 +592,7 @@ class SourceFactory(BaseModel):
             config = Config.load_from_file(
                 config_file=config_file,
                 api_key=None,
-                model=None,
+                model=model,
                 max_steps=None,
                 pagerduty_api_key=ticket_api_key,
                 pagerduty_user_email=ticket_username,

@@ -62,7 +62,11 @@ spec:
       {{- end }}
       containers:
       - name: github-mcp
+        {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+        image: "{{ .Values.mcpAddons.github.auth.githubApp.registry }}/{{ .Values.mcpAddons.github.auth.githubApp.image }}"
+        {{- else }}
         image: "{{ .Values.mcpAddons.github.registry }}/{{ .Values.mcpAddons.github.image }}"
+        {{- end }}
         imagePullPolicy: {{ .Values.mcpAddons.github.imagePullPolicy | default "IfNotPresent" }}
         ports:
         - containerPort: 8000
@@ -70,15 +74,41 @@ spec:
           protocol: TCP
         args:
           - "--stdio"
+          {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+          - "python3 /app/wrapper.py"
+          {{- else }}
           - "github-mcp-server stdio"
+          {{- end }}
           - "--port"
           - "8000"
+          {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+          - "--outputTransport"
+          - "streamableHttp"
+          {{- end }}
         env:
+        {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+        - name: GITHUB_APP_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
+              key: GITHUB_APP_ID
+        - name: GITHUB_APP_INSTALLATION_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
+              key: GITHUB_APP_INSTALLATION_ID
+        - name: GITHUB_APP_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
+              key: GITHUB_APP_PRIVATE_KEY
+        {{- else }}
         - name: GITHUB_PERSONAL_ACCESS_TOKEN
           valueFrom:
             secretKeyRef:
-              name: {{ required "mcpAddons.github.auth.secretName is required" .Values.mcpAddons.github.auth.secretName }}
+              name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
               key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
+        {{- end }}
         {{- if .Values.mcpAddons.github.config.toolsets }}
         - name: GITHUB_TOOLSETS
           valueFrom:

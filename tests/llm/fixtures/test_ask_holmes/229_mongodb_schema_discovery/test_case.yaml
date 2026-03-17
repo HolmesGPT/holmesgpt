@@ -1,0 +1,129 @@
+# Test: MongoDB Schema Discovery & Data Query
+# Tests that Holmes can connect to MongoDB, list collections, explore schema,
+# and query documents to find specific data.
+#
+# Deploys MongoDB 7.0 in Kubernetes with three collections (transactions,
+# customers, products). A unique verification code is embedded in a failed
+# transaction document that the LLM must discover by querying.
+
+user_prompt: "What collections exist in the database? Then look at the transactions collection and tell me the verification code for the failed transaction."
+
+expected_output:
+  - "Must list the collections: transactions, customers, products"
+  - "Must report the verification code: HMNG-227-k7x2p9"
+
+include_tool_calls: true
+
+tags:
+  - db-connectors
+  - easy
+
+setup_timeout: 180
+
+port_forwards:
+  - namespace: app-227
+    service: mongodb
+    local_port: 10227
+    remote_port: 27017
+
+before_test: |
+  set -e
+
+  echo "⏳ Setting up MongoDB in cluster..."
+
+  # Create namespace
+  kubectl create namespace app-227 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Deploy MongoDB
+  kubectl apply -f mongodb.yaml -n app-227
+
+  # Wait for MongoDB to be ready
+  echo "⏳ Waiting for MongoDB pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=mongodb -n app-227 --timeout=5s 2>/dev/null; then
+      echo "✅ MongoDB pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ MongoDB pod failed to become ready after 60 seconds"
+    kubectl get pods -n app-227
+    kubectl logs -l app=mongodb -n app-227 --tail=20
+    exit 1
+  fi
+
+  # Wait for MongoDB to accept authenticated connections
+  echo "⏳ Waiting for MongoDB to accept connections..."
+  MONGO_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n app-227 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+      echo "✅ MongoDB is accepting connections!"
+      MONGO_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$MONGO_READY" = false ]; then
+    echo "❌ MongoDB not accepting connections after 60 seconds"
+    kubectl logs -l app=mongodb -n app-227 --tail=20
+    exit 1
+  fi
+
+  # Seed data into MongoDB
+  echo "⏳ Creating collections and inserting test data..."
+  kubectl exec -n app-227 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin shopdb --eval '
+  // Create transactions collection
+  db.transactions.drop();
+  db.transactions.insertMany([
+    { order_id: "ORD-10441", customer_id: "C-201", amount: 149.99, status: "completed", payment_method: "credit_card", created_at: new Date("2025-11-01T10:30:00Z") },
+    { order_id: "ORD-10442", customer_id: "C-205", amount: 89.50, status: "completed", payment_method: "paypal", created_at: new Date("2025-11-02T14:15:00Z") },
+    { order_id: "ORD-10443", customer_id: "C-203", amount: 324.00, status: "failed", verification_code: "HMNG-227-k7x2p9", failure_reason: "payment gateway timeout", payment_method: "credit_card", created_at: new Date("2025-11-03T09:45:00Z") },
+    { order_id: "ORD-10444", customer_id: "C-201", amount: 55.00, status: "completed", payment_method: "debit_card", created_at: new Date("2025-11-04T16:20:00Z") },
+    { order_id: "ORD-10445", customer_id: "C-207", amount: 210.75, status: "pending", payment_method: "credit_card", created_at: new Date("2025-11-05T11:00:00Z") }
+  ]);
+
+  // Create customers collection
+  db.customers.drop();
+  db.customers.insertMany([
+    { customer_id: "C-201", name: "Alice Nakamura", email: "alice@example.com", tier: "gold", joined: new Date("2024-03-15") },
+    { customer_id: "C-203", name: "Ben Torres", email: "ben@example.com", tier: "silver", joined: new Date("2024-06-20") },
+    { customer_id: "C-205", name: "Clara Johansson", email: "clara@example.com", tier: "bronze", joined: new Date("2024-09-01") },
+    { customer_id: "C-207", name: "David Kim", email: "david@example.com", tier: "gold", joined: new Date("2025-01-10") }
+  ]);
+
+  // Create products collection
+  db.products.drop();
+  db.products.insertMany([
+    { sku: "SKU-A100", name: "Wireless Headphones", category: "electronics", price: 79.99, stock: 150 },
+    { sku: "SKU-B200", name: "Running Shoes", category: "footwear", price: 124.00, stock: 85 },
+    { sku: "SKU-C300", name: "Laptop Stand", category: "accessories", price: 45.50, stock: 200 }
+  ]);
+
+  print("Collections created: " + db.getCollectionNames());
+  '
+
+  # Verify the needle is queryable
+  RESULT=$(kubectl exec -n app-227 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin shopdb --quiet --eval '
+  var doc = db.transactions.findOne({ status: "failed" });
+  print(doc.verification_code);
+  ')
+
+  if echo "$RESULT" | grep -q "HMNG-227-k7x2p9"; then
+    echo "✅ Verification code is queryable: HMNG-227-k7x2p9"
+  else
+    echo "❌ Verification code not found in transactions collection"
+    echo "Result: $RESULT"
+    exit 1
+  fi
+
+  echo "✅ MongoDB setup complete"
+
+after_test: |
+  echo "⏳ Cleaning up MongoDB..."
+  kubectl delete namespace app-227 --ignore-not-found=true --wait=false 2>/dev/null || true
+  echo "✅ Cleanup initiated"

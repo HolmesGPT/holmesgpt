@@ -1,0 +1,7 @@
+toolsets:
+  test-mongodb:
+    type: mongodb
+    enabled: true
+    config:
+      connection_url: "mongodb://holmes:holmespass@localhost:10228/opsdb?authSource=admin"
+      default_database: "opsdb"

@@ -1,0 +1,139 @@
+# Test: Large Confluence page exceeding context window
+# A ~380K token Confluence page (incident post-mortem catalogue) contains a
+# verification code in a summary table near the very end.  Holmes must find
+# the Q4 2024 audit reference code.
+#
+# This page is deliberately larger than the per-tool token limit (~25K tokens),
+# which means the raw tool response will be truncated or saved to disk.
+# Holmes must successfully retrieve the information despite the page size.
+#
+# Requirements:
+#   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY, CONFLUENCE_SA_BASE_URL
+
+user_prompt: |
+  In the Confluence space 'HOLMES231', find the page titled 'Platform Incident
+  Post-Mortem Catalogue 2023-2025'.  What is the audit reference code for Q4 2024
+  listed in the Quarterly Reliability Summary table?
+
+expected_output:
+  - "Must report the Q4 2024 audit reference code: ARC-2024Q4-HOLMES-EVAL-vK7w3nR9pL"
+
+tags:
+  - confluence
+  - question-answer
+  - context_window
+  - fast
+  - hard
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HOLMES231"
+  SPACE_NAME="Holmes Test Space 231"
+  PAGE_TITLE="Platform Incident Post-Mortem Catalogue 2023-2025"
+  VERIFICATION_CODE="HOLMES-EVAL-vK7w3nR9pL"
+  TMPFILE=$(mktemp /tmp/holmes231_page_XXXXXX.json)
+  trap "rm -f $TMPFILE" EXIT
+
+  echo "Generating large page body (~380K tokens)..."
+  PAGE_BODY_JSON=$(python3 ./generate_large_page.py)
+
+  echo "Building request payload..."
+  python3 -c "
+  import json, sys
+  body_json = sys.stdin.read()
+  payload = {
+    'type': 'page',
+    'title': '${PAGE_TITLE}',
+    'space': {'key': '${SPACE_KEY}'},
+    'body': {'storage': {'value': json.loads(body_json), 'representation': 'storage'}}
+  }
+  json.dump(payload, open('$TMPFILE', 'w'))
+  " <<< "$PAGE_BODY_JSON"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 231\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif [ "$HTTP_CODE" -eq 409 ] || [ "$HTTP_CODE" -eq 400 ]; then
+    echo "Space already exists, reusing."
+  else
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+  sleep 2
+
+  echo "Creating page (this may take a moment due to size)..."
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d @"$TMPFILE")
+
+  PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
+  PAGE_BODY_RESP=$(echo "$PAGE_RESPONSE" | sed '$d')
+
+  if [ "$PAGE_HTTP_CODE" -eq 200 ]; then
+    PAGE_ID=$(echo "$PAGE_BODY_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
+    PAGE_ID=$(curl -L -s -G \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
+      --data-urlencode "title=${PAGE_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
+      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PAGE_ID" ]; then
+      echo "Failed to create or find page."
+      exit 1
+    fi
+    echo "Found existing page."
+  fi
+  echo "Page created with ID: ${PAGE_ID}"
+
+  echo "Verifying verification code is present in page content..."
+  VERIFY=$(curl -L -s \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content/${PAGE_ID}?expand=body.storage" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if echo "$VERIFY" | grep -q "${VERIFICATION_CODE}"; then
+    echo "Page content verified - verification code found"
+  else
+    echo "Page verification failed - verification code not found in content"
+    exit 1
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  set -e
+
+  SPACE_KEY="HOLMES231"
+
+  echo "Deleting space ${SPACE_KEY}..."
+  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
+    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+
+  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
+    echo "Cleanup complete"
+  else
+    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
+  fi

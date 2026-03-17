@@ -870,6 +870,7 @@ def _collect_test_results_from_stats(terminalreporter):
                 "cached_tokens": user_props.get("cached_tokens"),
                 "reasoning_tokens": user_props.get("reasoning_tokens", 0),
                 "max_completion_tokens_per_call": user_props.get("max_completion_tokens_per_call", 0),
+                "max_prompt_tokens_per_call": user_props.get("max_prompt_tokens_per_call", 0),
                 "num_compactions": user_props.get("num_compactions", 0),
                 # Tag tracking for performance analysis
                 "tags": user_props.get("tags", []),

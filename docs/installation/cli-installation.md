@@ -90,6 +90,15 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 !!! tip "Which Model to Use"
     We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. [View Benchmarks.](../development/evaluations/index.md)
 
+!!! info "No Kubernetes Required"
+    The examples below use a Kubernetes pod for a quick guided demo, but HolmesGPT works with any infrastructure. If you don't use Kubernetes, skip the `kubectl apply` step and ask about your own systems instead:
+    ```bash
+    holmes ask "what Prometheus alerts are currently firing and why?"
+    holmes ask "what is the health of my Elasticsearch cluster?"
+    holmes ask "are there any issues with my production databases?"
+    ```
+    See [data sources](../data-sources/builtin-toolsets/index.md) for all supported integrations.
+
 === "Anthropic Claude"
 
     1. **Set up API key**:
@@ -190,6 +199,8 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
     1. **Set up API key**:
         ```bash
         export GEMINI_API_KEY="your-gemini-api-key"
+        export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
+        export MODEL="gemini/<your-gemini-model>"
         ```
 
     2. **Create a test pod** to investigate:
@@ -199,6 +210,9 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 
     3. **Ask your first question**:
         ```bash
+        holmes ask "what is wrong with the user-profile-import pod?"
+
+        # Or specify the model explicitly per command:
         holmes ask "what is wrong with the user-profile-import pod?" --model="gemini/<your-gemini-model>"
         ```
 

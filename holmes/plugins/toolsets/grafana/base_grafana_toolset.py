@@ -37,7 +37,8 @@ class BaseGrafanaToolset(Toolset):
             return False, TOOLSET_CONFIG_MISSING_ERROR
 
         try:
-            self._grafana_config = GrafanaConfig(**config)
+            config_class = self.config_classes[0] if self.config_classes else GrafanaConfig
+            self._grafana_config = config_class(**config)
             return self.health_check()
 
         except Exception as e:

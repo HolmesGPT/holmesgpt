@@ -216,7 +216,7 @@ jobs:
             core.setOutput('last_eval_comment_id', lastEvalCommentId ? lastEvalCommentId.toString() : '');
             core.setOutput('resolved_body', body);
 
-            // Parse branch parameter from comment if specified (for cross-branch comparison)
+            // Parse branch parameter: runs Holmes code from that branch with eval fixtures from the PR
             let targetBranch = '';
             for (const line of body.split('\n').slice(1)) {
               const colonIdx = line.indexOf(':');
@@ -247,9 +247,22 @@ jobs:
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
         uses: actions/checkout@v4
         with:
-          # For /eval with branch: checkout the specified branch; otherwise checkout PR SHA or current ref
-          ref: ${{ steps.eval-comment.outputs.branch || steps.eval-comment.outputs.pr_sha || github.ref }}
+          # Always checkout PR code first (includes eval fixtures in tests/)
+          ref: ${{ steps.eval-comment.outputs.pr_sha || github.ref }}
           path: code
+
+      # When branch: is specified in /eval, overlay Holmes source code from that branch
+      # while keeping tests/ (eval fixtures + framework) from the PR branch.
+      # This allows running master's Holmes code against a PR's new eval tests.
+      - name: Overlay Holmes code from target branch
+        if: (github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success') && steps.eval-comment.outputs.branch != ''
+        working-directory: code
+        run: |
+          git fetch origin "$TARGET_BRANCH"
+          # Replace all files except tests/ with versions from the target branch
+          git checkout "origin/$TARGET_BRANCH" -- . ':!tests/'
+        env:
+          TARGET_BRANCH: ${{ steps.eval-comment.outputs.branch }}
 
       - name: Checkout trusted helpers from base branch
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
@@ -397,7 +410,7 @@ jobs:
               }
             } else {
               model = '';
-              markers = 'regression';
+              markers = null;
               filter = '';
               iterations = '1';
               branch = '';
@@ -405,9 +418,11 @@ jobs:
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
               triggeredBy = '';
 
-              // Parse PR labels for evals-tag-* and evals-id-* to augment the regression run
+              // Parse PR labels for evals-tag-*, evals-id-*, and evals-model-* to augment the regression run
               if (event === 'pull_request' && context.payload.pull_request.labels) {
                 const labelSafe = /^[a-zA-Z0-9_\-]+$/;
+                // Model names can contain slashes, dots, and colons (e.g. sonnet-4.5, anthropic/claude-sonnet-4-5-20250929)
+                const modelSafe = /^[a-zA-Z0-9_.,:\/-]+$/;
                 const labels = context.payload.pull_request.labels.map(l => l.name);
                 const tagLabels = labels
                   .filter(n => n.startsWith('evals-tag-'))
@@ -417,6 +432,10 @@ jobs:
                   .filter(n => n.startsWith('evals-id-'))
                   .map(n => n.replace('evals-id-', ''))
                   .filter(n => labelSafe.test(n));
+                const modelLabels = labels
+                  .filter(n => n.startsWith('evals-model-'))
+                  .map(n => n.replace('evals-model-', ''))
+                  .filter(n => modelSafe.test(n));
 
                 if (idLabels.length > 0 && tagLabels.length === 0) {
                   // Only IDs specified: broaden markers to all LLM tests, filter by ID
@@ -431,6 +450,11 @@ jobs:
                   filter = idLabels.join(' or ');
                 }
                 // else: no evals-* labels, keep defaults (markers = 'regression')
+
+                // Override model if evals-model-* label is present
+                if (modelLabels.length > 0) {
+                  model = modelLabels.join(',');
+                }
               }
 
               // Build descriptive trigger source for automatic runs
@@ -438,11 +462,22 @@ jobs:
                 const sha = context.payload.pull_request.head.sha.substring(0, 7);
                 const prBranch = context.payload.pull_request.head.ref;
                 displayBranch = prBranch;
-                // Only display labels that pass the safe character check (reuse labelSafe from above)
+                // Only display labels that pass safe character checks
                 const displayLabelSafe = /^[a-zA-Z0-9_\-]+$/;
+                const displayModelSafe = /^[a-zA-Z0-9_.,:\/-]+$/;
                 const evalLabels = (context.payload.pull_request.labels || [])
                   .map(l => l.name)
-                  .filter(n => n.startsWith('evals-') && displayLabelSafe.test(n));
+                  .filter(n => {
+                    if (n.startsWith('evals-model-')) {
+                      const suffix = n.slice('evals-model-'.length);
+                      return suffix.length > 0 && displayModelSafe.test(suffix);
+                    }
+                    if (n.startsWith('evals-tag-') || n.startsWith('evals-id-')) {
+                      const suffix = n.startsWith('evals-tag-') ? n.slice('evals-tag-'.length) : n.slice('evals-id-'.length);
+                      return suffix.length > 0 && displayLabelSafe.test(suffix);
+                    }
+                    return false;
+                  });
                 const labelSuffix = evalLabels.length > 0 ? ` (labels: ${evalLabels.map(l => '\`' + l + '\`').join(', ')})` : '';
                 triggerSource = `commit ${sha} on branch \`${prBranch}\`` + labelSuffix;
               } else if (event === 'push') {
@@ -459,11 +494,12 @@ jobs:
             // Apply defaults
             if (!model) model = ${{ toJSON(vars.MODEL) }} || '';
             // Only apply regression default for automatic triggers, not for manual /eval or workflow_dispatch
-            if (!markers && !isManual) markers = 'regression';
+            // Note: markers may be '' (explicitly cleared by evals-id-* label parsing to broaden to all LLM tests)
+            if (markers == null && !isManual) markers = 'regression';
             let iterNum = Math.min(Math.max(parseInt(iterations, 10) || 1, 1), 10);
 
             core.setOutput('model', model);
-            core.setOutput('markers', markers);
+            core.setOutput('markers', markers || '');
             core.setOutput('filter', filter);
             core.setOutput('iterations', iterNum.toString());
             core.setOutput('is_manual', isManual.toString());
@@ -473,6 +509,9 @@ jobs:
             core.setOutput('branch', branch);
             core.setOutput('display_branch', displayBranch || '');
             core.setOutput('marker_expr', markers ? `llm and (${markers})` : 'llm');
+
+            // Log computed params for debugging
+            core.info(`eval-params: event=${event}, model=${model}, markers=${markers}, filter=${filter}, marker_expr=${markers ? 'llm and (' + markers + ')' : 'llm'}, pr_number=${prNumber || '<none>'}, iterations=${iterNum}`);
             core.setOutput('run_url', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
 
             // Output all common params as JSON for DRY usage in subsequent steps
@@ -879,6 +918,13 @@ jobs:
               body: body
             });
 
+      - name: Create model list file
+        if: steps.check-tests.outputs.should-run == 'true'
+        run: |
+          cat > /tmp/model_list.yaml << 'EOF'
+          ${{ secrets.MODEL_LIST_YAML }}
+          EOF
+
       - name: Collect evals to run
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         id: test-preview
@@ -888,9 +934,15 @@ jobs:
           MODEL: ${{ steps.eval-params.outputs.model }}
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
+          MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
+
+          echo "📋 Collect step params:"
+          echo "  MODEL=${MODEL:-<unset>}"
+          echo "  EVAL_MARKER_EXPR=${EVAL_MARKER_EXPR}"
+          echo "  EVAL_FILTER=${EVAL_FILTER:-<empty>}"
 
           # Collect test files dynamically
           TEST_FILES=()
@@ -903,6 +955,7 @@ jobs:
           fi
           PYTEST_ARGS=(--collect-only -q "${TEST_FILES[@]}" -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
+          echo "  pytest args: ${PYTEST_ARGS[*]}"
 
           # Collect test names
           TEST_LIST=$(poetry run pytest "${PYTEST_ARGS[@]}" 2>/dev/null | grep -E "^tests/llm/" || true)
@@ -920,6 +973,19 @@ jobs:
           PYEOF
           )
 
+          # Collect valid model names from model list file (top-level YAML keys)
+          VALID_MODELS=$(python3 << 'PYEOF'
+          import yaml, os
+          path = os.environ.get('MODEL_LIST_FILE_LOCATION', '')
+          try:
+              with open(path) as f:
+                  data = yaml.safe_load(f) or {}
+              print(','.join(sorted(data.keys())))
+          except Exception:
+              print('')
+          PYEOF
+          )
+
           # Output for next steps
           echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
 
@@ -931,6 +997,11 @@ jobs:
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "valid_markers<<$EOF" >> $GITHUB_OUTPUT
           echo "$VALID_MARKERS" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "valid_models<<$EOF" >> $GITHUB_OUTPUT
+          echo "$VALID_MODELS" >> $GITHUB_OUTPUT
           echo "$EOF" >> $GITHUB_OUTPUT
 
       - name: Update progress - evals collected
@@ -948,7 +1019,8 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
-              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              valid_models: ${{ toJSON(steps.test-preview.outputs.valid_models) }}
             });
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
@@ -1022,7 +1094,8 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               test_count: ${{ toJSON(steps.test-preview.outputs.test_count) }},
               test_preview: ${{ toJSON(steps.test-preview.outputs.test_preview) }},
-              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }}
+              valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              valid_models: ${{ toJSON(steps.test-preview.outputs.valid_models) }}
             });
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const progressSteps = [
@@ -1054,13 +1127,6 @@ jobs:
               comment_id: p.commentId,
               body: body
             });
-
-      - name: Create model list file
-        if: steps.check-tests.outputs.should-run == 'true'
-        run: |
-          cat > /tmp/model_list.yaml << 'EOF'
-          ${{ secrets.MODEL_LIST_YAML }}
-          EOF
 
       - name: Run tests
         if: steps.check-tests.outputs.should-run == 'true'
@@ -1106,6 +1172,13 @@ jobs:
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
 
+          echo "🧪 Run tests params:"
+          echo "  MODEL=${MODEL:-<unset>}"
+          echo "  EVAL_MARKER_EXPR=${EVAL_MARKER_EXPR}"
+          echo "  EVAL_FILTER=${EVAL_FILTER:-<empty>}"
+          echo "  MODEL_LIST_FILE_LOCATION=${MODEL_LIST_FILE_LOCATION:-<unset>}"
+          echo "  pwd=$(pwd)"
+
           START_TIME=$(date +%s)
 
           # Collect test files dynamically
@@ -1119,7 +1192,75 @@ jobs:
           fi
           PYTEST_ARGS=(--no-cov "${TEST_FILES[@]}" -s -n10 -m "$EVAL_MARKER_EXPR")
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
-          poetry run pytest "${PYTEST_ARGS[@]}" || true
+          echo "  pytest args: ${PYTEST_ARGS[*]}"
+          set +e
+          poetry run pytest "${PYTEST_ARGS[@]}"
+          PYTEST_EXIT=$?
+          set -e
+          echo "pytest_exit=$PYTEST_EXIT" >> $GITHUB_OUTPUT
+
+          # Exit code handling:
+          # 0 = all tests passed
+          # 1 = some tests failed (normal) OR collection error under pytest-xdist
+          # 2 = collection errors (e.g. invalid MODEL, import error)
+          # 3 = interrupted by user
+          # 4 = internal pytest error
+          # 5 = no tests collected (markers/filters matched nothing)
+          #
+          # IMPORTANT: pytest-xdist (-n) returns exit code 1 for collection errors
+          # instead of 2. We detect this by checking if any results were produced.
+          if [[ $PYTEST_EXIT -eq 0 ]]; then
+            echo "pytest passed, all tests ok"
+          elif [[ $PYTEST_EXIT -eq 1 ]]; then
+            # Could be normal test failures OR collection error (pytest-xdist quirk).
+            # Check if results were actually produced. If not, it's a collection error.
+            if [[ ! -f "regressions.txt" && ! -f "evals_report.md" ]]; then
+              echo "❌ pytest exit code 1 but no results produced — treating as collection error"
+              echo "pytest_error=collection" >> $GITHUB_OUTPUT
+              {
+                echo "## ❌ Test Collection Failed"
+                echo ""
+                echo "pytest exited with code 1 but produced no results."
+                echo ""
+                echo "Common causes:"
+                echo "- **Invalid MODEL name** — check that the model short name exists in the model list"
+                echo "- **Import error** in test files"
+                echo "- **Invalid markers or filters**"
+                echo ""
+                echo "Check the [workflow logs](${{ steps.eval-params.outputs.run_url }}) for details."
+              } > evals_report.md
+            else
+              echo "pytest had test failures (exit code 1), results were produced"
+            fi
+          elif [[ $PYTEST_EXIT -eq 2 || $PYTEST_EXIT -eq 5 ]]; then
+            echo "❌ pytest failed with exit code $PYTEST_EXIT (collection error)"
+            echo "pytest_error=collection" >> $GITHUB_OUTPUT
+            {
+              echo "## ❌ Test Collection Failed"
+              echo ""
+              echo "pytest exited with code $PYTEST_EXIT. This usually means:"
+              echo "- **Exit 2**: Collection error (invalid MODEL name, import error, bad markers)"
+              echo "- **Exit 5**: No tests matched the given markers/filters"
+              echo ""
+              echo "Check the [workflow logs](${{ steps.eval-params.outputs.run_url }}) for details."
+            } > evals_report.md
+          elif [[ $PYTEST_EXIT -eq 3 || $PYTEST_EXIT -eq 4 ]]; then
+            echo "❌ pytest failed with exit code $PYTEST_EXIT (infrastructure error)"
+            echo "pytest_error=infrastructure" >> $GITHUB_OUTPUT
+            {
+              echo "## ❌ Pytest Internal Error"
+              echo ""
+              echo "pytest exited with code $PYTEST_EXIT. This usually means:"
+              echo "- **Exit 3**: Test run was interrupted"
+              echo "- **Exit 4**: Internal pytest error"
+              echo ""
+              echo "Check the [workflow logs](${{ steps.eval-params.outputs.run_url }}) for details."
+            } > evals_report.md
+          else
+            echo "❌ pytest failed with unexpected exit code $PYTEST_EXIT"
+            echo "pytest_error=unknown" >> $GITHUB_OUTPUT
+            echo "## ❌ Pytest Failed (exit code $PYTEST_EXIT)" > evals_report.md
+          fi
 
           DURATION=$(($(date +%s) - START_TIME))
           if [[ $DURATION -ge 3600 ]]; then
@@ -1136,6 +1277,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+
             // SECURITY: Load helpers from trusted checkout (base branch) to prevent code injection from PRs
             const {
               buildParams, buildBody, buildRerunFooter, parseRunHistory, buildAutoCommentWithHistory
@@ -1146,24 +1288,34 @@ jobs:
               comment_id: ${{ toJSON(steps.initial-comment.outputs.comment_id) }},
               duration: ${{ toJSON(steps.evals.outputs.duration) }},
               valid_markers: ${{ toJSON(steps.test-preview.outputs.valid_markers) }},
+              valid_models: ${{ toJSON(steps.test-preview.outputs.valid_models) }},
               triggered_by: ${{ toJSON(steps.eval-params.outputs.triggered_by) }}
             });
             const isPersistent = ${{ toJSON(steps.initial-comment.outputs.is_persistent) }} === 'true';
             const report = fs.existsSync('code/evals_report.md') ? fs.readFileSync('code/evals_report.md', 'utf8') : '';
             const failures = fs.existsSync('code/regressions.txt') ? fs.readFileSync('code/regressions.txt', 'utf8').trim() : '';
             const hasFailures = failures && failures !== '0';
+            const pytestError = ${{ toJSON(steps.evals.outputs.pytest_error) }} || '';
+            const hasPytestError = pytestError !== '';
+
 
             // Build notification header for the user who triggered the eval (only for manual runs)
             const triggeredBy = p.triggered_by || '';
-            const statusText = hasFailures
-              ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
-              : '✅ Completed successfully';
+            const statusText = hasPytestError
+              ? pytestError === 'collection'
+                ? '❌ Test collection failed (no tests ran)'
+                : '❌ Pytest internal error (no tests ran)'
+              : hasFailures
+                ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
+                : '✅ Completed successfully';
             const notifyHeader = triggeredBy ? `@${triggeredBy} Your eval run has finished. ${statusText}\n\n---\n\n` : '';
 
             // Build current run content
+            const icon = hasPytestError ? '❌' : hasFailures ? '⚠️' : (p.isManual ? '🧪' : '✅');
+            const title = hasPytestError ? 'Eval Run Failed' : hasFailures ? 'Eval Results (with failures)' : (p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals');
             let currentContent = buildBody(p, null, {
-              icon: p.isManual ? '🧪' : '✅',
-              title: p.isManual ? 'Manual Eval Results' : 'Results of HolmesGPT evals',
+              icon,
+              title,
               context
             });
 
