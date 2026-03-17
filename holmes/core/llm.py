@@ -95,24 +95,26 @@ _ANTHROPIC_MODEL_IDENTIFIERS = ("claude", "opus", "sonnet", "haiku")
 def is_anthropic_model(model_name: str) -> bool:
     """Check if a model name refers to an Anthropic model.
 
-    Returns True if 'anthropic' is in the name, or if it's a Robusta model
-    (prefixed with 'Robusta/') containing a known Anthropic model family name.
+    Returns True if 'anthropic' is in the name, or if the name contains a
+    known Anthropic model family identifier (e.g. 'claude', 'opus', 'sonnet',
+    'haiku'). This covers all routing prefixes like vertex_ai/, bedrock/,
+    robusta/, etc.
     """
     name_lower = model_name.lower()
     if "anthropic" in name_lower:
         return True
-    if name_lower.startswith("robusta/"):
-        return any(ident in name_lower for ident in _ANTHROPIC_MODEL_IDENTIFIERS)
-    return False
+    return any(ident in name_lower for ident in _ANTHROPIC_MODEL_IDENTIFIERS)
 
 
 def _get_image_dimensions(url: str) -> Tuple[int, int]:
-    """Get image dimensions from a URL or base64 data URI.
+    """Get image dimensions from a data URI.
 
     Delegates to litellm's get_image_dimensions which handles URLs (via HTTP),
     base64 data URIs, and all major formats (PNG, JPEG, GIF, WebP).
     Falls back to (768, 768) on any failure.
     """
+    if not url.startswith("data:"):
+        return 768, 768
     try:
         return get_image_dimensions(data=url)
     except Exception:
@@ -447,7 +449,16 @@ class DefaultLLM(LLM):
             messages=messages,
             tools=tools,  # type: ignore
         )
+
         tools_to_call_tokens = max(0, total_tokens - messages_token_count_without_tools)
+
+        # For Anthropic models, litellm's bulk token_counter uses its default
+        # 85-token-per-image estimate. Apply the delta between our corrected
+        # per-message image counts and litellm's defaults so total_tokens
+        # reflects the accurate (w*h)/750 formula used by the context limiter.
+        if is_anthropic:
+            corrected_sum = sum(m.get("token_count", 0) for m in messages)
+            total_tokens += corrected_sum - messages_token_count_without_tools
 
         return TokenCountMetadata(
             total_tokens=total_tokens,
