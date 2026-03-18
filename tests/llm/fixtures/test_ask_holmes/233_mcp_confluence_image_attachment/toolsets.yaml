@@ -1,4 +1,6 @@
 # MCP Atlassian server (stdio mode via uvx) for Confluence image attachment tests
+# Uses BYOT OAuth auth because the SA API token is a scoped token that only works
+# with Bearer auth on the Atlassian API gateway, not basic auth on the direct URL.
 toolsets:
   atlassian-mcp:
     type: mcp
@@ -9,8 +11,9 @@ toolsets:
       args: ["mcp-atlassian"]
       env:
         CONFLUENCE_URL: "{{ env.CONFLUENCE_BASE_URL }}"
-        CONFLUENCE_USERNAME: "{{ env.CONFLUENCE_SA_USER }}"
-        CONFLUENCE_API_TOKEN: "{{ env.CONFLUENCE_SA_API_KEY }}"
+        ATLASSIAN_OAUTH_CLOUD_ID: "{{ env.CONFLUENCE_CLOUD_ID }}"
+        ATLASSIAN_OAUTH_ACCESS_TOKEN: "{{ env.CONFLUENCE_SA_API_KEY }}"
+        ATLASSIAN_OAUTH_ENABLE: "true"
         READ_ONLY_MODE: "true"
   confluence:
     enabled: false
