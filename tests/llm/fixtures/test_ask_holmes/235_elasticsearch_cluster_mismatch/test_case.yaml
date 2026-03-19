@@ -70,8 +70,8 @@ before_test: |
   es_setup
   set -e
 
-  INVENTORY_INDEX="app-234-cluster-inventory"
-  CHANGES_INDEX="app-234-change-history"
+  INVENTORY_INDEX="app-235-cluster-inventory"
+  CHANGES_INDEX="app-235-change-history"
 
   # Clean up any existing test indices
   echo "⏳ Cleaning up existing test indices..."
@@ -107,7 +107,7 @@ before_test: |
   fi
   sleep 2
 
-  BULK_FILE=$(es_temp_file "inventory" "234")
+  BULK_FILE=$(es_temp_file "inventory" "235")
   cat > "$BULK_FILE" << 'BULK_EOF'
   {"index":{}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","kind":"Deployment","status":"Running","replicas":1,"image":"jenkins/jenkins:2.426.3-lts","last_updated":"2025-01-12T09:00:00Z"}
@@ -164,7 +164,7 @@ before_test: |
   fi
   sleep 2
 
-  BULK_FILE=$(es_temp_file "changes" "234")
+  BULK_FILE=$(es_temp_file "changes" "235")
   cat > "$BULK_FILE" << 'BULK_EOF'
   {"index":{}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","change_type":"deployment","change_id":"BUILD-7X4Q9M","version":"2.426.3-lts","previous_version":"2.426.2-lts","changed_by":"infra-team","timestamp":"2025-01-12T09:00:00Z","description":"Jenkins LTS version bump to 2.426.3"}
@@ -226,9 +226,9 @@ before_test: |
   echo "✅ Change history contains only CI/CD tool changes (BUILD-7X4Q9M, BUILD-3NR8Y1, etc.)"
 
 after_test: |
-  echo "⏳ Cleaning up test indices..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-234-cluster-inventory" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-234-change-history" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  echo "✅ Cleanup complete"
+  # Indices use static test-ID-prefixed names (app-235-*). Parallel CI runs
+  # share the same ES cluster, so we skip deletion to avoid removing indices
+  # that another run's before_test just created (reentrancy-safe).
+  # before_test is idempotent (delete-then-create), so stale indices are
+  # cleaned up on the next run automatically.
+  echo "✅ Skipping index cleanup (reentrant — before_test handles idempotent setup)"
