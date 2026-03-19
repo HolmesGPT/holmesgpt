@@ -433,8 +433,6 @@ class ToolCallingLLM:
             tool_decisions = None
             terminal_data = None
             terminal_event = None
-            has_pending_approvals = False
-            has_pending_frontend = False
             start_tool_count = 0
             saw_tool_results = False
 
@@ -466,42 +464,37 @@ class ToolCallingLLM:
                         logging.info(
                             f"[bold {AI_COLOR}]AI:[/bold {AI_COLOR}] {content}"
                         )
-                elif event.event == StreamEvents.ANSWER_END:
+                elif event.event in (StreamEvents.ANSWER_END, StreamEvents.APPROVAL_REQUIRED):
                     terminal_data = event.data
                     terminal_event = event.event
                     break
-                elif event.event == StreamEvents.APPROVAL_REQUIRED:
-                    terminal_data = event.data
-                    has_pending_approvals = True
-                elif event.event == StreamEvents.FRONTEND_TOOL_CALL:
-                    terminal_data = event.data
-                    has_pending_frontend = True
 
             if not terminal_data:
-                raise Exception("Stream ended without a terminal event")
+                raise Exception("Stream ended without ANSWER_END or APPROVAL_REQUIRED")
 
             # call_stream returns the absolute iteration count (including offset),
             # so we assign rather than accumulate to avoid double-counting.
             total_num_llm_calls = terminal_data.get("num_llm_calls", 0)
             accumulated_stats += RequestStats(**terminal_data.get("costs", {}))
 
-            if has_pending_frontend:
-                # In synchronous mode, frontend tools can't be executed.
-                # Log a warning and return what we have so far.
-                logging.warning(
-                    "Frontend tool calls requested but no frontend available in sync mode. "
-                    f"Pending: {[fc['tool_name'] for fc in terminal_data.get('pending_frontend_tool_calls', [])]}"
-                )
-                return LLMResult(
-                    result="Investigation paused: the AI requested frontend-defined tools that cannot be executed in CLI mode.",
-                    tool_calls=all_tool_calls,  # type: ignore
-                    num_llm_calls=total_num_llm_calls,
-                    messages=terminal_data.get("messages"),
-                    metadata=terminal_data.get("metadata"),
-                    **accumulated_stats.model_dump(),
-                )
+            if terminal_event == StreamEvents.APPROVAL_REQUIRED:
+                # Check if there are frontend tool calls — can't execute in sync mode
+                pending_frontend = terminal_data.get("pending_frontend_tool_calls", [])
+                if pending_frontend:
+                    logging.warning(
+                        "Frontend tool calls requested but no frontend available in sync mode. "
+                        f"Pending: {[fc['tool_name'] for fc in pending_frontend]}"
+                    )
+                    return LLMResult(
+                        result="Investigation paused: the AI requested frontend-defined tools that cannot be executed in sync mode.",
+                        tool_calls=all_tool_calls,  # type: ignore
+                        num_llm_calls=total_num_llm_calls,
+                        messages=terminal_data.get("messages"),
+                        metadata=terminal_data.get("metadata"),
+                        **accumulated_stats.model_dump(),
+                    )
 
-            if has_pending_approvals:
+                # Only approval pauses — prompt via callback and continue
                 messages = terminal_data["messages"]
                 tool_decisions = self._prompt_for_approval_decisions(
                     terminal_data["pending_approvals"],
@@ -816,9 +809,9 @@ class ToolCallingLLM:
         This function streams holmes one iteration at a time instead of waiting for all iterations to complete.
 
         Frontend tools: When frontend_tool_names is provided, any LLM tool call whose name
-        is in that set will NOT be executed server-side. Instead, the stream pauses with a
-        FRONTEND_TOOL_CALL event. The client executes the tool and resumes by sending
-        frontend_tool_results in the next request.
+        is in that set will NOT be executed server-side. Instead, the stream pauses with an
+        APPROVAL_REQUIRED event that includes pending_frontend_tool_calls. The client
+        executes the tool and resumes by sending frontend_tool_results in the next request.
         """
         if trace_span is None:
             trace_span = DummySpan()
@@ -1145,36 +1138,25 @@ class ToolCallingLLM:
                         )
                         tool_call["pending_approval"] = True
 
-                # If either type of pause is needed, emit appropriate event(s) and return.
-                # When both are pending, emit both events so the client can handle them
-                # in parallel (approve tools + execute frontend tools), then resume once.
+                # If either type of pause is needed, emit a single APPROVAL_REQUIRED
+                # event that carries both pending_approvals and pending_frontend_tool_calls.
+                # The client checks which lists are populated and handles accordingly.
                 if pending_approvals or pending_frontend_calls:
-                    if pending_approvals:
-                        yield StreamMessage(
-                            event=StreamEvents.APPROVAL_REQUIRED,
-                            data={
-                                "content": None,
-                                "messages": messages,
-                                "pending_approvals": [
-                                    approval.model_dump() for approval in pending_approvals
-                                ],
-                                "requires_approval": True,
-                                "num_llm_calls": i,
-                                "costs": stats.model_dump(),
-                            },
-                        )
-                    if pending_frontend_calls:
-                        yield StreamMessage(
-                            event=StreamEvents.FRONTEND_TOOL_CALL,
-                            data={
-                                "messages": messages,
-                                "pending_frontend_tool_calls": [
-                                    fc.model_dump() for fc in pending_frontend_calls
-                                ],
-                                "num_llm_calls": i,
-                                "costs": stats.model_dump(),
-                            },
-                        )
+                    yield StreamMessage(
+                        event=StreamEvents.APPROVAL_REQUIRED,
+                        data={
+                            "content": None,
+                            "messages": messages,
+                            "pending_approvals": [
+                                approval.model_dump() for approval in pending_approvals
+                            ],
+                            "pending_frontend_tool_calls": [
+                                fc.model_dump() for fc in pending_frontend_calls
+                            ],
+                            "num_llm_calls": i,
+                            "costs": stats.model_dump(),
+                        },
+                    )
                     return
 
                 # Update the tool number offset for the next iteration

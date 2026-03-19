@@ -744,7 +744,6 @@ class TestStreamApprovalFlow:
 
         approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
         assert len(approval_events) == 1
-        assert approval_events[0].data["requires_approval"] is True
         assert len(approval_events[0].data["pending_approvals"]) == 1
         assert approval_events[0].data["pending_approvals"][0]["tool_call_id"] == "tc_del"
 
@@ -1133,7 +1132,7 @@ EXPECTED_ANSWER_END_KEYS = {
 
 EXPECTED_APPROVAL_REQUIRED_KEYS = {
     "content", "messages", "pending_approvals",
-    "requires_approval", "num_llm_calls", "costs",
+    "pending_frontend_tool_calls", "num_llm_calls", "costs",
 }
 
 
@@ -1231,6 +1230,6 @@ class TestSSEEventShapes:
             f"APPROVAL_REQUIRED keys mismatch: got {set(data.keys())}"
         )
         assert set(data["costs"].keys()) == EXPECTED_COSTS_KEYS
-        assert data["requires_approval"] is True
         assert isinstance(data["pending_approvals"], list)
+        assert isinstance(data["pending_frontend_tool_calls"], list)
         assert len(data["pending_approvals"]) > 0
