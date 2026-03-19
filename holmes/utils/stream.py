@@ -9,9 +9,7 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import ModelResponse, TextCompletionResponse
 from pydantic import BaseModel, Field
 
-from holmes.core.investigation_structured_output import process_response_into_sections
-from holmes.core.llm import TokenCountMetadata, get_llm_usage
-from holmes.utils import sentry_helper
+from holmes.core.llm import ContextWindowUsage, build_usage_metadata
 
 
 class StreamEvents(str, Enum):
@@ -22,6 +20,7 @@ class StreamEvents(str, Enum):
     AI_MESSAGE = "ai_message"
     APPROVAL_REQUIRED = "approval_required"
     TOKEN_COUNT = "token_count"
+    CONVERSATION_HISTORY_COMPACTION_START = "conversation_history_compaction_start"
     CONVERSATION_HISTORY_COMPACTED = "conversation_history_compacted"
 
 
@@ -65,39 +64,6 @@ def _is_rate_limit_error(e: Exception) -> bool:
     return isinstance(e, litellm.exceptions.RateLimitError) or "Model is getting throttled" in str(e)
 
 
-def stream_investigate_formatter(
-    call_stream: Generator[StreamMessage, None, None],
-):
-    try:
-        for message in call_stream:
-            if message.event == StreamEvents.ANSWER_END:
-                (text_response, sections) = process_response_into_sections(  # type: ignore
-                    message.data.get("content")
-                )
-
-                if sections is None:
-                    sentry_helper.capture_sections_none(
-                        content=message.data.get("content"),
-                    )
-
-                yield create_sse_message(
-                    StreamEvents.ANSWER_END.value,
-                    {
-                        "sections": sections or {},
-                        "analysis": text_response,
-                        "metadata": message.data.get("metadata") or {},
-                    },
-                )
-            else:
-                yield create_sse_message(message.event.value, message.data)
-    except Exception as e:
-        logging.error(f"Error during streaming investigation: {e}", exc_info=True)
-        if _is_rate_limit_error(e):
-            yield create_rate_limit_error_message(str(e))
-        else:
-            yield create_sse_error_message(description=str(e), error_code=1, msg=str(e))
-
-
 def stream_chat_formatter(
     call_stream: Generator[StreamMessage, None, None],
     followups: Optional[List[dict]] = None,
@@ -139,7 +105,7 @@ def stream_chat_formatter(
 
 
 def add_token_count_to_metadata(
-    tokens: TokenCountMetadata,
+    tokens: ContextWindowUsage,
     metadata: dict,
     max_context_size: int,
     maximum_output_token: int,
@@ -147,7 +113,7 @@ def add_token_count_to_metadata(
         ModelResponse, CustomStreamWrapper, TextCompletionResponse
     ],
 ):
-    metadata["usage"] = get_llm_usage(full_llm_response)
+    metadata["usage"] = build_usage_metadata(full_llm_response)
     metadata["tokens"] = tokens.model_dump()
     metadata["max_tokens"] = max_context_size
     metadata["max_output_tokens"] = maximum_output_token

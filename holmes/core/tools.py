@@ -26,6 +26,8 @@ from typing import (
 )
 
 from jinja2 import Template
+
+from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
@@ -165,6 +167,7 @@ class ToolsetType(str, Enum):
     MCP = "mcp"
     HTTP = "http"
     DATABASE = "database"
+    MONGODB = "mongodb"
 
 
 class ToolParameter(BaseModel):
@@ -176,6 +179,43 @@ class ToolParameter(BaseModel):
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
     enum: Optional[List[str]] = None  # For restricting to specific values
+    # For object types: stores the additionalProperties JSON Schema value.
+    # None = not specified, False = no additional properties allowed,
+    # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
+    additional_properties: Optional[Union[bool, Dict[str, Any]]] = None
+    # JSON Schema validation keywords (minItems, maxItems, minimum, maximum,
+    # minLength, maxLength, pattern, etc.) preserved from the source schema.
+    # These are passed through to the OpenAI-formatted schema so the LLM
+    # knows about constraints.
+    json_schema_extra: Optional[Dict[str, Any]] = None
+
+    def is_strict_compatible(self) -> bool:
+        """Check if this parameter (and all nested parameters) can be used in strict mode.
+
+        Strict mode requires additionalProperties: false on all objects.
+        Parameters with dynamic keys (additionalProperties set to a schema dict or True)
+        are incompatible with strict mode.
+        """
+        # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
+        if self.additional_properties is not None and self.additional_properties is not False:
+            return False
+        # Recursively check nested properties
+        if self.properties:
+            for prop in self.properties.values():
+                if not prop.is_strict_compatible():
+                    return False
+        # Recursively check array items
+        if self.items and not self.items.is_strict_compatible():
+            return False
+        return True
+
+    @property
+    def primary_type(self) -> str:
+        """Return the primary (non-null) type as a string."""
+        if isinstance(self.type, list):
+            non_null = [t for t in self.type if t != "null"]
+            return non_null[0] if non_null else "string"
+        return self.type
 
 
 class ToolInvokeContext(BaseModel):
@@ -265,12 +305,19 @@ class Tool(ABC, BaseModel):
             logger.debug(f"Tool '{self.name}' has no transformers")
             self._transformer_instances = None
 
-    def get_openai_format(self, target_model: str):
+    def _coerce_params(self, params: Dict) -> Dict:
+        """Coerce LLM tool-call parameters to match their JSON Schema types.
+
+        Delegates to :func:`holmes.core.json_schema_coerce.coerce_params`.
+        See that module's docstring for the full rationale and design notes.
+        """
+        return coerce_params(params, self.parameters, tool_name=self.name)
+
+    def get_openai_format(self):
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
             tool_description=self.description,
             tool_parameters=self.parameters,
-            target_model=target_model,
         )
 
     def invoke(
@@ -298,6 +345,8 @@ class Tool(ABC, BaseModel):
                     params=params,
                     invocation=self.get_parameterized_one_liner(params),
                 )
+
+        params = self._coerce_params(params)
 
         start_time = time.time()
         result = self._invoke(params=params, context=context)
@@ -591,6 +640,7 @@ class YAMLTool(Tool, BaseModel):
             result = subprocess.run(
                 protected_cmd,
                 shell=True,
+                executable="/bin/bash",
                 text=True,
                 check=False,  # do not throw error, we just return the error code
                 stdin=subprocess.DEVNULL,
@@ -803,6 +853,35 @@ class Toolset(BaseModel):
         interpolated_command = os.path.expandvars(command)
 
         return interpolated_command
+
+    def should_auto_enable(self) -> bool:
+        """Determine if this toolset should be auto-enabled without explicit user config.
+
+        Rules:
+        1. Already enabled or is_default → enable
+        2. No config_classes (YAML toolsets, simple Python toolsets) → enable
+        3. Config classes exist but all fields have defaults → enable
+        4. Config is required AND was provided by user → enable
+        5. Config is required but not provided → disable
+        """
+        if self.enabled or self.is_default:
+            return True
+
+        if not self.config_classes:
+            return True
+
+        requires_config = any(
+            config_cls.has_required_fields()
+            for config_cls in self.config_classes
+            if hasattr(config_cls, "has_required_fields")
+        )
+        if not requires_config:
+            return True
+
+        if self.config is not None:
+            return True
+
+        return False
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
@@ -1035,20 +1114,28 @@ class ToolsetDBModel(BaseModel):
 
 
 def pretty_print_toolset_status(toolsets: list[Toolset], console: Console) -> None:
-    status_fields = ["name", "enabled", "status", "type", "path", "error"]
+    display_fields = ["name", "status", "type", "path", "error"]
     toolsets_status = []
     for toolset in sorted(toolsets, key=lambda ts: ts.status.value):
+        status_fields = ["name", "enabled", "status", "type", "path", "error"]
         toolset_status = json.loads(toolset.model_dump_json(include=status_fields))  # type: ignore
 
-        status_value = toolset_status.get("status", "")
+        # Merge enabled (configured/unconfigured) and status (enabled/failed) into one column:
+        # failed & unconfigured -> unconfigured, enabled & unconfigured -> enabled
+        # failed & configured -> failed, enabled & configured -> enabled
+        raw_status = toolset_status.get("status", "")
+        is_configured = toolset_status.get("enabled", False)
         error_value = toolset_status.get("error", "")
-        if status_value == "enabled":
+
+        if raw_status == "enabled":
             toolset_status["status"] = "[green]enabled[/green]"
-        elif status_value == "failed":
+        elif raw_status == "failed" and is_configured:
             toolset_status["status"] = "[red]failed[/red]"
             toolset_status["error"] = f"[red]{error_value}[/red]"
+        elif raw_status == "failed" and not is_configured:
+            toolset_status["status"] = "[yellow]unconfigured[/yellow]"
         else:
-            toolset_status["status"] = f"[yellow]{status_value}[/yellow]"
+            toolset_status["status"] = f"[yellow]{raw_status}[/yellow]"
 
         # Replace None with "" for Path and Error columns
         for field in ["path", "error"]:
@@ -1057,16 +1144,16 @@ def pretty_print_toolset_status(toolsets: list[Toolset], console: Console) -> No
 
         order_toolset_status = OrderedDict(
             (k.capitalize(), toolset_status[k])
-            for k in status_fields
+            for k in display_fields
             if k in toolset_status
         )
         toolsets_status.append(order_toolset_status)
 
     table = Table(show_header=True, header_style="bold")
-    for col in status_fields:
+    for col in display_fields:
         table.add_column(col.capitalize())
 
     for row in toolsets_status:
-        table.add_row(*(str(row.get(col.capitalize(), "")) for col in status_fields))
+        table.add_row(*(str(row.get(col.capitalize(), "")) for col in display_fields))
 
     console.print(table)

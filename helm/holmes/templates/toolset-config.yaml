@@ -13,7 +13,7 @@ data:
         "description" "AWS API MCP Server - comprehensive AWS service access. Allow executing any AWS CLI commands."
         "config" (dict
           "url" (printf "http://%s-aws-mcp-server.%s.svc.cluster.local:8000" .Release.Name (.Values.mcpAddons.aws.config.namespace | default .Release.Namespace))
-          "icon_url" "https://cdn.simpleicons.org/amazonwebservices/232F3E"
+          "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/aws.svg"
         )
         "llm_instructions" (include "holmes.awsMcp.llmInstructions" . | trim)
       )
@@ -26,7 +26,7 @@ data:
         "config" (dict
           "url" (printf "http://%s-azure-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name (.Values.mcpAddons.azure.config.namespace | default .Release.Namespace))
           "mode" "streamable-http"
-          "icon_url" "https://cdn.simpleicons.org/microsoftazure/0078D4"
+          "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
         )
         "llm_instructions" (include "holmes.azureMcp.llmInstructions" . | trim)
       )
@@ -88,17 +88,33 @@ data:
     {{- $mcpServers = merge $mcpServers $gcpMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.github.enabled }}
+    {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+    {{- $githubConfig := dict
+        "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
+        "mode" "streamable-http"
+        "icon_url" "https://cdn.simpleicons.org/github/181717"
+    }}
     {{- $githubMcpServers := dict "github" (dict
         "description" "GitHub MCP Server - access repositories, pull requests, issues, and GitHub Actions. Debug CI failures, search code, and delegate tasks to Copilot."
-        "config" (dict
-          "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
-          "mode" "sse"
-          "icon_url" "https://cdn.simpleicons.org/github/181717"
-        )
+        "config" $githubConfig
         "llm_instructions" (include "holmes.githubMcp.llmInstructions" . | trim)
       )
     }}
     {{- $mcpServers = merge $mcpServers $githubMcpServers }}
+    {{- else }}
+    {{- $githubConfig := dict
+        "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
+        "mode" "sse"
+        "icon_url" "https://cdn.simpleicons.org/github/181717"
+    }}
+    {{- $githubMcpServers := dict "github" (dict
+        "description" "GitHub MCP Server - access repositories, pull requests, issues, and GitHub Actions. Debug CI failures, search code, and delegate tasks to Copilot."
+        "config" $githubConfig
+        "llm_instructions" (include "holmes.githubMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $githubMcpServers }}
+    {{- end }}
     {{- end }}
     {{- if .Values.mcpAddons.sentry.enabled }}
     {{- $sentryMcpServers := dict "sentry" (dict

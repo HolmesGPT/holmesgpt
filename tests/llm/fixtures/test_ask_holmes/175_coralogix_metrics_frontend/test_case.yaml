@@ -10,6 +10,7 @@ tags:
   - metrics
   - logs
   - coralogix
+  - mcp
 
 toolsets_matrix:
   - toolsets.yaml

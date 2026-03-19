@@ -35,13 +35,15 @@ before_test: |
   HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
   BODY=$(echo "$RESPONSE" | sed '$d')
 
-  if [ "$HTTP_CODE" -ne 200 ]; then
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+    echo "Space created with ID: ${SPACE_ID}"
+  elif echo "$BODY" | grep -q "already exists"; then
+    echo "Space already exists, reusing."
+  else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
     exit 1
   fi
-
-  SPACE_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-  echo "Space created with ID: ${SPACE_ID}"
 
   echo "Verifying space exists..."
   VERIFY=$(curl -s -w "%{http_code}" -o /dev/null \

@@ -16,7 +16,7 @@ on:
         description: 'Comma-separated list of models to test'
         required: false
         # NOTE: Keep in sync with DEFAULT_BENCHMARK_MODELS env var
-        default: 'opus-4.6,sonnet-4.6,opus-4.5,sonnet-4.5,haiku-4.5,gpt-5.2-high-reasoning,gemini-3-pro-preview,gemini-3-flash-preview,deepseek-reasoner,deepseek-chat'
+        default: 'opus-4.6,sonnet-4.6,haiku-4.5,gpt-5.4,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-r1-reasoner,deepseek-v3.2-chat,gpt-5.3-codex'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
@@ -33,7 +33,7 @@ on:
 env:
   # Default models for benchmarks - single source of truth
   # NOTE: Keep workflow_dispatch default in sync with this for UI display
-  DEFAULT_BENCHMARK_MODELS: 'opus-4.6,sonnet-4.6,opus-4.5,sonnet-4.5,haiku-4.5,gpt-5.2-high-reasoning,gemini-3-pro-preview,gemini-3-flash-preview,deepseek-reasoner,deepseek-chat'
+  DEFAULT_BENCHMARK_MODELS: 'opus-4.6,sonnet-4.6,haiku-4.5,gpt-5.4,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-r1-reasoner,deepseek-v3.2-chat,gpt-5.3-codex'
 
 jobs:
   run-benchmarks:
@@ -104,6 +104,7 @@ jobs:
           EOF
 
       - name: Run evaluation benchmarks
+        id: run-benchmarks
         env:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
@@ -136,6 +137,7 @@ jobs:
             eval_results.json
 
       - name: Create PR with benchmark results
+        id: create-pr
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -176,10 +178,39 @@ jobs:
             gh pr edit "$EXISTING_PR" \
               --title "$PR_TITLE" \
               --body "$PR_BODY"
+            echo "pr_url=$(gh pr view "$EXISTING_PR" --json url --jq '.url')" >> $GITHUB_OUTPUT
           else
-            gh pr create \
+            PR_URL=$(gh pr create \
               --title "$PR_TITLE" \
               --body "$PR_BODY" \
               --base master \
-              --head "$BRANCH_NAME"
+              --head "$BRANCH_NAME" 2>&1 | tail -1)
+            echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           fi
+
+      - name: Notify Slack on success
+        if: steps.run-benchmarks.outcome == 'success'
+        env:
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+        run: |
+          PR_URL="${{ steps.create-pr.outputs.pr_url }}"
+          curl -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"channel\": \"#backend\", \"text\": \"Weekly eval benchmarks finished! Here is the PR: ${PR_URL}\"}"
+
+      - name: Notify Slack on failure or cancellation
+        if: steps.run-benchmarks.outcome != 'success'
+        env:
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "${{ job.status }}" = "cancelled" ]; then
+            STATUS="cancelled"
+          else
+            STATUS="failed"
+          fi
+          curl -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"channel\": \"#backend\", \"text\": \"Weekly eval benchmarks ${STATUS}! See the run: ${RUN_URL}\"}"

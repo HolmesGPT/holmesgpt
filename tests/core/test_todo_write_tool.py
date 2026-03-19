@@ -106,7 +106,7 @@ class TestTodoWriteTool:
     def test_openai_format(self):
         """Test that the tool generates correct OpenAI format."""
         tool = TodoWriteTool()
-        openai_format = tool.get_openai_format("azure/gpt-4o")
+        openai_format = tool.get_openai_format()
 
         assert openai_format["type"] == "function"
         assert openai_format["function"]["name"] == "TodoWrite"

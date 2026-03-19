@@ -21,6 +21,12 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError, mo
 
 from holmes.plugins.prompts import load_prompt
 
+try:
+    # pydantic v2
+    from pydantic_core import PydanticUndefined  # type: ignore
+except Exception:  # pragma: no cover
+    PydanticUndefined = object()  # type: ignore
+
 PromptField = Annotated[str, BeforeValidator(lambda v: load_prompt(v))]
 
 
@@ -44,6 +50,16 @@ class ToolsetConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {}
+
+    @classmethod
+    def has_required_fields(cls) -> bool:
+        """Check if this config class has any required fields (fields without defaults)."""
+        for field_name, field_info in cls.model_fields.items():
+            default = getattr(field_info, "default", PydanticUndefined)
+            default_factory = getattr(field_info, "default_factory", None)
+            if default is PydanticUndefined and default_factory is None:
+                return True
+        return False
 
     @model_validator(mode="before")
     @classmethod
@@ -79,13 +95,6 @@ class ToolsetConfig(BaseModel):
             )
 
         return data
-
-try:
-    # pydantic v2
-    from pydantic_core import PydanticUndefined  # type: ignore
-except Exception:  # pragma: no cover
-    PydanticUndefined = object()  # type: ignore
-
 
 class RobustaBaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_default=True)

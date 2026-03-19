@@ -19,6 +19,13 @@ jobs:
       - name: Check for source changes
         id: changes
         run: |
+          # Skip tests for automated benchmark result branches
+          if [[ "${{ github.head_ref }}" == automated/benchmark-* ]]; then
+            echo "Automated benchmark branch — skipping tests"
+            echo "should_test=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           # Paths that do NOT require tests (docs-only changes)
           SKIP_PATTERNS=(
             "docs/*"

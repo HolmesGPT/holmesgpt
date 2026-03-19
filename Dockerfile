@@ -28,8 +28,8 @@ ENV VERIFY_CHECKSUM=true \
 RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key -o Release.key
 
 # Set the architecture-specific kube lineage URLs
-ARG KUBE_LINEAGE_ARM_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.4/kube-lineage-macos-latest-v2.2.4
-ARG KUBE_LINEAGE_AMD_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.4/kube-lineage-ubuntu-latest-v2.2.4
+ARG KUBE_LINEAGE_ARM_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.5/kube-lineage-macos-latest-v2.2.5
+ARG KUBE_LINEAGE_AMD_URL=https://github.com/robusta-dev/kube-lineage/releases/download/v2.2.5/kube-lineage-ubuntu-latest-v2.2.5
 # Define a build argument to identify the platform
 ARG TARGETPLATFORM
 # Conditional download based on the platform
@@ -43,23 +43,19 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 RUN chmod 777 kube-lineage
 RUN ./kube-lineage --version
 
-# Set the architecture-specific argocd URLs
-ARG ARGOCD_VERSION=v3.2.0
-ARG ARGOCD_ARM_URL=https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-arm64
-ARG ARGOCD_AMD_URL=https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64
-# Conditional download based on the platform
-RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-    curl -fsSL -o argocd $ARGOCD_ARM_URL; \
-    elif [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-    curl -fsSL -o argocd $ARGOCD_AMD_URL; \
-    else \
-    echo "Unsupported platform: $TARGETPLATFORM"; exit 1; \
-    fi
-RUN chmod 777 argocd
-RUN ./argocd --help
+# Set up ArgoCD (pre-built with Go 1.25.7 for CVE-2025-68121)
+# ArgoCD v3.3.4 ships with Go 1.25.5 which is vulnerable.
+# Rebuild with: ./scripts/build_go_binaries.sh
+# Revert to official binary when ArgoCD releases a version built with Go >= 1.25.7.
+ARG TARGETARCH
+COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
+RUN gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd
 
-# Install Helm
-RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# Set up Helm
+ARG HELM_VERSION=v3.20.1
+RUN curl -sSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz | tar xz -C /tmp \
+    && mv /tmp/linux-${TARGETARCH}/helm /helm \
+    && rm -rf /tmp/linux-${TARGETARCH}
 
 # Set up poetry
 ARG PRIVATE_PACKAGE_REGISTRY="none"
@@ -132,8 +128,7 @@ COPY --from=builder /argocd /usr/local/bin/argocd
 RUN argocd --help
 
 # Set up Helm
-COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
-RUN chmod 555 /usr/local/bin/helm
+COPY --from=builder /helm /usr/local/bin/helm
 RUN helm version
 
 ARG AWS_DEFAULT_PROFILE

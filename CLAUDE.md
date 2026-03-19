@@ -197,8 +197,9 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
-- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`). When using OpenRouter, you must also set `CLASSIFIER_MODEL` to an OpenRouter model (e.g., `CLASSIFIER_MODEL="openrouter/openai/gpt-4.1"`) because the default classifier model is not available via OpenRouter.
 - `MODEL`: Override default model(s) - supports comma-separated list
+- `CLASSIFIER_MODEL`: Override the classifier model used internally. Required when using OpenRouter (e.g., `openrouter/openai/gpt-4.1`)
 - `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
@@ -281,10 +282,15 @@ For creating, running, and debugging LLM eval tests, use the `/create-eval` skil
 **Cloud Service Evals (No Kubernetes Required)**:
 - Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
-- `before_test` creates test data in the cloud service, `after_test` cleans up
+- `before_test` creates test data in the cloud service; `after_test` cleans up **only if safe** (see reentrancy below)
 - Use `toolsets.yaml` to configure the toolset with env var references: `api_url: "{{ env.ELASTICSEARCH_URL }}"`
 - **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 - **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
+- **Cloud Service Eval Reentrancy**: The same eval can run on multiple PRs in parallel in CI. Cloud service evals that create resources with static names (e.g., Confluence spaces, Elasticsearch indices) must be **reentrant**:
+  - `before_test` must be **idempotent**: create-or-reuse resources, never fail if they already exist
+  - `after_test` must **NOT delete shared resources** that another parallel run may be using. Either omit `after_test` entirely, or limit cleanup to resources with a unique run-scoped identifier
+  - Use test-ID-based resource names (e.g., `HLMS233` for space keys) to avoid collisions with other evals, but accept that the same eval may overlap with itself across parallel PR runs
+  - Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs
 
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
@@ -495,22 +501,9 @@ When asked about content from the HolmesGPT documentation website (https://holme
 - Toolset documentation: `docs/data-sources/builtin-toolsets/`
 - API reference: `docs/reference/`
 
-## MkDocs Navigation (awesome-nav plugin)
+## MkDocs Navigation
 
-This project uses the `mkdocs-awesome-nav` plugin for navigation. Each `docs/` subdirectory has a `.nav.yml` file that controls page ordering within that section. **The `nav` section in `mkdocs.yml` is overridden by these `.nav.yml` files.**
-
-When adding a new docs page:
-1. Create the `.md` file in the appropriate `docs/` subdirectory
-2. Add an entry to the `.nav.yml` file in that same directory — this is what controls whether the page appears in the sidebar and its position
-3. Also update the `nav` in `mkdocs.yml` to keep it in sync (it serves as a fallback/reference)
-
-Example `.nav.yml`:
-```yaml
-nav:
-    - CLI: cli-installation.md
-    - HTTP Server: docker-compose-installation.md
-    - Helm Chart: kubernetes-installation.md
-```
+The docs site uses the `awesome-nav` plugin. Navigation is controlled by `.nav.yml` files in each `docs/` subdirectory, **not** by the `nav:` section in `mkdocs.yml`. When adding a new docs page, you must add it to the `.nav.yml` file in the corresponding directory (e.g., `docs/reference/.nav.yml` for reference pages).
 
 ## MkDocs Formatting Notes
 

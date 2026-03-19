@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from holmes.config import Config
-from holmes.core.llm import LLM, TokenCountMetadata
+from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.tools import ToolInvokeContext
 
 DEFAULT_ROBUSTA_MODEL = "Robusta/gpt-5-mini preview (minimal reasoning)"
@@ -102,10 +102,10 @@ class MockLLM(LLM):
 
     def count_tokens(
         self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
-    ) -> TokenCountMetadata:
+    ) -> ContextWindowUsage:
         # Simple approximation: count characters and divide by 4
         total_chars = sum(len(str(msg.get("content", ""))) for msg in messages)
-        return TokenCountMetadata(
+        return ContextWindowUsage(
             total_tokens=total_chars // 4,
             system_tokens=0,
             tools_to_call_tokens=0,

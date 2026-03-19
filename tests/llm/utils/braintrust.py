@@ -7,7 +7,8 @@ import braintrust
 from braintrust import Dataset, Experiment, ReadonlyExperiment, Span
 from pydantic import BaseModel
 
-from holmes.core.llm import TokenCountMetadata
+from holmes.core.llm import ContextWindowUsage
+from holmes.core.tool_calling_llm import LLMResult
 from holmes.core.tracing import (
     BRAINTRUST_API_KEY,
     BRAINTRUST_ORG,
@@ -16,7 +17,7 @@ from holmes.core.tracing import (
     get_experiment_name,
     get_machine_state_tags,
 )
-from tests.llm.utils.test_case_utils import HolmesTestCase  # type: ignore
+from tests.llm.utils.test_case_utils import AskHolmesTestCase, HolmesTestCase  # type: ignore
 
 braintrust_enabled = False
 if BRAINTRUST_API_KEY:
@@ -27,8 +28,8 @@ class CompactionResult(BaseModel):
     """Result wrapper for compaction tests to use with log_to_braintrust."""
 
     result: str  # The summary content
-    original_tokens: TokenCountMetadata
-    compacted_tokens: TokenCountMetadata
+    original_tokens: ContextWindowUsage
+    compacted_tokens: ContextWindowUsage
     compression_ratio: float
 
 
@@ -185,21 +186,23 @@ def log_to_braintrust(
     eval_span,
     test_case: HolmesTestCase,
     model: str,
-    result: Optional[Any] = None,  # Can be LLMResult or InvestigationResult
+    result: Optional[Union[LLMResult, CompactionResult]] = None,
     scores: Optional[dict] = None,
     error: Optional[Exception] = None,
 ) -> None:
-    """Shared function to log evaluation data to Braintrust.
+    """Log evaluation data to Braintrust.
+
+    Handles both ask_holmes tests (LLMResult) and compaction tests
+    (CompactionResult), logging appropriate metrics for each.
 
     Args:
         eval_span: The Braintrust evaluation span
-        test_case: The test case being evaluated (AskHolmesTestCase or InvestigateTestCase)
+        test_case: The test case being evaluated
         model: The model being tested
-        result: The result object (LLMResult for ask, InvestigationResult for investigate)
+        result: LLMResult for ask_holmes tests, CompactionResult for compaction tests
         scores: Dictionary of scores (e.g., correctness)
         error: Exception if the test failed
     """
-    from tests.llm.utils.test_case_utils import AskHolmesTestCase, InvestigateTestCase
 
     # Prepare tags
     tags = (test_case.tags or []).copy()
@@ -207,26 +210,14 @@ def log_to_braintrust(
 
     # Determine output based on test type and error state
     if error:
-        if hasattr(
-            result, "result"
-        ):  # AskHolmesTestCase with LLMResult or CompactionResult
+        if hasattr(result, "result"):
             output = result.result if result else str(error)
-        elif hasattr(
-            result, "analysis"
-        ):  # InvestigateTestCase with InvestigationResult
-            output = result.analysis if result else str(error)
         else:
             output = str(error)
         scores = scores or {}
     else:
-        if hasattr(
-            result, "result"
-        ):  # AskHolmesTestCase with LLMResult or CompactionResult
+        if hasattr(result, "result"):
             output = result.result if result else ""
-        elif hasattr(
-            result, "analysis"
-        ):  # InvestigateTestCase with InvestigationResult
-            output = result.analysis if result else ""
         else:
             output = ""
 
@@ -245,8 +236,6 @@ def log_to_braintrust(
                 None
             )
             prompt = system_msg["content"] if system_msg else "<NO SYSTEM PROMPT FOUND>"
-        elif result and hasattr(result, "prompt"):
-            prompt = result.prompt
 
     # Build comprehensive metadata
     # Extract base test case ID without variant suffix (e.g., "91a_datadog[0]" -> "91a_datadog")
@@ -322,9 +311,6 @@ def log_to_braintrust(
             if isinstance(test_case.expected_output, str)
             else str(test_case.expected_output)
         )
-    elif isinstance(test_case, InvestigateTestCase):
-        input_data = str(test_case.investigate_request)
-        expected = str(test_case.expected_output)
     elif test_case.conversation_history:  # compaction test case
         from tests.llm.utils.conversation_formatter import (
             format_conversation_as_markdown,
@@ -359,9 +345,6 @@ def get_braintrust_url(
     """Generate Braintrust URL for a test.
 
     Args:
-        test_suite: Either "ask_holmes" or "investigate"
-        test_id: Test ID like "01"
-        test_name: Test name like "how_many_pods"
         span_id: Optional span ID for direct linking
         root_span_id: Optional root span ID for direct linking
 

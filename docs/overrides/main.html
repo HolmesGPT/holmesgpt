@@ -1,9 +1,8 @@
 {% extends "base.html" %}
 
-{% block announce %}
-<div class="md-banner">
-  <div class="md-banner__inner">
-    📅 <a href="https://docs.google.com/document/d/1q3L2iUd8tNu-NmZ6QIVOJcCLHrile9CC5QguOGTn_tg/edit?tab=t.0#heading=h.ihdnrt5bstrv">Join our next community meetup!</a>
-  </div>
-</div>
+{% block outdated %}
+  You're viewing docs for a <strong>previous version</strong>.
+  <a href="{{ '../' ~ base_url }}">
+    <strong>Switch to the latest stable release.</strong>
+  </a>
 {% endblock %}
