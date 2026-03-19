@@ -1790,6 +1790,77 @@ class TestStdio:
         # Verify the tools loaded in the toolset match what we got from list_tools
         assert len(toolset.tools) == len(list_result.tools)
 
+    def test_everything_stdio_image_passthrough(self, suppress_migration_warnings):
+        """Test full MCP image passthrough: real server returns image → StructuredToolResult.images populated.
+
+        This validates the core fix for eval 233 (MCP Confluence image attachment):
+        MCP ImageContent blocks are extracted and passed through to the LLM.
+        """
+        import os
+
+        server_path = os.path.join(os.path.dirname(__file__), "stdio_server.py")
+        yaml_config = {
+            "mode": "stdio",
+            "command": "python",
+            "args": [server_path],
+        }
+
+        toolset = RemoteMCPToolset(
+            name="everything_stdio",
+            description="MCP Example stdio server (Python FastMCP server)",
+            config=yaml_config,
+        )
+
+        result = toolset.prerequisites_callable(config=yaml_config)
+        assert result[0] is True, f"Failed to initialize MCP server: {result[1]}"
+
+        # Find the get_test_image tool
+        image_tool = None
+        for tool in toolset.tools:
+            if tool.name == "get_test_image":
+                image_tool = tool
+                break
+        assert image_tool is not None, (
+            f"get_test_image tool not found. Available: {[t.name for t in toolset.tools]}"
+        )
+
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="test-img-id",
+            tool_name="get_test_image",
+            request_context=None,
+        )
+
+        invoke_result = image_tool._invoke({}, context)
+
+        # Core assertion: images are extracted from MCP response
+        assert invoke_result.status == StructuredToolResultStatus.SUCCESS
+        assert invoke_result.images is not None, "images should not be None for MCP ImageContent"
+        assert len(invoke_result.images) == 1
+        assert invoke_result.images[0]["mimeType"] == "image/png"
+        assert len(invoke_result.images[0]["data"]) > 0  # base64 data present
+
+        # Verify the full pipeline: format_tool_result_data produces multimodal content
+        from holmes.core.models import format_tool_result_data
+
+        content = format_tool_result_data(invoke_result, "test-img-id", "get_test_image")
+        assert isinstance(content, list), "Should return multimodal content list when images present"
+        assert content[0]["type"] == "text"
+        assert content[1]["type"] == "image_url"
+        assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+        # Verify truncation preserves images
+        from holmes.core.conversations import truncate_tool_messages
+
+        msg = {"role": "tool", "content": content}
+        truncate_tool_messages([msg], 50)
+        # Image block must survive truncation
+        image_blocks = [b for b in msg["content"] if b.get("type") == "image_url"]
+        assert len(image_blocks) == 1
+
 
 class TestHeaderRendering:
     def test_render_headers_with_static_headers_only(self):
