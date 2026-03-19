@@ -1,0 +1,15 @@
+toolsets:
+  streaming-analytics:
+    type: mcp
+    enabled: true
+    description: "Streaming analytics platform for real-time video delivery monitoring"
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/234_mcp_additional_properties/mcp_cdn_server.py"]
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
