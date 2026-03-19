@@ -115,12 +115,36 @@ class Config(RobustaBaseConfig):
     @property
     def toolset_manager(self) -> ToolsetManager:
         if not self._toolset_manager:
+            # Resolve the fast_model alias through the registry so that custom aliases
+            # (e.g. from MODEL_LIST_FILE_LOCATION) are translated to their real provider-
+            # qualified names and their api_base/api_version/api_key are propagated correctly.
+            resolved_fast_model = self.fast_model
+            fast_model_api_base = None
+            fast_model_api_version = None
+            fast_model_api_key = None
+            if self.fast_model:
+                entry = self.llm_model_registry.models.get(self.fast_model)
+                if entry:
+                    resolved_fast_model = entry.model
+                    fast_model_api_base = entry.api_base or entry.base_url
+                    fast_model_api_version = entry.api_version
+                    if entry.api_key is not None:
+                        fast_model_api_key = entry.api_key  # keep as SecretStr; never unwrap to plaintext
+                # Fall back to config-level api_base/api_version when not in registry entry.
+                # There is no config-level fast-model api_key fallback — the registry entry
+                # is the authoritative source for per-model credentials.
+                fast_model_api_base = fast_model_api_base or self.api_base
+                fast_model_api_version = fast_model_api_version or self.api_version
+
             self._toolset_manager = ToolsetManager(
                 toolsets=self.toolsets,
                 mcp_servers=self.mcp_servers,
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
-                global_fast_model=self.fast_model,
+                global_fast_model=resolved_fast_model,
+                global_fast_model_api_base=fast_model_api_base,
+                global_fast_model_api_version=fast_model_api_version,
+                global_fast_model_api_key=fast_model_api_key,
                 custom_runbook_catalogs=self.custom_runbook_catalogs,
                 config_file_path=self._config_file_path,
                 additional_toolsets=self.additional_toolsets,

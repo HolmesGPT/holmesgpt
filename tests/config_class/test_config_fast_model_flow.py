@@ -10,8 +10,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import yaml
+from pydantic import SecretStr
 
 from holmes.config import Config
+from holmes.core.llm import ModelEntry
 
 
 class TestConfigFastModelFlow:
@@ -129,3 +131,37 @@ class TestConfigFastModelFlow:
         toolset_manager2 = config.toolset_manager
         assert toolset_manager2 is toolset_manager1
         assert toolset_manager2.global_fast_model == "gpt-4o-mini"
+
+    def test_fast_model_alias_resolved_through_registry(self):
+        """Test that a fast_model alias present in the registry is resolved to its real
+        model name, api_base, api_version, and api_key before being passed to ToolsetManager."""
+        fake_registry_entry = ModelEntry(
+            model="openai/my-real-model",
+            name="my-custom-alias",
+            api_base="https://my-proxy.example.com/v1",
+            api_version="2025-01-01",
+            api_key=SecretStr("registry-secret-key"),
+        )
+
+        config = Config(fast_model="my-custom-alias")
+
+        # Patch the registry so the alias is found
+        with patch.object(
+            type(config),
+            "llm_model_registry",
+            new_callable=lambda: property(
+                lambda _self: type(
+                    "FakeRegistry",
+                    (),
+                    {"models": {"my-custom-alias": fake_registry_entry}},
+                )()
+            ),
+        ):
+            toolset_manager = config.toolset_manager
+
+        # The alias should have been resolved to the real model name
+        assert toolset_manager.global_fast_model == "openai/my-real-model"
+        # Connection params from registry entry should all be propagated
+        assert toolset_manager.global_fast_model_api_base == "https://my-proxy.example.com/v1"
+        assert toolset_manager.global_fast_model_api_version == "2025-01-01"
+        assert toolset_manager.global_fast_model_api_key.get_secret_value() == "registry-secret-key"

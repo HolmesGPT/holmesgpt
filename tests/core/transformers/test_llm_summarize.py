@@ -5,7 +5,7 @@ Unit tests for LLMSummarizeTransformer.
 from unittest.mock import Mock, patch
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from holmes.core.tools import ToolInvokeContext
 from holmes.core.transformers.base import TransformerError
@@ -57,7 +57,9 @@ class TestLLMSummarizeTransformer:
         assert transformer.fast_model == "gpt-4o-mini"
         assert transformer.api_key == "test-key"
         assert transformer._fast_llm is mock_llm_instance
-        mock_default_llm.assert_called_once_with("gpt-4o-mini", "test-key")
+        mock_default_llm.assert_called_once_with(
+            model="gpt-4o-mini", api_key="test-key", api_base=None, api_version=None
+        )
 
     @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
     def test_init_with_fast_model_no_api_key(self, mock_default_llm):
@@ -68,7 +70,9 @@ class TestLLMSummarizeTransformer:
         transformer = LLMSummarizeTransformer(fast_model="gpt-4o-mini")
 
         assert transformer._fast_llm is mock_llm_instance
-        mock_default_llm.assert_called_once_with("gpt-4o-mini", None)
+        mock_default_llm.assert_called_once_with(
+            model="gpt-4o-mini", api_key=None, api_base=None, api_version=None
+        )
 
     @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
     def test_init_fast_model_creation_failure(self, mock_default_llm):
@@ -78,7 +82,102 @@ class TestLLMSummarizeTransformer:
         transformer = LLMSummarizeTransformer(fast_model="invalid-model")
 
         assert transformer._fast_llm is None
-        mock_default_llm.assert_called_once_with("invalid-model", None)
+        mock_default_llm.assert_called_once_with(
+            model="invalid-model", api_key=None, api_base=None, api_version=None
+        )
+
+    def test_global_fast_model_api_key_is_secret_str(self):
+        """Test that global_fast_model_api_key is stored as SecretStr so it redacts itself in logs."""
+        transformer = LLMSummarizeTransformer(
+            global_fast_model_api_key="super-secret",
+        )
+
+        assert isinstance(transformer.global_fast_model_api_key, SecretStr)
+        # Must not expose raw key in repr/str (the guarantee that prevents log leaks)
+        assert "super-secret" not in repr(transformer.global_fast_model_api_key)
+        assert "super-secret" not in str(transformer.global_fast_model_api_key)
+        # But the real value must still be retrievable at point of use
+        assert transformer.global_fast_model_api_key.get_secret_value() == "super-secret"
+
+    @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
+    def test_init_with_fast_model_and_api_base(self, mock_default_llm):
+        """Test that api_base and api_version are forwarded for tool-specific fast_model."""
+        mock_llm_instance = self.create_mock_llm()
+        mock_default_llm.return_value = mock_llm_instance
+
+        transformer = LLMSummarizeTransformer(
+            fast_model="azure/gpt-4o-mini",
+            api_key="my-key",
+            api_base="https://my-proxy.example.com",
+            api_version="2024-02-01",
+        )
+
+        assert transformer._fast_llm is mock_llm_instance
+        mock_default_llm.assert_called_once_with(
+            model="azure/gpt-4o-mini",
+            api_key="my-key",
+            api_base="https://my-proxy.example.com",
+            api_version="2024-02-01",
+        )
+
+    @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
+    def test_init_with_global_fast_model_and_injected_api_base(self, mock_default_llm):
+        """Test that global_fast_model_api_base/api_version are used when only global_fast_model is set."""
+        mock_llm_instance = self.create_mock_llm()
+        mock_default_llm.return_value = mock_llm_instance
+
+        transformer = LLMSummarizeTransformer(
+            global_fast_model="openai/my-real-model",
+            global_fast_model_api_base="https://registry-resolved.example.com",
+            global_fast_model_api_version="2025-01-01",
+        )
+
+        assert transformer._fast_llm is mock_llm_instance
+        mock_default_llm.assert_called_once_with(
+            model="openai/my-real-model",
+            api_key=None,
+            api_base="https://registry-resolved.example.com",
+            api_version="2025-01-01",
+        )
+
+    @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
+    def test_init_with_global_fast_model_and_injected_api_key(self, mock_default_llm):
+        """Test that global_fast_model_api_key is used when no transformer-level api_key is set."""
+        mock_llm_instance = self.create_mock_llm()
+        mock_default_llm.return_value = mock_llm_instance
+
+        transformer = LLMSummarizeTransformer(
+            global_fast_model="openai/my-real-model",
+            global_fast_model_api_key="registry-secret-key",
+        )
+
+        assert transformer._fast_llm is mock_llm_instance
+        mock_default_llm.assert_called_once_with(
+            model="openai/my-real-model",
+            api_key="registry-secret-key",
+            api_base=None,
+            api_version=None,
+        )
+
+    @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
+    def test_transformer_api_key_overrides_global_fast_model_api_key(self, mock_default_llm):
+        """Test that an explicit transformer-level api_key takes precedence over the injected registry key."""
+        mock_llm_instance = self.create_mock_llm()
+        mock_default_llm.return_value = mock_llm_instance
+
+        transformer = LLMSummarizeTransformer(
+            global_fast_model="openai/my-real-model",
+            api_key="explicit-transformer-key",
+            global_fast_model_api_key="registry-secret-key",
+        )
+
+        assert transformer._fast_llm is mock_llm_instance
+        mock_default_llm.assert_called_once_with(
+            model="openai/my-real-model",
+            api_key="explicit-transformer-key",
+            api_base=None,
+            api_version=None,
+        )
 
     def test_name_property(self):
         """Test transformer name property."""
@@ -430,7 +529,7 @@ service/database-service            ClusterIP   10.0.1.101   <none>        5432/
         mock_llm1 = self.create_mock_llm("Summary 1")
         mock_llm2 = self.create_mock_llm("Summary 2")
 
-        def mock_llm_side_effect(model, api_key):
+        def mock_llm_side_effect(model=None, _api_key=None, **_kwargs):
             if model == "gpt-4o-mini":
                 return mock_llm1
             elif model == "gpt-3.5-turbo":

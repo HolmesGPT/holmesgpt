@@ -5,7 +5,7 @@ LLM Summarize Transformer for fast model summarization of large tool outputs.
 import logging
 from typing import ClassVar, Optional
 
-from pydantic import Field, PrivateAttr, StrictStr
+from pydantic import Field, PrivateAttr, SecretStr, StrictStr
 
 from ..llm import LLM, DefaultLLM
 from .base import BaseTransformer, TransformerError
@@ -59,6 +59,26 @@ class LLMSummarizeTransformer(BaseTransformer):
         default=None,
         description="API key for the fast model (optional, uses default if not provided)",
     )
+    api_base: Optional[str] = Field(
+        default=None,
+        description="API base URL for the tool-specific fast model",
+    )
+    api_version: Optional[str] = Field(
+        default=None,
+        description="API version for the tool-specific fast model",
+    )
+    global_fast_model_api_base: Optional[str] = Field(
+        default=None,
+        description="Injected api_base for the global fast model",
+    )
+    global_fast_model_api_version: Optional[str] = Field(
+        default=None,
+        description="Injected api_version for the global fast model",
+    )
+    global_fast_model_api_key: Optional[SecretStr] = Field(
+        default=None,
+        description="Injected api_key for the global fast model (from registry entry)",
+    )
 
     # Private attribute for the LLM instance (not serialized)
     _fast_llm: Optional[LLM] = PrivateAttr(default=None)
@@ -69,27 +89,46 @@ class LLMSummarizeTransformer(BaseTransformer):
 
         self._fast_llm = None
 
-        # Determine which fast model to use: fast_model takes precedence over global_fast_model
-        effective_fast_model = self.fast_model or self.global_fast_model
-
         logger.debug(
-            f"LLMSummarizeTransformer initialization: fast_model='{self.fast_model}', global_fast_model='{self.global_fast_model}', effective='{effective_fast_model}'"
+            f"LLMSummarizeTransformer initialization: fast_model='{self.fast_model}', global_fast_model='{self.global_fast_model}'"
         )
 
-        # Create fast LLM instance if a fast model is available
-        if effective_fast_model:
-            try:
-                self._fast_llm = DefaultLLM(effective_fast_model, self.api_key)
-                logger.info(
-                    f"Created fast LLM instance with model: {effective_fast_model}"
+        # Create fast LLM instance: fast_model (tool-specific) takes precedence over global_fast_model
+        try:
+            if self.fast_model:
+                # Tool-specific: use tool-level connection params
+                self._fast_llm = DefaultLLM(
+                    model=self.fast_model,
+                    api_key=self.api_key,
+                    api_base=self.api_base,
+                    api_version=self.api_version,
                 )
-            except Exception as e:
-                logger.warning(f"Failed to create fast LLM instance: {e}")
-                self._fast_llm = None
-        else:
-            logger.debug(
-                "No fast model configured (neither fast_model nor global_fast_model)"
-            )
+                logger.info(f"Created fast LLM instance with model: {self.fast_model}")
+            elif self.global_fast_model:
+                # Global: use registry-resolved params injected from Config.
+                # self.api_key (explicitly set in YAML) takes precedence over the
+                # registry-resolved key so per-transformer overrides still work.
+                registry_api_key = (
+                    self.global_fast_model_api_key.get_secret_value()
+                    if self.global_fast_model_api_key
+                    else None
+                )
+                self._fast_llm = DefaultLLM(
+                    model=self.global_fast_model,
+                    api_key=self.api_key or registry_api_key,
+                    api_base=self.global_fast_model_api_base,
+                    api_version=self.global_fast_model_api_version,
+                )
+                logger.info(
+                    f"Created fast LLM instance with global model: {self.global_fast_model}"
+                )
+            else:
+                logger.debug(
+                    "No fast model configured (neither fast_model nor global_fast_model)"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to create fast LLM instance: {e}")
+            self._fast_llm = None
 
     def should_apply(self, input_text: str) -> bool:
         """

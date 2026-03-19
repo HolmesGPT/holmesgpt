@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from benedict import benedict
-from pydantic import FilePath
+from pydantic import FilePath, SecretStr
 
 from holmes.core.config import config_path_dir
 from holmes.core.supabase_dal import SupabaseDal
@@ -56,6 +56,9 @@ class ToolsetManager:
         custom_toolsets_from_cli: Optional[List[FilePath]] = None,
         toolset_status_location: Optional[FilePath] = None,
         global_fast_model: Optional[str] = None,
+        global_fast_model_api_base: Optional[str] = None,
+        global_fast_model_api_version: Optional[str] = None,
+        global_fast_model_api_key: Optional[SecretStr] = None,
         custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
         config_file_path: Optional[Path] = None,
         additional_toolsets: Optional[List[Toolset]] = None,
@@ -70,6 +73,9 @@ class ToolsetManager:
         self.toolsets.update(mcp_servers or {})
         self.custom_toolsets = custom_toolsets
         self.global_fast_model = global_fast_model
+        self.global_fast_model_api_base = global_fast_model_api_base
+        self.global_fast_model_api_version = global_fast_model_api_version
+        self.global_fast_model_api_key = global_fast_model_api_key
         self.config_file_path = config_file_path
 
         if toolset_status_location is None:
@@ -602,6 +608,15 @@ class ToolsetManager:
                 existing_toolsets_by_name[new_toolset.name] = new_toolset
                 existing_toolsets_by_name[new_toolset.name] = new_toolset
 
+    def _build_global_fast_model_overrides(self) -> dict:
+        """Return the config overrides to inject into llm_summarize transformers."""
+        return {
+            "global_fast_model": self.global_fast_model,
+            "global_fast_model_api_base": self.global_fast_model_api_base,
+            "global_fast_model_api_version": self.global_fast_model_api_version,
+            "global_fast_model_api_key": self.global_fast_model_api_key,
+        }
+
     def _inject_fast_model_into_transformers(self, toolsets: List[Toolset]) -> None:
         """
         Inject global fast_model setting into all llm_summarize transformers that don't already have fast_model.
@@ -646,7 +661,7 @@ class ToolsetManager:
                         transformer.name == "llm_summarize"
                         and "fast_model" not in transformer.config
                     ):
-                        transformer.config["global_fast_model"] = self.global_fast_model
+                        transformer.config.update(self._build_global_fast_model_overrides())
                         injected_count += 1
                         toolset_injected += 1
                         logger.info(
@@ -681,9 +696,7 @@ class ToolsetManager:
                                 transformer.name == "llm_summarize"
                                 and "fast_model" not in transformer.config
                             ):
-                                transformer.config["global_fast_model"] = (
-                                    self.global_fast_model
-                                )
+                                transformer.config.update(self._build_global_fast_model_overrides())
                                 injected_count += 1
                                 toolset_injected += 1
                                 tool_updated = True
