@@ -19,6 +19,7 @@ class StreamEvents(str, Enum):
     ERROR = "error"
     AI_MESSAGE = "ai_message"
     APPROVAL_REQUIRED = "approval_required"
+    FRONTEND_TOOL_CALL = "frontend_tool_call"
     TOKEN_COUNT = "token_count"
     CONVERSATION_HISTORY_COMPACTION_START = "conversation_history_compaction_start"
     CONVERSATION_HISTORY_COMPACTED = "conversation_history_compacted"
@@ -93,6 +94,18 @@ def stream_chat_formatter(
 
                 yield create_sse_message(
                     StreamEvents.APPROVAL_REQUIRED.value, response_data
+                )
+            elif message.event == StreamEvents.FRONTEND_TOOL_CALL:
+                response_data = {
+                    "conversation_history": message.data.get("messages"),
+                    "follow_up_actions": followups,
+                    "pending_frontend_tool_calls": message.data.get(
+                        "pending_frontend_tool_calls", []
+                    ),
+                }
+
+                yield create_sse_message(
+                    StreamEvents.FRONTEND_TOOL_CALL.value, response_data
                 )
             else:
                 yield create_sse_message(message.event.value, message.data)

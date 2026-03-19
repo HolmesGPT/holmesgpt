@@ -381,12 +381,32 @@ def chat(chat_request: ChatRequest, http_request: Request):
             prompt_component_overrides=prompt_component_overrides,
         )
 
+        # Convert frontend tool definitions to OpenAI format and collect their names
+        frontend_tool_names: set[str] = set()
+        frontend_tool_definitions: list[dict] = []
+        if chat_request.frontend_tools:
+            for ft in chat_request.frontend_tools:
+                frontend_tool_names.add(ft.name)
+                tool_def: dict = {
+                    "type": "function",
+                    "function": {
+                        "name": ft.name,
+                        "description": ft.description,
+                    },
+                }
+                if ft.parameters:
+                    tool_def["function"]["parameters"] = ft.parameters
+                frontend_tool_definitions.append(tool_def)
+
         if chat_request.stream:
             stream = stream_chat_formatter(
                 ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
                     tool_decisions=chat_request.tool_decisions,
+                    frontend_tool_names=frontend_tool_names if frontend_tool_names else None,
+                    frontend_tool_definitions=frontend_tool_definitions if frontend_tool_definitions else None,
+                    frontend_tool_results=chat_request.frontend_tool_results,
                     response_format=chat_request.response_format,
                     request_context=request_context,
                 ),

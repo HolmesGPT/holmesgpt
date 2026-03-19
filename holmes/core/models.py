@@ -85,6 +85,37 @@ class ToolApprovalDecision(BaseModel):
     feedback: Optional[str] = None  # User feedback when denying a tool call
 
 
+class FrontendToolDefinition(BaseModel):
+    """A tool defined by the frontend client for the LLM to call.
+
+    When the LLM invokes one of these tools, Holmes pauses the stream
+    and asks the client to execute it, returning results in the next request.
+    """
+
+    name: str
+    description: str
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="JSON Schema object describing the tool's parameters (OpenAI function calling format)",
+    )
+
+
+class FrontendToolResult(BaseModel):
+    """Result of a frontend-executed tool, sent by the client to resume the stream."""
+
+    tool_call_id: str
+    tool_name: str
+    result: str
+
+
+class PendingFrontendToolCall(BaseModel):
+    """A frontend tool call that the LLM requested, awaiting client execution."""
+
+    tool_call_id: str
+    tool_name: str
+    arguments: Dict[str, Any]
+
+
 class ChatRequestBaseModel(BaseModel):
     conversation_history: Optional[list[dict]] = None
     model: Optional[str] = None
@@ -93,6 +124,14 @@ class ChatRequestBaseModel(BaseModel):
         False  # Optional boolean for backwards compatibility
     )
     tool_decisions: Optional[List[ToolApprovalDecision]] = None
+    frontend_tools: Optional[List[FrontendToolDefinition]] = Field(
+        default=None,
+        description="Tools defined by the frontend client. When the LLM calls one, Holmes pauses and asks the client to execute it.",
+    )
+    frontend_tool_results: Optional[List[FrontendToolResult]] = Field(
+        default=None,
+        description="Results from frontend-executed tools, sent to resume a paused stream.",
+    )
     additional_system_prompt: Optional[str] = None
     trace_span: Optional[Any] = (
         None  # Optional span for tracing and heartbeat callbacks
