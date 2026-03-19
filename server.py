@@ -385,7 +385,20 @@ def chat(chat_request: ChatRequest, http_request: Request):
         frontend_tool_names: set[str] = set()
         frontend_tool_definitions: list[dict] = []
         if chat_request.frontend_tools:
+            if not chat_request.stream:
+                raise HTTPException(
+                    status_code=400,
+                    detail="frontend_tools requires stream=true (the pause/resume flow needs SSE)",
+                )
+
+            # Validate no name collisions with backend tools
+            backend_tool_names = set(ai.tool_executor.tools_by_name.keys())
             for ft in chat_request.frontend_tools:
+                if ft.name in backend_tool_names:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Frontend tool name '{ft.name}' conflicts with a built-in Holmes tool. Use a different name.",
+                    )
                 frontend_tool_names.add(ft.name)
                 tool_def: dict = {
                     "type": "function",

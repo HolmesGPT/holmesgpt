@@ -323,6 +323,7 @@ class ToolCallingLLM:
             return messages, events
 
         results_by_id = {r.tool_call_id: r for r in frontend_tool_results}
+        matched_ids: set[str] = set()
 
         # Find pending frontend tool calls in messages (reverse to insert correctly)
         for i in reversed(range(len(messages))):
@@ -332,7 +333,10 @@ class ToolCallingLLM:
                     if not tool_call.get("pending_frontend"):
                         continue
 
-                    result = results_by_id.get(tool_call.get("id"))
+                    tool_call_id = tool_call.get("id")
+                    result = results_by_id.get(tool_call_id)
+                    if tool_call_id:
+                        matched_ids.add(tool_call_id)
                     if not result:
                         logging.warning(
                             f"No frontend result for pending tool call {tool_call.get('id')}"
@@ -374,6 +378,13 @@ class ToolCallingLLM:
                             data=tool_result.to_client_dict(),
                         )
                     )
+
+        # Warn about results that didn't match any pending frontend tool call
+        unmatched = set(results_by_id.keys()) - matched_ids
+        if unmatched:
+            logging.warning(
+                f"Frontend tool results provided for unknown tool_call_ids (ignored): {unmatched}"
+            )
 
         return messages, events
 
@@ -422,6 +433,8 @@ class ToolCallingLLM:
             tool_decisions = None
             terminal_data = None
             terminal_event = None
+            has_pending_approvals = False
+            has_pending_frontend = False
             start_tool_count = 0
             saw_tool_results = False
 
@@ -453,10 +466,16 @@ class ToolCallingLLM:
                         logging.info(
                             f"[bold {AI_COLOR}]AI:[/bold {AI_COLOR}] {content}"
                         )
-                elif event.event in (StreamEvents.ANSWER_END, StreamEvents.APPROVAL_REQUIRED, StreamEvents.FRONTEND_TOOL_CALL):
+                elif event.event == StreamEvents.ANSWER_END:
                     terminal_data = event.data
                     terminal_event = event.event
                     break
+                elif event.event == StreamEvents.APPROVAL_REQUIRED:
+                    terminal_data = event.data
+                    has_pending_approvals = True
+                elif event.event == StreamEvents.FRONTEND_TOOL_CALL:
+                    terminal_data = event.data
+                    has_pending_frontend = True
 
             if not terminal_data:
                 raise Exception("Stream ended without a terminal event")
@@ -466,16 +485,8 @@ class ToolCallingLLM:
             total_num_llm_calls = terminal_data.get("num_llm_calls", 0)
             accumulated_stats += RequestStats(**terminal_data.get("costs", {}))
 
-            if terminal_event == StreamEvents.APPROVAL_REQUIRED:
-                messages = terminal_data["messages"]
-                tool_decisions = self._prompt_for_approval_decisions(
-                    terminal_data["pending_approvals"],
-                    approval_callback,
-                )
-                continue
-
-            if terminal_event == StreamEvents.FRONTEND_TOOL_CALL:
-                # In synchronous mode (CLI), frontend tools can't be executed.
+            if has_pending_frontend:
+                # In synchronous mode, frontend tools can't be executed.
                 # Log a warning and return what we have so far.
                 logging.warning(
                     "Frontend tool calls requested but no frontend available in sync mode. "
@@ -489,6 +500,14 @@ class ToolCallingLLM:
                     metadata=terminal_data.get("metadata"),
                     **accumulated_stats.model_dump(),
                 )
+
+            if has_pending_approvals:
+                messages = terminal_data["messages"]
+                tool_decisions = self._prompt_for_approval_decisions(
+                    terminal_data["pending_approvals"],
+                    approval_callback,
+                )
+                continue
 
             # ANSWER_END — deduplicate tool calls keeping last per ID
             deduped: dict[str, dict] = {}
@@ -1016,6 +1035,14 @@ class ToolCallingLLM:
                             arguments=tool_params,
                         )
                     )
+                    # Track for repeated-call prevention
+                    frontend_call_dict = {
+                        "tool_call_id": t.id,
+                        "tool_name": t.function.name,
+                        "name": t.function.name,
+                    }
+                    tool_calls.append(frontend_call_dict)
+                    all_tool_calls.append(frontend_call_dict)
                     yield StreamMessage(
                         event=StreamEvents.START_TOOL,
                         data={"tool_name": t.function.name, "id": t.id, "frontend": True},
@@ -1102,51 +1129,52 @@ class ToolCallingLLM:
                 # Emit updated token counts after tool results
                 yield self._emit_token_count(messages, tools, full_response, limit_result, metadata, stats)
 
-                # If we have approval required tools, end the stream with pending approvals
-                if pending_approvals:
-                    # Mark pending tool calls in assistant messages
-                    for approval in pending_approvals:
-                        tool_call = self.find_assistant_tool_call_request(
-                            tool_call_id=approval.tool_call_id, messages=messages
-                        )
-                        tool_call["pending_approval"] = True
-
-                    # End stream with approvals required
-                    yield StreamMessage(
-                        event=StreamEvents.APPROVAL_REQUIRED,
-                        data={
-                            "content": None,
-                            "messages": messages,
-                            "pending_approvals": [
-                                approval.model_dump() for approval in pending_approvals
-                            ],
-                            "requires_approval": True,
-                            "num_llm_calls": i,
-                            "costs": stats.model_dump(),
-                        },
-                    )
-                    return
-
-                # If we have frontend tool calls, pause for client execution
+                # Mark any pending frontend tool calls in assistant messages
                 if pending_frontend_calls:
-                    # Mark pending frontend tool calls in assistant messages
                     for fc in pending_frontend_calls:
                         tool_call = self.find_assistant_tool_call_request(
                             tool_call_id=fc.tool_call_id, messages=messages
                         )
                         tool_call["pending_frontend"] = True
 
-                    yield StreamMessage(
-                        event=StreamEvents.FRONTEND_TOOL_CALL,
-                        data={
-                            "messages": messages,
-                            "pending_frontend_tool_calls": [
-                                fc.model_dump() for fc in pending_frontend_calls
-                            ],
-                            "num_llm_calls": i,
-                            "costs": stats.model_dump(),
-                        },
-                    )
+                # Mark any pending approval tool calls in assistant messages
+                if pending_approvals:
+                    for approval in pending_approvals:
+                        tool_call = self.find_assistant_tool_call_request(
+                            tool_call_id=approval.tool_call_id, messages=messages
+                        )
+                        tool_call["pending_approval"] = True
+
+                # If either type of pause is needed, emit appropriate event(s) and return.
+                # When both are pending, emit both events so the client can handle them
+                # in parallel (approve tools + execute frontend tools), then resume once.
+                if pending_approvals or pending_frontend_calls:
+                    if pending_approvals:
+                        yield StreamMessage(
+                            event=StreamEvents.APPROVAL_REQUIRED,
+                            data={
+                                "content": None,
+                                "messages": messages,
+                                "pending_approvals": [
+                                    approval.model_dump() for approval in pending_approvals
+                                ],
+                                "requires_approval": True,
+                                "num_llm_calls": i,
+                                "costs": stats.model_dump(),
+                            },
+                        )
+                    if pending_frontend_calls:
+                        yield StreamMessage(
+                            event=StreamEvents.FRONTEND_TOOL_CALL,
+                            data={
+                                "messages": messages,
+                                "pending_frontend_tool_calls": [
+                                    fc.model_dump() for fc in pending_frontend_calls
+                                ],
+                                "num_llm_calls": i,
+                                "costs": stats.model_dump(),
+                            },
+                        )
                     return
 
                 # Update the tool number offset for the next iteration
