@@ -8,8 +8,8 @@
 #
 # Requirements:
 #   CONFLUENCE_BASE_URL - Atlassian instance URL (e.g. https://robusta-llm-test.atlassian.net)
-#   CONFLUENCE_SA_USER - Service account email
-#   CONFLUENCE_SA_API_KEY - Service account API token
+#   CONFLUENCE_SA_USER / CONFLUENCE_SA_API_KEY - Service account for setup (Bearer auth)
+#   CONFLUENCE_USER / CONFLUENCE_API_KEY - Personal API key for MCP server (basic auth)
 #
 # Reentrancy: This test is fully idempotent. The space, page, and attachment
 # use static names and are created-or-reused on each run. after_test is a no-op
@@ -35,19 +35,29 @@ before_test: |
   set -e
 
   # Validate required environment variables
+  # Setup uses SA creds (Bearer auth on API gateway) to create test data
+  # MCP server uses personal creds (basic auth) at runtime — see toolsets.yaml
   [ -n "${CONFLUENCE_BASE_URL:-}" ] || { echo "Missing env var: CONFLUENCE_BASE_URL"; exit 1; }
   [ -n "${CONFLUENCE_SA_USER:-}" ] || { echo "Missing env var: CONFLUENCE_SA_USER"; exit 1; }
   [ -n "${CONFLUENCE_SA_API_KEY:-}" ] || { echo "Missing env var: CONFLUENCE_SA_API_KEY"; exit 1; }
+  [ -n "${CONFLUENCE_USER:-}" ] || { echo "Missing env var: CONFLUENCE_USER"; exit 1; }
+  [ -n "${CONFLUENCE_API_KEY:-}" ] || { echo "Missing env var: CONFLUENCE_API_KEY"; exit 1; }
 
-  # Use API gateway URL (auto-derived by conftest.py or set explicitly)
-  # Direct instance URL does not work with scoped API tokens
+  # SA token requires the Atlassian Cloud API gateway (auto-derived by conftest.py)
   [ -n "${CONFLUENCE_SA_BASE_URL:-}" ] || { echo "Missing env var: CONFLUENCE_SA_BASE_URL (should be auto-derived by conftest.py)"; exit 1; }
   API_BASE="${CONFLUENCE_SA_BASE_URL}"
 
   SPACE_KEY="HLMS233"
   SPACE_NAME="Holmes Eval 233"
   PAGE_TITLE="Platform Credentials"
-  VERIFICATION_CODE="IMGVERIFY-7Q3X9P"
+
+  # Path to pre-generated verification image (no Pillow dependency needed)
+  # before_test runs with cwd set to the fixture directory
+  IMAGE_PATH="${PWD}/credentials.png"
+  if [ ! -f "$IMAGE_PATH" ]; then
+    echo "Missing fixture image: ${IMAGE_PATH}"
+    exit 1
+  fi
 
   echo "Creating Confluence space ${SPACE_KEY} (idempotent)..."
   RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
@@ -136,37 +146,12 @@ before_test: |
   fi
   echo "Page ID: ${PAGE_ID}"
 
-  echo "Generating image with code: ${VERIFICATION_CODE}"
-  python3 -c "
-  from PIL import Image, ImageDraw, ImageFont
-
-  img = Image.new('RGB', (400, 200), color='white')
-  draw = ImageDraw.Draw(img)
-
-  try:
-      font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 28)
-  except (IOError, OSError):
-      font = ImageFont.load_default()
-
-  draw.text((30, 30), 'Access Code:', fill='black', font=font)
-  draw.text((30, 90), '${VERIFICATION_CODE}', fill='red', font=font)
-  draw.rectangle([20, 20, 380, 180], outline='black', width=3)
-
-  img.save('/tmp/verification_code_233.png')
-  print('Image generated successfully')
-  "
-
-  if [ ! -f /tmp/verification_code_233.png ]; then
-    echo "Failed to generate image"
-    exit 1
-  fi
-
   echo "Uploading image attachment to page ${PAGE_ID} (idempotent)..."
   ATTACH_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
     "${API_BASE}/wiki/rest/api/content/${PAGE_ID}/child/attachment" \
     -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
     -H "X-Atlassian-Token: nocheck" \
-    -F "file=@/tmp/verification_code_233.png;filename=credentials.png" \
+    -F "file=@${IMAGE_PATH};filename=credentials.png" \
     -F "comment=Platform access credentials")
 
   ATTACH_HTTP=$(echo "$ATTACH_RESPONSE" | tail -n1)
@@ -200,7 +185,6 @@ before_test: |
     exit 1
   fi
 
-  rm -f /tmp/verification_code_233.png
   echo "Setup complete"
 
 # No after_test cleanup — intentionally omitted for reentrancy.
