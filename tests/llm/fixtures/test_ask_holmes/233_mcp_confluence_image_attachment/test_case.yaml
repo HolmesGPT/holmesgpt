@@ -8,8 +8,9 @@
 #
 # Requirements:
 #   CONFLUENCE_BASE_URL - Atlassian instance URL (e.g. https://robusta-llm-test.atlassian.net)
-#   CONFLUENCE_SA_USER / CONFLUENCE_SA_API_KEY - Service account for setup (Bearer auth)
-#   CONFLUENCE_USER / CONFLUENCE_API_KEY - Personal API key for MCP server (basic auth)
+#   CONFLUENCE_SA_USER - Service account email
+#   CONFLUENCE_SA_API_KEY - Service account API token
+#   CONFLUENCE_SA_BASE_URL - API gateway URL (auto-derived by conftest.py)
 #
 # Reentrancy: This test is fully idempotent. The space, page, and attachment
 # use static names and are created-or-reused on each run. after_test is a no-op
@@ -35,15 +36,10 @@ before_test: |
   set -e
 
   # Validate required environment variables
-  # Setup uses SA creds (Bearer auth on API gateway) to create test data
-  # MCP server uses personal creds (basic auth) at runtime — see toolsets.yaml
+  # SA creds are used for both setup (Bearer auth) and MCP server (basic auth via API gateway)
   [ -n "${CONFLUENCE_BASE_URL:-}" ] || { echo "Missing env var: CONFLUENCE_BASE_URL"; exit 1; }
   [ -n "${CONFLUENCE_SA_USER:-}" ] || { echo "Missing env var: CONFLUENCE_SA_USER"; exit 1; }
   [ -n "${CONFLUENCE_SA_API_KEY:-}" ] || { echo "Missing env var: CONFLUENCE_SA_API_KEY"; exit 1; }
-  [ -n "${CONFLUENCE_USER:-}" ] || { echo "Missing env var: CONFLUENCE_USER"; exit 1; }
-  [ -n "${CONFLUENCE_API_KEY:-}" ] || { echo "Missing env var: CONFLUENCE_API_KEY"; exit 1; }
-
-  # SA token requires the Atlassian Cloud API gateway (auto-derived by conftest.py)
   [ -n "${CONFLUENCE_SA_BASE_URL:-}" ] || { echo "Missing env var: CONFLUENCE_SA_BASE_URL (should be auto-derived by conftest.py)"; exit 1; }
   API_BASE="${CONFLUENCE_SA_BASE_URL}"
 
