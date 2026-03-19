@@ -51,12 +51,12 @@ user_prompt: |
 include_tool_calls: true
 
 expected_output:
-  - "Must explicitly state that searching for lambda-dashboard-monitoring or clientorg-alpha returned zero results — no matching deployments, pods, or change history entries were found"
-  - "Must discover and mention the seeded CI/CD change BUILD-7X4Q9M (Jenkins 2.426.3-lts update), proving it queried the change history index. This change is unrelated to the alert and should be noted as irrelevant"
-  - "Must recognize the alert is for cluster us-prod-eks, which is different from the current ci-cd cluster where it's investigating"
-  - "Must clearly state that it cannot properly investigate because it's connected to the wrong cluster (ci-cd instead of us-prod-eks)"
-  - "Must NOT provide a root cause analysis, diagnosis, or speculative conclusions about what caused the alert"
-  - "Must recommend connecting to the us-prod-eks cluster to properly investigate the alert"
+  - "Must state that no data was found for lambda-dashboard-monitoring or clientorg-alpha"
+  - "Must mention BUILD-7X4Q9M (Jenkins update), proving it queried the change history"
+  - "Must identify the cluster mismatch: alert is for us-prod-eks but connected to ci-cd"
+  - "Must state it cannot investigate properly from the wrong cluster"
+  - "Must NOT provide a root cause or speculative diagnosis"
+  - "Must recommend connecting to us-prod-eks to investigate"
 
 tags:
   - elasticsearch
