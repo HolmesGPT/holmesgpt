@@ -73,14 +73,15 @@ before_test: |
   INVENTORY_INDEX="app-235-cluster-inventory"
   CHANGES_INDEX="app-235-change-history"
 
-  # Compute relative timestamps so data always looks fresh
-  ALERT_TIME=$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-  T_2H=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-  T_5H=$(date -u -d '5 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-  T_6H=$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-  T_5D=$(date -u -d '5 days ago' +%Y-%m-%dT%H:%M:%SZ)
-  T_7D=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
-  T_45D=$(date -u -d '45 days ago' +%Y-%m-%dT%H:%M:%SZ)
+  # Compute relative timestamps so data always looks fresh (cross-platform: works on macOS + Linux)
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  ALERT_TIME=$(ts "minutes=30")
+  T_2H=$(ts "hours=2")
+  T_5H=$(ts "hours=5")
+  T_6H=$(ts "hours=6")
+  T_5D=$(ts "days=5")
+  T_7D=$(ts "days=7")
+  T_45D=$(ts "days=45")
 
   # Clean up any existing test indices
   echo "⏳ Cleaning up existing test indices..."
@@ -131,7 +132,7 @@ before_test: |
   {"index":{}}
   {"cluster":"ci-cd","namespace":"us-prod-eks","app_name":"","kind":"Namespace","status":"Active","replicas":0,"image":"","last_updated":"${T_45D}"}
   BULK_EOF
-  sed -i 's/^  //' "$BULK_FILE"
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
 
   BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
@@ -184,7 +185,7 @@ before_test: |
   {"index":{}}
   {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","change_type":"config-update","change_id":"BUILD-9TL6V3","version":"v2.2.1","previous_version":"v2.2.1","changed_by":"platform-team","timestamp":"${T_7D}","description":"Updated flux sync interval from 5m to 3m"}
   BULK_EOF
-  sed -i 's/^  //' "$BULK_FILE"
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
 
   BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${CHANGES_INDEX}/_bulk" \
     -H "Content-Type: application/x-ndjson" \
