@@ -1,0 +1,15 @@
+user_prompt:
+  - "What is the current quality index for smart_tv and tablet clients in France? Filter by both device types using a multi-select array filter AND by country code FR. Give me the verification code and all data points with their timestamps."
+
+expected_output:
+  - "Must contain the CORRECT verification code TS-EVAL-8k3m5n (NOT TS-EVAL-WRONG-0z0z0z which indicates malformed filters)"
+  - "Must report smart_tv quality_index values: 87.3, 86.9, 88.1"
+  - "Must report tablet quality_index values: 79.4, 80.2, 78.8"
+  - "Must show timestamps 2026-03-15T21:10:00Z, 2026-03-15T21:11:00Z, 2026-03-15T21:12:00Z"
+  - "Must NOT include mobile, desktop, or US/DE data in the results since they were filtered out"
+  - "There must be NO tool calls with errors, failures, or Error messages in the tool call history. Every tool call must have succeeded. If any tool call returned an error and was retried, the test FAILS."
+
+include_tool_calls: true
+
+tags:
+  - mcp
