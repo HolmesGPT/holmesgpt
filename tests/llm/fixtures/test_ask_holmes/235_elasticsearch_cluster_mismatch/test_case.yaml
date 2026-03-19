@@ -42,7 +42,7 @@ user_prompt: |
         "severity": "critical",
         "slack_channel": "sre-alerts-channel"
       },
-      "startsAt": "2025-01-15T20:24:30Z",
+      "startsAt": "30 minutes ago",
       "status": "firing"
     }
   ]
@@ -72,6 +72,15 @@ before_test: |
 
   INVENTORY_INDEX="app-235-cluster-inventory"
   CHANGES_INDEX="app-235-change-history"
+
+  # Compute relative timestamps so data always looks fresh
+  ALERT_TIME=$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+  T_2H=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+  T_5H=$(date -u -d '5 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+  T_6H=$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+  T_5D=$(date -u -d '5 days ago' +%Y-%m-%dT%H:%M:%SZ)
+  T_7D=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+  T_45D=$(date -u -d '45 days ago' +%Y-%m-%dT%H:%M:%SZ)
 
   # Clean up any existing test indices
   echo "⏳ Cleaning up existing test indices..."
@@ -108,19 +117,19 @@ before_test: |
   sleep 2
 
   BULK_FILE=$(es_temp_file "inventory" "235")
-  cat > "$BULK_FILE" << 'BULK_EOF'
+  cat > "$BULK_FILE" << BULK_EOF
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","kind":"Deployment","status":"Running","replicas":1,"image":"jenkins/jenkins:2.426.3-lts","last_updated":"2025-01-12T09:00:00Z"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","kind":"Deployment","status":"Running","replicas":1,"image":"jenkins/jenkins:2.426.3-lts","last_updated":"${T_6H}"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","kind":"Deployment","status":"Running","replicas":2,"image":"quay.io/argoproj/argocd:v2.9.3","last_updated":"2025-01-12T09:00:00Z"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","kind":"Deployment","status":"Running","replicas":2,"image":"quay.io/argoproj/argocd:v2.9.3","last_updated":"${T_6H}"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","kind":"Deployment","status":"Running","replicas":3,"image":"gitlab/gitlab-runner:v16.7.0","last_updated":"2025-01-13T11:00:00Z"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","kind":"Deployment","status":"Running","replicas":3,"image":"gitlab/gitlab-runner:v16.7.0","last_updated":"${T_2H}"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","kind":"Deployment","status":"Running","replicas":1,"image":"fluxcd/flux:v2.2.1","last_updated":"2025-01-08T16:00:00Z"}
+  {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","kind":"Deployment","status":"Running","replicas":1,"image":"fluxcd/flux:v2.2.1","last_updated":"${T_7D}"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"cd","app_name":"tekton-pipelines","kind":"Deployment","status":"Running","replicas":1,"image":"gcr.io/tekton-releases/pipeline:v0.54.0","last_updated":"2025-01-10T14:30:00Z"}
+  {"cluster":"ci-cd","namespace":"cd","app_name":"tekton-pipelines","kind":"Deployment","status":"Running","replicas":1,"image":"gcr.io/tekton-releases/pipeline:v0.54.0","last_updated":"${T_5D}"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"us-prod-eks","app_name":"","kind":"Namespace","status":"Active","replicas":0,"image":"","last_updated":"2024-12-01T00:00:00Z"}
+  {"cluster":"ci-cd","namespace":"us-prod-eks","app_name":"","kind":"Namespace","status":"Active","replicas":0,"image":"","last_updated":"${T_45D}"}
   BULK_EOF
   sed -i 's/^  //' "$BULK_FILE"
 
@@ -165,15 +174,15 @@ before_test: |
   sleep 2
 
   BULK_FILE=$(es_temp_file "changes" "235")
-  cat > "$BULK_FILE" << 'BULK_EOF'
+  cat > "$BULK_FILE" << BULK_EOF
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","change_type":"deployment","change_id":"BUILD-7X4Q9M","version":"2.426.3-lts","previous_version":"2.426.2-lts","changed_by":"infra-team","timestamp":"2025-01-12T09:00:00Z","description":"Jenkins LTS version bump to 2.426.3"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","change_type":"deployment","change_id":"BUILD-7X4Q9M","version":"2.426.3-lts","previous_version":"2.426.2-lts","changed_by":"infra-team","timestamp":"${T_6H}","description":"Jenkins LTS version bump to 2.426.3"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","change_type":"deployment","change_id":"BUILD-3NR8Y1","version":"v2.9.3","previous_version":"v2.9.2","changed_by":"infra-team","timestamp":"2025-01-12T09:30:00Z","description":"ArgoCD security patch update"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","change_type":"deployment","change_id":"BUILD-3NR8Y1","version":"v2.9.3","previous_version":"v2.9.2","changed_by":"infra-team","timestamp":"${T_5H}","description":"ArgoCD security patch update"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","change_type":"scale","change_id":"BUILD-5PW2K6","version":"v16.7.0","previous_version":"v16.7.0","changed_by":"infra-team","timestamp":"2025-01-13T11:00:00Z","description":"Scaled gitlab-runner from 2 to 3 replicas for faster pipeline throughput"}
+  {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","change_type":"scale","change_id":"BUILD-5PW2K6","version":"v16.7.0","previous_version":"v16.7.0","changed_by":"infra-team","timestamp":"${T_2H}","description":"Scaled gitlab-runner from 2 to 3 replicas for faster pipeline throughput"}
   {"index":{}}
-  {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","change_type":"config-update","change_id":"BUILD-9TL6V3","version":"v2.2.1","previous_version":"v2.2.1","changed_by":"platform-team","timestamp":"2025-01-08T16:00:00Z","description":"Updated flux sync interval from 5m to 3m"}
+  {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","change_type":"config-update","change_id":"BUILD-9TL6V3","version":"v2.2.1","previous_version":"v2.2.1","changed_by":"platform-team","timestamp":"${T_7D}","description":"Updated flux sync interval from 5m to 3m"}
   BULK_EOF
   sed -i 's/^  //' "$BULK_FILE"
 
