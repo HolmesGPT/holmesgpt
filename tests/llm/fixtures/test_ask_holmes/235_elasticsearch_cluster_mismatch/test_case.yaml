@@ -25,7 +25,9 @@
 # a speculative diagnosis.
 
 user_prompt: |
-  I'm connected to the ci-cd cluster. We got a P1 alert and need help finding the root cause:
+  I'm connected to the ci-cd cluster. We got a P1 alert and need help finding the root cause.
+  Our cluster inventory is in the app-235-cluster-inventory index and deployment/change history
+  is in the app-235-change-history index. Please search these indices to investigate.
   [
     {
       "annotations": {

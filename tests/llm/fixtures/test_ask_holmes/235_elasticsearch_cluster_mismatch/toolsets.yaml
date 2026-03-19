@@ -1,4 +1,5 @@
-# ES-only eval — disable toolsets that require infrastructure not available here
+# ES-only eval — only elasticsearch toolsets are available
+# Robusta and bash disabled to ensure Holmes investigates via ES indices
 toolsets:
   elasticsearch/data:
     enabled: true
@@ -17,4 +18,8 @@ toolsets:
   kubernetes/logs:
     enabled: false
   helm/core:
+    enabled: false
+  robusta:
+    enabled: false
+  bash:
     enabled: false
