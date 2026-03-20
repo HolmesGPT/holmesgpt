@@ -1536,3 +1536,165 @@ class TestFrontendToolPauseFlow:
         ft_tc = [tc for tc in tool_calls_in_msg if tc["id"] == "ft_mark"]
         assert len(ft_tc) == 1
         assert ft_tc[0].get("pending_frontend") is True
+
+
+# ---------------------------------------------------------------------------
+# Test: Frontend noop tools (fire-and-forget, no pause)
+# ---------------------------------------------------------------------------
+
+
+def _make_ai_with_noop_tools(make_ai_fn, mock_tool_executor, tool_names=None):
+    """Create a ToolCallingLLM with FrontendNoopTool(s) injected into the executor."""
+    from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool
+    from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+    if tool_names is None:
+        tool_names = [("navigate_to_page", "Navigate user to a page", {
+            "type": "object",
+            "properties": {
+                "page": {"type": "string"},
+            },
+        }, None)]
+
+    noop_tools = [
+        build_frontend_noop_tool(name=name, description=desc, parameters=params, canned_response=resp)
+        for name, desc, params, resp in tool_names
+    ]
+
+    clone = object.__new__(ToolExecutor)
+    mock_toolset = MagicMock()
+    mock_toolset.name = "kubectl"
+    clone.toolsets = [mock_toolset]
+    clone.enabled_toolsets = [mock_toolset]
+    clone.tools_by_name = {}
+    clone._tool_to_toolset = {}
+
+    for nt in noop_tools:
+        clone.tools_by_name[nt.name] = nt
+
+    backend_tools = mock_tool_executor.get_all_tools_openai_format.return_value or []
+    noop_openai = [nt.get_openai_format() for nt in noop_tools]
+    clone.get_all_tools_openai_format = MagicMock(
+        return_value=backend_tools + noop_openai
+    )
+    clone.ensure_toolset_initialized = MagicMock(return_value=None)
+
+    ai = make_ai_fn()
+    ai.tool_executor = clone
+    return ai
+
+
+class TestFrontendNoopToolFlow:
+    """Test noop-mode frontend tools: LLM calls a noop tool, gets canned
+    response immediately, stream continues without pausing."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_does_not_pause(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """When LLM calls a noop tool, stream does NOT emit approval_required
+        and instead continues to ai_answer_end."""
+        noop_call = _make_mock_tool_call(
+            tool_call_id="noop_1", tool_name="navigate_to_page",
+            arguments={"page": "/dashboards/cpu"},
+        )
+        # LLM iteration 1: calls the noop tool
+        resp1 = _make_llm_response(content="Let me navigate you", tool_calls=[noop_call])
+        # LLM iteration 2: final answer after seeing the canned response
+        resp2 = _make_llm_response(content="Done, you're on the CPU dashboard", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Go to CPU dashboard"}],
+            )
+        )
+
+        # Should NOT have APPROVAL_REQUIRED
+        approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        assert len(approval_events) == 0
+
+        # Should have TOOL_RESULT with the canned response
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) == 1
+        assert tool_results[0].data["name"] == "navigate_to_page"
+        result = tool_results[0].data["result"]
+        assert result["status"] == "success"
+        assert "successfully" in result["data"].lower()
+
+        # Should have ANSWER_END
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        assert answer_ends[0].data["content"] == "Done, you're on the CPU dashboard"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_custom_response(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """Noop tool with custom canned_response returns that response."""
+        custom = "Chart rendered at /charts/overview.png"
+        noop_call = _make_mock_tool_call(
+            tool_call_id="noop_custom", tool_name="render_chart_noop",
+            arguments={"chart_type": "line"},
+        )
+        resp1 = _make_llm_response(content="Rendering", tool_calls=[noop_call])
+        resp2 = _make_llm_response(content="Chart is ready", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor, tool_names=[
+            ("render_chart_noop", "Render a chart", {"type": "object", "properties": {"chart_type": {"type": "string"}}}, custom),
+        ])
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Show chart"}],
+            )
+        )
+
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) == 1
+        assert tool_results[0].data["result"]["data"] == custom
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_visible_in_sse_events(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """Client sees start_tool_calling and tool_calling_result for noop tools."""
+        noop_call = _make_mock_tool_call(
+            tool_call_id="noop_vis", tool_name="navigate_to_page",
+            arguments={"page": "/alerts"},
+        )
+        resp1 = _make_llm_response(content="Navigating", tool_calls=[noop_call])
+        resp2 = _make_llm_response(content="Done", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Go to alerts"}],
+            )
+        )
+
+        # start_tool_calling should be emitted
+        start_events = _events_of_type(events, StreamEvents.START_TOOL)
+        assert len(start_events) == 1
+        assert start_events[0].data["tool_name"] == "navigate_to_page"
+        assert start_events[0].data["id"] == "noop_vis"
+
+        # tool_calling_result should be emitted
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) == 1
+        assert tool_results[0].data["tool_call_id"] == "noop_vis"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_included_in_tools_list(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """Noop tool definitions are included in the tools list sent to LLM."""
+        resp = _make_llm_response(content="No tools needed", tool_calls=None)
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "hello"}],
+            )
+        )
+
+        call_kwargs = mock_llm.completion.call_args
+        tools_sent = call_kwargs.kwargs.get("tools") or call_kwargs[1].get("tools")
+        tool_names = [t["function"]["name"] for t in tools_sent]
+        assert "kubectl_get" in tool_names, "Backend tool should be included"
+        assert "navigate_to_page" in tool_names, "Noop tool should be included"

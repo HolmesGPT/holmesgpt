@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -85,11 +86,20 @@ class ToolApprovalDecision(BaseModel):
     feedback: Optional[str] = None  # User feedback when denying a tool call
 
 
+class FrontendToolMode(str, Enum):
+    PAUSE = "pause"
+    NOOP = "noop"
+
+
 class FrontendToolDefinition(BaseModel):
     """A tool defined by the frontend client for the LLM to call.
 
-    When the LLM invokes one of these tools, Holmes pauses the stream
-    and asks the client to execute it, returning results in the next request.
+    mode="pause" (default): Holmes pauses the stream and asks the client to
+    execute the tool, returning results in the next request.
+
+    mode="noop": Holmes returns a canned response immediately and the LLM
+    continues without pausing. The client sees the tool call in SSE events
+    and can execute it as a fire-and-forget side effect.
     """
 
     name: str
@@ -97,6 +107,16 @@ class FrontendToolDefinition(BaseModel):
     parameters: Optional[Dict[str, Any]] = Field(
         default=None,
         description="JSON Schema object describing the tool's parameters (OpenAI function calling format)",
+    )
+    mode: FrontendToolMode = Field(
+        default=FrontendToolMode.PAUSE,
+        description="'pause' (default): stream pauses, client executes and returns results. "
+        "'noop': server returns canned response immediately, client executes as side effect.",
+    )
+    noop_response: Optional[str] = Field(
+        default=None,
+        description="Custom canned response for noop-mode tools. "
+        "Defaults to 'The action was performed successfully in the user's browser.'",
     )
 
 

@@ -309,37 +309,36 @@ This means server-mode integrations (e.g., Keep workflows) do not need a human i
 
 Frontend tools let the client define tools that the LLM can call, but that execute on the **client side** rather than on the Holmes server. This enables use cases like rendering charts, navigating UIs, querying client-local databases, or any action that requires client-side execution.
 
-Frontend tools use a **pause-resume** protocol over SSE:
+Frontend tools have two modes:
 
-1. The client declares tools in `frontend_tools` when sending the request
-2. Holmes registers these tools alongside its built-in tools — the LLM sees and can call them
-3. When the LLM calls a frontend tool, the stream **pauses** with an `approval_required` event containing `pending_frontend_tool_calls`
-4. The client executes the tool locally using the provided `arguments`
-5. The client **resumes** by sending a new request with `frontend_tool_results` and the `conversation_history` from the paused event
-6. Holmes injects the results and continues the LLM loop
+- **`pause`** (default): The stream pauses when the LLM calls the tool. The client executes the tool and resumes by sending results back. The LLM receives real results and continues reasoning with that data.
+- **`noop`**: The server returns a canned response immediately and the LLM continues without pausing. The client sees the tool call in SSE events (`start_tool_calling` + `tool_calling_result`) and can execute it as a fire-and-forget side effect.
 
 **Declaring frontend tools:**
 
 Each tool in the `frontend_tools` array has:
 
-| Field       | Required | Type   | Description                                           |
-|-------------|----------|--------|-------------------------------------------------------|
-| name        | Yes      | string | Tool name (must not conflict with built-in tool names)|
-| description | Yes      | string | Description shown to the LLM                         |
-| parameters  | No       | object | JSON Schema describing the tool's parameters          |
+| Field         | Required | Default | Type   | Description                                           |
+|---------------|----------|---------|--------|-------------------------------------------------------|
+| name          | Yes      |         | string | Tool name (must not conflict with built-in tool names)|
+| description   | Yes      |         | string | Description shown to the LLM                         |
+| parameters    | No       |         | object | JSON Schema describing the tool's parameters          |
+| mode          | No       | pause   | string | `"pause"` or `"noop"`                                |
+| noop_response | No       |         | string | Custom canned response for noop-mode tools            |
 
-**Example request with frontend tools:**
+**Example with both modes:**
 
 ```bash
 curl -X POST http://<HOLMES-URL>/api/chat \
   -H "Content-Type: application/json" \
   -d '{
-    "ask": "Show me a CPU usage chart for the last hour",
+    "ask": "Show me a CPU usage chart and navigate to the dashboards page",
     "stream": true,
     "frontend_tools": [
       {
         "name": "render_chart",
-        "description": "Render a chart in the user interface",
+        "description": "Render a chart in the user interface. Returns chart metadata.",
+        "mode": "pause",
         "parameters": {
           "type": "object",
           "properties": {
@@ -348,12 +347,24 @@ curl -X POST http://<HOLMES-URL>/api/chat \
             "time_range": {"type": "string", "description": "Time range (e.g. 1h, 24h, 7d)"}
           }
         }
+      },
+      {
+        "name": "navigate_to_page",
+        "description": "Navigate the user to a page in the application.",
+        "mode": "noop",
+        "noop_response": "Navigation triggered successfully.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page": {"type": "string", "description": "Page path (e.g. /dashboards, /alerts)"}
+          }
+        }
       }
     ]
   }'
 ```
 
-**Resuming after frontend tool execution:**
+**Pause-mode: resuming after frontend tool execution:**
 
 When the stream pauses, the `approval_required` event contains `pending_frontend_tool_calls` with the tool name, call ID, and arguments. Execute the tool client-side, then resume:
 
@@ -374,9 +385,13 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   }'
 ```
 
+**Noop-mode: no resume needed:**
+
+Noop tools execute instantly on the server with a canned response. The client sees the tool call in `start_tool_calling` and `tool_calling_result` SSE events and can act on them (e.g., navigate to a page), but the LLM continues without waiting.
+
 **Constraints:**
 
-- `frontend_tools` requires `stream: true` (the pause/resume flow needs SSE)
+- Pause-mode tools require `stream: true` (returns HTTP 400 otherwise). Noop-mode tools work with both streaming and non-streaming.
 - Frontend tool names must not conflict with built-in Holmes tool names (returns HTTP 400)
 - `frontend_tool_results.result` must be a string (JSON-encode objects)
 - Both `pending_approvals` and `pending_frontend_tool_calls` can appear in the same `approval_required` event if the LLM calls both types in one iteration
@@ -811,12 +826,12 @@ Emitted when an error occurs during processing.
 [chat resumes]
 ```
 
-### Chat with Frontend Tools
+### Chat with Frontend Pause Tool
 
 ```
 1. ai_message
 2. start_tool_calling (backend tool)
-3. start_tool_calling (frontend tool)
+3. start_tool_calling (frontend pause tool)
 4. tool_calling_result (backend tool)
 5. token_count
 6. approval_required (pending_frontend_tool_calls populated)
@@ -826,6 +841,18 @@ Emitted when an error occurs during processing.
 2. ai_message
 3. token_count
 4. ai_answer_end
+```
+
+### Chat with Frontend Noop Tool
+
+```
+1. ai_message
+2. start_tool_calling (noop tool)
+3. tool_calling_result (noop tool - canned response, no pause)
+4. token_count
+5. ai_message
+6. ai_answer_end
+[Client sees start_tool_calling + tool_calling_result and executes side effect]
 ```
 
 ### Chat with History Compaction
