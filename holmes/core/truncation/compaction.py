@@ -6,7 +6,7 @@ docs/reference/context-management.md
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
@@ -44,6 +44,40 @@ def find_last_user_prompt(conversation_history: list[dict]) -> Optional[dict]:
     return last_user_prompt
 
 
+def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
+    """Strip image blocks from messages before sending to the compaction LLM.
+
+    Images (base64 data URIs) are very large and cannot be summarized by the
+    compaction LLM. Sending them would waste context or cause overflow.
+    We replace image blocks with a text placeholder so the LLM knows images
+    were present.
+    """
+    stripped: list[dict] = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            stripped.append(msg)
+            continue
+        # Multimodal content: keep text blocks, replace image blocks with placeholder
+        new_content: list[dict[str, Any]] = []
+        image_count = 0
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "image_url":
+                image_count += 1
+            else:
+                new_content.append(block)
+        if image_count > 0:
+            new_content.append(
+                {"type": "text", "text": f"[{image_count} image(s) omitted from compaction]"}
+            )
+        new_msg = dict(msg)
+        new_msg["content"] = new_content
+        # Invalidate token count cache since content changed
+        new_msg.pop("token_count", None)
+        stripped.append(new_msg)
+    return stripped
+
+
 def compact_conversation_history(
     original_conversation_history: list[dict], llm: LLM
 ) -> CompactionResult:
@@ -60,6 +94,9 @@ def compact_conversation_history(
     compaction_instructions = load_and_render_prompt(
         prompt="builtin://conversation_history_compaction.jinja2", context={}
     )
+    # Strip images before compaction — they are too large for the compaction
+    # LLM call and cannot be meaningfully summarized as text.
+    conversation_history = _strip_images_for_compaction(conversation_history)
     conversation_history.append({"role": "user", "content": compaction_instructions})
 
     response: ModelResponse = llm.completion(

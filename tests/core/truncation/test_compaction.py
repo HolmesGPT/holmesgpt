@@ -5,14 +5,16 @@ from pathlib import Path
 import pytest
 
 from holmes.core.llm import DefaultLLM
-from holmes.core.truncation.compaction import compact_conversation_history
+from holmes.core.truncation.compaction import (
+    _strip_images_for_compaction,
+    compact_conversation_history,
+)
 
 CONVERSATION_HISTORY_FILE_PATH = (
     Path(__file__).parent / "conversation_history_for_compaction.json"
 )
 
-# Skip tests if Azure credentials are not available
-pytestmark = pytest.mark.skipif(
+_requires_azure = pytest.mark.skipif(
     not all(
         [
             os.environ.get("AZURE_API_BASE"),
@@ -24,6 +26,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@_requires_azure
 def test_conversation_history_compaction_system_prompt_untouched():
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
@@ -53,6 +56,7 @@ def test_conversation_history_compaction_system_prompt_untouched():
         assert "compacted" in compacted_history[3]["content"].lower()
 
 
+@_requires_azure
 def test_conversation_history_compaction():
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
@@ -82,3 +86,68 @@ def test_conversation_history_compaction():
         )
         print(compacted_history[1]["content"])
         assert compacted_tokens.total_tokens < expected_max_compacted_token_count
+
+
+# --- Unit tests for _strip_images_for_compaction (no LLM required) ---
+
+
+def test_strip_images_for_compaction_no_images():
+    """Messages without images pass through unchanged."""
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "tool", "content": "some text result"},
+    ]
+    result = _strip_images_for_compaction(messages)
+    assert result == messages
+
+
+def test_strip_images_for_compaction_replaces_image_blocks():
+    """Image blocks are replaced with a placeholder text block."""
+    messages = [
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "Rendered panel screenshot."},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}},
+            ],
+            "token_count": 500,
+        }
+    ]
+    result = _strip_images_for_compaction(messages)
+    assert len(result) == 1
+    content = result[0]["content"]
+    # Text block preserved
+    assert content[0]["type"] == "text"
+    assert "Rendered panel screenshot." in content[0]["text"]
+    # Image blocks replaced with placeholder
+    assert content[1]["type"] == "text"
+    assert "2 image(s) omitted" in content[1]["text"]
+    # No image_url blocks remain
+    assert not any(b.get("type") == "image_url" for b in content)
+    # Token count cache must be invalidated
+    assert "token_count" not in result[0]
+
+
+def test_strip_images_for_compaction_preserves_non_image_messages():
+    """Non-multimodal messages are preserved alongside stripped ones."""
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Render the dashboard"},
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "Dashboard screenshot"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,CCC"}},
+            ],
+        },
+        {"role": "assistant", "content": "I see a spike in the CPU panel."},
+    ]
+    result = _strip_images_for_compaction(messages)
+    assert len(result) == 4
+    assert result[0]["content"] == "You are helpful."
+    assert result[1]["content"] == "Render the dashboard"
+    # Tool message had images stripped
+    assert result[2]["content"][0]["text"] == "Dashboard screenshot"
+    assert "1 image(s) omitted" in result[2]["content"][1]["text"]
+    assert result[3]["content"] == "I see a spike in the CPU panel."

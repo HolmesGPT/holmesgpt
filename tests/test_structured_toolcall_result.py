@@ -271,8 +271,9 @@ def test_to_client_dict():
     assert response["result"] == expected_dump
 
 
-def test_format_tool_result_data_with_images():
-    """When images are present, format_tool_result_data returns a list of content blocks."""
+def test_format_tool_result_data_with_images_returns_string():
+    """format_tool_result_data always returns a string, even with images.
+    Multimodal assembly (text + image blocks) happens in to_llm_message()."""
     images = [
         {"data": "iVBORw0KGgo=", "mimeType": "image/png"},
         {"data": "/9j/4AAQ==", "mimeType": "image/jpeg"},
@@ -282,27 +283,16 @@ def test_format_tool_result_data_with_images():
         data="some text",
         images=images,
     )
-    tool_call_id = "call_img"
-    tool_name = "img_tool"
-    content = format_tool_result_data(result, tool_call_id, tool_name)
+    content = format_tool_result_data(result, "call_img", "img_tool")
 
-    assert isinstance(content, list)
-    assert len(content) == 3  # 1 text + 2 images
-
-    # First block is text with metadata
-    assert content[0]["type"] == "text"
-    assert "tool_call_metadata" in content[0]["text"]
-    assert "some text" in content[0]["text"]
-
-    # Image blocks use OpenAI vision format with data URIs
-    assert content[1]["type"] == "image_url"
-    assert content[1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgo="
-    assert content[2]["type"] == "image_url"
-    assert content[2]["image_url"]["url"] == "data:image/jpeg;base64,/9j/4AAQ=="
+    # format_tool_result_data is a pure string function — images are handled by to_llm_message
+    assert isinstance(content, str)
+    assert "tool_call_metadata" in content
+    assert "some text" in content
 
 
 def test_format_tool_result_data_without_images_returns_string():
-    """When no images, format_tool_result_data returns a plain string (backward compat)."""
+    """When no images, format_tool_result_data returns a plain string."""
     result = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS, data="text only"
     )
@@ -311,12 +301,13 @@ def test_format_tool_result_data_without_images_returns_string():
 
 
 def test_to_llm_message_with_images():
-    """to_llm_message produces multimodal content when images are present."""
+    """to_llm_message produces multimodal content with embed hint when images are present."""
     images = [{"data": "AAAA", "mimeType": "image/png"}]
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS,
         data="description",
         images=images,
+        url="https://grafana.example.com/d/abc123",
     )
     tcr = ToolCallResult(
         tool_call_id="call_v",
@@ -327,9 +318,14 @@ def test_to_llm_message_with_images():
     message = tcr.to_llm_message()
     assert message["role"] == "tool"
     assert isinstance(message["content"], list)
-    assert message["content"][0]["type"] == "text"
+    # Text block includes the embed hint
+    text_block = message["content"][0]
+    assert text_block["type"] == "text"
+    assert "tool-image://call_v" in text_block["text"]
+    assert "https://grafana.example.com/d/abc123" in text_block["text"]
+    # Image block uses OpenAI vision format with data URI
     assert message["content"][1]["type"] == "image_url"
-    assert "data:image/png;base64,AAAA" in message["content"][1]["image_url"]["url"]
+    assert message["content"][1]["image_url"]["url"] == "data:image/png;base64,AAAA"
 
 
 def test_truncate_tool_messages_string_content():

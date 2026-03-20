@@ -1843,22 +1843,29 @@ class TestStdio:
         assert invoke_result.images[0]["mimeType"] == "image/png"
         assert len(invoke_result.images[0]["data"]) > 0  # base64 data present
 
-        # Verify the full pipeline: format_tool_result_data produces multimodal content
-        from holmes.core.models import format_tool_result_data
+        # Verify the full pipeline: to_llm_message produces multimodal content
+        from holmes.core.models import ToolCallResult
 
-        content = format_tool_result_data(invoke_result, "test-img-id", "get_test_image")
+        tcr = ToolCallResult(
+            tool_call_id="test-img-id",
+            tool_name="get_test_image",
+            description="test",
+            result=invoke_result,
+        )
+        message = tcr.to_llm_message()
+        content = message["content"]
         assert isinstance(content, list), "Should return multimodal content list when images present"
         assert content[0]["type"] == "text"
+        assert "tool-image://test-img-id" in content[0]["text"]
         assert content[1]["type"] == "image_url"
         assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
         # Verify truncation preserves images
         from holmes.core.conversations import truncate_tool_messages
 
-        msg = {"role": "tool", "content": content}
-        truncate_tool_messages([msg], 50)
+        truncate_tool_messages([message], 50)
         # Image block must survive truncation
-        image_blocks = [b for b in msg["content"] if b.get("type") == "image_url"]
+        image_blocks = [b for b in message["content"] if b.get("type") == "image_url"]
         assert len(image_blocks) == 1
 
 
