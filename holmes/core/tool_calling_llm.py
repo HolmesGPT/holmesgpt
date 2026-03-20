@@ -175,6 +175,21 @@ class ToolCallingLLM:
 
         self._runbook_in_use: bool = False
 
+    def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
+        """Return a shallow copy with a different ToolExecutor.
+
+        Used to inject per-request frontend tools via a cloned executor
+        without mutating the shared ToolCallingLLM instance.
+        """
+        clone = ToolCallingLLM(
+            tool_executor=tool_executor,
+            max_steps=self.max_steps,
+            llm=self.llm,
+            tool_results_dir=self.tool_results_dir,
+            tracer=self.tracer,
+        )
+        return clone
+
     def reset_interaction_state(self) -> None:
         """
         For interactive loop, reset runbooks in use
@@ -795,8 +810,6 @@ class ToolCallingLLM:
         msgs: Optional[list[dict]] = None,
         enable_tool_approval: bool = False,
         tool_decisions: List[ToolApprovalDecision] | None = None,
-        frontend_tool_names: Optional[set[str]] = None,
-        frontend_tool_definitions: Optional[list[dict]] = None,
         frontend_tool_results: Optional[List[FrontendToolResult]] = None,
         request_context: Optional[Dict[str, Any]] = None,
         trace_span: Any = None,
@@ -808,16 +821,14 @@ class ToolCallingLLM:
         This function DOES NOT call llm.completion(stream=true).
         This function streams holmes one iteration at a time instead of waiting for all iterations to complete.
 
-        Frontend tools: When frontend_tool_names is provided, any LLM tool call whose name
-        is in that set will NOT be executed server-side. Instead, the stream pauses with an
-        APPROVAL_REQUIRED event that includes pending_frontend_tool_calls. The client
-        executes the tool and resumes by sending frontend_tool_results in the next request.
+        Frontend tools: Frontend tools are registered as FrontendPauseTool instances
+        in the ToolExecutor (via clone_with_extra_tools). When the LLM calls one,
+        it returns FRONTEND_PAUSE status. call_stream handles this by pausing the
+        stream with an APPROVAL_REQUIRED event containing pending_frontend_tool_calls.
+        The client executes the tool and resumes by sending frontend_tool_results.
         """
         if trace_span is None:
             trace_span = DummySpan()
-
-        frontend_tool_names = frontend_tool_names or set()
-        frontend_tool_definitions = frontend_tool_definitions or []
 
         all_tool_calls: list[dict] = []
 
@@ -845,11 +856,6 @@ class ToolCallingLLM:
         messages: list[dict] = list(msgs) if msgs else []
         tool_calls: list[dict] = []
         tools: Optional[list] = self._get_tools()
-        # Append frontend tool definitions to the tools list
-        if frontend_tool_definitions:
-            if tools is None:
-                tools = []
-            tools = tools + frontend_tool_definitions
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
@@ -1009,43 +1015,9 @@ class ToolCallingLLM:
             # Extract session approved prefixes from conversation history
             session_prefixes = extract_bash_session_prefixes(messages)
 
-            # Separate frontend tools from backend tools
-            backend_tools_to_call = []
-            for t in tools_to_call:  # type: ignore
-                if t.function.name in frontend_tool_names:
-                    # Frontend tool — don't execute server-side, collect for pause
-                    tool_params = {}
-                    try:
-                        tool_params = json.loads(t.function.arguments)
-                    except Exception:
-                        logging.warning(
-                            f"Failed to parse arguments for frontend tool: {t.function.name}"
-                        )
-                    pending_frontend_calls.append(
-                        PendingFrontendToolCall(
-                            tool_call_id=t.id,
-                            tool_name=t.function.name,
-                            arguments=tool_params,
-                        )
-                    )
-                    # Track for repeated-call prevention
-                    frontend_call_dict = {
-                        "tool_call_id": t.id,
-                        "tool_name": t.function.name,
-                        "name": t.function.name,
-                    }
-                    tool_calls.append(frontend_call_dict)
-                    all_tool_calls.append(frontend_call_dict)
-                    yield StreamMessage(
-                        event=StreamEvents.START_TOOL,
-                        data={"tool_name": t.function.name, "id": t.id, "frontend": True},
-                    )
-                else:
-                    backend_tools_to_call.append(t)
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
                 futures = []
-                for tool_index, t in enumerate(backend_tools_to_call, 1):
+                for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index
 
                     future = executor.submit(
@@ -1109,6 +1081,26 @@ class ToolCallingLLM:
                                 data=tool_result_dict,
                             )
 
+                    elif (
+                        tool_call_result.result.status
+                        == StructuredToolResultStatus.FRONTEND_PAUSE
+                    ):
+                        # Frontend tool — collect for pause, don't feed result to LLM
+                        pending_frontend_calls.append(
+                            PendingFrontendToolCall(
+                                tool_call_id=tool_call_result.tool_call_id,
+                                tool_name=tool_call_result.tool_name,
+                                arguments=tool_call_result.result.params or {},
+                            )
+                        )
+                        frontend_call_dict = {
+                            "tool_call_id": tool_call_result.tool_call_id,
+                            "tool_name": tool_call_result.tool_name,
+                            "name": tool_call_result.tool_name,
+                        }
+                        tool_calls.append(frontend_call_dict)
+                        all_tool_calls.append(frontend_call_dict)
+
                     else:
                         tool_calls.append(tool_result_dict)
                         all_tool_calls.append(tool_result_dict)
@@ -1165,9 +1157,6 @@ class ToolCallingLLM:
                 # Re-fetch tools if runbook was just activated (enables restricted tools)
                 if self._runbook_in_use and tools is not None:
                     new_tools = self._get_tools()
-                    # Re-append frontend tools after refresh
-                    if frontend_tool_definitions:
-                        new_tools = new_tools + frontend_tool_definitions
                     if len(new_tools) != len(tools):
                         logging.info(
                             f"Runbook activated - refreshing tools list ({len(tools)} -> {len(new_tools)} tools)"

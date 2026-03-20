@@ -57,6 +57,8 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | images                  | No       |         | array     | Image URLs, base64 data URIs, or objects with `url` (required), `detail` (low/high/auto), and `format` (MIME type). Requires vision-enabled model. See [Image Analysis](#image-analysis) |
 | stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
 | enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions (see [Tool Approval Behavior](#tool-approval-behavior))    |
+| frontend_tools          | No       |         | array     | Tools defined by the frontend client (see [Frontend Tools](#frontend-tools)). Requires `stream: true`. |
+| frontend_tool_results   | No       |         | array     | Results from frontend-executed tools, sent to resume a paused stream (see [Frontend Tools](#frontend-tools)). |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
 | behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode--prompt-controls)) |
 
@@ -303,6 +305,82 @@ Tools that would require approval are automatically converted to errors. The err
 
 This means server-mode integrations (e.g., Keep workflows) do not need a human in the loop — the LLM handles recoverable validation failures automatically.
 
+#### Frontend Tools
+
+Frontend tools let the client define tools that the LLM can call, but that execute on the **client side** rather than on the Holmes server. This enables use cases like rendering charts, navigating UIs, querying client-local databases, or any action that requires client-side execution.
+
+Frontend tools use a **pause-resume** protocol over SSE:
+
+1. The client declares tools in `frontend_tools` when sending the request
+2. Holmes registers these tools alongside its built-in tools — the LLM sees and can call them
+3. When the LLM calls a frontend tool, the stream **pauses** with an `approval_required` event containing `pending_frontend_tool_calls`
+4. The client executes the tool locally using the provided `arguments`
+5. The client **resumes** by sending a new request with `frontend_tool_results` and the `conversation_history` from the paused event
+6. Holmes injects the results and continues the LLM loop
+
+**Declaring frontend tools:**
+
+Each tool in the `frontend_tools` array has:
+
+| Field       | Required | Type   | Description                                           |
+|-------------|----------|--------|-------------------------------------------------------|
+| name        | Yes      | string | Tool name (must not conflict with built-in tool names)|
+| description | Yes      | string | Description shown to the LLM                         |
+| parameters  | No       | object | JSON Schema describing the tool's parameters          |
+
+**Example request with frontend tools:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Show me a CPU usage chart for the last hour",
+    "stream": true,
+    "frontend_tools": [
+      {
+        "name": "render_chart",
+        "description": "Render a chart in the user interface",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "chart_type": {"type": "string", "description": "Type of chart (line, bar, pie)"},
+            "data_source": {"type": "string", "description": "Metric or data source to chart"},
+            "time_range": {"type": "string", "description": "Time range (e.g. 1h, 24h, 7d)"}
+          }
+        }
+      }
+    ]
+  }'
+```
+
+**Resuming after frontend tool execution:**
+
+When the stream pauses, the `approval_required` event contains `pending_frontend_tool_calls` with the tool name, call ID, and arguments. Execute the tool client-side, then resume:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Show me a CPU usage chart for the last hour",
+    "stream": true,
+    "conversation_history": [...],
+    "frontend_tool_results": [
+      {
+        "tool_call_id": "call_abc123",
+        "tool_name": "render_chart",
+        "result": "{\"rendered\": true, \"chart_url\": \"/charts/cpu-1h.png\"}"
+      }
+    ]
+  }'
+```
+
+**Constraints:**
+
+- `frontend_tools` requires `stream: true` (the pause/resume flow needs SSE)
+- Frontend tool names must not conflict with built-in Holmes tool names (returns HTTP 400)
+- `frontend_tool_results.result` must be a string (JSON-encode objects)
+- Both `pending_approvals` and `pending_frontend_tool_calls` can appear in the same `approval_required` event if the LLM calls both types in one iteration
+
 ---
 
 ### `/api/model` (GET)
@@ -526,7 +604,7 @@ Emitted when the chat is complete. This is the final event in the stream.
 
 #### `approval_required`
 
-Emitted when tool execution requires user approval (e.g., potentially destructive operations). The stream pauses until the user provides approval decisions via a subsequent request.
+Emitted when the stream needs to pause for external action — either tool approval (destructive operations) or frontend tool execution. The stream pauses until the client sends a follow-up request.
 
 **Payload:**
 ```json
@@ -542,6 +620,13 @@ Emitted when tool execution requires user approval (e.g., potentially destructiv
       "description": "kubectl delete pod failed-pod -n default",
       "params": {"pod": "failed-pod", "namespace": "default"}
     }
+  ],
+  "pending_frontend_tool_calls": [
+    {
+      "tool_call_id": "call_abc123",
+      "tool_name": "show_chart",
+      "arguments": {"chart_type": "line", "data_source": "cpu_usage"}
+    }
   ]
 }
 ```
@@ -552,18 +637,36 @@ Emitted when tool execution requires user approval (e.g., potentially destructiv
 - `conversation_history` (array): Current conversation state
 - `follow_up_actions` (array|null): Optional follow-up actions
 - `requires_approval` (boolean): Always true for this event
-- `pending_approvals` (array): List of tools awaiting approval
+- `pending_approvals` (array): List of tools awaiting user approval
   - `tool_call_id` (string): Unique identifier for the tool call
   - `tool_name` (string): Name of the tool requiring approval
   - `description` (string): Human-readable description
   - `params` (object): Parameters for the tool call
+- `pending_frontend_tool_calls` (array): List of frontend tools awaiting client execution (see [Frontend Tools](#frontend-tools))
+  - `tool_call_id` (string): Unique identifier for the tool call
+  - `tool_name` (string): Name of the frontend tool to execute
+  - `arguments` (object): Arguments the LLM passed to the tool
 
-To continue after approval, send a new request with `tool_decisions`:
+**Resuming after tool approval:**
 ```json
 {
   "conversation_history": [...],
   "tool_decisions": [
     {"tool_call_id": "call_xyz789", "approved": true}
+  ]
+}
+```
+
+**Resuming after frontend tool execution:**
+```json
+{
+  "conversation_history": [...],
+  "frontend_tool_results": [
+    {
+      "tool_call_id": "call_abc123",
+      "tool_name": "show_chart",
+      "result": "{\"rendered\": true, \"data_points\": 42}"
+    }
   ]
 }
 ```
@@ -706,6 +809,23 @@ Emitted when an error occurs during processing.
 [Client sends approval decisions]
 1. tool_calling_result (approved tool executed)
 [chat resumes]
+```
+
+### Chat with Frontend Tools
+
+```
+1. ai_message
+2. start_tool_calling (backend tool)
+3. start_tool_calling (frontend tool)
+4. tool_calling_result (backend tool)
+5. token_count
+6. approval_required (pending_frontend_tool_calls populated)
+[Client executes frontend tool locally]
+[Client sends new request with frontend_tool_results + conversation_history]
+1. tool_calling_result (frontend tool result injected)
+2. ai_message
+3. token_count
+4. ai_answer_end
 ```
 
 ### Chat with History Compaction
