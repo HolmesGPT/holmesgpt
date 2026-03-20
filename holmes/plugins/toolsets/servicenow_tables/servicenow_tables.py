@@ -91,15 +91,15 @@ class ServiceNowTablesConfig(ToolsetConfig):
         Ensure that authentication is either:
           - api_key is provided
         OR
-          - both api_username and api_password are provided
+          - both username and password are provided
         but not both methods at the same time.
         """
         if self.api_key and (self.username or self.password):
             raise ValueError("authentication method must be either api key or basic auth, not both")
         if self.username and not self.password:
-            raise ValueError("api_password is required when api_username is set")
+            raise ValueError("password is required when username is set")
         if self.password and not self.username:
-            raise ValueError("api_username is required when api_password is set")
+            raise ValueError("username is required when password is set")
         return self
 
 

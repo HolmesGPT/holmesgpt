@@ -42,14 +42,14 @@ class TestServiceNowTablesConfig:
             )
 
     def test_config_username_without_password_fails(self):
-        with pytest.raises(ValueError, match="api_password is required when api_username is set"):
+        with pytest.raises(ValueError, match="password is required when username is set"):
             ServiceNowTablesConfig(
                 api_url="https://example.service-now.com",
                 username="api-user",
             )
 
     def test_config_password_without_username_fails(self):
-        with pytest.raises(ValueError, match="api_username is required when api_password is set"):
+        with pytest.raises(ValueError, match="username is required when password is set"):
             ServiceNowTablesConfig(
                 api_url="https://example.service-now.com",
                 password="secret-pass",
