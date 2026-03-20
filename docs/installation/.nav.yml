@@ -5,5 +5,6 @@ nav:
     - Teams Bot (3rd party): teams-installation.md
     - Backstage (3rd party): backstage-integration.md
     - K9s: k9s-installation.md
+    - HTTP Server (Docker): docker-compose-installation.md
     - Helm Chart: kubernetes-installation.md
     - Python SDK: python-installation.md
