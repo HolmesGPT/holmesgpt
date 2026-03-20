@@ -33,7 +33,7 @@ from holmes.core.tools import (
     ToolInvokeContext,
 )
 from holmes.core.tools_utils.tool_context_window_limiter import (
-    prevent_overly_big_tool_response,
+    spill_oversized_tool_result,
 )
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import DummySpan
@@ -625,7 +625,8 @@ class ToolCallingLLM:
                 result=tool_response,
             )
 
-            original_token_count = prevent_overly_big_tool_response(
+            # See docs/reference/context-management.md for how this fits with compaction
+            original_token_count = spill_oversized_tool_result(
                 tool_call_result=tool_call_result,
                 llm=self.llm,
                 tool_results_dir=self.tool_results_dir

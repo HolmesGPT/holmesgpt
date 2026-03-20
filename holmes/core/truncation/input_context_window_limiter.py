@@ -1,3 +1,10 @@
+"""
+Pre-LLM-call context window check — triggers compaction when conversation is too large.
+
+For an overview of all context management mechanisms, see:
+docs/reference/context-management.md
+"""
+
 import logging
 import time
 from typing import Any, Optional

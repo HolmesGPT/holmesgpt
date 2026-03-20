@@ -38,6 +38,7 @@ def calculate_tool_size(
     return tool_size
 
 
+# See docs/reference/context-management.md for how this fits with compaction and spill-to-disk.
 def truncate_tool_messages(conversation_history: list, tool_size: int) -> None:
     for message in conversation_history:
         if message.get("role") == "tool":

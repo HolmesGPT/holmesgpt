@@ -8,7 +8,7 @@ from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_context_window_limiter import (
-    prevent_overly_big_tool_response,
+    spill_oversized_tool_result,
 )
 
 
@@ -69,7 +69,7 @@ class TestPreventOverlyBigToolResponse:
             original_data = success_tool_call_result.result.data
             original_error = success_tool_call_result.result.error
 
-            prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
+            spill_oversized_tool_result(success_tool_call_result, mock_llm)
 
             # Should remain unchanged
             assert success_tool_call_result.result.status == original_status
@@ -95,7 +95,7 @@ class TestPreventOverlyBigToolResponse:
                 other_tokens=0,
             )
 
-            prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
+            spill_oversized_tool_result(success_tool_call_result, mock_llm)
 
             # Should be modified
             assert (
@@ -126,7 +126,7 @@ class TestPreventOverlyBigToolResponse:
                 other_tokens=0,
             )
 
-            prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
+            spill_oversized_tool_result(success_tool_call_result, mock_llm)
 
             assert "2000/1024 tokens" in success_tool_call_result.result.error
 
@@ -149,7 +149,7 @@ class TestPreventOverlyBigToolResponse:
                 other_tokens=0,
             )
 
-            prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
+            spill_oversized_tool_result(success_tool_call_result, mock_llm)
 
             # Verify that count_tokens was called with a list containing one message
             call_args = mock_llm.count_tokens.call_args
@@ -178,7 +178,7 @@ class TestPreventOverlyBigToolResponse:
                 other_tokens=0,
             )
 
-            prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
+            spill_oversized_tool_result(success_tool_call_result, mock_llm)
 
             assert (
                 success_tool_call_result.result.status
@@ -207,7 +207,7 @@ class TestPreventOverlyBigToolResponse:
             original_status = success_tool_call_result.result.status
             original_data = success_tool_call_result.result.data
 
-            prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
+            spill_oversized_tool_result(success_tool_call_result, mock_llm)
 
             # Should remain unchanged (not > max_tokens_allowed)
             assert success_tool_call_result.result.status == original_status
@@ -233,7 +233,7 @@ class TestPreventOverlyBigToolResponse:
                 other_tokens=0,
             )
 
-            prevent_overly_big_tool_response(success_tool_call_result, mock_llm)
+            spill_oversized_tool_result(success_tool_call_result, mock_llm)
 
             error_msg = success_tool_call_result.result.error
             assert "The tool call result is too large to return" in error_msg
@@ -270,7 +270,7 @@ class TestPreventOverlyBigToolResponse:
             other_tokens=0,
         )
 
-        prevent_overly_big_tool_response(tcr, mock_llm, tool_results_dir=tmp_path)
+        spill_oversized_tool_result(tcr, mock_llm, tool_results_dir=tmp_path)
 
         # Data should be replaced with pointer message
         assert "Saved to:" in tcr.result.data
@@ -309,7 +309,7 @@ class TestPreventOverlyBigToolResponse:
             other_tokens=0,
         )
 
-        prevent_overly_big_tool_response(tcr, mock_llm, tool_results_dir=tmp_path)
+        spill_oversized_tool_result(tcr, mock_llm, tool_results_dir=tmp_path)
 
         assert "Saved to:" in tcr.result.data
         assert "Images saved to disk" not in tcr.result.data

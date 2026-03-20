@@ -1,3 +1,10 @@
+"""
+Single tool result size limiter — spills oversized results to disk.
+
+For an overview of all context management mechanisms, see:
+docs/reference/context-management.md
+"""
+
 import logging
 import time
 from pathlib import Path
@@ -20,7 +27,7 @@ def get_pct_token_count(percent_of_total_context_window: float, llm: LLM) -> int
         return context_window_size
 
 
-def prevent_overly_big_tool_response(
+def spill_oversized_tool_result(
     tool_call_result: ToolCallResult,
     llm: LLM,
     tool_results_dir: Optional[Path] = None,
@@ -38,7 +45,7 @@ def prevent_overly_big_tool_response(
     message = tool_call_result.to_llm_message()
     messages_token = llm.count_tokens(messages=[message]).total_tokens
     max_tokens_allowed = llm.get_max_token_count_for_single_tool()
-    logging.debug(f"prevent_overly_big_tool_response: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)")
+    logging.debug(f"spill_oversized_tool_result: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)")
 
     if tool_call_result.result.status != StructuredToolResultStatus.SUCCESS:
         return messages_token

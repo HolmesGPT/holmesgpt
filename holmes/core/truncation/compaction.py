@@ -1,3 +1,10 @@
+"""
+LLM-based conversation history compaction — summarizes old messages to free context space.
+
+For an overview of all context management mechanisms, see:
+docs/reference/context-management.md
+"""
+
 import logging
 from typing import Optional
 
