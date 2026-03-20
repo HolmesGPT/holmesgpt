@@ -17,6 +17,7 @@ expected_output:
 include_tool_calls: true
 
 tags:
+  - mcp
   - question-answer
   - fast
   - easy
