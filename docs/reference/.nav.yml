@@ -5,7 +5,6 @@ nav:
   - Kubernetes Permissions: kubernetes-permissions.md
   - Microsoft Teams Bot Permissions: teams-permissions.md
   - HTTP API: http-api.md
-  - Frontend Tools Integration: frontend-tools-integration-guide.md
   - Runbooks: runbooks.md
   - Slash Commands: slash-commands.md
   - Troubleshooting: troubleshooting.md
