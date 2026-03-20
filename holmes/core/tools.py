@@ -855,21 +855,21 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
-    def should_auto_enable(self) -> bool:
-        """Determine if this toolset should be auto-enabled without explicit user config.
+    @property
+    def missing_config(self) -> bool:
+        """True when this toolset requires user-supplied configuration that was not provided.
 
-        Rules:
-        1. Already enabled or is_default → enable
-        2. No config_classes (YAML toolsets, simple Python toolsets) → enable
-        3. Config classes exist but all fields have defaults → enable
-        4. Config is required AND was provided by user → enable
-        5. Config is required but not provided → disable
+        A toolset does NOT have missing config when any of these hold:
+        1. Already enabled or is_default
+        2. No config_classes (YAML toolsets, simple Python toolsets)
+        3. Config classes exist but all fields have defaults
+        4. Config is required AND was provided by user
         """
         if self.enabled or self.is_default:
-            return True
+            return False
 
         if not self.config_classes:
-            return True
+            return False
 
         requires_config = any(
             config_cls.has_required_fields()
@@ -877,12 +877,12 @@ class Toolset(BaseModel):
             if hasattr(config_cls, "has_required_fields")
         )
         if not requires_config:
-            return True
+            return False
 
         if self.config is not None:
-            return True
+            return False
 
-        return False
+        return True
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
