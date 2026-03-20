@@ -7,7 +7,7 @@ from holmes.common.env_vars import load_bool
 from holmes.core.llm import LLM
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.core.tools_utils.filesystem_result_storage import save_large_result
+from holmes.core.tools_utils.filesystem_result_storage import save_images, save_large_result
 from holmes.utils import sentry_helper
 
 
@@ -50,6 +50,7 @@ def prevent_overly_big_tool_response(
     # Try filesystem storage if a directory is provided and storage is enabled
     file_path = None
     filesystem_data = ""
+    image_paths: list[str] = []
     if tool_results_dir and load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
         filesystem_data, is_json = tool_call_result.result.stringify_data(compact=False)
         file_path = save_large_result(
@@ -59,6 +60,14 @@ def prevent_overly_big_tool_response(
             content=filesystem_data,
             is_json=is_json,
         )
+        # Save images to disk so the LLM can read them back via read_image_file
+        if tool_call_result.result.images:
+            image_paths = save_images(
+                tool_results_dir=tool_results_dir,
+                tool_name=tool_call_result.tool_name,
+                tool_call_id=tool_call_result.tool_call_id,
+                images=tool_call_result.result.images,
+            )
 
     if file_path:
         boilerplate = (
@@ -67,8 +76,17 @@ def prevent_overly_big_tool_response(
             f"Use `cat {file_path}` to read it (pre-approved, no user approval needed). "
             f"You can pipe the output into any command to filter, for example: "
             f"`cat {file_path} | jq '.field'`, `cat {file_path} | grep -oP 'pattern'`, etc.\n"
-            f"\nPreview:\n"
         )
+        if image_paths:
+            boilerplate += (
+                f"\nImages saved to disk ({len(image_paths)} file(s)):\n"
+            )
+            for img_path in image_paths:
+                boilerplate += f"  - {img_path}\n"
+            boilerplate += (
+                "Use read_image_file to view any of these images.\n"
+            )
+        boilerplate += "\nPreview:\n"
         # Allocate remaining char budget to the preview so the final string fits the context window
         chars_per_token = 4
         safety_margin_chars_per_token = chars_per_token / 2
@@ -76,8 +94,11 @@ def prevent_overly_big_tool_response(
         preview_budget = int(max(0, max_chars - len(boilerplate)))
         preview = filesystem_data[:preview_budget]
         tool_call_result.result.data = f"{boilerplate}{preview}"
+        # Clear images from the result since they're now on disk
+        tool_call_result.result.images = None
         logging.info(
             f"Large tool result ({messages_token} tokens) saved to {file_path}"
+            + (f" with {len(image_paths)} image(s)" if image_paths else "")
         )
     else:
         tool_call_result.result.status = StructuredToolResultStatus.ERROR

@@ -1,3 +1,5 @@
+import base64
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -238,3 +240,77 @@ class TestPreventOverlyBigToolResponse:
             assert "2000/1000 tokens" in error_msg
             assert "Try to repeat the query" in error_msg
             assert "narrow down the result" in error_msg
+
+    def test_spill_to_disk_with_images(self, mock_llm, tmp_path):
+        """When result exceeds limit and has images, images are saved to disk."""
+        pixel_bytes = b"\x89PNG\r\n\x1a\nfake"
+        pixel_b64 = base64.b64encode(pixel_bytes).decode()
+        images = [{"data": pixel_b64, "mimeType": "image/png"}]
+
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="large output " * 500,
+            images=images,
+        )
+        tcr = ToolCallResult(
+            tool_call_id="call-img-1",
+            tool_name="vision_tool",
+            description="desc",
+            result=result,
+        )
+
+        mock_llm.get_max_token_count_for_single_tool.return_value = 100
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=5000,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        prevent_overly_big_tool_response(tcr, mock_llm, tool_results_dir=tmp_path)
+
+        # Data should be replaced with pointer message
+        assert "Saved to:" in tcr.result.data
+        assert "too large to return" in tcr.result.data
+        # Images should be cleared from the result (saved to disk instead)
+        assert tcr.result.images is None
+        # Image file should exist on disk
+        assert "Images saved to disk" in tcr.result.data
+        assert "read_image_file" in tcr.result.data
+        # Verify the actual image file was written
+        img_files = list(tmp_path.glob("*.png"))
+        assert len(img_files) == 1
+        assert img_files[0].read_bytes() == pixel_bytes
+
+    def test_spill_to_disk_without_images(self, mock_llm, tmp_path):
+        """When result exceeds limit without images, no image references in pointer."""
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="big output " * 500,
+        )
+        tcr = ToolCallResult(
+            tool_call_id="call-txt-1",
+            tool_name="text_tool",
+            description="desc",
+            result=result,
+        )
+
+        mock_llm.get_max_token_count_for_single_tool.return_value = 100
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=5000,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        prevent_overly_big_tool_response(tcr, mock_llm, tool_results_dir=tmp_path)
+
+        assert "Saved to:" in tcr.result.data
+        assert "Images saved to disk" not in tcr.result.data
+        assert "read_image_file" not in tcr.result.data
