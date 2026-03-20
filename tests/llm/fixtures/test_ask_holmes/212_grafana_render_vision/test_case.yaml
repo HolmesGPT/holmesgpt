@@ -167,5 +167,6 @@ port_forwards:
 tags:
   - easy
   - grafana
+  - images
   - question-answer
   - kubernetes

@@ -18,6 +18,7 @@ include_tool_calls: true
 
 tags:
   - mcp
+  - images
   - question-answer
   - fast
   - easy

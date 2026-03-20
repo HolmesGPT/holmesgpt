@@ -28,5 +28,6 @@ test_type: server
 tags:
   - compaction
   - mcp
+  - images
   - fast
   - hard

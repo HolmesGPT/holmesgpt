@@ -28,6 +28,7 @@ include_tool_calls: true
 
 tags:
   - confluence
+  - images
   - question-answer
   - hard
   - fast
