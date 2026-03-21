@@ -1322,7 +1322,7 @@ jobs:
           fi
 
       - name: Post evaluation results
-        if: always() && steps.eval-params.outputs.pr_number != ''
+        if: always() && steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -1441,7 +1441,7 @@ jobs:
             });
 
       - name: Check test results
-        if: always()
+        if: always() && steps.check-tests.outputs.should-run == 'true'
         working-directory: code
         run: |
           if [[ -f "regressions.txt" ]]; then
