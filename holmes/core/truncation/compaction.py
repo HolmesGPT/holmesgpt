@@ -6,6 +6,7 @@ docs/reference/context-management.md
 """
 
 import logging
+import re
 from typing import Any, Optional
 
 from litellm.types.utils import ModelResponse
@@ -44,13 +45,26 @@ def find_last_user_prompt(conversation_history: list[dict]) -> Optional[dict]:
     return last_user_prompt
 
 
-def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
-    """Strip image blocks from messages before sending to the compaction LLM.
+def _count_image_tokens_in_messages(messages: list[dict], llm: LLM) -> int:
+    """Count total tokens used by image blocks across all messages."""
+    total = 0
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        # Count tokens for a synthetic message containing only image blocks
+        image_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "image_url"]
+        if image_blocks:
+            synthetic = {"role": "user", "content": image_blocks}
+            total += llm.count_tokens(messages=[synthetic]).total_tokens
+    return total
 
-    Images (base64 data URIs) are very large and cannot be summarized by the
-    compaction LLM. Sending them would waste context or cause overflow.
-    We replace image blocks with a text placeholder so the LLM knows images
-    were present.
+
+def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
+    """Strip image blocks from messages, replacing with informative placeholders.
+
+    Extracts disk paths from the text content (left by spill-to-disk) so the
+    compaction summary can reference them. Otherwise notes that images were present.
     """
     stripped: list[dict] = []
     for msg in messages:
@@ -58,7 +72,6 @@ def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
         if not isinstance(content, list):
             stripped.append(msg)
             continue
-        # Multimodal content: keep text blocks, replace image blocks with placeholder
         new_content: list[dict[str, Any]] = []
         image_count = 0
         for block in content:
@@ -67,12 +80,21 @@ def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
             else:
                 new_content.append(block)
         if image_count > 0:
-            new_content.append(
-                {"type": "text", "text": f"[{image_count} image(s) omitted from compaction]"}
+            # Check if any text block already references saved image paths
+            all_text = " ".join(
+                b.get("text", "") for b in new_content if isinstance(b, dict) and b.get("type") == "text"
             )
+            disk_paths = re.findall(r"(/\S+\.(?:png|jpg|jpeg|gif|webp|bmp|svg))", all_text)
+            if disk_paths:
+                placeholder = (
+                    f"[{image_count} image(s) stripped from compaction — "
+                    f"saved on disk: {', '.join(disk_paths)}]"
+                )
+            else:
+                placeholder = f"[{image_count} image(s) were present but stripped from compaction]"
+            new_content.append({"type": "text", "text": placeholder})
         new_msg = dict(msg)
         new_msg["content"] = new_content
-        # Invalidate token count cache since content changed
         new_msg.pop("token_count", None)
         stripped.append(new_msg)
     return stripped
@@ -94,9 +116,26 @@ def compact_conversation_history(
     compaction_instructions = load_and_render_prompt(
         prompt="builtin://conversation_history_compaction.jinja2", context={}
     )
-    # Strip images before compaction — they are too large for the compaction
-    # LLM call and cannot be meaningfully summarized as text.
-    conversation_history = _strip_images_for_compaction(conversation_history)
+
+    # Decide whether to keep images in the compaction input.
+    # If total image tokens are small enough (< 25% of context window), keep them
+    # so the compaction LLM can describe what was in them. Otherwise strip them.
+    context_window = llm.get_context_window_size()
+    image_token_budget = context_window // 4
+    image_tokens = _count_image_tokens_in_messages(conversation_history, llm)
+
+    if image_tokens > 0 and image_tokens <= image_token_budget:
+        logging.info(
+            f"Compaction: keeping {image_tokens} image tokens "
+            f"(within budget of {image_token_budget})"
+        )
+    elif image_tokens > 0:
+        logging.info(
+            f"Compaction: stripping {image_tokens} image tokens "
+            f"(exceeds budget of {image_token_budget})"
+        )
+        conversation_history = _strip_images_for_compaction(conversation_history)
+
     conversation_history.append({"role": "user", "content": compaction_instructions})
 
     response: ModelResponse = llm.completion(

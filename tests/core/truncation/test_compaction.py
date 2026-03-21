@@ -6,6 +6,7 @@ import pytest
 
 from holmes.core.llm import DefaultLLM
 from holmes.core.truncation.compaction import (
+    _count_image_tokens_in_messages,
     _strip_images_for_compaction,
     compact_conversation_history,
 )
@@ -122,7 +123,8 @@ def test_strip_images_for_compaction_replaces_image_blocks():
     assert "Rendered panel screenshot." in content[0]["text"]
     # Image blocks replaced with placeholder
     assert content[1]["type"] == "text"
-    assert "2 image(s) omitted" in content[1]["text"]
+    assert "2 image(s)" in content[1]["text"]
+    assert "stripped" in content[1]["text"]
     # No image_url blocks remain
     assert not any(b.get("type") == "image_url" for b in content)
     # Token count cache must be invalidated
@@ -149,5 +151,64 @@ def test_strip_images_for_compaction_preserves_non_image_messages():
     assert result[1]["content"] == "Render the dashboard"
     # Tool message had images stripped
     assert result[2]["content"][0]["text"] == "Dashboard screenshot"
-    assert "1 image(s) omitted" in result[2]["content"][1]["text"]
+    assert "1 image(s)" in result[2]["content"][1]["text"]
+    assert "stripped" in result[2]["content"][1]["text"]
     assert result[3]["content"] == "I see a spike in the CPU panel."
+
+
+def test_strip_images_includes_disk_paths_when_present():
+    """When text mentions saved image paths, the placeholder includes them."""
+    messages = [
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Images saved to disk:\n  - /tmp/results/grafana_render_abc_img0.png\n",
+                },
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            ],
+        }
+    ]
+    result = _strip_images_for_compaction(messages)
+    placeholder = result[0]["content"][-1]["text"]
+    assert "/tmp/results/grafana_render_abc_img0.png" in placeholder
+    assert "saved on disk" in placeholder
+
+
+def test_count_image_tokens_no_images():
+    """Messages without images return 0 tokens."""
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "tool", "content": "text only"},
+    ]
+
+    class FakeLLM:
+        def count_tokens(self, messages):
+            class Usage:
+                total_tokens = 0
+            return Usage()
+
+    assert _count_image_tokens_in_messages(messages, FakeLLM()) == 0  # type: ignore
+
+
+def test_count_image_tokens_with_images():
+    """Image blocks are counted via the LLM token counter."""
+    messages = [
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "some text"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            ],
+        }
+    ]
+
+    class FakeLLM:
+        def count_tokens(self, messages):
+            # Should receive a synthetic message with only image blocks
+            class Usage:
+                total_tokens = 1600
+            return Usage()
+
+    assert _count_image_tokens_in_messages(messages, FakeLLM()) == 1600  # type: ignore
