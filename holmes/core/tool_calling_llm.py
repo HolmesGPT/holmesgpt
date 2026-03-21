@@ -40,7 +40,7 @@ from holmes.core.tracing import DummySpan
 from holmes.core.truncation.input_context_window_limiter import (
     CompactionInsufficientError,
     check_compaction_needed,
-    limit_input_context_window,
+    compact_if_necessary,
 )
 from holmes.utils.colors import AI_COLOR
 from holmes.utils.stream import (
@@ -745,7 +745,7 @@ class ToolCallingLLM:
                 yield compaction_start_event
 
             try:
-                limit_result = limit_input_context_window(
+                limit_result = compact_if_necessary(
                     llm=self.llm, messages=messages, tools=tools
                 )
             except CompactionInsufficientError as e:

@@ -295,7 +295,11 @@ EXTENSION_TO_MIME = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
-# 20 MB
+# File-size sanity check (20 MB), NOT a token budget. LLM providers downscale images
+# before tokenizing (e.g. Claude caps at ~1568px on the longest side), so a 500KB and
+# 20MB PNG with the same dimensions cost the same ~1600 tokens. The spill-to-disk
+# mechanism in tool_context_window_limiter.py handles token-level limits; this just
+# prevents accidentally reading huge binary files off disk.
 MAX_IMAGE_FILE_SIZE = 20 * 1024 * 1024
 
 

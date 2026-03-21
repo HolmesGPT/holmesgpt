@@ -61,7 +61,7 @@ def build_chat_messages(
     For existing conversations, updates the system prompt.
 
     Context window management (compaction, spill-to-disk) is handled by
-    call_stream() -> limit_input_context_window(), not here.
+    call_stream() -> compact_if_necessary(), not here.
     See docs/reference/context-management.md.
     """
 

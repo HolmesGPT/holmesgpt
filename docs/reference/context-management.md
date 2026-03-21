@@ -24,7 +24,7 @@ They run at different points in the pipeline and serve different purposes.
 
 ## 2. Conversation History Compaction
 
-**Function:** `compact_conversation_history()` in `holmes/core/truncation/compaction.py`, orchestrated by `limit_input_context_window()` in `holmes/core/truncation/input_context_window_limiter.py`
+**Function:** `compact_conversation_history()` in `holmes/core/truncation/compaction.py`, orchestrated by `compact_if_necessary()` in `holmes/core/truncation/input_context_window_limiter.py`
 
 **When:** Before each LLM call in the agentic loop, if the total conversation tokens exceed a compaction threshold.
 

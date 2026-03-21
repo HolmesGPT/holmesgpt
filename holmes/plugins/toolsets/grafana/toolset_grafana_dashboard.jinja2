@@ -70,9 +70,9 @@ The spike correlates with the deployment at 14:28, as shown in the events panel:
 - Pass them to the render tool via the `variables` parameter: `"var-namespace=production,var-cluster=us-east-1"`
 
 ### **When to use visual rendering vs. query execution:**
-- **Use rendering** to quickly see what the user sees, identify visual anomalies, and understand dashboard layout
-- **Use query execution** to get exact numeric values, verify specific thresholds, and perform data analysis
-- **Best approach**: render first to identify areas of concern, then query for precise data
+- **Rendering advantages:** Rendered graphs show the full resolution of the underlying data, so short-lived spikes and transient anomalies are visible in the image even though PromQL range queries may smooth them out or miss them entirely due to step/resolution limits. Also, rendering a dashboard with many panels gives you a quick visual overview to decide which panels deserve deeper investigation.
+- **Query advantages:** Exact numeric values, threshold verification, data analysis, and programmatic comparisons.
+- **Best approach**: Render first to spot anomalies and identify which panels to drill into, then query those specific panels for precise data.
 
 
 ## **Instruction: Prometheus Dashboard Query Execution**
@@ -80,7 +80,7 @@ The spike correlates with the deployment at 14:28, as shown in the events panel:
 **When running Prometheus queries from Grafana dashboards:**
 
 ### **Key Rules:**
-1. **Always run as range queries** (not instant queries) to match dashboard behavior
+1. **Always run as range queries** (not instant queries) to match dashboard behavior. Range queries return time series data that HTTP clients render as graphs; instant queries return only the latest value.
 2. **Use dashboard's time range** from JSON: `"time": {"from": "now-1h", "to": "now"}`
 3. **Substitute variables:**
    - `$__rate_interval` → `1m` (1-hour range) or `5m` (3+ hour range)
