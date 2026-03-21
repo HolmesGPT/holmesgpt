@@ -8,11 +8,10 @@ import pytest
 from holmes.core.llm import DefaultLLM
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
+from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     TRUNCATION_PROMPT_PREFIX,
-    BasePodLoggingToolset,
     FetchPodLogsParams,
-    LoggingCapability,
     PodLoggingTool,
     truncate_logs,
 )
@@ -25,9 +24,8 @@ class TestPodLoggingTool:
     def test_tool_handles_integer_start_time(self):
         """Test that PodLoggingTool correctly handles integer start_time values."""
         # Create mock toolset
-        mock_toolset = MagicMock(spec=BasePodLoggingToolset)
+        mock_toolset = MagicMock(spec=KubernetesLogsToolset)
         mock_toolset.name = "test-logging-backend"
-        mock_toolset.supported_capabilities = set()
         mock_toolset.fetch_pod_logs.return_value = StructuredToolResult(
             data="Sample logs", status=StructuredToolResultStatus.SUCCESS
         )
@@ -64,9 +62,8 @@ class TestPodLoggingTool:
     def test_tool_handles_string_start_time(self):
         """Test that PodLoggingTool correctly handles string start_time values."""
         # Create mock toolset
-        mock_toolset = MagicMock(spec=BasePodLoggingToolset)
+        mock_toolset = MagicMock(spec=KubernetesLogsToolset)
         mock_toolset.name = "test-logging-backend"
-        mock_toolset.supported_capabilities = set()
         mock_toolset.fetch_pod_logs.return_value = StructuredToolResult(
             data="Sample logs", status=StructuredToolResultStatus.SUCCESS
         )
@@ -96,9 +93,8 @@ class TestPodLoggingTool:
     def test_tool_handles_rfc3339_start_time(self):
         """Test that PodLoggingTool correctly handles RFC3339 formatted start_time."""
         # Create mock toolset
-        mock_toolset = MagicMock(spec=BasePodLoggingToolset)
+        mock_toolset = MagicMock(spec=KubernetesLogsToolset)
         mock_toolset.name = "test-logging-backend"
-        mock_toolset.supported_capabilities = set()
         mock_toolset.fetch_pod_logs.return_value = StructuredToolResult(
             data="Sample logs", status=StructuredToolResultStatus.SUCCESS
         )
@@ -125,9 +121,8 @@ class TestPodLoggingTool:
     def test_tool_handles_no_start_time(self):
         """Test that PodLoggingTool correctly handles missing start_time."""
         # Create mock toolset
-        mock_toolset = MagicMock(spec=BasePodLoggingToolset)
+        mock_toolset = MagicMock(spec=KubernetesLogsToolset)
         mock_toolset.name = "test-logging-backend"
-        mock_toolset.supported_capabilities = set()
         mock_toolset.fetch_pod_logs.return_value = StructuredToolResult(
             data="Sample logs", status=StructuredToolResultStatus.SUCCESS
         )
@@ -148,13 +143,8 @@ class TestPodLoggingTool:
 
     def test_tool_with_all_parameters(self):
         """Test that all parameters are correctly passed through."""
-        # Create mock toolset with capabilities
-        mock_toolset = MagicMock(spec=BasePodLoggingToolset)
+        mock_toolset = MagicMock(spec=KubernetesLogsToolset)
         mock_toolset.name = "test-logging-backend"
-        mock_toolset.supported_capabilities = {
-            LoggingCapability.REGEX_FILTER,
-            LoggingCapability.EXCLUDE_FILTER,
-        }
         mock_toolset.fetch_pod_logs.return_value = StructuredToolResult(
             data="Filtered logs", status=StructuredToolResultStatus.SUCCESS
         )
