@@ -9,12 +9,15 @@
 
 user_prompt: |
   Use the image gallery service. First call list_gallery_info to get the
-  verification code. Then fetch all 3 gallery pages to view the images.
-  After viewing all pages, report the verification code from the gallery info.
+  verification code. Then keep fetching gallery pages one by one until
+  compaction is triggered. You will know compaction happened because you
+  will receive a notification that the conversation history has been compacted.
+  After compaction occurs, report the verification code from the gallery info.
 
 expected_output:
   - "Must report the verification code: GALLERY-COMPACT-8K2M"
   - "Must have continued working after compaction (not crashed or errored)"
+  - "Compaction must have been triggered - verify the tool calls show multiple get_gallery_page calls and the LLM continued after compaction"
 
 include_tool_calls: true
 
