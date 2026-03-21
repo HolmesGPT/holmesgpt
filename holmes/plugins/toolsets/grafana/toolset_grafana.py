@@ -157,8 +157,10 @@ class GrafanaToolset(BaseGrafanaToolset):
                 )
 
         if renderer_detected:
-            self.tools.append(RenderPanel(self))
-            self.tools.append(RenderDashboard(self))
+            if not any(isinstance(t, RenderPanel) for t in self.tools):
+                self.tools.append(RenderPanel(self))
+            if not any(isinstance(t, RenderDashboard) for t in self.tools):
+                self.tools.append(RenderDashboard(self))
 
     def health_check(self) -> Tuple[bool, str]:
         """Test connectivity by invoking GetDashboardTags tool."""

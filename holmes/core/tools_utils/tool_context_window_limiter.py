@@ -110,6 +110,7 @@ def spill_oversized_tool_result(
     else:
         tool_call_result.result.status = StructuredToolResultStatus.ERROR
         tool_call_result.result.data = None
+        tool_call_result.result.images = None
         tool_call_result.result.error = (
             f"{size_info}\n"
             f"Try to repeat the query but proactively narrow down the result "

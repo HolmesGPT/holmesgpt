@@ -106,20 +106,24 @@ def compact_conversation_history(
     # Decide whether to keep images in the compaction input.
     # Keep them if the conversation (with images) fits in the compaction LLM's
     # context window, so it can describe what was in them. Otherwise strip them.
+    # Include instruction tokens in the budget since they are appended before the LLM call.
     context_window = llm.get_context_window_size()
     maximum_output_token = llm.get_maximum_output_token()
+    instruction_tokens = llm.count_tokens(
+        messages=[{"role": "user", "content": compaction_instructions}]
+    ).total_tokens
     total_tokens = llm.count_tokens(messages=conversation_history).total_tokens
     image_tokens = _count_image_tokens_in_messages(conversation_history, llm)
 
-    if image_tokens > 0 and (total_tokens + maximum_output_token) <= context_window:
+    if image_tokens > 0 and (total_tokens + instruction_tokens + maximum_output_token) <= context_window:
         logging.info(
             f"Compaction: keeping {image_tokens} image tokens "
-            f"(conversation fits in context window: {total_tokens} + {maximum_output_token} <= {context_window})"
+            f"(conversation fits in context window: {total_tokens} + {instruction_tokens} + {maximum_output_token} <= {context_window})"
         )
     elif image_tokens > 0:
         logging.info(
             f"Compaction: stripping {image_tokens} image tokens "
-            f"(conversation would overflow: {total_tokens} + {maximum_output_token} > {context_window})"
+            f"(conversation would overflow: {total_tokens} + {instruction_tokens} + {maximum_output_token} > {context_window})"
         )
         conversation_history = _strip_images_for_compaction(conversation_history)
 

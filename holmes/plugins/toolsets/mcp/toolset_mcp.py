@@ -264,16 +264,19 @@ class RemoteMCPTool(Tool):
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
 
-        images = [
-            {"data": c.data, "mimeType": c.mimeType}
-            for c in tool_result.content
-            if c.type == "image"
-        ] or None
+        is_error = tool_result.isError or self._is_content_error(merged_text)
+
+        images = None
+        if not is_error:
+            images = [
+                {"data": c.data, "mimeType": c.mimeType}
+                for c in tool_result.content
+                if c.type == "image"
+            ] or None
 
         return StructuredToolResult(
             status=(
-                StructuredToolResultStatus.ERROR
-                if (tool_result.isError or self._is_content_error(merged_text))
+                StructuredToolResultStatus.ERROR if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
             data=merged_text,
