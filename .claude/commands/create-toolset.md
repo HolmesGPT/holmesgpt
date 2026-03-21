@@ -7,7 +7,6 @@ The steps to write a toolset are defined below. Use subagents.
 # 1. Check existing toolsets
 
 Check holmes/plugins/toolsets for other similar toolsets to see how they are implemented before implementing a new toolset
-If implementing a toolset to fetch logs, refer to `KubernetesLogsToolset` in `holmes/plugins/toolsets/kubernetes_logs.py` as the reference pattern
 
 # 2. Choose where to create the new toolset file
 
