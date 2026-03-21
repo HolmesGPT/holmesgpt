@@ -20,6 +20,7 @@ from holmes.core.llm import DefaultLLM, LLMModelRegistry
 from holmes.core.tools import Toolset
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
+from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
 from holmes.plugins.runbooks import (
     RunbookCatalog,
     load_runbook_catalog,
@@ -115,12 +116,16 @@ class Config(RobustaBaseConfig):
     @property
     def toolset_manager(self) -> ToolsetManager:
         if not self._toolset_manager:
+            # Set the class-level default once before any transformers are
+            # instantiated.  ToolsetManager no longer needs to know about it.
+            if self.fast_model:
+                LLMSummarizeTransformer.set_default_fast_model(self.fast_model)
+
             self._toolset_manager = ToolsetManager(
                 toolsets=self.toolsets,
                 mcp_servers=self.mcp_servers,
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
-                global_fast_model=self.fast_model,
                 custom_runbook_catalogs=self.custom_runbook_catalogs,
                 config_file_path=self._config_file_path,
                 additional_toolsets=self.additional_toolsets,
