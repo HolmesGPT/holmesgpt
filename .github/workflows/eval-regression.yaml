@@ -470,17 +470,24 @@ jobs:
                   .map(n => n.replace('evals-model-', ''))
                   .filter(n => modelSafe.test(n));
 
+                // evals-skip-default label removes the automatic 'regression' marker,
+                // running all LLM tests (or just the tags/ids specified by other labels)
+                const skipDefault = labels.includes('evals-skip-default');
+
                 if (idLabels.length > 0 && tagLabels.length === 0) {
                   // Only IDs specified: broaden markers to all LLM tests, filter by ID
                   markers = '';
                   filter = idLabels.join(' or ');
                 } else if (tagLabels.length > 0 && idLabels.length === 0) {
-                  // Only tags specified: add to regression markers
-                  markers = 'regression or ' + tagLabels.join(' or ');
+                  // Only tags specified: add to regression markers (unless skip-default)
+                  markers = skipDefault ? tagLabels.join(' or ') : 'regression or ' + tagLabels.join(' or ');
                 } else if (tagLabels.length > 0 && idLabels.length > 0) {
                   // Both specified: use tag markers + ID filter
-                  markers = 'regression or ' + tagLabels.join(' or ');
+                  markers = skipDefault ? tagLabels.join(' or ') : 'regression or ' + tagLabels.join(' or ');
                   filter = idLabels.join(' or ');
+                } else if (skipDefault) {
+                  // Only skip-default: run all LLM tests without regression filter
+                  markers = '';
                 }
                 // else: no evals-* labels, keep defaults (markers = 'regression')
 
@@ -501,6 +508,7 @@ jobs:
                 const evalLabels = (context.payload.pull_request.labels || [])
                   .map(l => l.name)
                   .filter(n => {
+                    if (n === 'evals-skip-default') return true;
                     if (n.startsWith('evals-model-')) {
                       const suffix = n.slice('evals-model-'.length);
                       return suffix.length > 0 && displayModelSafe.test(suffix);
