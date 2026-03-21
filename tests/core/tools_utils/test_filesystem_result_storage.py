@@ -50,13 +50,12 @@ class TestSaveImages:
         assert ":" not in filename
         assert "." not in filename.rsplit(".", 1)[0]  # dots sanitized except extension
 
-    def test_save_with_unknown_mime_defaults_to_png(self, tmp_path):
-        """Unknown MIME type defaults to .png extension."""
+    def test_save_skips_unsupported_mime_type(self, tmp_path):
+        """Unsupported MIME types are skipped instead of silently mislabeled."""
         images = [{"data": base64.b64encode(b"data").decode(), "mimeType": "image/bmp"}]
         paths = save_images(tmp_path, "tool", "call", images)
 
-        assert len(paths) == 1
-        assert paths[0].endswith(".png")
+        assert len(paths) == 0
 
     def test_save_skips_invalid_base64(self, tmp_path):
         """Invalid base64 data is skipped with a warning, other images still saved."""

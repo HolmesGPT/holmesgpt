@@ -13,14 +13,14 @@ class ToolCallResult(BaseModel):
     result: StructuredToolResult
     size: Optional[int] = None
 
-    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
+    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None, supports_vision: bool = True):
         text_content = format_tool_result_data(
             tool_result=self.result,
             tool_call_id=self.tool_call_id,
             tool_name=self.tool_name,
             extra_metadata=extra_metadata,
         )
-        if self.result.images:
+        if self.result.images and supports_vision:
             text_content += _build_image_embed_hint(
                 tool_call_id=self.tool_call_id,
                 url=self.result.url,

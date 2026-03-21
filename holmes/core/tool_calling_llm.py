@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
+import litellm
 import sentry_sdk
 from openai import BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
@@ -179,6 +180,13 @@ class ToolCallingLLM:
         """
         self._runbook_in_use = False
 
+    def _supports_vision(self) -> bool:
+        """Check if the configured LLM supports vision/multimodal input."""
+        try:
+            return litellm.supports_vision(self.llm.model)
+        except Exception:
+            return False
+
     def _has_bash_for_file_access(self) -> bool:
         """Check if bash toolset is available for reading saved tool result files."""
         for toolset in self.tool_executor.enabled_toolsets:
@@ -290,7 +298,8 @@ class ToolCallingLLM:
                 }
 
             tool_call_message = tool_result.to_llm_message(
-                extra_metadata=extra_metadata
+                extra_metadata=extra_metadata,
+                supports_vision=self._supports_vision(),
             )
 
             # It is expected that the tool call result directly follows the tool call request from the LLM
@@ -960,7 +969,7 @@ class ToolCallingLLM:
 
                             tool_calls.append(tool_result_dict)
                             all_tool_calls.append(tool_result_dict)
-                            messages.append(tool_call_result.to_llm_message())
+                            messages.append(tool_call_result.to_llm_message(supports_vision=self._supports_vision()))
 
                             yield StreamMessage(
                                 event=StreamEvents.TOOL_RESULT,

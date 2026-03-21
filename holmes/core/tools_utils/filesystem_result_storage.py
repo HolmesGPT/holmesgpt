@@ -90,7 +90,13 @@ def save_images(
     for i, img in enumerate(images):
         try:
             mime_type = img.get("mimeType", "image/png")
-            ext = MIME_TO_EXT.get(mime_type, ".png")
+            ext = MIME_TO_EXT.get(mime_type)
+            if not ext:
+                logging.warning(
+                    f"Skipping unsupported image MIME type '{mime_type}' for tool {tool_name} "
+                    f"(supported: {', '.join(MIME_TO_EXT.keys())})"
+                )
+                continue
             file_path = tool_results_dir / f"{safe_name}_{safe_id}_img{i}{ext}"
             image_bytes = base64.b64decode(img["data"])
             file_path.write_bytes(image_bytes)

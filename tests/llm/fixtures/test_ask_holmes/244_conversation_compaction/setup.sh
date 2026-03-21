@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-NAMESPACE="app-161"
+NAMESPACE="app-244"
 
 echo "Creating namespace $NAMESPACE..."
 kubectl create namespace $NAMESPACE || true
