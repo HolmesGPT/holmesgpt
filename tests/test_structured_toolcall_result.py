@@ -3,6 +3,7 @@ import json
 import pytest
 from pydantic import BaseModel
 
+from holmes.core.conversations import truncate_tool_messages
 from holmes.core.models import ToolCallResult, format_tool_result_data
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
@@ -330,8 +331,6 @@ def test_to_llm_message_with_images():
 
 def test_truncate_tool_messages_string_content():
     """truncate_tool_messages truncates string content normally."""
-    from holmes.core.conversations import truncate_tool_messages
-
     history = [{"role": "tool", "content": "a" * 100}]
     truncate_tool_messages(history, 10)
     assert history[0]["content"] == "a" * 10
@@ -339,8 +338,6 @@ def test_truncate_tool_messages_string_content():
 
 def test_truncate_tool_messages_list_content_preserves_images():
     """truncate_tool_messages truncates only the text block in multimodal content."""
-    from holmes.core.conversations import truncate_tool_messages
-
     history = [
         {
             "role": "tool",
