@@ -31,8 +31,11 @@ function parseRunHistory(body) {
   const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g;
   let match;
   while ((match = historyRegex.exec(body)) !== null) {
+    // Strip existing run number prefix (e.g., "#3 · ") to avoid double-numbering on re-render
+    let summary = match[1].trim();
+    summary = summary.replace(/^#\d+\s*·\s*/, '');
     runs.push({
-      summary: match[1].trim(),
+      summary: summary,
       content: match[2].trim()
     });
   }
@@ -62,7 +65,8 @@ function extractCurrentRun(body) {
   }
 
   // Find the header line (## ✅ Results... or ## ⏳ HolmesGPT evals running...)
-  const headerMatch = cleanBody.match(/^(## [^\n]+)/);
+  // Use multiline flag since content may start with hidden HTML comments (e.g., eval-timestamp)
+  const headerMatch = cleanBody.match(/^(## [^\n]+)/m);
   if (!headerMatch) return null;
 
   const header = headerMatch[1];
@@ -100,13 +104,29 @@ function extractCurrentRun(body) {
   const runUrlMatch = currentSection.match(/\[View workflow logs\]\(([^)]+)\)/);
   const runUrl = runUrlMatch ? runUrlMatch[1] : '';
 
+  // Extract embedded timestamp if available
+  const timestampMatch = currentSection.match(/<!-- eval-timestamp: (\S+) -->/);
+  const evalTimestamp = timestampMatch ? timestampMatch[1] : '';
+
+  // Format date for display (e.g., "Mar 21, 14:32 UTC")
+  let dateStr = '';
+  if (evalTimestamp) {
+    try {
+      const d = new Date(evalTimestamp);
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      dateStr = `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')} UTC`;
+    } catch (e) {
+      // ignore parse errors
+    }
+  }
+
   // Build a descriptive summary with trigger info
   let summary = 'Previous Run';
   if (trigger) {
     // Extract commit and branch info from trigger like "commit abc1234 on branch `feature`"
     const commitMatch = trigger.match(/commit ([a-f0-9]+)/);
     const commit = commitMatch ? commitMatch[1] : '';
-    summary = commit ? `Run @ ${commit}` : `Run: ${trigger.substring(0, 50)}`;
+    summary = commit ? `Run @ __${commit}__` : `Run: ${trigger.substring(0, 50)}`;
   }
   if (runUrl) {
     // Extract run ID from URL for reference
@@ -114,6 +134,9 @@ function extractCurrentRun(body) {
     if (runIdMatch) {
       summary += ` (#${runIdMatch[1]})`;
     }
+  }
+  if (dateStr) {
+    summary += ` — ${dateStr}`;
   }
 
   // Build content for when this run becomes collapsed
@@ -149,9 +172,13 @@ function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHi
   if (runsToShow.length > 0) {
     historySection = '## 📂 Previous Runs\n\n';
 
-    for (const run of runsToShow) {
+    for (let i = 0; i < runsToShow.length; i++) {
+      const run = runsToShow[i];
+      // Number runs: most recent = N, oldest = 1 (descending, newest first)
+      const runNumber = runsToShow.length - i;
+      const numberedSummary = `#${runNumber} · ${run.summary}`;
       // Use END_HISTORY_RUN marker to properly delimit content (handles nested <details> tags in reports)
-      const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
+      const historyEntry = `<details>\n<summary>📜 ${numberedSummary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
 
       // Check if adding this entry would exceed the limit
       const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length;
@@ -248,7 +275,10 @@ function renderParamsTable(p, context = null) {
  * @returns {string} Markdown body
  */
 function buildBody(p, progressSteps, extras = {}) {
-  let body = p.isManual
+  // Embed timestamp as hidden comment for history display
+  const timestamp = new Date().toISOString();
+  let body = `<!-- eval-timestamp: ${timestamp} -->\n`;
+  body += p.isManual
     ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
       renderParamsTable(p, extras.context)
     : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
