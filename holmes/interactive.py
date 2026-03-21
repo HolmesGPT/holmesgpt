@@ -1,3 +1,4 @@
+import contextvars
 import logging
 import os
 import re
@@ -1526,7 +1527,10 @@ def run_interactive_loop(
                     except Exception as exc:  # noqa: BLE001
                         _call_error[0] = exc
 
-                ai_thread = threading.Thread(target=_run_ai_call, daemon=True)
+                # Copy context so Braintrust's current_span ContextVar propagates to the thread,
+                # otherwise ChatCompletionWrapper spans won't nest under the trace span.
+                ctx = contextvars.copy_context()
+                ai_thread = threading.Thread(target=ctx.run, args=(_run_ai_call,), daemon=True)
                 ai_thread.start()
 
                 interrupted = _wait_for_completion_or_escape(
