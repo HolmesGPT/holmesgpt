@@ -2,9 +2,9 @@ before_test: |
   bash setup.sh
 
 after_test: |
-  kubectl delete namespace app-161 --wait=false || true
+  kubectl delete namespace app-244 --wait=false || true
 
-user_prompt: "Now tell me which pod has the LEAST CPU usage in the app-161 namespace?"
+user_prompt: "Now tell me which pod has the LEAST CPU usage in the app-244 namespace?"
 
 expected_output:
   - Must mention "analytics-worker" as the pod with least CPU

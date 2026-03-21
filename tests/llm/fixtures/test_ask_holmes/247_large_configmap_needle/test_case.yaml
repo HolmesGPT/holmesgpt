@@ -1,4 +1,4 @@
-user_prompt: "In namespace app-212, there is a ConfigMap called platform-config with a data key 'platform-config.yaml'. That YAML has a top-level 'services' map where each service has a 'database.connection_string' field. What is the exact database connection_string for the 'payment-gateway' service?"
+user_prompt: "In namespace app-247, there is a ConfigMap called platform-config with a data key 'platform-config.yaml'. That YAML has a top-level 'services' map where each service has a 'database.connection_string' field. What is the exact database connection_string for the 'payment-gateway' service?"
 
 expected_output:
   - "Must report the exact database connection string: postgresql://admin@db-pmt-7k3m9x.internal.svc:5432/transactions_v2"
@@ -12,19 +12,19 @@ tags:
 
 before_test: |
   set -e
-  kubectl create namespace app-212 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-247 --dry-run=client -o yaml | kubectl apply -f -
 
   python3 generate_configs.py /tmp/holmesgpt-test-212-platform-config.yaml
 
-  kubectl delete configmap platform-config -n app-212 --ignore-not-found
+  kubectl delete configmap platform-config -n app-247 --ignore-not-found
   kubectl create configmap platform-config \
     --from-file=platform-config.yaml=/tmp/holmesgpt-test-212-platform-config.yaml \
-    -n app-212
+    -n app-247
 
   # Verify needle is present (retry loop for eventual consistency)
   VERIFIED=false
   for i in $(seq 1 30); do
-    if kubectl get configmap platform-config -n app-212 -o jsonpath='{.data.platform-config\.yaml}' 2>/dev/null | grep -q '7k3m9x'; then
+    if kubectl get configmap platform-config -n app-247 -o jsonpath='{.data.platform-config\.yaml}' 2>/dev/null | grep -q '7k3m9x'; then
       echo "Needle verified on attempt $i"
       VERIFIED=true
       break
@@ -43,5 +43,5 @@ before_test: |
 include_tool_calls: true
 
 after_test: |
-  kubectl delete namespace app-212 --ignore-not-found
+  kubectl delete namespace app-247 --ignore-not-found
   rm -f /tmp/holmesgpt-test-212-platform-config.yaml

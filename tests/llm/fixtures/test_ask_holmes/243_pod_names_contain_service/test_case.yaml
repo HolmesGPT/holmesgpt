@@ -8,7 +8,7 @@ before_test: |
   # Wait for specific readiness probe failure event
   PROBE_FAILED=false
   for i in {1..60}; do
-    if kubectl get events -n app-111 --field-selector involvedObject.name=search-engine-service | grep -q "Readiness probe failed"; then
+    if kubectl get events -n app-243 --field-selector involvedObject.name=search-engine-service | grep -q "Readiness probe failed"; then
       echo "✅ Readiness probe failure detected"
       PROBE_FAILED=true
       break
@@ -18,8 +18,8 @@ before_test: |
   
   if [ "$PROBE_FAILED" = false ]; then
     echo "❌ Readiness probe failure not detected"
-    kubectl describe pod search-engine-service -n app-111  # Diagnostic info
-    kubectl get events -n app-111  # Show all events for debugging
+    kubectl describe pod search-engine-service -n app-243  # Diagnostic info
+    kubectl get events -n app-243  # Show all events for debugging
     exit 1  # CRITICAL: Fail the test early
   fi
 after_test: |

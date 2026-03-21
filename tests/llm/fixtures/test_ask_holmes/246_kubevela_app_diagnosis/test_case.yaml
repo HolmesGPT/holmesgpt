@@ -1,5 +1,5 @@
 # Test that Holmes can diagnose KubeVela application deployment issues
-user_prompt: "My payment-service application in the app-212 namespace is not working properly. What's wrong with it and what components does it have?"
+user_prompt: "My payment-service application in the app-246 namespace is not working properly. What's wrong with it and what components does it have?"
 
 expected_output:
   - "Must identify that the payment-service application exists"
@@ -16,7 +16,7 @@ include_tool_calls: true
 before_test: |
   set -e
 
-  NAMESPACE="app-212"
+  NAMESPACE="app-246"
   APP_NAME="payment-service"
 
   echo "Creating namespace $NAMESPACE..."
@@ -118,5 +118,5 @@ before_test: |
   echo "Test setup completed - application deployed with intentional issue"
 
 after_test: |
-  kubectl delete application payment-service -n app-212 || true
-  kubectl delete namespace app-212 || true
+  kubectl delete application payment-service -n app-246 || true
+  kubectl delete namespace app-246 || true

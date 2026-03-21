@@ -4,7 +4,7 @@
 # by using the source parameter to exclude unnecessary large fields.
 #
 # Setup:
-# - Multiple traces in app-195-apm-traces index
+# - Multiple traces in app-245-apm-traces index
 # - One error trace (TRACE-ERR-X9K2M) with legitimately large fields:
 #   - http.request.body: 10KB+ JSON payload
 #   - http.response.body: 10KB+ error HTML
@@ -47,11 +47,11 @@ before_test: |
   echo "Creating APM traces index with large payload fields..."
 
   # Clean up any existing test data
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-195-apm-traces" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-245-apm-traces" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   # Create index with APM trace mapping
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-195-apm-traces" \
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-245-apm-traces" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"parent_span_id":{"type":"keyword"},"service":{"type":"keyword"},"operation":{"type":"keyword"},"duration_ms":{"type":"integer"},"http.method":{"type":"keyword"},"http.status_code":{"type":"integer"},"http.request.body":{"type":"text"},"http.response.body":{"type":"text"},"error.type":{"type":"keyword"},"error.message":{"type":"text"},"error.stack_trace":{"type":"text"}}}}')
@@ -71,11 +71,11 @@ before_test: |
     TRACE_ID="TRACE-OK-$((10000 + RANDOM % 90000))"
 
     # API Gateway span
-    echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 245, \"http.method\": \"POST\", \"http.status_code\": 200}" >> "$BULK_FILE"
 
     # Payment service span
-    echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00.050Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-pay-${i}\", \"parent_span_id\": \"span-gw-${i}\", \"service\": \"payment-service\", \"operation\": \"process_payment\", \"duration_ms\": 180, \"http.status_code\": 200}" >> "$BULK_FILE"
   done
 
@@ -113,11 +113,11 @@ before_test: |
   STACK_TRACE="${STACK_TRACE}\\nConnectionTimeout: Authentication service did not respond within 5.0 seconds"
 
   # API Gateway - received request (NO large fields here)
-  echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:15:00Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-gw-err\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 5234, \"http.method\": \"POST\", \"http.status_code\": 503}" >> "$BULK_FILE"
 
   # Payment Gateway - THE ERROR with HUGE fields
-  echo "{\"index\": {\"_index\": \"app-195-apm-traces\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:15:00.050Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-pay-err\", \"parent_span_id\": \"span-gw-err\", \"service\": \"payment-gateway\", \"operation\": \"authenticate_payment\", \"duration_ms\": 5180, \"http.status_code\": 503, \"http.request.body\": \"${REQUEST_BODY}\", \"http.response.body\": \"${RESPONSE_BODY}\", \"error.type\": \"ConnectionTimeout\", \"error.message\": \"Authentication service timeout - error code AUTH-4729\", \"error.stack_trace\": \"${STACK_TRACE}\"}" >> "$BULK_FILE"
 
   DOC_COUNT=$(grep -c '\"index\"' "$BULK_FILE")
@@ -141,14 +141,14 @@ before_test: |
   rm -f "$BULK_FILE"
 
   # Refresh index
-  curl -sf -X POST "${ELASTICSEARCH_URL}/app-195-apm-traces/_refresh" \
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-245-apm-traces/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
 
   sleep 2
 
   # Verify the error trace exists and has large fields
   echo "Verifying error trace with large fields..."
-  VERIFY=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-195-apm-traces/_search" \
+  VERIFY=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-245-apm-traces/_search" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -169,7 +169,7 @@ before_test: |
 
 after_test: |
   echo "Cleaning up test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-195-apm-traces" \
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-245-apm-traces" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
 
   rm -f /tmp/es_trace_195_*.ndjson
