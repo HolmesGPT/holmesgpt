@@ -1860,13 +1860,6 @@ class TestStdio:
         assert content[1]["type"] == "image_url"
         assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
-        # Verify truncation preserves images
-        from holmes.core.conversations import truncate_tool_messages
-
-        truncate_tool_messages([message], 50)
-        # Image block must survive truncation
-        image_blocks = [b for b in message["content"] if b.get("type") == "image_url"]
-        assert len(image_blocks) == 1
 
 
 class TestHeaderRendering:

@@ -1,6 +1,6 @@
 # Context Management
 
-HolmesGPT uses three mechanisms to keep conversations within the LLM's context window.
+HolmesGPT uses two mechanisms to keep conversations within the LLM's context window.
 They run at different points in the pipeline and serve different purposes.
 
 ## 1. Single Tool Result Spill-to-Disk
@@ -41,22 +41,6 @@ They run at different points in the pipeline and serve different purposes.
 
 **Scope:** The entire conversation history. Uses an LLM call (costs tokens/money).
 
-## 3. Chat Message Tool Truncation
-
-**Function:** `truncate_tool_messages()` called within `build_chat_messages()` in `holmes/core/conversations.py`
-
-**When:** During message construction for new chat turns. Used by the server `/api/chat` endpoint, CLI interactive mode (`holmes ask --interactive`), AG-UI server, and LLM eval tests.
-
-**What it does:**
-
-- Counts the number of tool messages in conversation history.
-- Calculates a per-tool character budget: `(context_window - non_tool_tokens - max_output) / num_tools`, capped at 10,000 chars.
-- Truncates each tool message's text content to that budget (preserves image blocks in multimodal content).
-
-**Called from:** `build_chat_messages()` in `conversations.py`.
-
-**Scope:** All tool messages in the conversation history. Simple character truncation, no LLM call.
-
 ## How They Interact
 
 ```
@@ -79,10 +63,7 @@ Tool result added to conversation
 LLM called with messages
 ```
 
-Mechanism 3 (chat message truncation) runs only in the **chat path** — when `build_chat_messages()` constructs messages from an incoming request with conversation history. It is a simpler fallback for the chat/conversation flow and does not replace compaction in the agentic loop.
-
 In practice:
 
 - Mechanism 1 prevents any single tool from blowing up the context.
 - Mechanism 2 prevents the cumulative conversation from growing unbounded.
-- Mechanism 3 handles legacy tool messages in conversation history passed by the client.

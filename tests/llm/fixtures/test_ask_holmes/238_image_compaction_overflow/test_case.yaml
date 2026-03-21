@@ -27,6 +27,7 @@ test_type: server
 
 tags:
   - compaction
+  - context_window
   - mcp
   - images
   - fast

@@ -9,6 +9,7 @@ user_prompt: |
 
 expected_output:
   - "Must report the verification code from the image: IMGVERIFY-7Q3X9P"
+  - "Must have called read_image_file tool to load the spilled image from disk"
 
 include_tool_calls: true
 

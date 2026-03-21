@@ -22,5 +22,6 @@ test_type: server
 tags:
   - kubernetes
   - compaction
+  - context_window
 
 setup_timeout: 600

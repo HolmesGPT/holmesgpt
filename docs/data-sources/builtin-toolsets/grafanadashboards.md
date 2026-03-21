@@ -61,17 +61,44 @@ When the Grafana Image Renderer is available, HolmesGPT can take screenshots of 
 
 The LLM controls all rendering parameters — time range, dimensions, theme, timezone, and template variables — so it can zoom in on specific time windows or adjust the view as needed during investigation.
 
-Rendering is **disabled by default**. To enable it:
+Rendering is **disabled by default**. To enable it, add `enable_rendering: true` to your config:
 
-```yaml
-toolsets:
-  grafana/dashboards:
-    enabled: true
-    config:
-      api_url: <your grafana url>
-      api_key: <your api key>
-      enable_rendering: true
-```
+=== "Holmes CLI"
+
+    ```yaml
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: <your grafana url>
+          api_key: <your api key>
+          enable_rendering: true
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: <your grafana url>
+          api_key: <your api key>
+          enable_rendering: true
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        grafana/dashboards:
+          enabled: true
+          config:
+            api_url: <your grafana url>
+            api_key: <your api key>
+            enable_rendering: true
+    ```
 
 When rendering a full dashboard, HolmesGPT captures the entire page (all rows) so that panels at the bottom are not cropped.
 
@@ -81,29 +108,83 @@ When rendering a full dashboard, HolmesGPT captures the entire page (all rows) s
 
 For self-signed certificates, you can disable SSL verification:
 
-```yaml
-toolsets:
-  grafana/dashboards:
-    enabled: true
-    config:
-      api_url: https://grafana.internal
-      api_key: <your api key>
-      verify_ssl: false  # Disable SSL verification (default: true)
-```
+=== "Holmes CLI"
+
+    ```yaml
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: https://grafana.internal
+          api_key: <your api key>
+          verify_ssl: false  # Disable SSL verification (default: true)
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: https://grafana.internal
+          api_key: <your api key>
+          verify_ssl: false
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        grafana/dashboards:
+          enabled: true
+          config:
+            api_url: https://grafana.internal
+            api_key: <your api key>
+            verify_ssl: false
+    ```
 
 ### External URL
 
 If HolmesGPT accesses Grafana through an internal URL but you want clickable links in results to use a different URL:
 
-```yaml
-toolsets:
-  grafana/dashboards:
-    enabled: true
-    config:
-      api_url: http://grafana.internal:3000  # Internal URL for API calls
-      external_url: https://grafana.example.com  # URL for links in results
-      api_key: <your api key>
-```
+=== "Holmes CLI"
+
+    ```yaml
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: http://grafana.internal:3000  # Internal URL for API calls
+          external_url: https://grafana.example.com  # URL for links in results
+          api_key: <your api key>
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: http://grafana.internal:3000
+          external_url: https://grafana.example.com
+          api_key: <your api key>
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      toolsets:
+        grafana/dashboards:
+          enabled: true
+          config:
+            api_url: http://grafana.internal:3000
+            external_url: https://grafana.example.com
+            api_key: <your api key>
+    ```
 
 ## Common Use Cases
 

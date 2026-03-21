@@ -8,9 +8,11 @@
 #
 # Requirements:
 #   CONFLUENCE_BASE_URL - Atlassian instance URL (e.g. https://robusta-llm-test.atlassian.net)
-#   CONFLUENCE_SA_USER - Service account email
-#   CONFLUENCE_SA_API_KEY - Service account API token
-#   CONFLUENCE_SA_BASE_URL - API gateway URL (auto-derived by conftest.py)
+#   CONFLUENCE_USER - Email/username for Confluence (personal API key)
+#   CONFLUENCE_API_KEY - Atlassian API token (personal API key)
+#   CONFLUENCE_SA_USER - Service account email (used only for setup)
+#   CONFLUENCE_SA_API_KEY - Service account API token (used only for setup)
+#   CONFLUENCE_SA_BASE_URL - API gateway URL (used only for setup, auto-derived by conftest.py)
 #
 # Reentrancy: This test is fully idempotent. The space, page, and attachment
 # use static names and are created-or-reused on each run. after_test is a no-op

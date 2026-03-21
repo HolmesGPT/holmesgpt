@@ -156,8 +156,8 @@ def test_strip_images_for_compaction_preserves_non_image_messages():
     assert result[3]["content"] == "I see a spike in the CPU panel."
 
 
-def test_strip_images_includes_disk_paths_when_present():
-    """When text mentions saved image paths, the placeholder includes them."""
+def test_strip_images_with_disk_paths_in_text():
+    """When text mentions saved image paths, the text is preserved and images stripped."""
     messages = [
         {
             "role": "tool",
@@ -171,9 +171,12 @@ def test_strip_images_includes_disk_paths_when_present():
         }
     ]
     result = _strip_images_for_compaction(messages)
+    # Text block with disk paths is preserved
+    assert result[0]["content"][0]["text"].startswith("Images saved to disk")
+    # Image block is stripped and placeholder added
     placeholder = result[0]["content"][-1]["text"]
-    assert "/tmp/results/grafana_render_abc_img0.png" in placeholder
-    assert "saved on disk" in placeholder
+    assert "1 image(s)" in placeholder
+    assert "stripped" in placeholder
 
 
 def test_count_image_tokens_no_images():
