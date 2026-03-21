@@ -6,7 +6,6 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
-import litellm
 import sentry_sdk
 from openai import BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
@@ -18,6 +17,7 @@ from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
+    load_bool,
 )
 from holmes.core.llm import LLM
 from holmes.core.llm_usage import RequestStats
@@ -181,22 +181,11 @@ class ToolCallingLLM:
         self._runbook_in_use = False
 
     def _supports_vision(self) -> bool:
-        """Check if the configured LLM supports vision/multimodal input.
+        """Check if vision/multimodal input is enabled.
 
-        Defaults to True for unrecognized models (e.g. robusta gateway, custom proxies)
-        since most modern LLMs support vision and silently dropping images is worse than
-        sending them to a model that doesn't support it (which gives a clear API error).
+        Always True unless explicitly disabled via HOLMES_DISABLE_VISION=true.
         """
-        try:
-            model_info = litellm.get_model_info(self.llm.model)
-            vision = model_info.get("supports_vision")
-            # Only return False if litellm explicitly sets supports_vision=False.
-            # None means unknown — default to True (better to get a clear API error
-            # than silently drop images).
-            return vision is not False
-        except Exception:
-            # Unknown model (custom gateway, proxy, etc.) — assume vision support
-            return True
+        return not load_bool("HOLMES_DISABLE_VISION", False)
 
     def _has_bash_for_file_access(self) -> bool:
         """Check if bash toolset is available for reading saved tool result files."""
