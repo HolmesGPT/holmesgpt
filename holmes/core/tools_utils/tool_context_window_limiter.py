@@ -67,6 +67,8 @@ def spill_oversized_tool_result(
             content=filesystem_data,
             is_json=is_json,
         )
+
+    if file_path:
         # Save images to disk so the LLM can read them back via read_image_file
         if tool_call_result.result.images:
             image_paths = save_images(
@@ -75,8 +77,6 @@ def spill_oversized_tool_result(
                 tool_call_id=tool_call_result.tool_call_id,
                 images=tool_call_result.result.images,
             )
-
-    if file_path:
         boilerplate = (
             f"{size_info}\n"
             f"Saved to: {file_path}\n"
