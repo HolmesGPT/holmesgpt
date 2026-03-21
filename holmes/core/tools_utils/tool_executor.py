@@ -8,7 +8,6 @@ from holmes.core.tools import (
     Toolset,
     ToolsetStatusEnum,
 )
-from holmes.core.tools_utils.toolset_utils import filter_out_default_logging_toolset
 
 
 class ToolExecutor:
@@ -16,16 +15,9 @@ class ToolExecutor:
         # TODO: expose function for this instead of callers accessing directly
         self.toolsets = toolsets
 
-        enabled_toolsets: list[Toolset] = list(
-            filter(
-                lambda toolset: toolset.status == ToolsetStatusEnum.ENABLED,
-                toolsets,
-            )
-        )
-
-        self.enabled_toolsets: list[Toolset] = filter_out_default_logging_toolset(
-            enabled_toolsets
-        )
+        self.enabled_toolsets: list[Toolset] = [
+            ts for ts in toolsets if ts.status == ToolsetStatusEnum.ENABLED
+        ]
 
         toolsets_by_name: dict[str, Toolset] = {}
         for ts in self.enabled_toolsets:

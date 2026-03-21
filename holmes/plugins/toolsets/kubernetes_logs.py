@@ -3,7 +3,7 @@ import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -12,13 +12,12 @@ from holmes.core.tools import (
     StaticPrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
+    Toolset,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_TIME_SPAN_SECONDS,
-    BasePodLoggingToolset,
     FetchPodLogsParams,
-    LoggingCapability,
     PodLoggingTool,
 )
 from holmes.plugins.toolsets.utils import process_timestamps_to_int, to_unix_ms
@@ -46,16 +45,8 @@ class LogResult(BaseModel):
     logs: list[StructuredLog]
 
 
-class KubernetesLogsToolset(BasePodLoggingToolset):
-    """Implementation of the unified logging API for Kubernetes logs using kubectl commands"""
-
-    @property
-    def supported_capabilities(self) -> Set[LoggingCapability]:
-        """Kubernetes native logging supports regex and exclude filters"""
-        return {
-            LoggingCapability.REGEX_FILTER,
-            LoggingCapability.EXCLUDE_FILTER,
-        }
+class KubernetesLogsToolset(Toolset):
+    """Kubernetes pod log fetching using kubectl commands"""
 
     def __init__(self):
         prerequisite = StaticPrerequisite(enabled=False, disabled_reason="Initializing")

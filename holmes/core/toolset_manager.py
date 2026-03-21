@@ -131,7 +131,7 @@ class ToolsetManager:
 
         if enable_all_toolsets:
             for toolset in toolsets_by_name.values():
-                if toolset.should_auto_enable():
+                if not toolset.missing_config:
                     toolset.enabled = True
                 else:
                     logging.debug(
