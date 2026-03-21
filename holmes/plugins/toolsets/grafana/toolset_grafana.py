@@ -89,19 +89,15 @@ class GrafanaToolset(BaseGrafanaToolset):
         )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
+        # Base class validates config and calls health_check()
         ok, msg = super().prerequisites_callable(config)
         if not ok:
             return ok, msg
 
-        try:
-            ok, msg = self.health_check()
-            if ok:
-                # After base health check passes, conditionally add render tools
-                if self.grafana_config.enable_rendering:
-                    self._try_add_render_tools()
-            return ok, msg
-        except Exception as e:
-            return False, f"Failed to connect to Grafana: {str(e)}"
+        # After health check passes, conditionally add render tools
+        if self.grafana_config.enable_rendering:
+            self._try_add_render_tools()
+        return ok, msg
 
     def _try_add_render_tools(self) -> None:
         """Check if Grafana Image Renderer is available and add render tools."""
@@ -161,8 +157,8 @@ class GrafanaToolset(BaseGrafanaToolset):
                 )
 
         if renderer_detected:
-            self._tools.append(RenderPanel(self))
-            self._tools.append(RenderDashboard(self))
+            self.tools.append(RenderPanel(self))
+            self.tools.append(RenderDashboard(self))
 
     def health_check(self) -> Tuple[bool, str]:
         """Test connectivity by invoking GetDashboardTags tool."""
