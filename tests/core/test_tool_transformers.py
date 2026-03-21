@@ -198,8 +198,6 @@ class TestToolValidationIntegration:
 
     def test_tool_validation_clears_invalid_transforms(self):
         """Test tool creation with invalid transformers logs warning but continues."""
-        # Note: Tool.__init__ validates transformers during instantiation
-        # Invalid transformers will cause validation to fail during model creation
 
         class ConcreteTestTool(Tool):
             def _invoke(
@@ -213,20 +211,21 @@ class TestToolValidationIntegration:
             def get_parameterized_one_liner(self, params: Dict) -> str:
                 return "test command"
 
-        # Test creating tool with invalid transformers logs warnings but continues
         invalid_transforms = [
             Transformer(name="nonexistent_transformer", config={}),
             Transformer(name="mock_transformer", config={}),  # This one should succeed
         ]
 
-        with patch("holmes.core.tools.logger.warning") as mock_logger_warning:
-            tool = ConcreteTestTool(
-                name="test_tool",
-                description="Test tool",
-                transformers=invalid_transforms,
-            )
+        tool = ConcreteTestTool(
+            name="test_tool",
+            description="Test tool",
+            transformers=invalid_transforms,
+        )
 
-            # Verify that warning was logged for invalid transformer
+        # Lazy init happens on first access — warnings logged then
+        with patch("holmes.core.tools.logger.warning") as mock_logger_warning:
+            instances = tool.transformer_instances
+
             mock_logger_warning.assert_called()
             warning_calls = [
                 call
@@ -235,7 +234,11 @@ class TestToolValidationIntegration:
             ]
             assert len(warning_calls) > 0
 
-        # Tool should still work despite invalid transformer
+        # Only the valid transformer should be instantiated
+        assert len(instances) == 1
+        assert instances[0].name == "mock_transformer"
+
+        # Tool should still work
         context = create_mock_tool_invoke_context()
         result = tool.invoke({}, context)
         assert result.status == StructuredToolResultStatus.SUCCESS
@@ -686,8 +689,8 @@ class TestTransformerCachingOptimization:
         if registry.is_registered("mock_transformer"):
             registry.unregister("mock_transformer")
 
-    def test_transformer_instances_cached_during_initialization(self):
-        """Test that transformer instances are created once during tool initialization and cached."""
+    def test_transformer_instances_created_lazily(self):
+        """Test that transformer instances are created lazily on first access."""
         transformers = [Transformer(name="mock_transformer", config={})]
 
         class ConcreteTestTool(Tool):
@@ -702,20 +705,19 @@ class TestTransformerCachingOptimization:
             def get_parameterized_one_liner(self, params: Dict) -> str:
                 return "test command"
 
-        # Create tool - this should trigger model_post_init and cache transformers
         tool = ConcreteTestTool(
             name="test_tool", description="Test tool", transformers=transformers
         )
 
-        # Verify that transformer instances are cached
-        assert tool._transformer_instances is not None
-        assert len(tool._transformer_instances) == 1
-        assert tool._transformer_instances[0].name == "mock_transformer"
+        # Before first access, private field is None (lazy)
+        assert tool._transformer_instances is None
 
-        # Verify the cached instance is a real transformer, not a config
-        cached_transformer = tool._transformer_instances[0]
-        assert hasattr(cached_transformer, "transform")
-        assert hasattr(cached_transformer, "should_apply")
+        # Accessing the property triggers creation
+        instances = tool.transformer_instances
+        assert len(instances) == 1
+        assert instances[0].name == "mock_transformer"
+        assert hasattr(instances[0], "transform")
+        assert hasattr(instances[0], "should_apply")
 
     def test_transformer_instances_reused_across_multiple_calls(self):
         """Test that the same transformer instances are reused across multiple tool invocations."""
@@ -737,21 +739,21 @@ class TestTransformerCachingOptimization:
             name="test_tool", description="Test tool", transformers=transformers
         )
 
-        # Get reference to cached transformer instance
-        initial_transformer = tool._transformer_instances[0]
-        initial_id = id(initial_transformer)
-
-        # Invoke the tool multiple times
+        # First invocation triggers lazy init
         context = create_mock_tool_invoke_context()
         result1 = tool.invoke({}, context)
+
+        # Capture instance identity after first call
+        initial_transformer = tool.transformer_instances[0]
+        initial_id = id(initial_transformer)
+
         result2 = tool.invoke({}, context)
         result3 = tool.invoke({}, context)
 
-        # Verify that the same transformer instance is still cached
-        assert tool._transformer_instances[0] is initial_transformer
-        assert id(tool._transformer_instances[0]) == initial_id
+        # Same instance reused
+        assert tool.transformer_instances[0] is initial_transformer
+        assert id(tool.transformer_instances[0]) == initial_id
 
-        # Verify transformations worked correctly
         assert "mock_transformed:" in result1.data
         assert "mock_transformed:" in result2.data
         assert "mock_transformed:" in result3.data
@@ -788,9 +790,8 @@ class TestTransformerCachingOptimization:
         assert result.data == "Test output without transformers"
 
     def test_transformer_initialization_failure_handling(self):
-        """Test graceful handling when transformer initialization fails during model_post_init."""
+        """Test graceful handling when transformer initialization fails during lazy init."""
 
-        # Create a transformer config that will fail to initialize
         transformers = [
             Transformer(name="nonexistent_transformer", config={}),
             Transformer(name="mock_transformer", config={}),  # This one should succeed
@@ -808,13 +809,14 @@ class TestTransformerCachingOptimization:
             def get_parameterized_one_liner(self, params: Dict) -> str:
                 return "test command"
 
-        # Create tool - initialization should handle the failure gracefully
-        with patch("holmes.core.tools.logger.warning") as mock_logger_warning:
-            tool = ConcreteTestTool(
-                name="test_tool", description="Test tool", transformers=transformers
-            )
+        tool = ConcreteTestTool(
+            name="test_tool", description="Test tool", transformers=transformers
+        )
 
-            # Verify that warning was logged for failed transformer
+        # Lazy init on first access
+        with patch("holmes.core.tools.logger.warning") as mock_logger_warning:
+            instances = tool.transformer_instances
+
             mock_logger_warning.assert_called()
             warning_calls = [
                 call
@@ -823,12 +825,11 @@ class TestTransformerCachingOptimization:
             ]
             assert len(warning_calls) > 0
 
-        # Verify that only the successful transformer was cached
-        assert tool._transformer_instances is not None
-        assert len(tool._transformer_instances) == 1
-        assert tool._transformer_instances[0].name == "mock_transformer"
+        # Only the successful transformer should be instantiated
+        assert len(instances) == 1
+        assert instances[0].name == "mock_transformer"
 
-        # Verify tool still works with the successful transformer
+        # Tool still works with the successful transformer
         context = create_mock_tool_invoke_context()
         result = tool.invoke({}, context)
         assert result.status == StructuredToolResultStatus.SUCCESS
@@ -864,7 +865,7 @@ class TestTransformerCachingOptimization:
         assert result.data == "Test output"
 
     def test_performance_optimization_prevents_recreation(self):
-        """Test that transformers are not recreated on each tool call."""
+        """Test that transformers are created once (lazily) and not recreated on each call."""
         transformers = [Transformer(name="mock_transformer", config={})]
 
         class ConcreteTestTool(Tool):
@@ -883,16 +884,15 @@ class TestTransformerCachingOptimization:
             name="test_tool", description="Test tool", transformers=transformers
         )
 
-        # Mock the registry.create_transformer to track calls
         with patch.object(
             registry, "create_transformer", wraps=registry.create_transformer
         ) as mock_create:
-            # Invoke the tool multiple times
             context = create_mock_tool_invoke_context()
+            # First call triggers lazy init → one create_transformer call
             tool.invoke({}, context)
-            tool.invoke({}, context)
-            tool.invoke({}, context)
+            assert mock_create.call_count == 1
 
-            # create_transformer should NOT be called during tool invocation
-            # It should only be called during initialization (which happened before this patch)
-            mock_create.assert_not_called()
+            # Subsequent calls reuse cached instances
+            tool.invoke({}, context)
+            tool.invoke({}, context)
+            assert mock_create.call_count == 1  # Still just 1

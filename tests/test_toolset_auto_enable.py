@@ -73,15 +73,23 @@ class TestHasRequiredFields:
 
 
 class TestMissingConfig:
-    def test_already_enabled(self):
-        """Toolset that is already enabled does not have missing config."""
-        toolset = _make_toolset(enabled=True, config_classes=[RequiredFieldConfig])
-        assert toolset.missing_config is False
+    def test_already_enabled_still_reports_missing(self):
+        """missing_config is a pure fact-check — enabled status doesn't affect it.
 
-    def test_is_default(self):
-        """Toolset marked as is_default does not have missing config."""
+        Policy decisions (whether to enable based on missing_config) are in
+        ToolsetRegistry.should_enable_toolset, not here.
+        """
+        toolset = _make_toolset(enabled=True, config_classes=[RequiredFieldConfig])
+        assert toolset.missing_config is True
+
+    def test_is_default_still_reports_missing(self):
+        """missing_config is a pure fact-check — is_default doesn't affect it.
+
+        In practice, no is_default=True toolset has required config classes,
+        so this case doesn't occur in production.
+        """
         toolset = _make_toolset(is_default=True, config_classes=[RequiredFieldConfig])
-        assert toolset.missing_config is False
+        assert toolset.missing_config is True
 
     def test_no_config_classes(self):
         """YAML-style toolset with no config_classes does not have missing config."""

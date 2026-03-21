@@ -81,7 +81,7 @@ class TestToolsetManagerWithoutFastModelInjection:
             ],
         )
 
-        with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:
+        with patch("holmes.core.toolset_registry._discover_builtin_toolsets") as mock_load:
             mock_load.return_value = [toolset]
             manager = ToolsetManager()
             toolsets = manager._list_all_toolsets(check_prerequisites=False)
@@ -104,7 +104,7 @@ class TestToolsetManagerWithoutFastModelInjection:
             ],
         )
 
-        with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:
+        with patch("holmes.core.toolset_registry._discover_builtin_toolsets") as mock_load:
             mock_load.return_value = [simple_toolset]
             manager = ToolsetManager()
             toolsets = manager._list_all_toolsets(check_prerequisites=False)
