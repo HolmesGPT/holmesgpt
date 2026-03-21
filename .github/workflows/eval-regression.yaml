@@ -321,6 +321,7 @@ jobs:
             }
 
             let model, markers, filter, iterations, isManual, triggerSource, prNumber, triggeredBy, branch, displayBranch;
+            let skipEval = false;
             const event = context.eventName;
 
             if (event === 'issue_comment') {
@@ -470,17 +471,25 @@ jobs:
                   .map(n => n.replace('evals-model-', ''))
                   .filter(n => modelSafe.test(n));
 
+                // evals-skip-default label: when used alone, skips the automatic regression
+                // eval entirely (runs nothing). When combined with evals-tag-* or evals-id-*
+                // labels, runs only those tags/ids without prepending 'regression'.
+                const skipDefault = labels.includes('evals-skip-default');
+
                 if (idLabels.length > 0 && tagLabels.length === 0) {
                   // Only IDs specified: broaden markers to all LLM tests, filter by ID
                   markers = '';
                   filter = idLabels.join(' or ');
                 } else if (tagLabels.length > 0 && idLabels.length === 0) {
-                  // Only tags specified: add to regression markers
-                  markers = 'regression or ' + tagLabels.join(' or ');
+                  // Only tags specified: add to regression markers (unless skip-default)
+                  markers = skipDefault ? tagLabels.join(' or ') : 'regression or ' + tagLabels.join(' or ');
                 } else if (tagLabels.length > 0 && idLabels.length > 0) {
                   // Both specified: use tag markers + ID filter
-                  markers = 'regression or ' + tagLabels.join(' or ');
+                  markers = skipDefault ? tagLabels.join(' or ') : 'regression or ' + tagLabels.join(' or ');
                   filter = idLabels.join(' or ');
+                } else if (skipDefault) {
+                  // Only skip-default, no other evals-* labels: skip eval run entirely
+                  skipEval = true;
                 }
                 // else: no evals-* labels, keep defaults (markers = 'regression')
 
@@ -501,6 +510,7 @@ jobs:
                 const evalLabels = (context.payload.pull_request.labels || [])
                   .map(l => l.name)
                   .filter(n => {
+                    if (n === 'evals-skip-default') return true;
                     if (n.startsWith('evals-model-')) {
                       const suffix = n.slice('evals-model-'.length);
                       return suffix.length > 0 && displayModelSafe.test(suffix);
@@ -542,9 +552,10 @@ jobs:
             core.setOutput('branch', branch);
             core.setOutput('display_branch', displayBranch || '');
             core.setOutput('marker_expr', markers ? `llm and (${markers})` : 'llm');
+            core.setOutput('skip_eval', skipEval.toString());
 
             // Log computed params for debugging
-            core.info(`eval-params: event=${event}, model=${model}, markers=${markers}, filter=${filter}, marker_expr=${markers ? 'llm and (' + markers + ')' : 'llm'}, pr_number=${prNumber || '<none>'}, iterations=${iterNum}`);
+            core.info(`eval-params: event=${event}, model=${model}, markers=${markers}, filter=${filter}, marker_expr=${markers ? 'llm and (' + markers + ')' : 'llm'}, skip_eval=${skipEval}, pr_number=${prNumber || '<none>'}, iterations=${iterNum}`);
             core.setOutput('run_url', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
 
             // Output all common params as JSON for DRY usage in subsequent steps
@@ -566,6 +577,12 @@ jobs:
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
         shell: bash
         run: |
+          # Skip eval if evals-skip-default label is the only eval label (no tags/ids specified)
+          if [[ "${{ steps.eval-params.outputs.skip_eval }}" == "true" ]]; then
+            echo "should-run=false" >> $GITHUB_OUTPUT
+            echo "Skipping eval: evals-skip-default label is set with no additional evals-tag-* or evals-id-* labels"
+            exit 0
+          fi
           # Check one secret as proxy for secrets access (repo has all or none)
           if [[ -n "${{ secrets.AZURE_API_KEY }}" ]]; then
             echo "should-run=true" >> $GITHUB_OUTPUT
@@ -1305,7 +1322,7 @@ jobs:
           fi
 
       - name: Post evaluation results
-        if: always() && steps.eval-params.outputs.pr_number != ''
+        if: always() && steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -1424,7 +1441,7 @@ jobs:
             });
 
       - name: Check test results
-        if: always()
+        if: always() && steps.check-tests.outputs.should-run == 'true'
         working-directory: code
         run: |
           if [[ -f "regressions.txt" ]]; then
