@@ -181,11 +181,22 @@ class ToolCallingLLM:
         self._runbook_in_use = False
 
     def _supports_vision(self) -> bool:
-        """Check if the configured LLM supports vision/multimodal input."""
+        """Check if the configured LLM supports vision/multimodal input.
+
+        Defaults to True for unrecognized models (e.g. robusta gateway, custom proxies)
+        since most modern LLMs support vision and silently dropping images is worse than
+        sending them to a model that doesn't support it (which gives a clear API error).
+        """
         try:
-            return litellm.supports_vision(self.llm.model)
+            model_info = litellm.get_model_info(self.llm.model)
+            vision = model_info.get("supports_vision")
+            # Only return False if litellm explicitly sets supports_vision=False.
+            # None means unknown — default to True (better to get a clear API error
+            # than silently drop images).
+            return vision is not False
         except Exception:
-            return False
+            # Unknown model (custom gateway, proxy, etc.) — assume vision support
+            return True
 
     def _has_bash_for_file_access(self) -> bool:
         """Check if bash toolset is available for reading saved tool result files."""
