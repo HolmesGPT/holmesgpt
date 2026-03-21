@@ -22,13 +22,44 @@ from holmes.core.tools import (
     StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
-    ToolParameter,
 )
 
 DEFAULT_NOOP_RESPONSE = "The action was performed successfully in the user's browser."
 
 
-class FrontendPauseTool(Tool):
+class _FrontendToolBase(Tool):
+    """Base for frontend tools that pass the client's raw JSON Schema through
+    to the LLM instead of going through the lossy ToolParameter pipeline.
+
+    The raw schema preserves required, enum, nested objects, arrays, anyOf,
+    etc. — everything that _parse_tool_parameters used to drop.
+    """
+
+    raw_json_schema: Optional[Dict[str, Any]] = None
+
+    def get_openai_format(self) -> Dict[str, Any]:
+        """Emit the client's raw JSON Schema directly."""
+        params_block = self.raw_json_schema or {"type": "object", "properties": {}}
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": params_block,
+            },
+        }
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return f"{self.name}({params})"
+
+    def _get_approval_requirement(self, params: Dict, context: Any) -> None:
+        return None
+
+    def _is_restricted(self) -> bool:
+        return False
+
+
+class FrontendPauseTool(_FrontendToolBase):
     """A tool that pauses the stream so the client can execute it.
 
     When invoked, returns FRONTEND_PAUSE status with the call arguments
@@ -48,17 +79,8 @@ class FrontendPauseTool(Tool):
         """Skip parent's approval/coercion/transformer logic — just return FRONTEND_PAUSE."""
         return self._invoke(params, context)
 
-    def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"{self.name}({params})"
 
-    def _get_approval_requirement(self, params: Dict, context: Any) -> None:
-        return None
-
-    def _is_restricted(self) -> bool:
-        return False
-
-
-class FrontendNoopTool(Tool):
+class FrontendNoopTool(_FrontendToolBase):
     """A tool that returns a canned response immediately without pausing.
 
     The LLM sees the tool and can call it. When it does, the server returns
@@ -80,27 +102,6 @@ class FrontendNoopTool(Tool):
         """Skip parent's approval/coercion/transformer logic — just return canned response."""
         return self._invoke(params, context)
 
-    def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"{self.name}({params})"
-
-    def _get_approval_requirement(self, params: Dict, context: Any) -> None:
-        return None
-
-    def _is_restricted(self) -> bool:
-        return False
-
-
-def _parse_tool_parameters(parameters: Optional[Dict[str, Any]]) -> Dict[str, ToolParameter]:
-    """Convert OpenAI JSON Schema parameters to Holmes ToolParameter dict."""
-    tool_params: Dict[str, ToolParameter] = {}
-    if parameters and "properties" in parameters:
-        for param_name, param_schema in parameters["properties"].items():
-            tool_params[param_name] = ToolParameter(
-                type=param_schema.get("type", "string"),
-                description=param_schema.get("description", ""),
-            )
-    return tool_params
-
 
 def build_frontend_pause_tool(
     name: str,
@@ -111,7 +112,7 @@ def build_frontend_pause_tool(
     return FrontendPauseTool(
         name=name,
         description=description,
-        parameters=_parse_tool_parameters(parameters),
+        raw_json_schema=parameters,
     )
 
 
@@ -133,6 +134,6 @@ def build_frontend_noop_tool(
     return FrontendNoopTool(
         name=name,
         description=description,
-        parameters=_parse_tool_parameters(parameters),
+        raw_json_schema=parameters,
         canned_response=canned_response or DEFAULT_NOOP_RESPONSE,
     )
