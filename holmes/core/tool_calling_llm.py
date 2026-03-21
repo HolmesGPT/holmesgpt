@@ -522,6 +522,7 @@ class ToolCallingLLM:
         tool_call_result: ToolCallResult,
         approval_possible=True,
         original_token_count=None,
+        image_count=0,
     ):
         tool_span.set_attributes(name=tool_call_result.tool_name)
         status = tool_call_result.result.status
@@ -540,17 +541,32 @@ class ToolCallingLLM:
             )
         else:
             error = None
+
+        # Include images in output if present (before spill clears them)
+        images = tool_call_result.result.images
+        if images:
+            output = {
+                "data": tool_call_result.result.data,
+                "images": [{"mimeType": img.get("mimeType", ""), "data_length": len(img.get("data", ""))} for img in images],
+            }
+        else:
+            output = tool_call_result.result.data
+
+        metadata = {
+            "status": status,
+            "description": tool_call_result.description,
+            "return_code": tool_call_result.result.return_code,
+            "error": tool_call_result.result.error,
+            "original_token_count": original_token_count,
+        }
+        if image_count > 0:
+            metadata["image_count"] = image_count
+
         tool_span.log(
             input=tool_call_result.result.params,
-            output=tool_call_result.result.data,
+            output=output,
             error=error,
-            metadata={
-                "status": status,
-                "description": tool_call_result.description,
-                "return_code": tool_call_result.result.return_code,
-                "error": tool_call_result.result.error,
-                "original_token_count": original_token_count,
-            },
+            metadata=metadata,
         )
 
     def _invoke_llm_tool_call(
@@ -625,6 +641,9 @@ class ToolCallingLLM:
                 result=tool_response,
             )
 
+            # Save image count before spill_oversized_tool_result clears them
+            image_count = len(tool_call_result.result.images) if tool_call_result.result.images else 0
+
             # See docs/reference/context-management.md for how this fits with compaction
             original_token_count = spill_oversized_tool_result(
                 tool_call_result=tool_call_result,
@@ -639,6 +658,7 @@ class ToolCallingLLM:
                 tool_call_result,
                 enable_tool_approval,
                 original_token_count,
+                image_count,
             )
             return tool_call_result
 
