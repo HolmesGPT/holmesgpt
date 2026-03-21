@@ -20,6 +20,7 @@ include_tool_calls: true
 
 tags:
   - compaction
+  - context_window
   - prometheus
   - hard
   - no-cicd

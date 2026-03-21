@@ -32,15 +32,16 @@ function slugify(text) {
 }
 
 function selectTab(targetSlug) {
-  var scrollX = window.scrollX;
-  var scrollY = window.scrollY;
   var labels = document.querySelectorAll(".tabbed-labels > label");
   labels.forEach(function (label) {
     if (slugify(label.textContent) === targetSlug) {
-      label.click();
+      var input = document.getElementById(label.getAttribute("for"));
+      if (input && !input.checked) {
+        input.checked = true;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
     }
   });
-  window.scrollTo(scrollX, scrollY);
 }
 
 document$.subscribe(function () {

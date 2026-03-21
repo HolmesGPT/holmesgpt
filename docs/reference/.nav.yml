@@ -7,4 +7,5 @@ nav:
   - HTTP API: http-api.md
   - Runbooks: runbooks.md
   - Slash Commands: slash-commands.md
+  - Context Management: context-management.md
   - Troubleshooting: troubleshooting.md

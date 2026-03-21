@@ -5,9 +5,13 @@ This toolset enables bash command execution with dynamic whitelisting.
 Commands are validated against allow/deny lists using prefix matching.
 """
 
+import base64
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional
+
+from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
 
 from holmes.core.tools import (
     ApprovalRequirement,
@@ -285,6 +289,112 @@ class RunBashCommand(Tool):
         return display_command
 
 
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+EXTENSION_TO_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+# File-size sanity check (20 MB), NOT a token budget. LLM providers downscale images
+# before tokenizing (e.g. Claude caps at ~1568px on the longest side), so a 500KB and
+# 20MB PNG with the same dimensions cost the same ~1600 tokens. The spill-to-disk
+# mechanism in tool_context_window_limiter.py handles token-level limits; this just
+# prevents accidentally reading huge binary files off disk.
+MAX_IMAGE_FILE_SIZE = 20 * 1024 * 1024
+
+
+class ReadImageFile(Tool):
+    """Tool for reading an image file from disk and returning it for visual analysis.
+
+    This is used when large tool results with images are spilled to disk.
+    The LLM receives file paths and can use this tool to load the image back.
+    """
+
+    def __init__(self, toolset: "BashExecutorToolset"):
+        super().__init__(
+            name="read_image_file",
+            description=(
+                "Read an image file from disk and return it for visual analysis. "
+                "Use this when a previous tool result was too large and its images "
+                "were saved to disk. The file path is provided in the spill message. "
+                "Supported formats: PNG, JPEG, GIF, WebP."
+            ),
+            parameters={
+                "file_path": ToolParameter(
+                    description="Absolute path to the image file on disk.",
+                    type="string",
+                    required=True,
+                ),
+            },
+            toolset=toolset,  # type: ignore[call-arg]
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        file_path_str = params.get("file_path", "")
+        if not file_path_str:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'file_path' parameter is required.",
+                params=params,
+            )
+
+        file_path = Path(file_path_str)
+
+        if not file_path.is_absolute():
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Path must be absolute: {file_path_str}",
+                params=params,
+            )
+
+        if not file_path.exists():
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"File not found: {file_path_str}",
+                params=params,
+            )
+
+        # Restrict to the tool result storage directory for defense-in-depth
+        storage_root = Path(HOLMES_TOOL_RESULT_STORAGE_PATH).resolve()
+        if not file_path.resolve().is_relative_to(storage_root):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Access denied: path must be inside {HOLMES_TOOL_RESULT_STORAGE_PATH}",
+                params=params,
+            )
+
+        ext = file_path.suffix.lower()
+        if ext not in ALLOWED_IMAGE_EXTENSIONS:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Unsupported image format '{ext}'. Supported: {', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))}",
+                params=params,
+            )
+
+        file_size = file_path.stat().st_size
+        if file_size > MAX_IMAGE_FILE_SIZE:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Image file too large: {file_size / 1024 / 1024:.1f}MB (max {MAX_IMAGE_FILE_SIZE / 1024 / 1024:.0f}MB)",
+                params=params,
+            )
+
+        mime_type = EXTENSION_TO_MIME.get(ext, "image/png")
+        image_data = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=f"Image loaded from {file_path_str} ({file_size} bytes, {mime_type})",
+            images=[{"data": image_data, "mimeType": mime_type}],
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
+        return f"Read image: {params.get('file_path', 'N/A')}"
+
+
 class BashExecutorToolset(Toolset):
     """
     Toolset for executing bash commands with prefix-based validation.
@@ -304,7 +414,7 @@ class BashExecutorToolset(Toolset):
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/bash/",
             icon_url="https://raw.githubusercontent.com/Templarian/MaterialDesign/master/svg/console.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            tools=[RunBashCommand(self)],
+            tools=[RunBashCommand(self), ReadImageFile(self)],
             tags=[ToolsetTag.CORE],
             is_default=True,
         )

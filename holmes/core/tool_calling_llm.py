@@ -17,6 +17,7 @@ from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
+    load_bool,
 )
 from holmes.core.llm import LLM
 from holmes.core.llm_usage import RequestStats
@@ -35,14 +36,14 @@ from holmes.core.tools import (
     ToolInvokeContext,
 )
 from holmes.core.tools_utils.tool_context_window_limiter import (
-    prevent_overly_big_tool_response,
+    spill_oversized_tool_result,
 )
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import DummySpan
 from holmes.core.truncation.input_context_window_limiter import (
     CompactionInsufficientError,
     check_compaction_needed,
-    limit_input_context_window,
+    compact_if_necessary,
 )
 from holmes.utils.colors import AI_COLOR
 from holmes.utils.stream import (
@@ -196,6 +197,13 @@ class ToolCallingLLM:
         """
         self._runbook_in_use = False
 
+    def _supports_vision(self) -> bool:
+        """Check if vision/multimodal input is enabled.
+
+        Always True unless explicitly disabled via HOLMES_DISABLE_VISION=true.
+        """
+        return not load_bool("HOLMES_DISABLE_VISION", False)
+
     def _has_bash_for_file_access(self) -> bool:
         """Check if bash toolset is available for reading saved tool result files."""
         for toolset in self.tool_executor.enabled_toolsets:
@@ -307,7 +315,8 @@ class ToolCallingLLM:
                 }
 
             tool_call_message = tool_result.to_llm_message(
-                extra_metadata=extra_metadata
+                extra_metadata=extra_metadata,
+                supports_vision=self._supports_vision(),
             )
 
             # It is expected that the tool call result directly follows the tool call request from the LLM
@@ -640,6 +649,7 @@ class ToolCallingLLM:
         tool_call_result: ToolCallResult,
         approval_possible=True,
         original_token_count=None,
+        image_count=0,
     ):
         tool_span.set_attributes(name=tool_call_result.tool_name)
         status = tool_call_result.result.status
@@ -658,17 +668,32 @@ class ToolCallingLLM:
             )
         else:
             error = None
+
+        # Include images in output if present (before spill clears them)
+        images = tool_call_result.result.images
+        if images:
+            output = {
+                "data": tool_call_result.result.data,
+                "images": [{"mimeType": img.get("mimeType", ""), "data_length": len(img.get("data", ""))} for img in images],
+            }
+        else:
+            output = tool_call_result.result.data
+
+        metadata = {
+            "status": status,
+            "description": tool_call_result.description,
+            "return_code": tool_call_result.result.return_code,
+            "error": tool_call_result.result.error,
+            "original_token_count": original_token_count,
+        }
+        if image_count > 0:
+            metadata["image_count"] = image_count
+
         tool_span.log(
             input=tool_call_result.result.params,
-            output=tool_call_result.result.data,
+            output=output,
             error=error,
-            metadata={
-                "status": status,
-                "description": tool_call_result.description,
-                "return_code": tool_call_result.result.return_code,
-                "error": tool_call_result.result.error,
-                "original_token_count": original_token_count,
-            },
+            metadata=metadata,
         )
 
     def _invoke_llm_tool_call(
@@ -743,7 +768,11 @@ class ToolCallingLLM:
                 result=tool_response,
             )
 
-            original_token_count = prevent_overly_big_tool_response(
+            # Save image count before spill_oversized_tool_result clears them
+            image_count = len(tool_call_result.result.images) if tool_call_result.result.images else 0
+
+            # See docs/reference/context-management.md for how this fits with compaction
+            original_token_count = spill_oversized_tool_result(
                 tool_call_result=tool_call_result,
                 llm=self.llm,
                 tool_results_dir=self.tool_results_dir
@@ -756,6 +785,7 @@ class ToolCallingLLM:
                 tool_call_result,
                 enable_tool_approval,
                 original_token_count,
+                image_count,
             )
             return tool_call_result
 
@@ -878,7 +908,7 @@ class ToolCallingLLM:
                 yield compaction_start_event
 
             try:
-                limit_result = limit_input_context_window(
+                limit_result = compact_if_necessary(
                     llm=self.llm, messages=messages, tools=tools
                 )
             except CompactionInsufficientError as e:
@@ -1074,7 +1104,7 @@ class ToolCallingLLM:
 
                             tool_calls.append(tool_result_dict)
                             all_tool_calls.append(tool_result_dict)
-                            messages.append(tool_call_result.to_llm_message())
+                            messages.append(tool_call_result.to_llm_message(supports_vision=self._supports_vision()))
 
                             yield StreamMessage(
                                 event=StreamEvents.TOOL_RESULT,

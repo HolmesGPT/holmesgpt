@@ -263,13 +263,24 @@ class RemoteMCPTool(Tool):
             tool_result = await session.call_tool(self.name, params)
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
+
+        is_error = tool_result.isError or self._is_content_error(merged_text)
+
+        images = None
+        if not is_error:
+            images = [
+                {"data": c.data, "mimeType": c.mimeType}
+                for c in tool_result.content
+                if c.type == "image"
+            ] or None
+
         return StructuredToolResult(
             status=(
-                StructuredToolResultStatus.ERROR
-                if (tool_result.isError or self._is_content_error(merged_text))
+                StructuredToolResultStatus.ERROR if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
             data=merged_text,
+            images=images,
             params=params,
             invocation=f"MCPtool {self.name} with params {params}",
         )
@@ -461,6 +472,7 @@ class RemoteMCPToolset(Toolset):
         MCPConfig,
         StdioMCPConfig,
     ]
+    description: str = "MCP server toolset"
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
 

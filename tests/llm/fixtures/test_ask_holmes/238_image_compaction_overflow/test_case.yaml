@@ -1,0 +1,37 @@
+# Test: Compaction handles multimodal messages (images) without crashing
+# When the context window fills up with image-heavy tool results, compaction
+# must strip images before summarizing. Without this fix, the compaction LLM
+# call itself would overflow the context window.
+#
+# The mock gallery server returns 4 images per page × 3 pages = 12 images.
+# With CONTEXT_WINDOW_COMPACTION_THRESHOLD_PCT=1, compaction triggers immediately.
+# The LLM must survive compaction and report the verification code.
+
+user_prompt: |
+  Use the image gallery service. First call list_gallery_info to get the
+  verification code. Then keep fetching gallery pages one by one until
+  compaction is triggered. You will know compaction happened because you
+  will receive a notification that the conversation history has been compacted.
+  After compaction occurs, report the verification code from the gallery info.
+
+expected_output:
+  - "Must report the verification code: GALLERY-COMPACT-8K2M"
+  - "Must have continued working after compaction (not crashed or errored)"
+  - "Compaction must have been triggered - verify the tool calls show multiple get_gallery_page calls and the LLM continued after compaction"
+
+include_tool_calls: true
+
+test_env_vars:
+  # Force compaction to trigger after the first few tool calls
+  CONTEXT_WINDOW_COMPACTION_THRESHOLD_PCT: "1"
+  ENABLE_CONVERSATION_HISTORY_COMPACTION: "true"
+
+test_type: server
+
+tags:
+  - compaction
+  - context_window
+  - mcp
+  - images
+  - fast
+  - hard

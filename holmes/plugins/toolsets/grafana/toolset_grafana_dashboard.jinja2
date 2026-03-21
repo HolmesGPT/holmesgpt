@@ -22,12 +22,65 @@
   **Key Point:** Always prefer the Grafana toolset for any URL pointing to a Grafana instance. This gives you access to the dashboard structure, panel queries, and metadata - not just HTML content.
 
 
+## **Visual Dashboard Analysis with Render Tools**
+
+**When `grafana_render_panel` and `grafana_render_dashboard` tools are available**, you can take visual screenshots of dashboards and panels. This is powerful for identifying visual patterns like spikes, correlations, and anomalies.
+
+### **Recommended workflow for visual investigation:**
+1. **Search/browse** dashboards with `grafana_search_dashboards`
+2. **Get dashboard structure** with `grafana_get_dashboard_by_uid` to see panel IDs and names
+3. **Render the full dashboard** with `grafana_render_dashboard` for a bird's-eye overview
+4. **Render specific panels** with `grafana_render_panel` to zoom in on panels that look problematic
+5. **Dig deeper** by extracting and running the underlying Prometheus/Loki queries from the panel definitions
+
+### **IMPORTANT: Embedding Rendered Images in Your Response**
+
+When you render a panel or dashboard, the tool result includes a markdown reference you MUST use to embed the image in your response. This allows the user to see the Grafana screenshot inline with your analysis.
+
+**How to embed:**
+Each render tool result will include a line like:
+`![<descriptive caption>](tool-image://<tool_call_id>)`
+
+Copy this syntax into your response at the relevant point in your analysis. Replace `<descriptive caption>` with a meaningful description of what the image shows.
+
+**Example:**
+```
+Based on the CPU usage panel, there is a clear spike starting at 14:30:
+
+![CPU Usage - Last 6 hours showing spike at 14:30](tool-image://call_abc123)
+
+The spike correlates with the deployment at 14:28, as shown in the events panel:
+
+![Deployment Events Panel](tool-image://call_def456)
+```
+
+**Rules:**
+- Always embed rendered images in your response — do not just describe them without embedding
+- Place each image reference right before or after your discussion of what it shows
+- Use descriptive captions that summarize the key observation (e.g. "Memory usage panel showing gradual increase" not just "Memory panel")
+- The client will render the image as a clickable link to the live Grafana dashboard
+
+### **Time range handling for renders:**
+- Use the same time range the user mentioned (e.g. URL params `from=now-1h&to=now`)
+- For alert investigations, use the alert's time window
+- Default is `now-6h` to `now` if no time range is specified
+
+### **Template variables:**
+- Extract variables from the dashboard URL (e.g. `var-namespace=production`)
+- Pass them to the render tool via the `variables` parameter: `"var-namespace=production,var-cluster=us-east-1"`
+
+### **When to use visual rendering vs. query execution:**
+- **Rendering advantages:** Rendered graphs show the full resolution of the underlying data, so short-lived spikes and transient anomalies are visible in the image even though PromQL range queries may smooth them out or miss them entirely due to step/resolution limits. Also, rendering a dashboard with many panels gives you a quick visual overview to decide which panels deserve deeper investigation.
+- **Query advantages:** Exact numeric values, threshold verification, data analysis, and programmatic comparisons.
+- **Best approach**: Render first to spot anomalies and identify which panels to drill into, then query those specific panels for precise data.
+
+
 ## **Instruction: Prometheus Dashboard Query Execution**
 
 **When running Prometheus queries from Grafana dashboards:**
 
 ### **Key Rules:**
-1. **Always run as range queries** (not instant queries) to match dashboard behavior
+1. **Always run as range queries** (not instant queries) to match dashboard behavior. Range queries return time series data that HTTP clients render as graphs; instant queries return only the latest value.
 2. **Use dashboard's time range** from JSON: `"time": {"from": "now-1h", "to": "now"}`
 3. **Substitute variables:**
    - `$__rate_interval` → `1m` (1-hour range) or `5m` (3+ hour range)

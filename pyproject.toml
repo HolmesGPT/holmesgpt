@@ -160,6 +160,7 @@ markers = [
     "fast: Fast cloud-only tests that don't require Kubernetes infrastructure",
     "frontend: Run frontend tests",
     "grafana: Tests involving Grafana dashboard interactions",
+    "images: Tests involving multimodal image content (vision, rendering, MCP ImageContent)",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
     "integration: Integration tests requiring external services (e.g., running server, real APIs)",
     "confluence: Tests for Confluence page fetching toolset",

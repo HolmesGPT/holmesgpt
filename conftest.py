@@ -128,7 +128,8 @@ def pytest_configure(config):
                 with urllib.request.urlopen(tenant_url, timeout=10) as resp:
                     cloud_id = json.loads(resp.read())["cloudId"]
                 os.environ["CONFLUENCE_SA_BASE_URL"] = f"https://api.atlassian.com/ex/confluence/{cloud_id}"
-                logging.info(f"Auto-derived CONFLUENCE_SA_BASE_URL from cloud ID {cloud_id}")
+                os.environ["CONFLUENCE_CLOUD_ID"] = cloud_id
+                logging.info(f"Auto-derived CONFLUENCE_SA_BASE_URL and CONFLUENCE_CLOUD_ID from cloud ID {cloud_id}")
             except Exception as e:
                 logging.warning(f"Could not auto-derive CONFLUENCE_SA_BASE_URL: {e}")
 
