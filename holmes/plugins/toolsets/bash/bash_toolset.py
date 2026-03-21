@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+
 from holmes.core.tools import (
     ApprovalRequirement,
     CallablePrerequisite,
@@ -351,6 +353,15 @@ class ReadImageFile(Tool):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"File not found: {file_path_str}",
+                params=params,
+            )
+
+        # Restrict to the tool result storage directory for defense-in-depth
+        storage_root = Path(HOLMES_TOOL_RESULT_STORAGE_PATH).resolve()
+        if not file_path.resolve().is_relative_to(storage_root):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Access denied: path must be inside {HOLMES_TOOL_RESULT_STORAGE_PATH}",
                 params=params,
             )
 

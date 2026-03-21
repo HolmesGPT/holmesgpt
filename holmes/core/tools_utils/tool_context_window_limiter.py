@@ -52,6 +52,19 @@ def spill_oversized_tool_result(
     if messages_token <= max_tokens_allowed:
         return messages_token
 
+    # Guard against infinite loop: if read_image_file returns an oversized image,
+    # don't save it and instruct "use read_image_file" again — that would cause the
+    # LLM to re-read the same oversized image repeatedly until max_steps is exhausted.
+    if tool_call_result.tool_name == "read_image_file":
+        tool_call_result.result.status = StructuredToolResultStatus.ERROR
+        tool_call_result.result.data = None
+        tool_call_result.result.images = None
+        tool_call_result.result.error = (
+            f"Image too large to display inline ({messages_token} tokens, "
+            f"max {max_tokens_allowed}). Try a smaller image or use a different approach."
+        )
+        return messages_token
+
     size_info = f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
 
     # Try filesystem storage if a directory is provided and storage is enabled

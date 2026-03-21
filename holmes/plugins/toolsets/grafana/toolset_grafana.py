@@ -92,15 +92,23 @@ class GrafanaToolset(BaseGrafanaToolset):
         # Base class validates config and calls health_check()
         ok, msg = super().prerequisites_callable(config)
         if not ok:
+            logger.info(f"Grafana health check failed: {msg}")
             return ok, msg
 
         # After health check passes, conditionally add render tools
         if self.grafana_config.enable_rendering:
+            logger.info(f"Rendering enabled, probing for image renderer at {get_base_url(self.grafana_config)}...")
             self._try_add_render_tools()
+            tool_names = [t.name for t in self.tools]
+            logger.info(f"Grafana toolset tools after renderer probe: {tool_names}")
         return ok, msg
 
     def _try_add_render_tools(self) -> None:
         """Check if Grafana Image Renderer is available and add render tools."""
+        # Skip re-probing if render tools are already registered
+        if any(isinstance(t, RenderPanel) for t in self.tools):
+            return
+
         config = self.grafana_config
         base_url = get_base_url(config)
         headers = build_headers(
@@ -123,6 +131,8 @@ class GrafanaToolset(BaseGrafanaToolset):
                     f"Enabling render tools."
                 )
                 renderer_detected = True
+            else:
+                logger.debug(f"Renderer version API returned {resp.status_code}, trying fallback probe")
         except Exception as e:
             logger.debug(f"Failed to check renderer version API: {e}")
 
@@ -495,7 +505,13 @@ def _build_render_query_params(
             pair = pair.strip()
             if "=" in pair:
                 key, value = pair.split("=", 1)
-                query_params[key.strip()] = value.strip()
+                key = key.strip()
+                if not key.startswith("var-"):
+                    logger.warning(
+                        f"Skipping variable '{key}' — must be prefixed with 'var-'"
+                    )
+                    continue
+                query_params[key] = value.strip()
 
     return query_params
 
@@ -686,16 +702,10 @@ class RenderDashboard(BaseGrafanaRenderTool):
             default_width=config.default_render_width,
             default_height=config.default_render_height,
         )
-        # Use full-page rendering (height=-1) to capture the entire dashboard
-        # regardless of how many panels/rows it has. The Grafana Image Renderer
-        # scrolls the full page and stitches the result into one image.
-        if "height" not in params:
-            query_params["height"] = -1
-
         render_path = f"render/d/{dashboard_uid}/_"
         dashboard_url = _build_grafana_dashboard_url(config, uid=dashboard_uid)
 
-        height_desc = "full-page" if query_params["height"] == -1 else f"{query_params['height']}px"
+        height_desc = f"{query_params['height']}px"
         description = (
             f"Rendered screenshot of full dashboard {dashboard_uid}. "
             f"Time range: {query_params['from']} to {query_params['to']}, "
