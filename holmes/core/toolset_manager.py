@@ -593,5 +593,4 @@ class ToolsetManager:
                 existing_toolsets_by_name[new_toolset.name].override_with(new_toolset)
             else:
                 existing_toolsets_by_name[new_toolset.name] = new_toolset
-                existing_toolsets_by_name[new_toolset.name] = new_toolset
 
