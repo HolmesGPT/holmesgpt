@@ -17,6 +17,8 @@ handles it generically like it handles APPROVAL_REQUIRED.
 
 from typing import Any, Dict, Optional
 
+from holmes.common.env_vars import STRICT_TOOL_CALLS_ENABLED
+from holmes.core.openai_formatting import apply_strict_mode
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -38,9 +40,9 @@ class _FrontendToolBase(Tool):
     raw_json_schema: Optional[Dict[str, Any]] = None
 
     def get_openai_format(self) -> Dict[str, Any]:
-        """Emit the client's raw JSON Schema directly."""
+        """Emit the client's raw JSON Schema directly, with strict mode applied."""
         params_block = self.raw_json_schema or {"type": "object", "properties": {}}
-        return {
+        result: Dict[str, Any] = {
             "type": "function",
             "function": {
                 "name": self.name,
@@ -48,6 +50,9 @@ class _FrontendToolBase(Tool):
                 "parameters": params_block,
             },
         }
+        if STRICT_TOOL_CALLS_ENABLED:
+            result = apply_strict_mode(result)
+        return result
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return f"{self.name}({params})"
