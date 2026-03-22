@@ -283,3 +283,4 @@ class InternetToolset(InternetBaseToolset):
                 ToolsetTag.CORE,
             ],
         )
+        self.enabled = True
