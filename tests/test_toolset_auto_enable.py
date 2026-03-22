@@ -30,14 +30,12 @@ class RequiredFieldConfig(ToolsetConfig):
 def _make_toolset(
     name: str = "test",
     enabled: bool = False,
-    is_default: bool = False,
     config_classes: Optional[List[Type[BaseModel]]] = None,
     config: Optional[dict] = None,
 ) -> Toolset:
     kwargs = dict(
         name=name,
         enabled=enabled,
-        is_default=is_default,
         description="test toolset",
         tools=[],
         tags=[ToolsetTag.CORE],
@@ -76,11 +74,6 @@ class TestMissingConfig:
     def test_already_enabled(self):
         """missing_config is a pure fact-check: enabled toolset still reports missing config."""
         toolset = _make_toolset(enabled=True, config_classes=[RequiredFieldConfig])
-        assert toolset.missing_config is True
-
-    def test_is_default(self):
-        """missing_config is a pure fact-check: is_default toolset still reports missing config."""
-        toolset = _make_toolset(is_default=True, config_classes=[RequiredFieldConfig])
         assert toolset.missing_config is True
 
     def test_no_config_classes(self):

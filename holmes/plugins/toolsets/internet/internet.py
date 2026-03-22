@@ -246,7 +246,6 @@ class InternetBaseToolset(Toolset):
         description: str,
         icon_url: str,
         tools: list[Tool],
-        is_default: bool,
         tags: List[ToolsetTag],
         docs_url: Optional[str] = None,
     ):
@@ -259,7 +258,6 @@ class InternetBaseToolset(Toolset):
             ],
             tools=tools,
             tags=tags,
-            is_default=is_default,
             docs_url=docs_url,
         )
 
@@ -284,5 +282,4 @@ class InternetToolset(InternetBaseToolset):
             tags=[
                 ToolsetTag.CORE,
             ],
-            is_default=True,
         )

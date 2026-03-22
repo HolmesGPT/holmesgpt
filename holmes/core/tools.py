@@ -725,7 +725,7 @@ class Toolset(BaseModel):
         default_factory=lambda: [ToolsetTag.CORE],
     )
     config: Optional[Any] = None
-    is_default: bool = False
+
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
