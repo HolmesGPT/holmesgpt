@@ -248,6 +248,7 @@ class InternetBaseToolset(Toolset):
         tools: list[Tool],
         tags: List[ToolsetTag],
         docs_url: Optional[str] = None,
+        **kwargs: Any,
     ):
         super().__init__(
             name=name,
@@ -259,6 +260,7 @@ class InternetBaseToolset(Toolset):
             tools=tools,
             tags=tags,
             docs_url=docs_url,
+            **kwargs,
         )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
