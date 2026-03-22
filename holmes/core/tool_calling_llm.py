@@ -193,6 +193,9 @@ class ToolCallingLLM:
             tool_results_dir=self.tool_results_dir,
             tracer=self.tracer,
         )
+        # Preserve transient state so resumed turns keep access to
+        # runbook-unlocked (restricted) tools.
+        clone._runbook_in_use = self._runbook_in_use
         return clone
 
     def reset_interaction_state(self) -> None:
