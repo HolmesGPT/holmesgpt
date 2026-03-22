@@ -1,9 +1,7 @@
 import logging
-from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
-from enum import Enum
 from math import ceil
-from typing import Optional, Set
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -13,10 +11,12 @@ from holmes.core.tools import (
     Tool,
     ToolInvokeContext,
     ToolParameter,
-    Toolset,
 )
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.plugins.toolsets.utils import get_param_or_raise
+
+if TYPE_CHECKING:
+    from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 
 # Default values for log fetching
 DEFAULT_LOG_LIMIT = 100
@@ -31,21 +31,6 @@ MIN_NUMBER_OF_CHARACTERS_TO_TRUNCATE: int = (
     50 + len(TRUNCATION_PROMPT_PREFIX)
 )  # prevents the truncation algorithm from going too slow once the actual token count gets close to the expected limit
 
-
-class LoggingCapability(str, Enum):
-    """Optional advanced logging capabilities"""
-
-    REGEX_FILTER = "regex_filter"  # If not supported, falls back to substring matching
-    EXCLUDE_FILTER = "exclude_filter"  # If not supported, parameter is not shown at all
-    HISTORICAL_DATA = (
-        "historical_data"  # Can fetch logs for pods no longer in the cluster
-    )
-
-
-class LoggingConfig(BaseModel):
-    """Base configuration for all logging backends"""
-
-    pass
 
 
 class FetchPodLogsParams(BaseModel):
@@ -64,23 +49,6 @@ class FetchPodLogsParams(BaseModel):
         if v is not None and isinstance(v, int):
             return str(v)
         return v
-
-
-class BasePodLoggingToolset(Toolset, ABC):
-    """Base class for all logging toolsets"""
-
-    @property
-    @abstractmethod
-    def supported_capabilities(self) -> Set[LoggingCapability]:
-        """Return the set of optional capabilities supported by this provider"""
-        pass
-
-    @abstractmethod
-    def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
-        pass
-
-    def logger_name(self) -> str:
-        return ""
 
 
 def truncate_logs(
@@ -154,45 +122,17 @@ def truncate_logs(
 
 
 class PodLoggingTool(Tool):
-    """Common tool for fetching pod logs across different logging backends"""
+    """Tool for fetching Kubernetes pod logs"""
 
-    def __init__(self, toolset: BasePodLoggingToolset):
-        # Get parameters dynamically based on what the toolset supports
-        parameters = self._get_tool_parameters(toolset)
-
-        # Build description based on capabilities
-        # Include the toolset name in the description
+    def __init__(self, toolset: "KubernetesLogsToolset"):
         toolset_name = toolset.name if toolset.name else "logging backend"
-        description = f"Fetch logs for a Kubernetes pod from {toolset_name}"
-        capabilities = toolset.supported_capabilities
-
-        if LoggingCapability.HISTORICAL_DATA in capabilities:
-            description += (
-                " (including historical data for pods no longer in the cluster)"
-            )
-
-        if (
-            LoggingCapability.REGEX_FILTER in capabilities
-            and LoggingCapability.EXCLUDE_FILTER in capabilities
-        ):
-            description += " with support for regex filtering and exclusion patterns"
-        elif LoggingCapability.REGEX_FILTER in capabilities:
-            description += " with support for regex filtering"
-
-        # Add default information
-        description += f". Defaults: Fetches last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days of logs, limited to {DEFAULT_LOG_LIMIT} most recent entries"
-
-        super().__init__(
-            name=POD_LOGGING_TOOL_NAME,
-            description=description,
-            parameters=parameters,
+        description = (
+            f"Fetch logs for a Kubernetes pod from {toolset_name}"
+            " with support for regex filtering and exclusion patterns"
+            f". Defaults: Fetches last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days of logs, limited to {DEFAULT_LOG_LIMIT} most recent entries"
         )
-        self._toolset = toolset
 
-    def _get_tool_parameters(self, toolset: BasePodLoggingToolset) -> dict:
-        """Generate parameters based on what this provider supports"""
-        # Base parameters always available
-        params = {
+        parameters = {
             "pod_name": ToolParameter(
                 description="The exact kubernetes pod name",
                 type="string",
@@ -216,11 +156,7 @@ class PodLoggingTool(Tool):
                 type="integer",
                 required=False,
             ),
-        }
-
-        # Add filter - description changes based on regex support
-        if LoggingCapability.REGEX_FILTER in toolset.supported_capabilities:
-            params["filter"] = ToolParameter(
+            "filter": ToolParameter(
                 description="""An optional filter for logs - can be a simple keyword/phrase or a regex pattern (case-insensitive).
 Examples of useful filters:
 - For errors: filter='err|error|fatal|critical|fail|exception|panic|crash'
@@ -231,17 +167,8 @@ Examples of useful filters:
 If you get no results with a filter, try a broader pattern or drop the filter.""",
                 type="string",
                 required=False,
-            )
-        else:
-            params["filter"] = ToolParameter(
-                description="An optional keyword to filter logs - matches logs containing this text (case-insensitive)",
-                type="string",
-                required=False,
-            )
-
-        # ONLY add exclude_filter if supported - otherwise it doesn't exist
-        if LoggingCapability.EXCLUDE_FILTER in toolset.supported_capabilities:
-            params["exclude_filter"] = ToolParameter(
+            ),
+            "exclude_filter": ToolParameter(
                 description="""An optional exclusion filter - logs matching this pattern will be excluded. Can be a simple keyword or regex pattern (case-insensitive).
 Examples of useful exclude filters:
 - Exclude HTTP 200s: exclude_filter='GET.*200|POST.*200'
@@ -250,9 +177,15 @@ Examples of useful exclude filters:
 If you hit the log limit and see lots of repetitive INFO logs, use exclude_filter to remove the noise and focus on what matters.""",
                 type="string",
                 required=False,
-            )
+            ),
+        }
 
-        return params
+        super().__init__(
+            name=POD_LOGGING_TOOL_NAME,
+            description=description,
+            parameters=parameters,
+        )
+        self._toolset = toolset
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         structured_params = FetchPodLogsParams(
@@ -284,11 +217,7 @@ If you hit the log limit and see lots of repetitive INFO logs, use exclude_filte
         """Generate a one-line description of this tool invocation"""
         namespace = params.get("namespace", "unknown-namespace")
         pod_name = params.get("pod_name", "unknown-pod")
-
-        logger_name = (
-            f"{self._toolset.logger_name()}: " if self._toolset.logger_name() else ""
-        )
-        return f"{logger_name}Fetch Logs (pod={pod_name}, namespace={namespace})"
+        return f"Fetch Logs (pod={pod_name}, namespace={namespace})"
 
 
 def process_time_parameters(

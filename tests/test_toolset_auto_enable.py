@@ -69,52 +69,52 @@ class TestHasRequiredFields:
         assert ToolsetConfig.has_required_fields() is False
 
 
-# --- Toolset.should_auto_enable tests ---
+# --- Toolset.missing_config tests ---
 
 
-class TestShouldAutoEnable:
+class TestMissingConfig:
     def test_already_enabled(self):
-        """Toolset that is already enabled stays enabled."""
+        """Toolset that is already enabled does not have missing config."""
         toolset = _make_toolset(enabled=True, config_classes=[RequiredFieldConfig])
-        assert toolset.should_auto_enable() is True
+        assert toolset.missing_config is False
 
     def test_is_default(self):
-        """Toolset marked as is_default is always auto-enabled."""
+        """Toolset marked as is_default does not have missing config."""
         toolset = _make_toolset(is_default=True, config_classes=[RequiredFieldConfig])
-        assert toolset.should_auto_enable() is True
+        assert toolset.missing_config is False
 
     def test_no_config_classes(self):
-        """YAML-style toolset with no config_classes is auto-enabled."""
+        """YAML-style toolset with no config_classes does not have missing config."""
         toolset = _make_toolset(config_classes=[])
-        assert toolset.should_auto_enable() is True
+        assert toolset.missing_config is False
 
     def test_all_optional_config_no_config_provided(self):
-        """Toolset where all config fields have defaults is auto-enabled even without config."""
+        """Toolset where all config fields have defaults does not have missing config."""
         toolset = _make_toolset(config_classes=[AllOptionalConfig])
-        assert toolset.should_auto_enable() is True
+        assert toolset.missing_config is False
 
     def test_required_config_with_config_provided(self):
-        """Toolset with required config AND config provided is auto-enabled."""
+        """Toolset with required config AND config provided does not have missing config."""
         toolset = _make_toolset(
             config_classes=[RequiredFieldConfig],
             config={"api_url": "http://example.com"},
         )
-        assert toolset.should_auto_enable() is True
+        assert toolset.missing_config is False
 
     def test_required_config_without_config(self):
-        """Toolset with required config AND no config is NOT auto-enabled."""
+        """Toolset with required config AND no config has missing config."""
         toolset = _make_toolset(config_classes=[RequiredFieldConfig])
-        assert toolset.should_auto_enable() is False
+        assert toolset.missing_config is True
 
     def test_required_config_with_empty_config(self):
-        """Toolset with required config AND explicitly empty config ({}) is auto-enabled."""
+        """Toolset with required config AND explicitly empty config ({}) does not have missing config."""
         toolset = _make_toolset(
             config_classes=[RequiredFieldConfig],
             config={},
         )
-        assert toolset.should_auto_enable() is True
+        assert toolset.missing_config is False
 
     def test_disabled_by_default_no_config_classes(self):
-        """Even a disabled toolset with no config classes should auto-enable."""
+        """Even a disabled toolset with no config classes does not have missing config."""
         toolset = _make_toolset(enabled=False, config_classes=[])
-        assert toolset.should_auto_enable() is True
+        assert toolset.missing_config is False

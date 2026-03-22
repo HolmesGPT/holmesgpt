@@ -1,0 +1,21 @@
+# Local MCP server returning large reports with images.
+# The large response forces spill-to-disk; the LLM must use read_image_file to recover images.
+toolsets:
+  mock-report-service:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/236_image_spill_to_disk/mock_large_report_server.py"]
+  # bash must be enabled for read_image_file tool
+  bash:
+    enabled: true
+  confluence:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

@@ -269,3 +269,62 @@ def test_to_client_dict():
     expected_dump = structured.model_dump()
     expected_dump["data"] = structured.get_stringified_data()
     assert response["result"] == expected_dump
+
+
+def test_format_tool_result_data_with_images_returns_string():
+    """format_tool_result_data always returns a string, even with images.
+    Multimodal assembly (text + image blocks) happens in to_llm_message()."""
+    images = [
+        {"data": "iVBORw0KGgo=", "mimeType": "image/png"},
+        {"data": "/9j/4AAQ==", "mimeType": "image/jpeg"},
+    ]
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data="some text",
+        images=images,
+    )
+    content = format_tool_result_data(result, "call_img", "img_tool")
+
+    # format_tool_result_data is a pure string function — images are handled by to_llm_message
+    assert isinstance(content, str)
+    assert "tool_call_metadata" in content
+    assert "some text" in content
+
+
+def test_format_tool_result_data_without_images_returns_string():
+    """When no images, format_tool_result_data returns a plain string."""
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS, data="text only"
+    )
+    content = format_tool_result_data(result, "call1", "tool1")
+    assert isinstance(content, str)
+
+
+def test_to_llm_message_with_images():
+    """to_llm_message produces multimodal content with embed hint when images are present."""
+    images = [{"data": "AAAA", "mimeType": "image/png"}]
+    structured = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data="description",
+        images=images,
+        url="https://grafana.example.com/d/abc123",
+    )
+    tcr = ToolCallResult(
+        tool_call_id="call_v",
+        tool_name="vision_tool",
+        description="desc",
+        result=structured,
+    )
+    message = tcr.to_llm_message()
+    assert message["role"] == "tool"
+    assert isinstance(message["content"], list)
+    # Text block includes the embed hint
+    text_block = message["content"][0]
+    assert text_block["type"] == "text"
+    assert "tool-image://call_v" in text_block["text"]
+    assert "https://grafana.example.com/d/abc123" in text_block["text"]
+    # Image block uses OpenAI vision format with data URI
+    assert message["content"][1]["type"] == "image_url"
+    assert message["content"][1]["image_url"]["url"] == "data:image/png;base64,AAAA"
+
+

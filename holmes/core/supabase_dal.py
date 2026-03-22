@@ -65,7 +65,7 @@ ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
 
 
-logging.info("Patching supabase_request_builder.pre_select")
+logging.getLogger(__name__).debug("Patching supabase_request_builder.pre_select")
 original_pre_select = supabase_request_builder.pre_select
 
 

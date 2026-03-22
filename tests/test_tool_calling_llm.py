@@ -6,11 +6,11 @@ cost accumulation, max_steps enforcement, response_format passthrough,
 parallel tool execution, compaction cost tracking, and message structure.
 
 Mocking strategy:
-- Patch `limit_input_context_window` to avoid its internal LLM/token counting
+- Patch `compact_if_necessary` to avoid its internal LLM/token counting
 - Mock `self.llm.completion` to control LLM responses
 - Mock `self._invoke_llm_tool_call` to control tool execution
 - Mock `self.llm.count_tokens` for token counting calls that happen outside
-  of limit_input_context_window (e.g., after tool results, at final response)
+  of compact_if_necessary (e.g., after tool results, at final response)
 """
 
 import json
@@ -201,7 +201,7 @@ def make_ai(mock_llm, mock_tool_executor):
     return _make
 
 
-LIMIT_PATCH = "holmes.core.tool_calling_llm.limit_input_context_window"
+LIMIT_PATCH = "holmes.core.tool_calling_llm.compact_if_necessary"
 
 
 def _collect_stream_events(stream) -> List[StreamMessage]:
@@ -792,7 +792,7 @@ class TestStreamApprovalFlow:
 
 
 class TestCompactionCosts:
-    """Compaction tokens/cost from limit_input_context_window are accumulated."""
+    """Compaction tokens/cost from compact_if_necessary are accumulated."""
 
     def test_call_accumulates_compaction_costs(self, make_ai, mock_llm):
         compaction = RequestStats(

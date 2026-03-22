@@ -10,6 +10,7 @@ tags:
   - chain-of-causation
   - logs
   - coralogix
+  - mcp
 
 toolsets_matrix:
   - toolsets.yaml

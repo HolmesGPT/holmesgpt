@@ -1,10 +1,11 @@
 # TODO: we can remove most of this now and just use tracing.py
+import base64
 import logging
 import os
 from typing import Any, List, Optional, Union
 
 import braintrust
-from braintrust import Dataset, Experiment, ReadonlyExperiment, Span
+from braintrust import Attachment, Dataset, Experiment, ReadonlyExperiment, Span
 from pydantic import BaseModel
 
 from holmes.core.llm import ContextWindowUsage
@@ -325,6 +326,29 @@ def log_to_braintrust(
     else:
         input_data = ""
         expected = ""
+
+    # Collect images from tool call results as Braintrust Attachments
+    tool_call_images: list[Attachment] = []
+    if result and getattr(result, "tool_calls", None):
+        for tc in result.tool_calls:
+            if tc.result and tc.result.images:
+                for img_idx, img in enumerate(tc.result.images):
+                    try:
+                        img_bytes = base64.b64decode(img["data"])
+                        mime_type = img.get("mimeType", "image/png")
+                        ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
+                        tool_call_images.append(
+                            Attachment(
+                                data=img_bytes,
+                                filename=f"{tc.tool_name}_{img_idx}.{ext}",
+                                content_type=mime_type,
+                            )
+                        )
+                    except Exception:
+                        logging.debug(f"Failed to create Braintrust attachment for {tc.tool_name} image {img_idx}")
+
+    if tool_call_images:
+        metadata["tool_call_images"] = tool_call_images
 
     # Log to Braintrust
     eval_span.log(

@@ -3,6 +3,8 @@ import logging
 import os
 import threading
 import time
+
+display_logger = logging.getLogger("holmes.display.llm")
 from abc import abstractmethod
 from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
@@ -703,7 +705,8 @@ class LLMModelRegistry:
         # so we need to check if the user has set an OPENAI_API_KEY to load the config model.
         has_openai_key = os.environ.get("OPENAI_API_KEY")
         if has_openai_key:
-            self.config.model = "gpt-4.1"
+            self.config.model = "gpt-5.4"
+            self.config._model_source = "default"
             return True
 
         return False
@@ -788,7 +791,7 @@ class LLMModelRegistry:
             if model_key:
                 model_params = self._llms.get(model_key)
                 if model_params:
-                    logging.info(f"Using selected model: {model_key}")
+                    display_logger.info(f"Using selected model: {model_key}")
                     return model_params.model_copy()
 
                 if model_key.startswith("Robusta/"):
@@ -796,7 +799,7 @@ class LLMModelRegistry:
                     self._init_models()
                     model_params = self._llms.get(model_key)
                     if model_params:
-                        logging.info(f"Using selected model: {model_key}")
+                        display_logger.info(f"Using selected model: {model_key}")
                         return model_params.model_copy()
 
                 logging.error(f"Couldn't find model: {model_key} in model list")
@@ -812,6 +815,12 @@ class LLMModelRegistry:
                 logging.error(
                     f"Couldn't find default Robusta AI model: {self._default_robusta_model} in model list"
                 )
+
+            # Prefer the model set via config/env (e.g. MODEL=sonnet-4.5) over
+            # the first entry in the model list file.
+            if self.config.model and self.config.model in self._llms:
+                logging.debug(f"Using config model: {self.config.model}")
+                return self._llms[self.config.model].model_copy()
 
             model_key, first_model_params = next(iter(self._llms.items()))
             logging.debug(f"Using first available model: {model_key}")

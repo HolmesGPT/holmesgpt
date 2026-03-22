@@ -11,6 +11,7 @@ from holmes.core.tools import (
     Tool,
     ToolInvokeContext,
     ToolParameter,
+    Toolset,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
@@ -27,7 +28,6 @@ from holmes.plugins.toolsets.datadog.datadog_url_utils import generate_datadog_l
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_LOG_LIMIT,
     DEFAULT_TIME_SPAN_SECONDS,
-    Toolset,
 )
 from holmes.plugins.toolsets.utils import (
     process_timestamps_to_int,

@@ -1,9 +1,8 @@
 """Tests for ToolsetConfig base class and deprecated field mappings."""
 
-import logging
 from typing import Any, ClassVar, Dict, Optional
+from unittest.mock import patch
 
-from _pytest.logging import LogCaptureFixture
 from pydantic import Field
 
 from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
@@ -16,6 +15,13 @@ from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesConfig,
 )
 from holmes.utils.pydantic_utils import ToolsetConfig
+
+_LOGGER_PATH = "holmes.utils.pydantic_utils.logger"
+
+
+def _warning_text(mock_warn):
+    """Join all warning() call args into a single string for assertion."""
+    return " ".join(str(a) for call in mock_warn.call_args_list for a in call.args)
 
 
 class SampleConfig(ToolsetConfig):
@@ -41,47 +47,47 @@ class TestToolsetConfig:
         assert config.new_field == "test"
         assert config.another_new == 20
 
-    def test_deprecated_field_name_migrated(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_field_name_migrated(self, mock_log):
         """Test that deprecated field names are migrated to new names."""
-        with caplog.at_level(logging.WARNING):
-            config = SampleConfig(old_field="migrated_value")
+        config = SampleConfig(old_field="migrated_value")
 
         assert config.new_field == "migrated_value"
-        assert "old_field -> new_field" in caplog.text
+        assert "old_field -> new_field" in _warning_text(mock_log.warning)
 
-    def test_multiple_deprecated_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_multiple_deprecated_fields(self, mock_log):
         """Test that multiple deprecated fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            config = SampleConfig(old_field="value1", another_old=42)
+        config = SampleConfig(old_field="value1", another_old=42)
 
         assert config.new_field == "value1"
         assert config.another_new == 42
-        assert "old_field -> new_field" in caplog.text
-        assert "another_old -> another_new" in caplog.text
+        assert "old_field -> new_field" in _warning_text(mock_log.warning)
+        assert "another_old -> another_new" in _warning_text(mock_log.warning)
 
-    def test_new_field_takes_precedence(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_field_takes_precedence(self, mock_log):
         """Test that new field takes precedence over deprecated field."""
-        with caplog.at_level(logging.WARNING):
-            config = SampleConfig(old_field="old_value", new_field="new_value")
+        config = SampleConfig(old_field="old_value", new_field="new_value")
 
         # New field should take precedence
         assert config.new_field == "new_value"
 
-    def test_removed_field_logged(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_removed_field_logged(self, mock_log):
         """Test that removed fields are logged but not cause errors."""
-        with caplog.at_level(logging.WARNING):
-            config = SampleConfig(removed_field="some_value")
+        config = SampleConfig(removed_field="some_value")
 
         # Config should still be valid
         assert config.new_field == "default_value"
-        assert "removed_field (removed)" in caplog.text
+        assert "removed_field (removed)" in _warning_text(mock_log.warning)
 
-    def test_no_warning_for_new_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_no_warning_for_new_fields(self, mock_log):
         """Test that using new field names doesn't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            _ = SampleConfig(new_field="test", another_new=5)
+        _ = SampleConfig(new_field="test", another_new=5)
 
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
     def test_extra_fields_allowed(self):
         """Test that extra fields are allowed (for forward compatibility)."""
@@ -97,38 +103,36 @@ class TestToolsetConfig:
 class TestPrometheusConfigBackwardCompatibility:
     """Test backward compatibility for PrometheusConfig deprecated fields."""
 
-    def test_deprecated_prometheus_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_prometheus_fields(self, mock_log):
         """Test that deprecated Prometheus config fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            config = PrometheusConfig(
-                prometheus_url="http://prometheus:9090",
-                headers={"Authorization": "Bearer test"},
-                default_query_timeout_seconds=45,
-                prometheus_ssl_enabled=False,
-            )
+        config = PrometheusConfig(
+            prometheus_url="http://prometheus:9090",
+            headers={"Authorization": "Bearer test"},
+            default_query_timeout_seconds=45,
+            prometheus_ssl_enabled=False,
+        )
 
         assert config.prometheus_url == "http://prometheus:9090/"
         # headers should be migrated to additional_headers
         assert config.additional_headers == {"Authorization": "Bearer test"}
         assert config.query_timeout_seconds_default == 45
         assert config.verify_ssl is False
-        assert "headers -> additional_headers" in caplog.text
+        assert "headers -> additional_headers" in _warning_text(mock_log.warning)
         assert (
             "default_query_timeout_seconds -> query_timeout_seconds_default"
-            in caplog.text
+            in _warning_text(mock_log.warning)
         )
-        assert "prometheus_ssl_enabled -> verify_ssl" in caplog.text
+        assert "prometheus_ssl_enabled -> verify_ssl" in _warning_text(mock_log.warning)
 
-    def test_headers_to_additional_headers_migration(
-        self, caplog: LogCaptureFixture
-    ) -> None:
+    @patch(_LOGGER_PATH)
+    def test_headers_to_additional_headers_migration(self, mock_log: Any) -> None:
         """Test that headers is properly migrated to additional_headers."""
-        with caplog.at_level(logging.WARNING):
-            # Create config using deprecated headers field
-            old_config = PrometheusConfig(
-                prometheus_url="http://prometheus:9090",
-                headers={"Authorization": "Bearer token123"},
-            )
+        # Create config using deprecated headers field
+        old_config = PrometheusConfig(
+            prometheus_url="http://prometheus:9090",
+            headers={"Authorization": "Bearer token123"},
+        )
 
         # Create config using new additional_headers field
         new_config = PrometheusConfig(
@@ -139,74 +143,74 @@ class TestPrometheusConfigBackwardCompatibility:
         # Both should result in the same additional_headers value
         assert old_config.additional_headers == new_config.additional_headers
         assert old_config.additional_headers == {"Authorization": "Bearer token123"}
-        assert "headers -> additional_headers" in caplog.text
+        assert "headers -> additional_headers" in _warning_text(mock_log.warning)
 
-    def test_new_prometheus_fields_no_warning(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_prometheus_fields_no_warning(self, mock_log):
         """Test that new Prometheus field names don't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            config = PrometheusConfig(
-                prometheus_url="http://prometheus:9090",
-                query_timeout_seconds_default=30,
-                verify_ssl=True,
-                additional_headers={"Authorization": "Bearer test"},
-            )
+        config = PrometheusConfig(
+            prometheus_url="http://prometheus:9090",
+            query_timeout_seconds_default=30,
+            verify_ssl=True,
+            additional_headers={"Authorization": "Bearer test"},
+        )
 
         assert config.prometheus_url == "http://prometheus:9090/"
         assert config.query_timeout_seconds_default == 30
         assert config.additional_headers == {"Authorization": "Bearer test"}
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
 
 class TestDatadogConfigBackwardCompatibility:
     """Test backward compatibility for DatadogBaseConfig deprecated fields."""
 
-    def test_deprecated_datadog_fields(self, caplog: Any) -> None:
+    @patch(_LOGGER_PATH)
+    def test_deprecated_datadog_fields(self, mock_log: Any) -> None:
         """Test that deprecated Datadog config fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            config = DatadogBaseConfig(
-                dd_api_key="test-api-key",
-                dd_app_key="test-app-key",
-                site_api_url="https://api.datadoghq.com",
-                request_timeout=120,
-            )
+        config = DatadogBaseConfig(
+            dd_api_key="test-api-key",
+            dd_app_key="test-app-key",
+            site_api_url="https://api.datadoghq.com",
+            request_timeout=120,
+        )
 
         assert config.api_key == "test-api-key"
         assert config.app_key == "test-app-key"
         assert str(config.api_url) == "https://api.datadoghq.com/"
         assert config.timeout_seconds == 120
-        assert "dd_api_key -> api_key" in caplog.text
-        assert "dd_app_key -> app_key" in caplog.text
-        assert "site_api_url -> api_url" in caplog.text
-        assert "request_timeout -> timeout_seconds" in caplog.text
+        assert "dd_api_key -> api_key" in _warning_text(mock_log.warning)
+        assert "dd_app_key -> app_key" in _warning_text(mock_log.warning)
+        assert "site_api_url -> api_url" in _warning_text(mock_log.warning)
+        assert "request_timeout -> timeout_seconds" in _warning_text(mock_log.warning)
 
-    def test_new_datadog_fields_no_warning(self, caplog: Any) -> None:
+    @patch(_LOGGER_PATH)
+    def test_new_datadog_fields_no_warning(self, mock_log: Any) -> None:
         """Test that new Datadog field names don't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            config = DatadogBaseConfig(
-                api_key="test-api-key",
-                app_key="test-app-key",
-                api_url="https://api.datadoghq.com",
-                timeout_seconds=60,
-            )
+        config = DatadogBaseConfig(
+            api_key="test-api-key",
+            app_key="test-app-key",
+            api_url="https://api.datadoghq.com",
+            timeout_seconds=60,
+        )
 
         assert config.api_key == "test-api-key"
         assert config.app_key == "test-app-key"
         assert config.timeout_seconds == 60
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
-    def test_old_and_new_datadog_fields_new_takes_precedence(self, caplog: Any) -> None:
+    @patch(_LOGGER_PATH)
+    def test_old_and_new_datadog_fields_new_takes_precedence(self, mock_log: Any) -> None:
         """Test that new Datadog field names take precedence over deprecated ones."""
-        with caplog.at_level(logging.WARNING):
-            config = DatadogBaseConfig(
-                dd_api_key="old-api-key",
-                api_key="new-api-key",
-                dd_app_key="old-app-key",
-                app_key="new-app-key",
-                site_api_url="https://old.api.datadoghq.com",
-                api_url="https://new.api.datadoghq.com",
-                request_timeout=30,
-                timeout_seconds=90,
-            )
+        config = DatadogBaseConfig(
+            dd_api_key="old-api-key",
+            api_key="new-api-key",
+            dd_app_key="old-app-key",
+            app_key="new-app-key",
+            site_api_url="https://old.api.datadoghq.com",
+            api_url="https://new.api.datadoghq.com",
+            request_timeout=30,
+            timeout_seconds=90,
+        )
 
         # New fields should take precedence
         assert config.api_key == "new-api-key"
@@ -242,30 +246,30 @@ class TestDatadogConfigBackwardCompatibility:
 class TestElasticsearchConfigBackwardCompatibility:
     """Test backward compatibility for ElasticsearchConfig deprecated fields."""
 
-    def test_deprecated_elasticsearch_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_elasticsearch_fields(self, mock_log):
         """Test that deprecated Elasticsearch config fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            config = ElasticsearchConfig(
-                url="https://elasticsearch:9200",
-                timeout=30,
-            )
+        config = ElasticsearchConfig(
+            url="https://elasticsearch:9200",
+            timeout=30,
+        )
 
         assert config.api_url == "https://elasticsearch:9200"
         assert config.timeout_seconds == 30
-        assert "url -> api_url" in caplog.text
-        assert "timeout -> timeout_seconds" in caplog.text
+        assert "url -> api_url" in _warning_text(mock_log.warning)
+        assert "timeout -> timeout_seconds" in _warning_text(mock_log.warning)
 
-    def test_new_elasticsearch_fields_no_warning(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_elasticsearch_fields_no_warning(self, mock_log):
         """Test that new Elasticsearch field names don't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            config = ElasticsearchConfig(
-                api_url="https://elasticsearch:9200",
-                timeout_seconds=15,
-            )
+        config = ElasticsearchConfig(
+            api_url="https://elasticsearch:9200",
+            timeout_seconds=15,
+        )
 
         assert config.api_url == "https://elasticsearch:9200"
         assert config.timeout_seconds == 15
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
     def test_old_and_new_elasticsearch_config_equal(self):
         """Test that config created with old fields equals config with new fields."""
@@ -295,18 +299,18 @@ class TestElasticsearchConfigBackwardCompatibility:
 class TestKafkaConfigBackwardCompatibility:
     """Test backward compatibility for KafkaConfig and KafkaClusterConfig deprecated fields."""
 
-    def test_deprecated_kafka_cluster_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_kafka_cluster_fields(self, mock_log):
         """Test that deprecated KafkaClusterConfig fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            config = KafkaClusterConfig(
-                name="test-cluster",
-                kafka_broker="broker1:9092,broker2:9092",
-                kafka_security_protocol="SASL_SSL",
-                kafka_sasl_mechanism="SCRAM-SHA-512",
-                kafka_client_id="my-client",
-                kafka_username="my-user",
-                kafka_password="my-password",
-            )
+        config = KafkaClusterConfig(
+            name="test-cluster",
+            kafka_broker="broker1:9092,broker2:9092",
+            kafka_security_protocol="SASL_SSL",
+            kafka_sasl_mechanism="SCRAM-SHA-512",
+            kafka_client_id="my-client",
+            kafka_username="my-user",
+            kafka_password="my-password",
+        )
 
         assert config.broker == "broker1:9092,broker2:9092"
         assert config.security_protocol == "SASL_SSL"
@@ -314,25 +318,25 @@ class TestKafkaConfigBackwardCompatibility:
         assert config.client_id == "my-client"
         assert config.username == "my-user"
         assert config.password == "my-password"
-        assert "kafka_broker -> broker" in caplog.text
-        assert "kafka_security_protocol -> security_protocol" in caplog.text
-        assert "kafka_sasl_mechanism -> sasl_mechanism" in caplog.text
-        assert "kafka_client_id -> client_id" in caplog.text
-        assert "kafka_username -> username" in caplog.text
-        assert "kafka_password -> password" in caplog.text
+        assert "kafka_broker -> broker" in _warning_text(mock_log.warning)
+        assert "kafka_security_protocol -> security_protocol" in _warning_text(mock_log.warning)
+        assert "kafka_sasl_mechanism -> sasl_mechanism" in _warning_text(mock_log.warning)
+        assert "kafka_client_id -> client_id" in _warning_text(mock_log.warning)
+        assert "kafka_username -> username" in _warning_text(mock_log.warning)
+        assert "kafka_password -> password" in _warning_text(mock_log.warning)
 
-    def test_new_kafka_cluster_fields_no_warning(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_kafka_cluster_fields_no_warning(self, mock_log):
         """Test that new KafkaClusterConfig field names don't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            config = KafkaClusterConfig(
-                name="test-cluster",
-                broker="broker1:9092",
-                security_protocol="SSL",
-                sasl_mechanism="PLAIN",
-                client_id="custom-client",
-                username="my-user",
-                password="my-password",
-            )
+        config = KafkaClusterConfig(
+            name="test-cluster",
+            broker="broker1:9092",
+            security_protocol="SSL",
+            sasl_mechanism="PLAIN",
+            client_id="custom-client",
+            username="my-user",
+            password="my-password",
+        )
 
         assert config.broker == "broker1:9092"
         assert config.security_protocol == "SSL"
@@ -340,58 +344,58 @@ class TestKafkaConfigBackwardCompatibility:
         assert config.client_id == "custom-client"
         assert config.username == "my-user"
         assert config.password == "my-password"
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
-    def test_deprecated_kafka_config_clusters_field(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_kafka_config_clusters_field(self, mock_log):
         """Test that deprecated KafkaConfig.kafka_clusters field is migrated."""
-        with caplog.at_level(logging.WARNING):
-            config = KafkaConfig(
-                kafka_clusters=[
-                    {"name": "cluster1", "broker": "broker1:9092"},
-                    {"name": "cluster2", "broker": "broker2:9092"},
-                ]
-            )
+        config = KafkaConfig(
+            kafka_clusters=[
+                {"name": "cluster1", "broker": "broker1:9092"},
+                {"name": "cluster2", "broker": "broker2:9092"},
+            ]
+        )
 
         assert len(config.clusters) == 2
         assert config.clusters[0].name == "cluster1"
         assert config.clusters[0].broker == "broker1:9092"
         assert config.clusters[1].name == "cluster2"
-        assert "kafka_clusters -> clusters" in caplog.text
+        assert "kafka_clusters -> clusters" in _warning_text(mock_log.warning)
 
-    def test_new_kafka_config_clusters_field_no_warning(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_kafka_config_clusters_field_no_warning(self, mock_log):
         """Test that new KafkaConfig.clusters field doesn't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            config = KafkaConfig(
-                clusters=[
-                    {"name": "cluster1", "broker": "broker1:9092"},
-                ]
-            )
+        config = KafkaConfig(
+            clusters=[
+                {"name": "cluster1", "broker": "broker1:9092"},
+            ]
+        )
 
         assert len(config.clusters) == 1
         assert config.clusters[0].name == "cluster1"
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
-    def test_mixed_old_and_new_field_names_kafka(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_mixed_old_and_new_field_names_kafka(self, mock_log):
         """Test that old KafkaConfig fields with old KafkaClusterConfig fields work."""
-        with caplog.at_level(logging.WARNING):
-            # Use old field names throughout
-            config = KafkaConfig(
-                kafka_clusters=[
-                    {
-                        "name": "legacy-cluster",
-                        "kafka_broker": "legacy-broker:9092",
-                        "kafka_security_protocol": "PLAINTEXT",
-                    },
-                ]
-            )
+        # Use old field names throughout
+        config = KafkaConfig(
+            kafka_clusters=[
+                {
+                    "name": "legacy-cluster",
+                    "kafka_broker": "legacy-broker:9092",
+                    "kafka_security_protocol": "PLAINTEXT",
+                },
+            ]
+        )
 
         assert len(config.clusters) == 1
         assert config.clusters[0].name == "legacy-cluster"
         assert config.clusters[0].broker == "legacy-broker:9092"
         assert config.clusters[0].security_protocol == "PLAINTEXT"
-        assert "kafka_clusters -> clusters" in caplog.text
-        assert "kafka_broker -> broker" in caplog.text
-        assert "kafka_security_protocol -> security_protocol" in caplog.text
+        assert "kafka_clusters -> clusters" in _warning_text(mock_log.warning)
+        assert "kafka_broker -> broker" in _warning_text(mock_log.warning)
+        assert "kafka_security_protocol -> security_protocol" in _warning_text(mock_log.warning)
 
     def test_kafka_cluster_config_equivalence(self):
         """Test that configs created with old and new field names are equivalent."""
@@ -448,46 +452,46 @@ class TestKafkaConfigBackwardCompatibility:
 class TestRabbitMQConfigBackwardCompatibility:
     """Test backward compatibility for RabbitMQClusterConfig deprecated fields."""
 
-    def test_deprecated_rabbitmq_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_rabbitmq_fields(self, mock_log):
         """Test that deprecated RabbitMQ config fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            # Use old field names (deprecated)
-            old_config = RabbitMQClusterConfig(
-                management_url="http://rabbitmq:15672",
-                request_timeout_seconds=45,
-            )
+        # Use old field names (deprecated)
+        old_config = RabbitMQClusterConfig(
+            management_url="http://rabbitmq:15672",
+            request_timeout_seconds=45,
+        )
 
         # Verify migration to new field names
         assert old_config.api_url == "http://rabbitmq:15672"
         assert old_config.timeout_seconds == 45
-        assert "management_url -> api_url" in caplog.text
-        assert "request_timeout_seconds -> timeout_seconds" in caplog.text
+        assert "management_url -> api_url" in _warning_text(mock_log.warning)
+        assert "request_timeout_seconds -> timeout_seconds" in _warning_text(mock_log.warning)
 
-    def test_new_rabbitmq_fields_no_warning(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_rabbitmq_fields_no_warning(self, mock_log):
         """Test that new RabbitMQ field names don't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            # Use new field names (current)
-            new_config = RabbitMQClusterConfig(
-                api_url="http://rabbitmq:15672",
-                timeout_seconds=30,
-            )
+        # Use new field names (current)
+        new_config = RabbitMQClusterConfig(
+            api_url="http://rabbitmq:15672",
+            timeout_seconds=30,
+        )
 
         assert new_config.api_url == "http://rabbitmq:15672"
         assert new_config.timeout_seconds == 30
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
-    def test_old_and_new_configs_produce_same_result(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_old_and_new_configs_produce_same_result(self, mock_log):
         """Test that configs created with old and new field names produce identical results."""
-        with caplog.at_level(logging.WARNING):
-            # Create config using old field names
-            old_config = RabbitMQClusterConfig(
-                id="test-cluster",
-                management_url="http://rabbitmq:15672",
-                username="user",
-                password="pass",
-                request_timeout_seconds=60,
-                verify_ssl=False,
-            )
+        # Create config using old field names
+        old_config = RabbitMQClusterConfig(
+            id="test-cluster",
+            management_url="http://rabbitmq:15672",
+            username="user",
+            password="pass",
+            request_timeout_seconds=60,
+            verify_ssl=False,
+        )
 
         # Create config using new field names
         new_config = RabbitMQClusterConfig(
@@ -507,15 +511,15 @@ class TestRabbitMQConfigBackwardCompatibility:
         assert old_config.timeout_seconds == new_config.timeout_seconds
         assert old_config.verify_ssl == new_config.verify_ssl
 
-    def test_new_field_takes_precedence_over_deprecated(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_field_takes_precedence_over_deprecated(self, mock_log):
         """Test that new field takes precedence if both old and new are provided."""
-        with caplog.at_level(logging.WARNING):
-            config = RabbitMQClusterConfig(
-                management_url="http://old-url:15672",
-                api_url="http://new-url:15672",
-                request_timeout_seconds=30,
-                timeout_seconds=60,
-            )
+        config = RabbitMQClusterConfig(
+            management_url="http://old-url:15672",
+            api_url="http://new-url:15672",
+            request_timeout_seconds=30,
+            timeout_seconds=60,
+        )
 
         # New fields should take precedence
         assert config.api_url == "http://new-url:15672"
@@ -525,48 +529,47 @@ class TestRabbitMQConfigBackwardCompatibility:
 class TestServiceNowConfigBackwardCompatibility:
     """Test backward compatibility for ServiceNowTablesConfig deprecated fields."""
 
-    def test_deprecated_servicenow_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_servicenow_fields(self, mock_log):
         """Test that deprecated ServiceNow config fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            old_config = ServiceNowTablesConfig(
-                api_key="now_test123",
-                instance_url="https://test.service-now.com",
-            )
+        old_config = ServiceNowTablesConfig(
+            api_key="now_test123",
+            instance_url="https://test.service-now.com",
+        )
 
         # Verify field was migrated
         assert old_config.api_url == "https://test.service-now.com"
-        assert "instance_url -> api_url" in caplog.text
+        assert "instance_url -> api_url" in _warning_text(mock_log.warning)
 
-    def test_new_servicenow_fields_no_warning(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_servicenow_fields_no_warning(self, mock_log):
         """Test that new ServiceNow field names don't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            new_config = ServiceNowTablesConfig(
-                api_key="now_test123",
-                api_url="https://test.service-now.com",
-            )
+        new_config = ServiceNowTablesConfig(
+            api_key="now_test123",
+            api_url="https://test.service-now.com",
+        )
 
         assert new_config.api_url == "https://test.service-now.com"
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
-    def test_deprecated_and_new_servicenow_configs_equivalent(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_and_new_servicenow_configs_equivalent(self, mock_log):
         """Test that configs created with old and new fields are equivalent."""
         # Create config using deprecated field name
-        with caplog.at_level(logging.WARNING):
-            old_config = ServiceNowTablesConfig(
-                api_key="now_test123",
-                instance_url="https://test.service-now.com",
-                api_key_header="custom-header",
-            )
+        old_config = ServiceNowTablesConfig(
+            api_key="now_test123",
+            instance_url="https://test.service-now.com",
+            api_key_header="custom-header",
+        )
 
-        caplog.clear()
+        mock_log.warning.reset_mock()
 
         # Create config using new field name
-        with caplog.at_level(logging.WARNING):
-            new_config = ServiceNowTablesConfig(
-                api_key="now_test123",
-                api_url="https://test.service-now.com",
-                api_key_header="custom-header",
-            )
+        new_config = ServiceNowTablesConfig(
+            api_key="now_test123",
+            api_url="https://test.service-now.com",
+            api_key_header="custom-header",
+        )
 
         # Verify both configs have the same values
         assert old_config.api_key == new_config.api_key
@@ -586,40 +589,40 @@ class TestServiceNowConfigBackwardCompatibility:
 class TestNewrelicConfigBackwardCompatibility:
     """Test backward compatibility for NewrelicConfig deprecated fields."""
 
-    def test_deprecated_newrelic_fields(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_deprecated_newrelic_fields(self, mock_log):
         """Test that deprecated New Relic config fields are migrated."""
-        with caplog.at_level(logging.WARNING):
-            config = NewrelicConfig(
-                nr_api_key="NRAK-TESTKEY123",
-                nr_account_id="1234567",
-            )
+        config = NewrelicConfig(
+            nr_api_key="NRAK-TESTKEY123",
+            nr_account_id="1234567",
+        )
 
         assert config.api_key == "NRAK-TESTKEY123"
         assert config.account_id == "1234567"
-        assert "nr_api_key -> api_key" in caplog.text
-        assert "nr_account_id -> account_id" in caplog.text
+        assert "nr_api_key -> api_key" in _warning_text(mock_log.warning)
+        assert "nr_account_id -> account_id" in _warning_text(mock_log.warning)
 
-    def test_new_newrelic_fields_no_warning(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_new_newrelic_fields_no_warning(self, mock_log):
         """Test that new New Relic field names don't trigger warnings."""
-        with caplog.at_level(logging.WARNING):
-            config = NewrelicConfig(
-                api_key="NRAK-TESTKEY123",
-                account_id="1234567",
-            )
+        config = NewrelicConfig(
+            api_key="NRAK-TESTKEY123",
+            account_id="1234567",
+        )
 
         assert config.api_key == "NRAK-TESTKEY123"
         assert config.account_id == "1234567"
-        assert "deprecated" not in caplog.text.lower()
+        mock_log.warning.assert_not_called()
 
-    def test_old_and_new_fields_mixed(self, caplog):
+    @patch(_LOGGER_PATH)
+    def test_old_and_new_fields_mixed(self, mock_log):
         """Test that deprecated and new configs produce equivalent results."""
         # Create config with old field names
-        with caplog.at_level(logging.WARNING):
-            old_config = NewrelicConfig(
-                nr_api_key="NRAK-TESTKEY123",
-                nr_account_id="1234567",
-                is_eu_datacenter=True,
-            )
+        old_config = NewrelicConfig(
+            nr_api_key="NRAK-TESTKEY123",
+            nr_account_id="1234567",
+            is_eu_datacenter=True,
+        )
 
         # Create config with new field names
         new_config = NewrelicConfig(

@@ -7,7 +7,7 @@ import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+from mcp.types import CallToolResult, ImageContent, ListToolsResult, TextContent, Tool
 
 if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
@@ -985,6 +985,103 @@ class TestStreamableHttp:
         assert result.tools[0].name == "tool1"
         assert result.tools[1].name == "tool2"
 
+    def test_invoke_async_extracts_image_content(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """MCP ImageContent blocks are extracted into result.images."""
+        tool = Tool(
+            name="get_page_images",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Get page images",
+        )
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mock_toolset, "_get_server_tools", mock_get_server_tools)
+        mock_toolset.prerequisites_callable(config=mock_toolset.config)
+        mcp_tool = RemoteMCPTool.create(tool, mock_toolset)
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        call_tool_result = CallToolResult(
+            content=[
+                TextContent(type="text", text="Page has 1 image"),
+                ImageContent(
+                    type="image", data="iVBORw0KGgo=", mimeType="image/png"
+                ),
+            ],
+            isError=False,
+        )
+        mock_session.call_tool = AsyncMock(return_value=call_tool_result)
+
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+
+        with client_patch, session_patch:
+            result = asyncio.run(mcp_tool._invoke_async({}, None))
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "Page has 1 image" in result.data
+        assert result.images is not None
+        assert len(result.images) == 1
+        assert result.images[0]["data"] == "iVBORw0KGgo="
+        assert result.images[0]["mimeType"] == "image/png"
+
+    def test_invoke_async_text_only_has_no_images(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """When no ImageContent blocks, result.images is None."""
+        tool = Tool(
+            name="get_page",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Get page",
+        )
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mock_toolset, "_get_server_tools", mock_get_server_tools)
+        mock_toolset.prerequisites_callable(config=mock_toolset.config)
+        mcp_tool = RemoteMCPTool.create(tool, mock_toolset)
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        call_tool_result = CallToolResult(
+            content=[TextContent(type="text", text="text only")],
+            isError=False,
+        )
+        mock_session.call_tool = AsyncMock(return_value=call_tool_result)
+
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+
+        with client_patch, session_patch:
+            result = asyncio.run(mcp_tool._invoke_async({}, None))
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.images is None
+
 
 class TestSSE:
     def _setup_mocks(self, mock_session):
@@ -1692,6 +1789,77 @@ class TestStdio:
 
         # Verify the tools loaded in the toolset match what we got from list_tools
         assert len(toolset.tools) == len(list_result.tools)
+
+    def test_everything_stdio_image_passthrough(self, suppress_migration_warnings):
+        """Test full MCP image passthrough: real server returns image → StructuredToolResult.images populated.
+
+        This validates the core fix for eval 233 (MCP Confluence image attachment):
+        MCP ImageContent blocks are extracted and passed through to the LLM.
+        """
+        import os
+
+        server_path = os.path.join(os.path.dirname(__file__), "stdio_server.py")
+        yaml_config = {
+            "mode": "stdio",
+            "command": "python",
+            "args": [server_path],
+        }
+
+        toolset = RemoteMCPToolset(
+            name="everything_stdio",
+            description="MCP Example stdio server (Python FastMCP server)",
+            config=yaml_config,
+        )
+
+        result = toolset.prerequisites_callable(config=yaml_config)
+        assert result[0] is True, f"Failed to initialize MCP server: {result[1]}"
+
+        # Find the get_test_image tool
+        image_tool = None
+        for tool in toolset.tools:
+            if tool.name == "get_test_image":
+                image_tool = tool
+                break
+        assert image_tool is not None, (
+            f"get_test_image tool not found. Available: {[t.name for t in toolset.tools]}"
+        )
+
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="test-img-id",
+            tool_name="get_test_image",
+            request_context=None,
+        )
+
+        invoke_result = image_tool._invoke({}, context)
+
+        # Core assertion: images are extracted from MCP response
+        assert invoke_result.status == StructuredToolResultStatus.SUCCESS
+        assert invoke_result.images is not None, "images should not be None for MCP ImageContent"
+        assert len(invoke_result.images) == 1
+        assert invoke_result.images[0]["mimeType"] == "image/png"
+        assert len(invoke_result.images[0]["data"]) > 0  # base64 data present
+
+        # Verify the full pipeline: to_llm_message produces multimodal content
+        from holmes.core.models import ToolCallResult
+
+        tcr = ToolCallResult(
+            tool_call_id="test-img-id",
+            tool_name="get_test_image",
+            description="test",
+            result=invoke_result,
+        )
+        message = tcr.to_llm_message()
+        content = message["content"]
+        assert isinstance(content, list), "Should return multimodal content list when images present"
+        assert content[0]["type"] == "text"
+        assert "tool-image://test-img-id" in content[0]["text"]
+        assert content[1]["type"] == "image_url"
+        assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
 
 
 class TestHeaderRendering:

@@ -1,0 +1,21 @@
+# Test: Image spill-to-disk recovery via read_image_file
+# When a tool result is too large (big text + image), it gets spilled to disk.
+# The LLM must use read_image_file to load the image back and read the code.
+# Uses a local MCP server that returns a deliberately oversized report + image.
+
+user_prompt: |
+  Fetch report "report-2024-001" from the report service and tell me
+  the verification code shown in the attached image.
+
+expected_output:
+  - "Must report the verification code from the image: IMGVERIFY-7Q3X9P"
+  - "Must have called read_image_file tool to load the spilled image from disk"
+
+include_tool_calls: true
+
+tags:
+  - mcp
+  - images
+  - question-answer
+  - fast
+  - easy
