@@ -595,7 +595,7 @@ service/database-service            ClusterIP   10.0.1.101   <none>        5432/
                 return "test command"
 
         # Create tool with llm_summarize transformer (low threshold so it applies)
-        # Need to ensure fast_model is configured AND global_fast_model fallback
+        # Need to ensure fast_model is configured
         tool = TestTool(
             name="test_tool",
             description="Test tool",

@@ -1,4 +1,5 @@
 import json
+import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -13,6 +14,7 @@ class ToolCallResult(BaseModel):
     description: str
     result: StructuredToolResult
     size: Optional[int] = None
+    toolset_name: Optional[str] = None
 
     def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None, supports_vision: bool = True):
         text_content = format_tool_result_data(
@@ -47,7 +49,7 @@ class ToolCallResult(BaseModel):
         result_dump = self.result.model_dump()
         result_dump["data"] = self.result.get_stringified_data()
 
-        return {
+        d = {
             "tool_call_id": self.tool_call_id,
             "tool_name": self.tool_name,
             "name": self.tool_name,  # backwards compat: streaming consumers read "name"
@@ -55,6 +57,9 @@ class ToolCallResult(BaseModel):
             "role": "tool",
             "result": result_dump,
         }
+        if self.toolset_name:
+            d["toolset_name"] = self.toolset_name
+        return d
 
 
 def _build_image_embed_hint(tool_call_id: str, url: Optional[str] = None) -> str:

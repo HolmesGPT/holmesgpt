@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+display_logger = logging.getLogger("holmes.display.bash_toolset")
+
 from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
 
 from holmes.core.tools import (
@@ -184,7 +186,6 @@ class RunBashCommand(Tool):
             return None
 
         if validation_result.status == ValidationStatus.APPROVAL_REQUIRED:
-            logging.info(f"Bash command requires approval: {command_str}")
             prefixes_to_save = validation_result.prefixes_needing_approval
             return ApprovalRequirement(
                 needs_approval=True,
@@ -257,7 +258,7 @@ class RunBashCommand(Tool):
                 )
 
         # Execute command (user_approved or validation passed)
-        logging.info(f"Executing bash command: {command_str}")
+        display_logger.info(f"Executing bash command: {command_str}")
         try:
             result = execute_bash_command(cmd=command_str, timeout=timeout)
         except FileNotFoundError:

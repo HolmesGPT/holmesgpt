@@ -56,6 +56,9 @@ if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
 
 logger = logging.getLogger(__name__)
+# Named logger for user-facing display messages (tool progress lines).
+# In interactive mode this logger is silenced; the CLI renders from stream events instead.
+display_logger = logging.getLogger("holmes.display.tools")
 
 
 class StructuredToolResultStatus(str, Enum):
@@ -101,6 +104,7 @@ class StructuredToolResult(BaseModel):
     invocation: Optional[str] = None
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
+    elapsed_seconds: Optional[float] = None
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
@@ -332,14 +336,14 @@ class Tool(ABC, BaseModel):
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
         tool_number_str = f"#{context.tool_number} " if context.tool_number else ""
-        logger.info(
+        display_logger.info(
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
 
         if not context.user_approved:
             approval_check = self._get_approval_requirement(params, context)
             if approval_check and approval_check.needs_approval:
-                logger.info(
+                display_logger.info(
                     f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
                 )
                 # Bash toolset: override suggested_prefixes with filtered list
@@ -360,6 +364,7 @@ class Tool(ABC, BaseModel):
 
         transformed_result = self._apply_transformers(result)
         elapsed = time.time() - start_time
+        transformed_result.elapsed_seconds = elapsed
         output_str = (
             transformed_result.get_stringified_data()
             if hasattr(transformed_result, "get_stringified_data")
@@ -367,7 +372,7 @@ class Tool(ABC, BaseModel):
         )
         show_hint = f"/show {context.tool_number}" if context.tool_number else "/show"
         line_count = output_str.count("\n") + 1 if output_str else 0
-        logger.info(
+        display_logger.info(
             f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
@@ -950,12 +955,12 @@ class Toolset(BaseModel):
                 or self.status == ToolsetStatusEnum.FAILED
             ):
                 if not silent:
-                    logger.info(f"❌ Toolset {self.name}: {self.error}")
+                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
                 return
 
         if not silent:
-            logger.info(f"✅ Toolset {self.name}")
+            display_logger.info(f"✅ Toolset {self.name}")
 
     def check_config_prerequisites(self, silent: bool = False) -> None:
         """Run only fast config-validity checks (static flags and environment variables).
@@ -990,7 +995,7 @@ class Toolset(BaseModel):
                 or self.status == ToolsetStatusEnum.FAILED
             ):
                 if not silent:
-                    logger.info(f"❌ Toolset {self.name}: {self.error}")
+                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
                 return
 
         if has_deferred_prereqs:
@@ -1020,7 +1025,7 @@ class Toolset(BaseModel):
             if self._initialized:
                 return self.status == ToolsetStatusEnum.ENABLED
 
-            logger.info(f"Lazily initializing toolset {self.name}...")
+            display_logger.info(f"Lazily initializing toolset {self.name}...")
             self.check_prerequisites(silent=silent)
             self._initialized = True
             self._lazy_init = False

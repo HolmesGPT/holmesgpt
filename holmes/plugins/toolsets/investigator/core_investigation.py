@@ -3,6 +3,8 @@ import os
 from typing import Any, Dict
 from uuid import uuid4
 
+display_logger = logging.getLogger("holmes.display.core_investigation")
+
 from holmes.core.todo_tasks_formatter import format_tasks
 from holmes.core.tools import (
     StructuredToolResult,
@@ -59,7 +61,7 @@ class TodoWriteTool(Tool):
     # Print a nice table to console/log
     def print_tasks_table(self, tasks):
         if not tasks:
-            logging.info("No tasks in the investigation plan.")
+            display_logger.info("No tasks in the investigation plan.")
             return
 
         status_icons = {
@@ -89,7 +91,7 @@ class TodoWriteTool(Tool):
             row = f"| {task.id:<{id_width}} | {task.content:<{content_width}} | {status_display:<{status_width}} |"
             tasks_to_display.append(row)
 
-        logging.info(
+        display_logger.info(
             f"Task List:\n{separator}\n{header}\n{separator}\n"
             + "\n".join(tasks_to_display)
             + f"\n{separator}"
