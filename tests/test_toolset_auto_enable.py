@@ -74,14 +74,14 @@ class TestHasRequiredFields:
 
 class TestMissingConfig:
     def test_already_enabled(self):
-        """Toolset that is already enabled does not have missing config."""
+        """missing_config is a pure fact-check: enabled toolset still reports missing config."""
         toolset = _make_toolset(enabled=True, config_classes=[RequiredFieldConfig])
-        assert toolset.missing_config is False
+        assert toolset.missing_config is True
 
     def test_is_default(self):
-        """Toolset marked as is_default does not have missing config."""
+        """missing_config is a pure fact-check: is_default toolset still reports missing config."""
         toolset = _make_toolset(is_default=True, config_classes=[RequiredFieldConfig])
-        assert toolset.missing_config is False
+        assert toolset.missing_config is True
 
     def test_no_config_classes(self):
         """YAML-style toolset with no config_classes does not have missing config."""

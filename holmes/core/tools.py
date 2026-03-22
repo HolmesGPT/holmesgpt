@@ -862,17 +862,12 @@ class Toolset(BaseModel):
 
     @property
     def missing_config(self) -> bool:
-        """True when this toolset requires user-supplied configuration that was not provided.
+        """Pure fact-check: True when this toolset requires user-supplied configuration that was not provided.
 
-        A toolset does NOT have missing config when any of these hold:
-        1. Already enabled or is_default
-        2. No config_classes (YAML toolsets, simple Python toolsets)
-        3. Config classes exist but all fields have defaults
-        4. Config is required AND was provided by user
+        This property only checks whether required config is missing. It does not
+        consider policy concerns like whether the toolset is enabled or is_default;
+        callers are responsible for those checks.
         """
-        if self.enabled or self.is_default:
-            return False
-
         if not self.config_classes:
             return False
 
@@ -884,10 +879,7 @@ class Toolset(BaseModel):
         if not requires_config:
             return False
 
-        if self.config is not None:
-            return False
-
-        return True
+        return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
