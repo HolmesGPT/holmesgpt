@@ -1,11 +1,13 @@
 """Tests for the smart auto-enable logic for toolsets."""
 
 from typing import ClassVar, Dict, List, Optional, Type
+from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel, Field
 
-from holmes.core.tools import Toolset, ToolsetTag
+from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag
+from holmes.core.toolset_manager import ToolsetManager
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 
@@ -111,3 +113,61 @@ class TestMissingConfig:
         """Even a disabled toolset with no config classes does not have missing config."""
         toolset = _make_toolset(enabled=False, config_classes=[])
         assert toolset.missing_config is False
+
+
+# --- ToolsetManager caller-level integration tests ---
+
+
+class TestToolsetManagerAutoEnable:
+    """Verify that ToolsetManager._list_all_toolsets respects missing_config
+    when enable_all_toolsets=True (the CLI path)."""
+
+    def _make_manager_with_toolsets(self, toolsets: List[Toolset]) -> ToolsetManager:
+        manager = ToolsetManager()
+        return manager
+
+    @patch("holmes.core.toolset_manager.load_builtin_toolsets")
+    def test_auto_enable_skips_missing_config_toolset(self, mock_load):
+        """A toolset with required config but no config provided should NOT be
+        auto-enabled even when enable_all_toolsets=True."""
+        needs_config = _make_toolset(
+            name="needs-config",
+            enabled=False,
+            config_classes=[RequiredFieldConfig],
+        )
+        no_config_needed = _make_toolset(
+            name="no-config-needed",
+            enabled=False,
+            config_classes=[AllOptionalConfig],
+        )
+        mock_load.return_value = [needs_config, no_config_needed]
+
+        manager = ToolsetManager()
+        result = manager._list_all_toolsets(
+            check_prerequisites=False,
+            enable_all_toolsets=True,
+        )
+
+        by_name = {t.name: t for t in result}
+        assert by_name["needs-config"].enabled is False
+        assert by_name["no-config-needed"].enabled is True
+
+    @patch("holmes.core.toolset_manager.load_builtin_toolsets")
+    def test_auto_enable_allows_toolset_with_config_provided(self, mock_load):
+        """A toolset with required config that HAS config should be auto-enabled."""
+        has_config = _make_toolset(
+            name="has-config",
+            enabled=False,
+            config_classes=[RequiredFieldConfig],
+            config={"api_url": "http://example.com"},
+        )
+        mock_load.return_value = [has_config]
+
+        manager = ToolsetManager()
+        result = manager._list_all_toolsets(
+            check_prerequisites=False,
+            enable_all_toolsets=True,
+        )
+
+        by_name = {t.name: t for t in result}
+        assert by_name["has-config"].enabled is True

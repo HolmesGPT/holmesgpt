@@ -10,6 +10,44 @@ layers of logic.
 
 ---
 
+## Recent Behavioral Change: `missing_config` Decoupled from `enabled`
+
+PR #1830 removed the early-return guard in `Toolset.missing_config`:
+
+```python
+# BEFORE (old code):
+@property
+def missing_config(self) -> bool:
+    if self.enabled or self.is_default:
+        return False          # <-- short-circuited, never reported missing config
+    ...
+
+# AFTER (current code):
+@property
+def missing_config(self) -> bool:
+    if not self.config_classes:
+        return False
+    requires_config = any(...)
+    if not requires_config:
+        return False
+    return self.config is None  # <-- pure fact-check, ignores enabled state
+```
+
+**Why**: The old code conflated "is this toolset turned on?" with "does this toolset
+have the config it needs?". A toolset with `enabled=True` but no required config
+provided would report `missing_config=False`, hiding the problem. The auto-enable
+logic in `ToolsetManager` (Layer 4 below) uses `missing_config` as a gate, so the
+old behavior meant it could never protect against enabling an unconfigured toolset
+that happened to already be enabled.
+
+**Impact**: Toolsets with `enabled=True` in their constructor (bash, internet, etc.)
+will now correctly report `missing_config=True` if they have required config fields
+with no config provided. In practice this changes nothing today because none of these
+always-on toolsets have required config fields. The change matters for future toolsets
+and for the auto-enable path.
+
+---
+
 ## How It Works Today
 
 ### Layer 1: The `Toolset.enabled` Default (tools.py:709)
