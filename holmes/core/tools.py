@@ -862,12 +862,7 @@ class Toolset(BaseModel):
 
     @property
     def missing_config(self) -> bool:
-        """Pure fact-check: True when this toolset requires user-supplied configuration that was not provided.
-
-        This property only checks whether required config is missing. It does not
-        consider policy concerns like whether the toolset is enabled or is_default;
-        callers are responsible for those checks.
-        """
+        """True when this toolset has required config fields but no config was provided."""
         if not self.config_classes:
             return False
 
