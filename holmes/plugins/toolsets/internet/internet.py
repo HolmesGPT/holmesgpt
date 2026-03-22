@@ -282,4 +282,5 @@ class InternetToolset(InternetBaseToolset):
             tags=[
                 ToolsetTag.CORE,
             ],
+            enabled=True,
         )
