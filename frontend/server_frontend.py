@@ -1819,6 +1819,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 inc_url=incident_url,
                 inc_body=incident_body,
                 project_id=matched_project_id,
+                resolved_project=matched_project,
             ):
                 investigation_id = _uuid.uuid4().hex
                 started_at = datetime.now(timezone.utc).isoformat()
@@ -1838,7 +1839,29 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                         logging.error("PagerDuty webhook: config not available")
                         return
 
-                    ai = config.create_toolcalling_llm(dal=config.dal)
+                    if resolved_project is not None:
+                        from projects import build_project_tool_executor  # noqa: PLC0415
+                        from projects import (
+                            get_instances_store as _get_instances_store_inv,
+                        )  # noqa: PLC0415
+                        from holmes.core.tool_calling_llm import (
+                            ToolCallingLLM as _ToolCallingLLM,
+                        )  # noqa: PLC0415
+
+                        _project_executor = build_project_tool_executor(
+                            resolved_project,
+                            config,
+                            config.dal,
+                            _get_instances_store_inv(),
+                        )
+                        ai = _ToolCallingLLM(
+                            _project_executor,
+                            config.max_steps,
+                            config._get_llm(),
+                            tool_results_dir=None,
+                        )
+                    else:
+                        ai = config.create_toolcalling_llm(dal=config.dal)
                     global_instructions = (
                         config.dal.get_global_instructions_for_account()
                     )
@@ -2100,6 +2123,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             wi_url=work_item_url,
             wi_description=work_item_description,
             project_id=matched_project_id,
+            resolved_project=matched_project,
         ):
             investigation_id = _uuid.uuid4().hex
             started_at = datetime.now(timezone.utc).isoformat()
@@ -2119,7 +2143,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     logging.error("ADO webhook: config not available")
                     return
 
-                ai = config.create_toolcalling_llm(dal=config.dal)
+                if resolved_project is not None:
+                    from projects import build_project_tool_executor  # noqa: PLC0415
+                    from projects import get_instances_store as _get_instances_store_inv  # noqa: PLC0415
+                    from holmes.core.tool_calling_llm import (
+                        ToolCallingLLM as _ToolCallingLLM,
+                    )  # noqa: PLC0415
+
+                    _project_executor = build_project_tool_executor(
+                        resolved_project, config, config.dal, _get_instances_store_inv()
+                    )
+                    ai = _ToolCallingLLM(
+                        _project_executor,
+                        config.max_steps,
+                        config._get_llm(),
+                        tool_results_dir=None,
+                    )
+                else:
+                    ai = config.create_toolcalling_llm(dal=config.dal)
                 global_instructions = config.dal.get_global_instructions_for_account()
 
                 from holmes.core.conversations import (  # noqa: PLC0415
@@ -2374,6 +2415,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             c_description=case_description,
             c_url=case_url,
             project_id=matched_project_id,
+            resolved_project=matched_project,
         ):
             investigation_id = _uuid.uuid4().hex
             started_at = datetime.now(timezone.utc).isoformat()
@@ -2394,7 +2436,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     logging.error("Salesforce webhook: config not available")
                     return
 
-                ai = config.create_toolcalling_llm(dal=config.dal)
+                if resolved_project is not None:
+                    from projects import build_project_tool_executor  # noqa: PLC0415
+                    from projects import get_instances_store as _get_instances_store_inv  # noqa: PLC0415
+                    from holmes.core.tool_calling_llm import (
+                        ToolCallingLLM as _ToolCallingLLM,
+                    )  # noqa: PLC0415
+
+                    _project_executor = build_project_tool_executor(
+                        resolved_project, config, config.dal, _get_instances_store_inv()
+                    )
+                    ai = _ToolCallingLLM(
+                        _project_executor,
+                        config.max_steps,
+                        config._get_llm(),
+                        tool_results_dir=None,
+                    )
+                else:
+                    ai = config.create_toolcalling_llm(dal=config.dal)
                 global_instructions = config.dal.get_global_instructions_for_account()
 
                 from holmes.core.conversations import (  # noqa: PLC0415
