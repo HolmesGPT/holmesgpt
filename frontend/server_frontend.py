@@ -1861,7 +1861,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                             tool_results_dir=None,
                         )
                     else:
-                        ai = _create_scoped_toolcalling_llm(config, "")
+                        ai = _create_scoped_toolcalling_llm(config, "pagerduty")
                     global_instructions = (
                         config.dal.get_global_instructions_for_account()
                     )
@@ -2209,7 +2209,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                         tool_results_dir=None,
                     )
                 else:
-                    ai = _create_scoped_toolcalling_llm(config, "")
+                    ai = _create_scoped_toolcalling_llm(config, "ado")
                 global_instructions = config.dal.get_global_instructions_for_account()
 
                 from holmes.core.conversations import (  # noqa: PLC0415
@@ -2502,7 +2502,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                         tool_results_dir=None,
                     )
                 else:
-                    ai = _create_scoped_toolcalling_llm(config, "")
+                    ai = _create_scoped_toolcalling_llm(config, "salesforce")
                 global_instructions = config.dal.get_global_instructions_for_account()
 
                 from holmes.core.conversations import (  # noqa: PLC0415
