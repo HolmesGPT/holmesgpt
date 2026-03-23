@@ -72,6 +72,14 @@ class Instance(BaseModel):
     created_at: str = ""
 
 
+class WebhookRouting(BaseModel):
+    """Webhook routing rules: maps external source identifiers to this project."""
+
+    ado: list[str] = []  # ADO team project names (System.TeamProject)
+    pagerduty: list[str] = []  # PagerDuty service names or IDs
+    salesforce: list[str] = []  # Salesforce account names or IDs
+
+
 class Project(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     name: str
@@ -80,6 +88,7 @@ class Project(BaseModel):
     webhook_write_back: Optional[dict[str, bool]] = (
         None  # per-webhook write-back overrides; None/missing key = inherit global
     )
+    webhook_routing: Optional[WebhookRouting] = None
     created_at: str = ""
 
 
@@ -118,6 +127,29 @@ def resolve_instances_for_project(
     if project.tag_filter is None:
         return [i for i in all_instances if not i.tags]
     return [i for i in all_instances if match_instance(i, project.tag_filter)]
+
+
+def resolve_project_for_webhook(source: str, identifier: str) -> Optional["Project"]:
+    """Find the project whose webhook_routing matches the given source and identifier.
+
+    Args:
+        source: Webhook source type ("ado", "pagerduty", "salesforce")
+        identifier: The extracted identifier from the webhook payload
+
+    Returns:
+        Matching Project, or None (use global instances)
+    """
+    if not identifier:
+        return None
+    identifier_lower = identifier.strip().lower()
+    for project in get_store().list():
+        routing = project.webhook_routing
+        if not routing:
+            continue
+        candidates = getattr(routing, source, [])
+        if any(c.strip().lower() == identifier_lower for c in candidates):
+            return project
+    return None
 
 
 # ── DynamoDB helpers ───────────────────────────────────────────────────────────
@@ -229,11 +261,15 @@ class ProjectsStore:
         name: str,
         description: str,
         tag_filter: Optional[dict] = None,
+        webhook_routing: Optional[dict] = None,
     ) -> Project:
         p = Project(
             name=name,
             description=description,
             tag_filter=TagFilter(**tag_filter) if tag_filter else None,
+            webhook_routing=WebhookRouting(**webhook_routing)
+            if webhook_routing
+            else None,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         _get_table().put_item(
@@ -248,6 +284,8 @@ class ProjectsStore:
         for k, v in kwargs.items():
             if k == "tag_filter":
                 v = TagFilter(**v) if v else None
+            elif k == "webhook_routing":
+                v = WebhookRouting(**v) if v else None
             setattr(p, k, v)
         _get_table().put_item(
             Item={"pk": f"PROJECT#{p.id}", "sk": "META", "data": p.model_dump_json()}

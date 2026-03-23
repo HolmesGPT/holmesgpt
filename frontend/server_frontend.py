@@ -982,6 +982,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 name=body["name"],
                 description=body.get("description", ""),
                 tag_filter=body.get("tag_filter"),
+                webhook_routing=body.get("webhook_routing"),
             )
             return JSONResponse(p.model_dump(), status_code=201)
         except KeyError as e:
@@ -2038,9 +2039,8 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 return val.get("newValue", "")
             return ""
 
-        work_item_title = (
-            _ado_field(fields.get("System.Title"))
-            or resource.get("url", "")
+        work_item_title = _ado_field(fields.get("System.Title")) or resource.get(
+            "url", ""
         )
         work_item_type = _ado_field(fields.get("System.WorkItemType"))
         work_item_url = resource.get("url", "") or resource.get("_links", {}).get(
