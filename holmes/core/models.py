@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -12,25 +13,42 @@ class ToolCallResult(BaseModel):
     description: str
     result: StructuredToolResult
     size: Optional[int] = None
+    toolset_name: Optional[str] = None
 
-    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
+    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None, supports_vision: bool = True):
+        text_content = format_tool_result_data(
+            tool_result=self.result,
+            tool_call_id=self.tool_call_id,
+            tool_name=self.tool_name,
+            extra_metadata=extra_metadata,
+        )
+        if self.result.images and supports_vision:
+            text_content += _build_image_embed_hint(
+                tool_call_id=self.tool_call_id,
+                url=self.result.url,
+            )
+            content: List[Dict[str, Any]] = [{"type": "text", "text": text_content}]
+            for img in self.result.images:
+                data_uri = f"data:{img['mimeType']};base64,{img['data']}"
+                content.append({"type": "image_url", "image_url": {"url": data_uri}})
+            return {
+                "tool_call_id": self.tool_call_id,
+                "role": "tool",
+                "name": self.tool_name,
+                "content": content,
+            }
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
             "name": self.tool_name,
-            "content": format_tool_result_data(
-                tool_result=self.result,
-                tool_call_id=self.tool_call_id,
-                tool_name=self.tool_name,
-                extra_metadata=extra_metadata,
-            ),
+            "content": text_content,
         }
 
     def to_client_dict(self):
         result_dump = self.result.model_dump()
         result_dump["data"] = self.result.get_stringified_data()
 
-        return {
+        d = {
             "tool_call_id": self.tool_call_id,
             "tool_name": self.tool_name,
             "name": self.tool_name,  # backwards compat: streaming consumers read "name"
@@ -38,6 +56,27 @@ class ToolCallResult(BaseModel):
             "role": "tool",
             "result": result_dump,
         }
+        if self.toolset_name:
+            d["toolset_name"] = self.toolset_name
+        return d
+
+
+def _build_image_embed_hint(tool_call_id: str, url: Optional[str] = None) -> str:
+    """Build a hint for the LLM explaining how to embed this image in its response.
+
+    The LLM can use ![caption](tool-image://<tool_call_id>) syntax in its analysis.
+    The frontend resolves these references against the tool_calls array, rendering
+    the base64 image as a clickable link to the source URL (e.g. Grafana dashboard).
+    """
+    hint = (
+        f"\n\nTo embed this image in your response, use exactly this markdown syntax:\n"
+        f"![<descriptive caption>](tool-image://{tool_call_id})\n"
+        f"The client will render the image inline in your response"
+    )
+    if url:
+        hint += f" with a link to {url}"
+    hint += "."
+    return hint
 
 
 def format_tool_result_data(

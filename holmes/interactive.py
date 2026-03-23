@@ -1,6 +1,8 @@
 import contextvars
 import logging
+import math
 import os
+import queue
 import re
 import subprocess
 import sys
@@ -9,8 +11,9 @@ import threading
 import time
 from collections import defaultdict
 from enum import Enum
+from io import StringIO
 from pathlib import Path
-from typing import DefaultDict, Dict, List, Optional
+from typing import Any, DefaultDict, Dict, List, Optional
 
 try:
     import select as select_module
@@ -37,12 +40,17 @@ from prompt_toolkit.shortcuts.prompt import CompleteStyle
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
 from pygments.lexers import guess_lexer
-from rich.console import Console
+from rich.console import Console, Group
+from rich.control import Control
+from rich.live import Live
 from rich.markdown import Markdown, Panel
 from rich.markup import escape
+from rich.table import Table
+from rich.text import Text
 
 from holmes.config import Config
 from holmes.core.config import config_path_dir
+from holmes.core.init_event import StatusEvent, StatusEventKind, ToolsetStatus
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
     Feedback,
@@ -57,7 +65,11 @@ from holmes.core.tool_calling_llm import (
     LLMResult,
     ToolCallingLLM,
     ToolCallResult,
+    extract_bash_session_prefixes,
 )
+from holmes.core.llm_usage import RequestStats
+from holmes.core.models import ToolApprovalDecision
+from holmes.utils.stream import StreamEvents, StreamMessage
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
@@ -78,6 +90,1036 @@ from holmes.toolset_config_tui import run_toolset_config_tui
 from holmes.utils.console.consts import agent_name
 from holmes.utils.file_utils import write_json_file
 from holmes.version import check_version_async
+
+# Display loggers that are silenced in interactive mode.
+# The interactive loop renders from stream events instead of these loggers.
+DISPLAY_LOGGER_NAMES = [
+    "holmes.display.tool_calling_llm",
+    "holmes.display.tools",
+    "holmes.display.toolset_manager",
+    "holmes.display.core_investigation",
+    "holmes.display.config",
+    "holmes.display.llm",
+    "holmes.display.toolset_utils",
+    "holmes.display.bash_toolset",
+    "holmes.display.mcp_toolset",
+    "holmes.display.tool_executor",
+]
+
+_SENTINEL = object()  # marks end of stream on the queue
+
+
+def silence_display_loggers():
+    """Silence display loggers so interactive mode can render from stream events."""
+    for name in DISPLAY_LOGGER_NAMES:
+        logging.getLogger(name).setLevel(logging.WARNING + 1)
+
+
+def restore_display_loggers():
+    """Restore display loggers to default level."""
+    for name in DISPLAY_LOGGER_NAMES:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+
+
+_SLOW_THRESHOLD_SECS = 1.0  # Show a toolset by name if it takes longer than this
+
+
+def _make_live(renderable: Any, **kwargs: Any) -> Any:
+    """Create a Rich Live instance with a workaround for the ghost-frame bug.
+
+    Rich 13.9.4 bug: ``Live.refresh()`` calls ``console.print(Control())``
+    which uses the default ``end="\\n"``.  This trailing newline is not
+    accounted for in ``LiveRender._shape``, so ``position_cursor()`` (which
+    does ``height - 1`` cursor-ups) under-erases by one line when the
+    terminal has room below the display.  Each frame leaks one ghost line.
+
+    Fix: subclass ``Live`` and override ``refresh()`` to pass ``end=""``,
+    eliminating the spurious trailing newline.  With ``end=""``, the cursor
+    stays on the last content line and ``height - 1`` cursor-ups correctly
+    reaches line 1.
+    """
+
+    class _FixedLive(Live):
+        def refresh(self) -> None:
+            with self._lock:
+                self._live_render.set_renderable(self.renderable)
+                if self.console.is_terminal and not self.console.is_dumb_terminal:
+                    with self.console:
+                        self.console.print(Control(), end="")
+                elif not self._started and not self.transient:
+                    with self.console:
+                        self.console.print(Control(), end="")
+
+    return _FixedLive(renderable, **kwargs)
+
+
+class InitProgressRenderer:
+    """Collects StatusEvents and renders live progress during initialization.
+
+    Uses Rich Live(transient=True) so the detailed progress vanishes when done,
+    leaving only a compact summary (plus any errors).
+
+    Thread-safe: events arrive from the ThreadPoolExecutor in check_toolset_prerequisites.
+    """
+
+    def __init__(self, console: Console, model_name: str = ""):
+        self._console = console
+        self._lock = threading.Lock()
+        self._toolsets_ok: List[str] = []
+        self._toolsets_failed: List[tuple[str, str]] = []  # (name, error)
+        self._in_flight: Dict[str, float] = {}  # name → start time
+        self._model_message: str = ""
+        self._phase: str = "Loading datasources"
+        self._start_time: float = 0.0
+        self._live: Optional[Any] = None  # Rich Live
+        self._timer_stop = threading.Event()
+
+    def _build_display(self) -> "Text":
+        """Build the Rich renderable for the current state."""
+
+
+        now = time.time()
+        elapsed = now - self._start_time
+        ok = len(self._toolsets_ok)
+        failed = len(self._toolsets_failed)
+        checked = ok + failed
+        in_flight = len(self._in_flight)
+
+        display = Text()
+
+        frame = _SPINNER_FRAMES[int(now * 8) % len(_SPINNER_FRAMES)]
+        display.append(f"  {frame} ", style="bold")
+        display.append(f"{self._phase}", style="bold")
+        display.append(f"  {checked} ready", style="dim")
+        if in_flight:
+            display.append(f", {in_flight} checking", style="dim")
+        display.append(f"  ({elapsed:.1f}s)", style="dim")
+
+        # Show recently completed toolset names (last 4, with "+N more" suffix)
+        if self._toolsets_ok:
+            max_show = 4
+            recent = self._toolsets_ok[-max_show:]
+            names = ", ".join(recent)
+            remaining = ok - len(recent)
+            if remaining > 0:
+                names += f" and {remaining} more"
+            display.append("\n  ")
+            display.append(f"  ready: {names}", style="green")
+
+        # Show in-flight toolsets that are taking more than 1 second
+        slow: List[tuple[str, float]] = []
+        for name, started_at in self._in_flight.items():
+            duration = now - started_at
+            if duration >= _SLOW_THRESHOLD_SECS:
+                slow.append((name, duration))
+        if slow:
+            slow.sort(key=lambda x: -x[1])  # longest first
+            parts = [f"{name} ({dur:.0f}s)" for name, dur in slow]
+            display.append("\n  ")
+            display.append(f"  checking: {', '.join(parts)}", style="yellow")
+
+        if self._toolsets_failed:
+            failed_names = ", ".join(name for name, _ in self._toolsets_failed[-4:])
+            display.append("\n  ")
+            display.append(f"  failed: {failed_names}", style="red dim")
+
+        # Show model after datasources
+        if self._model_message:
+            paren = self._model_message.find("(")
+            if paren > 0:
+                display.append(f"\n  {self._model_message[:paren].rstrip()}", style="bold")
+                display.append(f" {self._model_message[paren:]}", style="dim")
+            else:
+                display.append(f"\n  {self._model_message}", style="bold")
+
+        return display
+
+    def on_event(self, event: StatusEvent) -> None:
+        """Callback passed as on_event to create_console_toolcalling_llm."""
+        with self._lock:
+            if event.kind == StatusEventKind.TOOLSET_CHECKING:
+                self._in_flight[event.name] = time.time()
+            elif event.kind == StatusEventKind.TOOLSET_READY:
+                self._in_flight.pop(event.name, None)
+                if event.status == ToolsetStatus.ENABLED:
+                    self._toolsets_ok.append(event.name)
+                else:
+                    self._toolsets_failed.append((event.name, event.error))
+            elif event.kind == StatusEventKind.TOOLSET_LAZY:
+                if event.status == ToolsetStatus.ENABLED:
+                    self._toolsets_ok.append(event.name)
+                else:
+                    self._toolsets_failed.append((event.name, event.error))
+            elif event.kind == StatusEventKind.REFRESHING:
+                self._phase = "Refreshing datasources"
+            elif event.kind == StatusEventKind.MODEL_LOADED:
+                self._model_message = event.message
+            elif event.kind == StatusEventKind.DATASOURCE_COUNT:
+                pass  # We compute our own count
+
+            if self._live is not None:
+                self._live.update(self._build_display())
+
+    def _tick(self) -> None:
+        """Background timer that updates the display for smooth spinner animation."""
+        while not self._timer_stop.wait(0.15):
+            with self._lock:
+                if self._live is not None:
+                    self._live.update(self._build_display())
+
+    def start(self) -> None:
+        """Start the live display. Call before create_console_toolcalling_llm."""
+        self._start_time = time.time()
+        self._live = _make_live(
+            self._build_display(),
+            console=self._console,
+            transient=True,
+            refresh_per_second=4,
+        )
+        self._live.start()
+        # Background thread to update elapsed time every second
+        self._timer_stop.clear()
+        timer_thread = threading.Thread(target=self._tick, daemon=True)
+        timer_thread.start()
+
+    def stop(self) -> None:
+        """Stop the live display and print a compact summary."""
+        self._timer_stop.set()
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+
+        ok = len(self._toolsets_ok)
+        failed = len(self._toolsets_failed)
+        elapsed = time.time() - self._start_time
+
+        parts = []
+        parts.append(f"[bold green]{ok}[/bold green] datasources loaded")
+        if failed:
+            parts.append(f"[bold red]{failed} failed[/bold red]")
+        parts.append(f"[dim]{elapsed:.1f}s[/dim]")
+        self._console.print(" | ".join(parts))
+
+        # Show failed toolsets with their error messages
+        if self._toolsets_failed:
+            for name, error in self._toolsets_failed:
+                err_suffix = f": {error}" if error else ""
+                self._console.print(f"  [red]✗ {name}{err_suffix}[/red]")
+
+        # Model info after datasources
+        if self._model_message:
+            self._console.print(format_model_info_rich(self._model_message))
+        self._console.rule(style="dim")
+
+
+def format_model_info_rich(model_message: str) -> str:
+    """Return a Rich-formatted model info string with dimmed source hint."""
+    paren = model_message.find("(")
+    if paren > 0:
+        main = model_message[:paren].rstrip()
+        hint = model_message[paren:]
+        return f"[bold]{main}[/bold] [dim]{hint}[/dim]"
+    return f"[bold]{model_message}[/bold]"
+
+
+_TODO_WRITE_TOOL_NAME = "TodoWrite"
+
+_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+def _task_spinner_frame() -> str:
+    """Return the current braille spinner frame based on wall-clock time."""
+    return _SPINNER_FRAMES[int(time.time() * 8) % len(_SPINNER_FRAMES)]
+
+
+def _chars_to_tokens(n: int) -> int:
+    """Approximate token count from character count (~4 chars per token)."""
+    return max(1, n // 4) if n > 0 else 0
+
+
+def _format_size(n: int) -> str:
+    """Format a char count as an approximate token count string."""
+    tokens = _chars_to_tokens(n)
+    if tokens >= 1_000_000:
+        return f"{tokens / 1_000_000:.1f}M tokens"
+    if tokens >= 10_000:
+        return f"{tokens // 1000}K tokens"
+    if tokens >= 1_000:
+        return f"{tokens:,} tokens"
+    return f"{tokens} tokens"
+
+
+def _size_bar(output_len: int, max_width: int = 12) -> str:
+    """Build a proportional bar representing data volume.
+
+    Uses a log scale so small results still get a visible bar.
+    Returns a string like '▰▰▰▰ 39K' — no empty blocks.
+    """
+    if not output_len or output_len <= 0:
+        return ""
+    # log scale: 100 tokens → 1 block, 100K → max blocks
+    tokens = _chars_to_tokens(output_len)
+    filled = min(max_width, max(1, int(math.log10(max(tokens, 1)) * (max_width / 5))))
+    size_str = _format_size(output_len)
+    return f"{'▰' * filled} {size_str}"
+
+
+def _build_task_panel(tasks: list) -> Panel:
+    """Build a Rich Panel showing the task list with checkbox-style icons."""
+    completed = sum(1 for t in tasks if t.get("status") == "completed")
+    total = len(tasks)
+
+    content = Text()
+    for i, task in enumerate(tasks):
+        status = task.get("status", "pending")
+        task_content = task.get("content", "")
+
+        if status == "completed":
+            content.append(" ☑ ", style="green")
+            content.append(task_content, style="dim strike")
+        elif status == "in_progress":
+            content.append(" ☐ ", style="bold yellow")
+            content.append(task_content, style="bold yellow")
+        elif status == "failed":
+            content.append(" ☒ ", style="bold red")
+            content.append(task_content, style="red")
+        else:
+            content.append(" ☐ ", style="dim")
+            content.append(task_content, style="dim")
+        if i < len(tasks) - 1:
+            content.append("\n")
+
+    # Title with progress
+    title = f"[bold]Tasks[/bold] [dim]{completed}/{total}[/dim]"
+
+    return Panel(
+        content,
+        title=title,
+        title_align="left",
+        border_style="blue",
+        padding=(0, 1),
+    )
+
+
+class _LiveLogFilter(logging.Filter):
+    """Captures log records into a buffer instead of letting them through.
+
+    During Rich Live display, log messages from separate Console instances
+    break transient rendering — causing duplicate frames and garbled output.
+    This filter intercepts records so they can be replayed after Live stops.
+    """
+
+    def __init__(self, buffer: List[logging.LogRecord]):
+        super().__init__()
+        self._buffer = buffer
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        self._buffer.append(record)
+        return False  # Suppress — will be replayed later
+
+
+class AgenticProgressRenderer:
+    """Renders tool-calling progress using Rich Live.
+
+    Starts with a "Thinking..." spinner. When tools begin executing, transitions
+    to show running tools with elapsed times. Completed tools are printed
+    permanently with status icons. The Live display is transient — only in-flight
+    state is shown live; completed state is printed and persists.
+
+    TodoWrite results render as a bordered "Tasks" panel, visually separate from
+    tool execution lines. The panel only reprints when task statuses change.
+
+    AI messages are printed immediately (outside the Live region).
+    """
+
+    _DATA_PANE_LINES = 14  # Visible lines in the data pane
+    _DATA_LINE_MAX = 200  # Max chars per line (dynamically clamped to pane width)
+    _DATA_BUFFER_MAX = 2000  # Max raw lines kept in buffer
+    _SCROLL_SPEED = 3  # Lines to advance per tick when idle-scrolling history
+
+    def __init__(self, console: Console, tool_number_offset: int, escape_hint: str = ""):
+        self._console = console
+        self._tool_number_offset = tool_number_offset
+        self._escape_hint = escape_hint
+        self._lock = threading.Lock()
+
+        # Pending completed tools to process
+        self._completed: List[tuple] = []
+        # In-flight tools: tool_number → (name, start_time)
+        self._in_flight: Dict[int, tuple] = {}
+        self._next_tool_number = tool_number_offset + 1
+
+        self._thinking = True  # True until first tool starts or AI message arrives
+        self._start_time = time.time()
+
+        self._live: Optional[Any] = None  # Rich Live
+        self._timer_stop = threading.Event()
+
+        # Completed tool history for left pane: (name, elapsed, output_len, is_error)
+        self._tool_history: List[tuple] = []
+
+        # Data feed: all raw output lines for the scrolling right pane
+        self._data_lines: List[str] = []
+        self._scroll_offset = 0  # Current scroll position
+        self._scroll_pause = 0  # Ticks to pause before advancing
+        self._follow_tail = True  # When True, snap to end of data
+        self._total_bytes = 0  # Total bytes processed
+        self._total_queries = 0  # Total tool calls completed
+
+        # Latest tasks for live display
+        self._live_tasks: Optional[list] = None
+        self._summary_printed = False
+
+        # Approval state: when True, everything dims and scrolling stops
+        self._approval_pending = False
+        self._pending_approval_descriptions: List[str] = []
+
+        # Log buffering: capture log messages during Live display to prevent
+        # them from breaking the transient rendering (duplicate frames, garbled output)
+        self._log_buffer: List[logging.LogRecord] = []
+        self._log_filter = _LiveLogFilter(self._log_buffer)
+
+    # Sentinel prefix for tool header lines in the data buffer
+    _TOOL_HEADER_PREFIX = "\x00TOOL:"
+
+    def _data_line_max(self) -> int:
+        """Dynamic max chars per line based on actual data pane width."""
+        try:
+            tw = self._console.width
+            if not isinstance(tw, (int, float)) or tw <= 0:
+                tw = 120
+        except (TypeError, ValueError, AttributeError):
+            tw = 120
+        # 50/50 split; data pane gets half minus borders/padding (~7 chars)
+        left_width = (int(tw) - 3) // 2
+        data_width = int(tw) - left_width - 7
+        return max(40, min(data_width, self._DATA_LINE_MAX))
+
+    def _ingest_output(self, tool_name: str, output: str, description: str = "") -> None:
+        """Ingest raw tool output into the scrolling data buffer."""
+        # Insert a header line so the data pane shows which tool produced this output
+        header = description if description else tool_name
+        self._data_lines.append(f"{self._TOOL_HEADER_PREFIX}{header}")
+
+        if not output:
+            self._data_lines.append("\x00EMPTY")
+            self._total_queries += 1
+            self._follow_tail = True
+            return
+        self._total_bytes += len(output)
+        self._total_queries += 1
+
+        line_max = self._data_line_max()
+        lines = output.splitlines()
+        for line in lines:
+            line = line.rstrip()
+            if not line:
+                continue
+            if len(line) > line_max:
+                line = line[: line_max - 1] + "…"
+            self._data_lines.append(line)
+
+        # Jump to tail so new data is immediately visible
+        self._follow_tail = True
+
+        # Trim buffer if too large
+        if len(self._data_lines) > self._DATA_BUFFER_MAX:
+            overflow = len(self._data_lines) - self._DATA_BUFFER_MAX
+            self._data_lines = self._data_lines[overflow:]
+            self._scroll_offset = max(0, self._scroll_offset - overflow)
+
+    def _build_data_pane(self) -> "Text":
+        """Build the scrolling data feed pane."""
+
+
+        pane = Text(no_wrap=True, overflow="ellipsis")
+
+        if not self._data_lines:
+            pane.append("  Waiting for data…", style="dim italic")
+            return pane
+
+        total = len(self._data_lines)
+        visible = self._DATA_PANE_LINES
+
+        # Clamp scroll to valid range — no wrapping, stops at the end
+        max_start = max(0, total - visible)
+        start = min(self._scroll_offset, max_start)
+        end = min(start + visible, total)
+
+        # Width of line number gutter based on total lines
+        gutter_w = len(str(total))
+
+        # Find the most recent tool header at or before the scroll position
+        # and pin it at the top so the user always knows which tool's output they're viewing
+        pinned_header = None
+        pinned_header_idx = -1
+        for scan_idx in range(start, -1, -1):
+            if self._data_lines[scan_idx].startswith(self._TOOL_HEADER_PREFIX):
+                pinned_header = self._data_lines[scan_idx][len(self._TOOL_HEADER_PREFIX):]
+                pinned_header_idx = scan_idx
+                break
+
+        rows_rendered = 0
+        if pinned_header:
+            pane.append(f" {'':>{gutter_w}} ", style="dim")
+            pane.append(pinned_header, style=f"bold {TOOLS_COLOR}")
+            pane.append("\n")
+            rows_rendered += 1
+
+        for i, idx in enumerate(range(start, end)):
+            if rows_rendered >= visible:
+                break
+            line = self._data_lines[idx]
+
+            # Skip header lines that duplicate the pinned header
+            if line.startswith(self._TOOL_HEADER_PREFIX):
+                if idx == pinned_header_idx:
+                    # This is the same header we already pinned — skip it
+                    continue
+                # New tool section header
+                pinned_header = line[len(self._TOOL_HEADER_PREFIX):]
+                pinned_header_idx = idx
+                pane.append(f" {'':>{gutter_w}} ", style="dim")
+                pane.append(pinned_header, style=f"bold {TOOLS_COLOR}")
+                pane.append("\n")
+                rows_rendered += 1
+                continue
+
+            # Render empty marker with visible style
+            if line == "\x00EMPTY":
+                pane.append(f" {'':>{gutter_w}} ", style="dim")
+                pane.append("  ✗ no output", style="italic red")
+                rows_rendered += 1
+                if rows_rendered < visible:
+                    pane.append("\n")
+                continue
+
+            # Edge fade: dim bottom 2 lines to hint at more content below
+            remaining = visible - rows_rendered
+            if remaining <= 2:
+                style = "dim"
+            else:
+                style = ""
+
+            pane.append(f" {idx + 1:>{gutter_w}} ", style="dim")
+            pane.append(line, style=style)
+            rows_rendered += 1
+            if rows_rendered < visible:
+                pane.append("\n")
+
+        return pane
+
+    def _build_stats_line(self) -> str:
+        """Build the stats string for the data pane title."""
+        if self._total_bytes == 0:
+            return ""
+        tokens = _chars_to_tokens(self._total_bytes)
+        if tokens >= 1_000_000:
+            size = f"{tokens / 1_000_000:.1f}M tokens"
+        elif tokens >= 1_000:
+            size = f"{tokens / 1_000:.1f}K tokens"
+        else:
+            size = f"{tokens} tokens"
+        return f" [dim]{size} across {self._total_queries} queries[/dim]"
+
+    def _build_left_pane(self, show_analyzing: bool = False) -> Any:
+        """Build the left-side status pane with separate tasks and tools sections."""
+
+
+        now = time.time()
+        sections = []
+
+        # --- Tasks section ---
+        if self._live_tasks:
+            tasks_text = Text()
+            completed = sum(1 for t in self._live_tasks if t.get("status") == "completed")
+            total = len(self._live_tasks)
+            for task in self._live_tasks:
+                status = task.get("status", "pending")
+                tc = task.get("content", "")
+                if self._approval_pending:
+                    # All tasks dim when waiting for approval
+                    icon = " ☑ " if status == "completed" else " ☒ " if status == "failed" else " ☐ "
+                    tasks_text.append(icon, style="dim")
+                    tasks_text.append(tc, style="dim")
+                elif status == "completed":
+                    tasks_text.append(" ☑ ", style="green")
+                    tasks_text.append(tc, style="dim strike")
+                elif status == "in_progress":
+                    tasks_text.append(" ☐ ", style="bold yellow")
+                    tasks_text.append(tc, style="bold yellow")
+                elif status == "failed":
+                    tasks_text.append(" ☒ ", style="bold red")
+                    tasks_text.append(tc, style="red")
+                else:
+                    tasks_text.append(" ☐ ", style="dim")
+                    tasks_text.append(tc, style="dim")
+                tasks_text.append("\n")
+            # Remove trailing newline
+            if tasks_text.plain.endswith("\n"):
+                tasks_text.right_crop(1)
+            task_border = "dim" if self._approval_pending else "blue"
+            task_title = f"[dim]Tasks {completed}/{total}[/dim]" if self._approval_pending else f"[bold]Tasks[/bold] [dim]{completed}/{total}[/dim]"
+            sections.append(
+                Panel(tasks_text, title=task_title,
+                      title_align="left", border_style=task_border, padding=(0, 1))
+            )
+
+        # --- Tools section ---
+        has_tools = self._tool_history or self._in_flight
+        if has_tools:
+            tools_text = Text(no_wrap=True, overflow="ellipsis")
+            # Compute available width for tool labels.
+            # Left pane is fixed ~52 chars, minus border (2) + padding (2) + prefix (4).
+            try:
+                term_width = self._console.width or 120
+                if not isinstance(term_width, (int, float)):
+                    term_width = 120
+            except (TypeError, ValueError, AttributeError):
+                term_width = 120
+            pane_width = min(52, int(term_width) // 2)
+            label_budget = max(pane_width - 2 - 2 - 4, 30)
+
+            for name, desc, toolset, elapsed, output_len, is_error in self._tool_history:
+                tools_text.append("  → ", style="dim")
+                # Build suffix first so we know how much space the label gets
+                suffix = ""
+                if toolset:
+                    suffix += f" [{toolset}]"
+                if elapsed is not None:
+                    suffix += f" {elapsed:.1f}s"
+                if output_len > 0:
+                    suffix += f" {_format_size(output_len)}"
+                if is_error:
+                    suffix += " (error)"
+                max_label = label_budget - len(suffix)
+                label = desc if desc else name
+                if max_label > 6 and len(label) > max_label:
+                    label = label[: max_label - 1] + "…"
+                tools_text.append(label, style="dim" if is_error else "")
+                if toolset:
+                    tools_text.append(f" [{toolset}]", style="dim")
+                if elapsed is not None:
+                    tools_text.append(f" {elapsed:.1f}s", style="dim")
+                if output_len > 0:
+                    tools_text.append(f" {_format_size(output_len)}", style="dim cyan")
+                if is_error:
+                    tools_text.append(" (error)", style="dim red")
+                tools_text.append("\n")
+
+            frame = _SPINNER_FRAMES[int(now * 8) % len(_SPINNER_FRAMES)]
+            for _num, (name, started) in sorted(self._in_flight.items()):
+                elapsed = now - started
+                tools_text.append(f"  {frame} ", style="bold magenta")
+                tools_text.append(f"{name}", style="bold")
+                if elapsed >= 1.0:
+                    tools_text.append(f" ({elapsed:.0f}s)", style="dim")
+                tools_text.append("\n")
+
+            if tools_text.plain.endswith("\n"):
+                tools_text.right_crop(1)
+
+            tool_count = len(self._tool_history) + len(self._in_flight)
+            tool_title = f"[dim]Tools {tool_count}[/dim]" if self._approval_pending else f"[bold]Tools[/bold] [dim]{tool_count}[/dim]"
+            sections.append(
+                Panel(tools_text, title=tool_title,
+                      title_align="left", border_style="dim", padding=(0, 1))
+            )
+
+        # Status line: static when approval pending, animated otherwise
+        if self._approval_pending:
+            status_text = Text()
+            status_text.append("  ⏸ ", style="bold yellow")
+            status_text.append("Approval required", style="bold yellow")
+            if self._escape_hint:
+                status_text.append(f"  {self._escape_hint}", style="dim")
+            sections.append(status_text)
+        elif show_analyzing or self._in_flight:
+            status_text = Text()
+            elapsed = now - self._start_time
+            frame = _SPINNER_FRAMES[int(now * 8) % len(_SPINNER_FRAMES)]
+            status_text.append(f"  {frame} ", style=f"bold {AI_COLOR}")
+            if show_analyzing:
+                status_text.append("Analyzing", style=f"bold {AI_COLOR}")
+                dots = "." * (int(elapsed * 2) % 4)
+                status_text.append(f"{dots:<4}", style=f"bold {AI_COLOR}")
+            else:
+                status_text.append("Gathering data", style=f"bold {AI_COLOR}")
+                status_text.append("    ", style=f"bold {AI_COLOR}")
+            if self._escape_hint:
+                status_text.append(f"  {self._escape_hint}", style="dim")
+            sections.append(status_text)
+
+        if not sections:
+            return Text("  Waiting…", style="dim italic")
+
+        return Group(*sections)
+
+    def _build_approval_data_pane(self) -> Any:
+        """Build a data pane showing the command awaiting approval."""
+
+
+        pane = Text()
+        pane.append("\n")
+        if self._pending_approval_descriptions:
+            for desc in self._pending_approval_descriptions:
+                pane.append(f"  {desc}\n", style="bold")
+        else:
+            pane.append("  (unknown command)\n", style="dim")
+        pane.append("\n")
+        pane.append("  Respond below…\n", style="dim italic")
+        return pane
+
+    def _build_display(self) -> Any:
+        show_analyzing = self._thinking and not self._in_flight and not self._approval_pending
+        left = self._build_left_pane(show_analyzing=show_analyzing)
+
+        # Before any tool output arrives, just show the left pane content
+        if not self._data_lines:
+            return left
+
+        if self._approval_pending:
+            right = self._build_approval_data_pane()
+        else:
+            right = self._build_data_pane()
+
+        # Side-by-side layout: 50/50 split between left and right panes.
+        try:
+            tw = self._console.width or 120
+            if not isinstance(tw, (int, float)):
+                tw = 120
+        except (TypeError, ValueError, AttributeError):
+            tw = 120
+        half = (tw - 3) // 2  # -3 for padding/borders between columns
+        left_width = max(half, 30)
+        right_width = max(tw - left_width - 3, 30)
+        table = Table.grid(padding=(0, 1))
+        table.add_column("status", min_width=left_width)
+        table.add_column("data", min_width=right_width)
+
+        stats = self._build_stats_line()
+        if self._approval_pending:
+            data_border = "bold yellow"
+            data_title = "[bold yellow]Approve bash command?[/bold yellow]"
+        else:
+            data_border = "dim"
+            data_title = f"[bold]Data[/bold]{stats}"
+        table.add_row(
+            left,
+            Panel(right, title=data_title, title_align="left", border_style=data_border, padding=(0, 0)),
+        )
+
+        return table
+
+    def _tick(self) -> None:
+        while not self._timer_stop.wait(0.15):
+            with self._lock:
+                if self._live is not None:
+                    # Freeze scrolling when waiting for user approval
+                    if self._approval_pending:
+                        self._live.update(self._build_display())
+                        continue
+                    # Scroll logic: modulo-forward through buffer.
+                    # When new data arrives (_follow_tail), jump to end.
+                    # Otherwise scroll forward from 0, wrapping at end.
+                    if self._data_lines and len(self._data_lines) > self._DATA_PANE_LINES:
+                        max_start = len(self._data_lines) - self._DATA_PANE_LINES
+                        if self._follow_tail:
+                            # New data: snap to the end
+                            self._scroll_offset = max_start
+                            self._follow_tail = False
+                            self._scroll_pause = 20  # ~3s pause at end before scrolling
+                        elif self._scroll_pause > 0:
+                            self._scroll_pause -= 1
+                        else:
+                            # Idle: scroll forward, wrap to 0 at the end
+                            self._scroll_offset += self._SCROLL_SPEED
+                            if self._scroll_offset >= max_start:
+                                self._scroll_offset = 0
+                                self._scroll_pause = 6  # ~1s pause at wrap
+                    self._live.update(self._build_display())
+
+    def start(self) -> None:
+        """Start the Live display with the initial 'Thinking...' spinner."""
+        # Buffer log messages to prevent them from breaking Live's transient rendering.
+        # Filters must be installed on handlers (not the root logger) because
+        # Python's logging propagation skips logger-level filters on ancestors.
+        for handler in logging.getLogger().handlers:
+            handler.addFilter(self._log_filter)
+
+        try:
+            self._live = _make_live(
+                self._build_display(),
+                console=self._console,
+                transient=True,
+                refresh_per_second=8,
+            )
+            self._live.start()
+        except (TypeError, AttributeError):
+            # Console may be a mock in tests — skip live display
+            self._live = None
+            for handler in logging.getLogger().handlers:
+                handler.removeFilter(self._log_filter)
+            return
+        self._timer_stop.clear()
+        timer_thread = threading.Thread(target=self._tick, daemon=True)
+        timer_thread.start()
+
+    def _stop_live(self) -> None:
+        """Stop the Live display and replay buffered log messages."""
+        self._timer_stop.set()
+        if self._live is not None:
+            try:
+                self._live.stop()
+            except (TypeError, AttributeError):
+                pass
+            self._live = None
+        # Remove filter from all handlers and replay buffered log records
+        for handler in logging.getLogger().handlers:
+            handler.removeFilter(self._log_filter)
+        if self._log_buffer:
+            root = logging.getLogger()
+            for record in self._log_buffer:
+                for handler in root.handlers:
+                    if record.levelno >= handler.level:
+                        handler.emit(record)
+            self._log_buffer.clear()
+
+    def pause_for_approval(self) -> None:
+        """Stop Live so the main thread can show an interactive approval prompt.
+
+        Unlike ``flush()``, this does NOT replay buffered logs or print the
+        investigation summary.  Call ``resume_after_approval()`` to restart.
+        """
+        with self._lock:
+            self._timer_stop.set()
+            if self._live is not None:
+                try:
+                    self._live.stop()
+                except (TypeError, AttributeError):
+                    pass
+                self._live = None
+            # Remove log filter so approval prompt logs go through normally
+            for handler in logging.getLogger().handlers:
+                handler.removeFilter(self._log_filter)
+
+    def resume_after_approval(self) -> None:
+        """Restart Live after the approval prompt has finished."""
+        with self._lock:
+            # Clear approval state so the display shows normal UI
+            self._approval_pending = False
+            self._pending_approval_descriptions = []
+            if self._live is not None:
+                return  # already running
+            # Re-install log filter
+            for handler in logging.getLogger().handlers:
+                handler.addFilter(self._log_filter)
+            try:
+                self._live = _make_live(
+                    self._build_display(),
+                    console=self._console,
+                    transient=True,
+                    refresh_per_second=8,
+                )
+                self._live.start()
+            except (TypeError, AttributeError):
+                self._live = None
+                return
+            self._timer_stop.clear()
+            timer_thread = threading.Thread(target=self._tick, daemon=True)
+            timer_thread.start()
+
+    def _process_completed(self) -> None:
+        """Absorb completed tools into live state (tool history + tasks)."""
+        if not self._completed:
+            return
+
+        for item in self._completed:
+            _num, name, desc, toolset, elapsed, output_len, is_error, extra = item
+            if name == _TODO_WRITE_TOOL_NAME and extra:
+                self._live_tasks = extra
+            else:
+                self._tool_history.append((name, desc, toolset, elapsed, output_len or 0, is_error))
+
+        self._completed.clear()
+
+    def _print_investigation_summary(self) -> None:
+        """Print full task list + tools as a permanent record before the answer."""
+
+
+        if self._summary_printed:
+            return
+        if not self._live_tasks and not self._tool_history:
+            return
+        self._summary_printed = True
+
+        # Print the task list
+        if self._live_tasks:
+            self._console.print(_build_task_panel(self._live_tasks))
+
+        # Print the tools list
+        if self._tool_history:
+            tools_text = Text()
+            try:
+                term_width = int(self._console.width or 120)
+            except (TypeError, ValueError):
+                term_width = 120
+            for idx, (name, desc, toolset, elapsed, output_len, is_error) in enumerate(self._tool_history):
+                tool_num = self._tool_number_offset + idx + 1
+                tools_text.append(f"  {tool_num}. ", style="dim")
+                # Build suffix first so we know how much space the label gets
+                suffix = ""
+                if toolset:
+                    suffix += f" [{toolset}]"
+                if elapsed is not None:
+                    suffix += f" {elapsed:.1f}s"
+                if output_len > 0:
+                    suffix += f" {_format_size(output_len)}"
+                if is_error:
+                    suffix += " (error)"
+                # panel border(2) + padding(2) + number prefix(~6)
+                prefix_len = 2 + 2 + len(f"  {tool_num}. ")
+                label_budget = max(term_width - prefix_len - len(suffix), 20)
+                label = desc if desc else name
+                if len(label) > label_budget:
+                    label = label[: label_budget - 1] + "…"
+                tools_text.append(label, style="dim" if is_error else "")
+                if toolset:
+                    tools_text.append(f" [{toolset}]", style="dim")
+                if elapsed is not None:
+                    tools_text.append(f" {elapsed:.1f}s", style="dim")
+                if output_len > 0:
+                    tools_text.append(f" {_format_size(output_len)}", style="dim cyan")
+                if is_error:
+                    tools_text.append(" (error)", style="dim red")
+                tools_text.append("\n")
+            if tools_text.plain.endswith("\n"):
+                tools_text.right_crop(1)
+            tools_text.append("\n")
+            tools_text.append("  /show <number> to view full output", style="dim italic")
+            tool_count = len(self._tool_history)
+            self._console.print(
+                Panel(tools_text, title=f"[bold]Tools[/bold] [dim]{tool_count}[/dim]",
+                      title_align="left", border_style="dim", padding=(0, 1))
+            )
+
+        # Print stats line
+        if self._total_bytes > 0:
+            stats = _format_size(self._total_bytes)
+            self._console.print(
+                f"  [dim]Analyzed {stats} across {self._total_queries} queries[/dim]"
+            )
+
+    def handle_event(
+        self,
+        event: StreamMessage,
+        all_tool_calls: list,
+        all_tool_calls_history: list,
+    ) -> None:
+        """Process one stream event. Called from the main render thread."""
+        with self._lock:
+            if event.event == StreamEvents.START_TOOL:
+                self._thinking = False
+                self._approval_pending = False
+                self._pending_approval_descriptions = []
+                num = self._next_tool_number
+                self._next_tool_number += 1
+                tool_name = event.data.get("tool_name", "...")
+                self._in_flight[num] = (tool_name, time.time())
+                if self._live is not None:
+                    self._live.update(self._build_display())
+
+            elif event.event == StreamEvents.TOOL_RESULT:
+                all_tool_calls.append(event.data)
+
+                description = event.data.get("description", "")
+                tool_name = event.data.get("tool_name", event.data.get("name", ""))
+                toolset_name = event.data.get("toolset_name", "")
+                result_data = event.data.get("result", {})
+                output_str = result_data.get("data", "")
+                elapsed = result_data.get("elapsed_seconds")
+                output_len = len(output_str) if output_str else 0
+                is_error = output_len == 0 or result_data.get("error", False)
+                tool_number = self._tool_number_offset + len(all_tool_calls)
+
+                # Extract TodoWrite tasks for rich rendering
+                extra = None
+                if tool_name == _TODO_WRITE_TOOL_NAME:
+                    params = result_data.get("params") or {}
+                    todos = params.get("todos")
+                    if isinstance(todos, list):
+                        extra = todos
+                        self._live_tasks = todos
+
+                # Ingest raw output into scrolling data buffer (skip TodoWrite)
+                if tool_name != _TODO_WRITE_TOOL_NAME:
+                    self._ingest_output(tool_name, output_str, description=description)
+
+                # Remove from in-flight
+                removed = self._in_flight.pop(tool_number, None)
+                # Also try to match by order only if number didn't match
+                if removed is None:
+                    for k in sorted(self._in_flight.keys()):
+                        self._in_flight.pop(k, None)
+                        break
+
+                self._completed.append(
+                    (tool_number, tool_name, description, toolset_name, elapsed, output_len, is_error, extra)
+                )
+
+                self._process_completed()
+
+                if not self._in_flight:
+                    self._thinking = True
+                if self._live is not None:
+                    self._live.update(self._build_display())
+
+            elif event.event == StreamEvents.APPROVAL_REQUIRED:
+                self._approval_pending = True
+                self._thinking = False
+                # Store pending approval descriptions for display
+                pending = event.data.get("pending_approvals", [])
+                self._pending_approval_descriptions = [
+                    a.get("description", a.get("tool_name", "unknown")) for a in pending
+                ]
+                if self._live is not None:
+                    self._live.update(self._build_display())
+
+            elif event.event == StreamEvents.AI_MESSAGE:
+                self._thinking = False
+                if self._completed:
+                    self._process_completed()
+
+                reasoning = event.data.get("reasoning")
+                content = event.data.get("content")
+                if reasoning:
+                    self._console.print(
+                        f"  [italic dim]{reasoning}[/italic dim]"
+                    )
+                if content and content.strip():
+                    self._console.print(
+                        f"  [dim]{content}[/dim]"
+                    )
+
+                # Ensure live display is running for subsequent tool events
+                if self._live is None:
+                    self.start()
+
+    def flush(self) -> None:
+        """Ensure any remaining in-flight display is cleaned up."""
+        with self._lock:
+            if self._completed:
+                self._process_completed()
+            self._stop_live()
+            self._print_investigation_summary()
+            # Reset all state for next invocation
+            self._data_lines.clear()
+            self._tool_history.clear()
+            self._scroll_offset = 0
+            self._scroll_pause = 0
+            self._total_bytes = 0
+            self._total_queries = 0
+            self._live_tasks = None
 
 
 class SlashCommands(Enum):
@@ -236,7 +1278,7 @@ class ShowCommandCompleter(Completer):
                         )
 
 
-WELCOME_BANNER = f"[bold {HELP_COLOR}]Welcome to {agent_name}:[/bold {HELP_COLOR}] Type '{SlashCommands.EXIT.command}' to exit, '{SlashCommands.CONFIG.command}' to set up Holmes, or '{SlashCommands.HELP.command}' for all commands."
+WELCOME_BANNER = f"[dim]Type [bold]{SlashCommands.HELP.command}[/bold] for commands, [bold]{SlashCommands.CONFIG.command}[/bold] to configure, [bold]{SlashCommands.EXIT.command}[/bold] to quit[/dim]"
 
 
 def format_tool_call_output(
@@ -645,77 +1687,94 @@ def prompt_for_llm_sharing(
     return None
 
 
-def _run_inline_menu(options: list[str], console: Console) -> Optional[int]:
-    """
-    Run an inline menu with arrow key navigation.
+def _run_inline_menu(
+    options: list[str], console: Console, header: Any = None
+) -> Optional[int]:
+    """Run an inline menu with arrow-key navigation using prompt_toolkit.
+
+    Uses prompt_toolkit ``Application`` with ``erase_when_done=True`` so the
+    entire UI (header panel + options) is erased when the user makes a
+    selection.  Arrow keys, j/k, number keys, Enter, and Escape all work
+    correctly across terminals and SSH.
 
     Args:
-        options: List of option strings to display
-        console: Rich console for output
+        options: List of option strings to display.
+        console: Rich console for output.
+        header: Optional Rich renderable printed above the menu (erased
+                via ANSI codes after the menu exits).
 
     Returns:
-        Index of selected option (0-based), or None if cancelled
+        Index of selected option (0-based), or ``None`` if cancelled.
     """
-    selected = [0]  # Use list to allow mutation in nested function
-    result = [None]  # None means cancelled
+    selected = [0]
+    result: List[Optional[int]] = [None]
 
     def get_menu_text():
         lines = []
         for i, option in enumerate(options):
             if i == selected[0]:
-                lines.append(("bold", f"> {i + 1}. {option}\n"))
+                lines.append(("bold", f"  > {i + 1}. {option}\n"))
             else:
-                lines.append(("", f"  {i + 1}. {option}\n"))
-        lines.append(("class:hint", "\nEsc to cancel"))
+                lines.append(("", f"    {i + 1}. {option}\n"))
+        lines.append(("class:hint", "\n  Esc to cancel"))
         return lines
 
     bindings = KeyBindings()
 
     @bindings.add("up")
     @bindings.add("k")
-    def _up(event):
+    def _up(event: Any) -> None:
         selected[0] = (selected[0] - 1) % len(options)
 
     @bindings.add("down")
     @bindings.add("j")
-    def _down(event):
+    def _down(event: Any) -> None:
         selected[0] = (selected[0] + 1) % len(options)
 
     @bindings.add("enter")
-    def _enter(event):
+    def _enter(event: Any) -> None:
         result[0] = selected[0]
         event.app.exit()
 
     @bindings.add("escape")
     @bindings.add("c-c")
-    def _cancel(event):
+    def _cancel(event: Any) -> None:
         result[0] = None
         event.app.exit()
 
-    # Also allow number keys 1-9 for direct selection
     for i in range(min(9, len(options))):
 
         @bindings.add(str(i + 1))
-        def _select_num(event, idx=i):
+        def _select_num(event: Any, idx: int = i) -> None:
             result[0] = idx
             event.app.exit()
 
-    menu_style = Style.from_dict(
-        {
-            "hint": "#666666",
-        }
-    )
-
+    menu_style = Style.from_dict({"hint": "#666666"})
     layout = Layout(Window(FormattedTextControl(get_menu_text, show_cursor=False)))
+
+    # Measure header height so we can erase it after the menu exits
+    header_lines = 0
+    if header is not None:
+        buf = StringIO()
+        measure = Console(file=buf, width=console.width or 120, force_terminal=True)
+        measure.print(header)
+        header_lines = buf.getvalue().count("\n")
+        console.print(header)
 
     app: Application = Application(
         layout=layout,
         key_bindings=bindings,
         style=menu_style,
         full_screen=False,
+        erase_when_done=True,
     )
-
     app.run()
+
+    # erase_when_done clears the menu; also erase the Rich header above it
+    if header_lines > 0:
+        sys.stdout.write(f"\x1b[{header_lines}A\x1b[0J")
+        sys.stdout.flush()
+
     return result[0]
 
 
@@ -751,19 +1810,23 @@ def handle_tool_approval(
     else:
         prefixes_display = "<command>"
 
-    # Print header
-    console.print("\n[bold yellow]Bash command[/bold yellow]")
-    console.print(f"\n  {command or 'unknown'}")
-    console.print("\n[bold]Do you want to proceed?[/bold]")
+    # Build command panel — passed as header to the menu so everything
+    # lives inside a single transient Rich Live (auto-erased on exit).
+    panel = Panel(
+        f"  {command or 'unknown'}",
+        title="[bold]Approve bash command?[/bold]",
+        title_align="left",
+        border_style="bold yellow",
+        padding=(1, 1),
+    )
 
-    # Show inline menu
     options = [
         "Yes",
-        f"Yes, and don't ask again for {prefixes_display} commands",
+        f"Yes, and automatically approve '{prefixes_display}' in the future",
         "No, and tell Holmes what to do differently",
     ]
 
-    result = _run_inline_menu(options, console)
+    result = _run_inline_menu(options, console, header=panel)
 
     if result == 0:  # Yes
         return True, None
@@ -1106,14 +2169,15 @@ def save_conversation_to_file(
 def _wait_for_completion_or_escape(
     thread: threading.Thread,
     cancel_event: threading.Event,
-    approval_active: threading.Event,
-    terminal_restored: threading.Event,
+    stop_event: threading.Event,
     poll_interval: float = 0.1,
 ) -> bool:
-    """Monitor stdin for Escape while thread runs. Returns True if interrupted."""
+    """Monitor stdin for Escape while thread runs. Returns True if interrupted.
+
+    The ``stop_event`` can be set by the main thread to cleanly stop this
+    listener (e.g. before showing an approval prompt or at the end of a turn).
+    """
     if not _HAS_TERMINAL_CONTROL or not sys.stdin.isatty():
-        # Terminal is already in normal mode; signal so approval UI won't block.
-        terminal_restored.set()
         thread.join()
         return False
 
@@ -1121,30 +2185,27 @@ def _wait_for_completion_or_escape(
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setcbreak(fd)
-        while thread.is_alive():
-            # If approval UI is active, restore terminal and wait for it to finish
-            if approval_active.is_set():
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-                terminal_restored.set()
-                while approval_active.is_set() and thread.is_alive():
-                    time.sleep(poll_interval)
-                terminal_restored.clear()
-                if not thread.is_alive():
-                    break
-                tty.setcbreak(fd)
-                continue
-
+        while thread.is_alive() and not stop_event.is_set():
             ready, _, _ = select_module.select([sys.stdin], [], [], poll_interval)
             if ready:
                 ch = sys.stdin.read(1)
                 if ch == "\x1b":
                     # Disambiguate standalone Escape from escape sequences (arrow keys etc.)
                     ready2, _, _ = select_module.select(
-                        [sys.stdin], [], [], 0.05
+                        [sys.stdin], [], [], 0.1
                     )
                     if ready2:
-                        # Part of an escape sequence — consume and discard
-                        sys.stdin.read(1)
+                        # Part of an escape sequence — consume all remaining bytes
+                        # (e.g. \x1b[A is 2 more bytes, \x1b[1;5A is more)
+                        ch2 = sys.stdin.read(1)
+                        if ch2 == "[":
+                            # CSI sequence — read until final alpha byte
+                            while True:
+                                ch3 = sys.stdin.read(1)
+                                if not ch3 or ch3.isalpha() or ch3 == "~":
+                                    break
+                        elif ch2 == "O":
+                            sys.stdin.read(1)  # SS3: one more byte
                         continue
                     # Standalone Escape key pressed
                     cancel_event.set()
@@ -1153,7 +2214,6 @@ def _wait_for_completion_or_escape(
         return False
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        terminal_restored.set()
 
 
 def run_interactive_loop(
@@ -1176,6 +2236,9 @@ def run_interactive_loop(
 ) -> None:
     # Enable CLI mode for bash prefix loading (server mode doesn't call this)
     enable_cli_mode()
+
+    # Silence display loggers — the interactive loop renders from stream events instead
+    silence_display_loggers()
 
     # Initialize tracer - use DummyTracer if no tracer provided
     if tracer is None:
@@ -1305,18 +2368,14 @@ def run_interactive_loop(
 
     input_prompt = [("class:prompt", "User: ")]
 
-    # TODO: merge the /feedback command description to WELCOME_BANNER once we implement feedback callback
     welcome_banner = WELCOME_BANNER
     if feedback_callback:
-        welcome_banner = (
-            welcome_banner.rstrip(".")
-            + f", '{SlashCommands.FEEDBACK.command}' to share your thoughts."
-        )
+        welcome_banner += f", [bold]{SlashCommands.FEEDBACK.command}[/bold] for feedback"
     console.print(welcome_banner)
 
     if initial_user_input:
         console.print(
-            f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {initial_user_input}"
+            f"\n[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {initial_user_input}"
         )
     messages = None
     last_response = None
@@ -1463,43 +2522,30 @@ def run_interactive_loop(
                 messages.append({"role": "user", "content": user_input})
 
             escape_hint = (
-                " [dim](press escape to interrupt)[/dim]"
+                "(press escape to interrupt)"
                 if _HAS_TERMINAL_CONTROL and sys.stdin.isatty()
                 else ""
             )
-            console.print(
-                f"\n[bold {AI_COLOR}]Thinking...[/bold {AI_COLOR}]{escape_hint}\n"
-            )
+            console.print()  # blank line before progress
 
             # Snapshot messages before the call so we can rollback on interrupt
             messages_snapshot = list(messages)
 
             cancel_event = threading.Event()
-            approval_active = threading.Event()
-            terminal_restored = threading.Event()
 
-            # Wrap approval callback to coordinate terminal access with escape listener
-            call_approval_callback = approval_callback
-            if approval_callback:
+            # Approval coordination: background thread stores pending approvals
+            # and blocks; main thread runs the interactive prompt and sends back
+            # the decisions.  This avoids terminal conflicts between Rich Live
+            # (main thread) and prompt_toolkit (also needs the main thread).
+            approval_pending_event = threading.Event()  # bg → main: "I need approval"
+            approval_done_event = threading.Event()     # main → bg: "decisions ready"
+            approval_data: List[Optional[List[dict]]] = [None]  # pending_approvals list
+            approval_decisions: List[Optional[List["ToolApprovalDecision"]]] = [None]
 
-                def _wrapped_approval(
-                    pending_approval: PendingToolApproval,
-                    _orig=approval_callback,
-                    _approval_active=approval_active,
-                    _terminal_restored=terminal_restored,
-                ) -> tuple[bool, Optional[str]]:
-                    _approval_active.set()
-                    # Wait for the escape listener to restore the terminal
-                    # from cbreak mode before launching the prompt_toolkit UI.
-                    _terminal_restored.wait(timeout=2.0)
-                    try:
-                        return _orig(pending_approval)
-                    finally:
-                        _approval_active.clear()
-
-                call_approval_callback = _wrapped_approval
-
-            call_result: List[Optional[LLMResult]] = [None]
+            # --- Stream-based AI call ---
+            # The background thread drains call_stream() and pushes events to a queue.
+            # The main thread renders events and handles escape-to-interrupt.
+            event_queue: queue.Queue = queue.Queue()
             call_error: List[Optional[Exception]] = [None]
 
             with tracer.start_trace(user_input) as trace_span:
@@ -1508,35 +2554,158 @@ def run_interactive_loop(
                     metadata={"type": "user_question"},
                 )
 
-                def _run_ai_call(
-                    _call_result=call_result,
+                tool_number_offset = len(all_tool_calls_history)
+
+                def _run_ai_stream(
+                    _event_queue=event_queue,
                     _call_error=call_error,
                     _messages=messages,
                     _trace_span=trace_span,
                     _cancel_event=cancel_event,
-                    _approval_callback=call_approval_callback,
+                    _has_approval=approval_callback is not None,
+                    _tool_number_offset=tool_number_offset,
+                    _iteration_offset=0,
                 ) -> None:
                     try:
-                        _call_result[0] = ai.call(
-                            _messages,
-                            trace_span=_trace_span,
-                            tool_number_offset=len(all_tool_calls_history),
-                            cancel_event=_cancel_event,
-                            approval_callback=_approval_callback,
-                        )
+                        # Replicate the approval loop from call()
+                        tool_decisions: Optional[List[ToolApprovalDecision]] = None
+                        while True:
+                            stream = ai.call_stream(
+                                msgs=_messages,
+                                enable_tool_approval=_has_approval,
+                                tool_decisions=tool_decisions,
+                                trace_span=_trace_span,
+                                cancel_event=_cancel_event,
+                                tool_number_offset=_tool_number_offset,
+                                iteration_offset=_iteration_offset,
+                            )
+                            tool_decisions = None
+                            last_event = None
+                            for event in stream:
+                                last_event = event
+                                _event_queue.put(event)
+                                if event.event == StreamEvents.TOOL_RESULT:
+                                    _tool_number_offset += 1
+                                if event.event in (StreamEvents.ANSWER_END, StreamEvents.APPROVAL_REQUIRED):
+                                    break
+
+                            if last_event is None:
+                                raise Exception("Stream ended without yielding any events")
+
+                            # Check if we got an approval-required event
+                            if last_event.event == StreamEvents.APPROVAL_REQUIRED:
+                                td = last_event.data
+                                _messages[:] = td["messages"]
+                                # call_stream returns absolute iteration count;
+                                # carry it forward so the next call_stream
+                                # enforces the global max_steps limit.
+                                _iteration_offset = td.get("num_llm_calls", _iteration_offset)
+                                # Hand off to main thread for interactive prompt
+                                approval_data[0] = td["pending_approvals"]
+                                approval_done_event.clear()
+                                approval_pending_event.set()
+                                # Block until main thread fills in decisions
+                                approval_done_event.wait()
+                                tool_decisions = approval_decisions[0]
+                                approval_decisions[0] = None
+                                approval_data[0] = None
+                                continue
+                            else:
+                                # ANSWER_END — done
+                                break
                     except Exception as exc:  # noqa: BLE001
                         _call_error[0] = exc
+                    finally:
+                        _event_queue.put(_SENTINEL)
 
                 # Copy context so Braintrust's current_span ContextVar propagates to the thread,
                 # otherwise ChatCompletionWrapper spans won't nest under the trace span.
                 ctx = contextvars.copy_context()
-                ai_thread = threading.Thread(target=ctx.run, args=(_run_ai_call,), daemon=True)
+                ai_thread = threading.Thread(target=ctx.run, args=(_run_ai_stream,), daemon=True)
                 ai_thread.start()
 
-                interrupted = _wait_for_completion_or_escape(
-                    ai_thread, cancel_event, approval_active,
-                    terminal_restored,
+                # Start escape listener in a background thread so the main
+                # thread can render events from the queue.
+                escape_stop = threading.Event()
+                escape_thread = threading.Thread(
+                    target=_wait_for_completion_or_escape,
+                    args=(ai_thread, cancel_event, escape_stop),
+                    daemon=True,
                 )
+                escape_thread.start()
+
+                # --- Main thread: render stream events while monitoring for escape ---
+                progress = AgenticProgressRenderer(console, tool_number_offset, escape_hint)
+                progress.start()
+                all_tool_calls_this_turn: list[dict] = []
+                terminal_data = None
+                interrupted = False
+                accumulated_stats = RequestStats()
+                total_num_llm_calls = 0
+
+                while True:
+                    try:
+                        item = event_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        if cancel_event.is_set():
+                            interrupted = True
+                            break
+                        continue
+
+                    if item is _SENTINEL:
+                        break
+
+                    event = item
+
+                    # Render the event
+                    progress.handle_event(
+                        event, all_tool_calls_this_turn, all_tool_calls_history,
+                    )
+
+                    if event.event == StreamEvents.ANSWER_END:
+                        terminal_data = event.data
+                        total_num_llm_calls = terminal_data.get("num_llm_calls", 0)
+                        accumulated_stats += RequestStats(**terminal_data.get("costs", {}))
+                    elif event.event == StreamEvents.APPROVAL_REQUIRED:
+                        # Accumulate stats from the pre-approval segment
+                        # (num_llm_calls is absolute, so assign not accumulate)
+                        total_num_llm_calls = event.data.get("num_llm_calls", 0)
+                        accumulated_stats += RequestStats(**event.data.get("costs", {}))
+                        # Wait for bg thread to signal it's ready
+                        approval_pending_event.wait(timeout=5.0)
+                        approval_pending_event.clear()
+
+                        # 1. Pause Live display
+                        progress.pause_for_approval()
+
+                        # 2. Stop escape listener (it holds terminal in cbreak)
+                        escape_stop.set()
+                        escape_thread.join(timeout=2.0)
+
+                        # 3. Run approval prompt on main thread
+                        pending = approval_data[0] or []
+                        decisions = ai._prompt_for_approval_decisions(
+                            pending, approval_callback
+                        )
+                        approval_decisions[0] = decisions
+                        approval_done_event.set()
+
+                        # 4. Resume progress renderer and escape listener
+                        progress.resume_after_approval()
+
+                        escape_stop = threading.Event()
+                        escape_thread = threading.Thread(
+                            target=_wait_for_completion_or_escape,
+                            args=(ai_thread, cancel_event, escape_stop),
+                            daemon=True,
+                        )
+                        escape_thread.start()
+
+                # Clean up live display and wait for threads
+                escape_stop.set()
+                progress.flush()
+                ai_thread.join(timeout=5.0)
+                escape_thread.join(timeout=2.0)
 
                 if interrupted or isinstance(call_error[0], LLMInterruptedError):
                     messages = messages_snapshot
@@ -1547,7 +2716,22 @@ def run_interactive_loop(
                 elif call_error[0] is not None:
                     raise call_error[0]
 
-                response = call_result[0]
+                if not terminal_data:
+                    raise Exception("Stream ended without ANSWER_END")
+
+                # Build LLMResult from stream data
+                deduped: dict[str, dict] = {}
+                for tc in all_tool_calls_this_turn:
+                    deduped[tc.get("tool_call_id", id(tc))] = tc
+                response = LLMResult(
+                    result=terminal_data["content"],
+                    tool_calls=list(deduped.values()),
+                    num_llm_calls=total_num_llm_calls,
+                    messages=terminal_data["messages"],
+                    metadata=terminal_data.get("metadata"),
+                    **accumulated_stats.model_dump(),
+                )
+
                 trace_span.log(
                     output=response.result,
                 )

@@ -5,14 +5,17 @@ from pathlib import Path
 import pytest
 
 from holmes.core.llm import DefaultLLM
-from holmes.core.truncation.compaction import compact_conversation_history
+from holmes.core.truncation.compaction import (
+    _count_image_tokens_in_messages,
+    _strip_images_for_compaction,
+    compact_conversation_history,
+)
 
 CONVERSATION_HISTORY_FILE_PATH = (
     Path(__file__).parent / "conversation_history_for_compaction.json"
 )
 
-# Skip tests if Azure credentials are not available
-pytestmark = pytest.mark.skipif(
+_requires_azure = pytest.mark.skipif(
     not all(
         [
             os.environ.get("AZURE_API_BASE"),
@@ -24,6 +27,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@_requires_azure
 def test_conversation_history_compaction_system_prompt_untouched():
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
@@ -53,6 +57,7 @@ def test_conversation_history_compaction_system_prompt_untouched():
         assert "compacted" in compacted_history[3]["content"].lower()
 
 
+@_requires_azure
 def test_conversation_history_compaction():
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
@@ -82,3 +87,131 @@ def test_conversation_history_compaction():
         )
         print(compacted_history[1]["content"])
         assert compacted_tokens.total_tokens < expected_max_compacted_token_count
+
+
+# --- Unit tests for _strip_images_for_compaction (no LLM required) ---
+
+
+def test_strip_images_for_compaction_no_images():
+    """Messages without images pass through unchanged."""
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "tool", "content": "some text result"},
+    ]
+    result = _strip_images_for_compaction(messages)
+    assert result == messages
+
+
+def test_strip_images_for_compaction_replaces_image_blocks():
+    """Image blocks are replaced with a placeholder text block."""
+    messages = [
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "Rendered panel screenshot."},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}},
+            ],
+            "token_count": 500,
+        }
+    ]
+    result = _strip_images_for_compaction(messages)
+    assert len(result) == 1
+    content = result[0]["content"]
+    # Text block preserved
+    assert content[0]["type"] == "text"
+    assert "Rendered panel screenshot." in content[0]["text"]
+    # Image blocks replaced with placeholder
+    assert content[1]["type"] == "text"
+    assert "2 image(s)" in content[1]["text"]
+    assert "stripped" in content[1]["text"]
+    # No image_url blocks remain
+    assert not any(b.get("type") == "image_url" for b in content)
+    # Token count cache must be invalidated
+    assert "token_count" not in result[0]
+
+
+def test_strip_images_for_compaction_preserves_non_image_messages():
+    """Non-multimodal messages are preserved alongside stripped ones."""
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Render the dashboard"},
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "Dashboard screenshot"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,CCC"}},
+            ],
+        },
+        {"role": "assistant", "content": "I see a spike in the CPU panel."},
+    ]
+    result = _strip_images_for_compaction(messages)
+    assert len(result) == 4
+    assert result[0]["content"] == "You are helpful."
+    assert result[1]["content"] == "Render the dashboard"
+    # Tool message had images stripped
+    assert result[2]["content"][0]["text"] == "Dashboard screenshot"
+    assert "1 image(s)" in result[2]["content"][1]["text"]
+    assert "stripped" in result[2]["content"][1]["text"]
+    assert result[3]["content"] == "I see a spike in the CPU panel."
+
+
+def test_strip_images_with_disk_paths_in_text():
+    """When text mentions saved image paths, the text is preserved and images stripped."""
+    messages = [
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Images saved to disk:\n  - /tmp/results/grafana_render_abc_img0.png\n",
+                },
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            ],
+        }
+    ]
+    result = _strip_images_for_compaction(messages)
+    # Text block with disk paths is preserved
+    assert result[0]["content"][0]["text"].startswith("Images saved to disk")
+    # Image block is stripped and placeholder added
+    placeholder = result[0]["content"][-1]["text"]
+    assert "1 image(s)" in placeholder
+    assert "stripped" in placeholder
+
+
+def test_count_image_tokens_no_images():
+    """Messages without images return 0 tokens."""
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "tool", "content": "text only"},
+    ]
+
+    class FakeLLM:
+        def count_tokens(self, messages):
+            class Usage:
+                total_tokens = 0
+            return Usage()
+
+    assert _count_image_tokens_in_messages(messages, FakeLLM()) == 0  # type: ignore
+
+
+def test_count_image_tokens_with_images():
+    """Image blocks are counted via the LLM token counter."""
+    messages = [
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "some text"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            ],
+        }
+    ]
+
+    class FakeLLM:
+        def count_tokens(self, messages):
+            # Should receive a synthetic message with only image blocks
+            class Usage:
+                total_tokens = 1600
+            return Usage()
+
+    assert _count_image_tokens_in_messages(messages, FakeLLM()) == 1600  # type: ignore

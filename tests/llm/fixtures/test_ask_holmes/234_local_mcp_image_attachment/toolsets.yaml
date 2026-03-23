@@ -1,0 +1,18 @@
+# Local MCP server mimicking Confluence wiki with image attachments.
+# Uses stdio mode with a Python script — no external services needed.
+toolsets:
+  mock-confluence:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/234_local_mcp_image_attachment/mock_confluence_server.py"]
+  confluence:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

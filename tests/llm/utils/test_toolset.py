@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import List, Optional, Type
 
+import yaml
+
 from holmes.core.tools import (
     Toolset,
     ToolsetStatusEnum,
@@ -84,10 +86,40 @@ class TestToolsetManager:
         self.toolsets = self._configure_toolsets(builtin_toolsets, custom_definitions)
 
     def _load_custom_toolsets(self, config_path: str) -> List[Toolset]:
-        """Load custom toolsets from a YAML file."""
+        """Load custom toolsets from a YAML file.
+
+        Raises ToolsetPrerequisiteError if any explicitly enabled toolset fails
+        to load (e.g., validation errors during construction). This prevents
+        tests from silently running without expected toolsets.
+        """
         if not os.path.isfile(config_path):
             return []
-        return load_toolsets_from_file(toolsets_path=config_path, strict_check=False)
+
+        loaded = load_toolsets_from_file(toolsets_path=config_path, strict_check=False)
+
+        # Detect toolsets that were silently dropped during loading
+        with open(config_path) as f:
+            raw = yaml.safe_load(f) or {}
+        expected_names = set()
+        for section_key in ("toolsets", "mcp_servers"):
+            for name, cfg in (raw.get(section_key) or {}).items():
+                if isinstance(cfg, dict) and cfg.get("enabled", True):
+                    expected_names.add(name)
+
+        loaded_names = {t.name for t in loaded}
+        missing = expected_names - loaded_names
+        if missing and not self.allow_toolset_failures:
+            raise ToolsetPrerequisiteError(
+                toolset_name=", ".join(sorted(missing)),
+                error_detail=(
+                    f"Toolset(s) failed to load from {config_path}. "
+                    "Check logs for 'Toolset ... is invalid' warnings. "
+                    "Common causes: missing required fields (e.g., 'description'), "
+                    "validation errors, or unresolved env var placeholders."
+                ),
+            )
+
+        return loaded
 
     def _configure_toolsets(
         self, builtin_toolsets: List[Toolset], custom_definitions: List[Toolset]

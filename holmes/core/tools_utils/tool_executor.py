@@ -3,34 +3,32 @@ from typing import List, Optional
 
 import sentry_sdk
 
+from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind
 from holmes.core.tools import (
     Tool,
     Toolset,
     ToolsetStatusEnum,
 )
-from holmes.core.tools_utils.toolset_utils import filter_out_default_logging_toolset
+
+display_logger = logging.getLogger("holmes.display.tool_executor")
 
 
 class ToolExecutor:
-    def __init__(self, toolsets: List[Toolset]):
+    def __init__(self, toolsets: List[Toolset], on_event: EventCallback = None):
         # TODO: expose function for this instead of callers accessing directly
         self.toolsets = toolsets
 
-        enabled_toolsets: list[Toolset] = list(
-            filter(
-                lambda toolset: toolset.status == ToolsetStatusEnum.ENABLED,
-                toolsets,
-            )
-        )
-
-        self.enabled_toolsets: list[Toolset] = filter_out_default_logging_toolset(
-            enabled_toolsets
-        )
+        self.enabled_toolsets: list[Toolset] = [
+            ts for ts in toolsets if ts.status == ToolsetStatusEnum.ENABLED
+        ]
 
         toolsets_by_name: dict[str, Toolset] = {}
         for ts in self.enabled_toolsets:
             if ts.name in toolsets_by_name:
-                logging.warning(f"Overriding toolset '{ts.name}'!")
+                msg = f"Overriding toolset '{ts.name}'!"
+                display_logger.warning(msg)
+                if on_event is not None:
+                    on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=ts.name, message=msg))
             toolsets_by_name[ts.name] = ts
 
         self.tools_by_name: dict[str, Tool] = {}
@@ -40,9 +38,10 @@ class ToolExecutor:
                 if tool.icon_url is None and ts.icon_url is not None:
                     tool.icon_url = ts.icon_url
                 if tool.name in self.tools_by_name:
-                    logging.warning(
-                        f"Overriding existing tool '{tool.name} with new tool from {ts.name} at {ts.path}'!"
-                    )
+                    msg = f"Overriding existing tool '{tool.name} with new tool from {ts.name} at {ts.path}'!"
+                    display_logger.warning(msg)
+                    if on_event is not None:
+                        on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=tool.name, message=msg))
                 self.tools_by_name[tool.name] = tool
                 self._tool_to_toolset[tool.name] = ts
 
@@ -51,6 +50,11 @@ class ToolExecutor:
             return self.tools_by_name[name]
         logging.warning(f"could not find tool {name}. skipping")
         return None
+
+    def get_toolset_name(self, tool_name: str) -> Optional[str]:
+        """Return the toolset name that provides a given tool, or None."""
+        ts = self._tool_to_toolset.get(tool_name)
+        return ts.name if ts else None
 
     def ensure_toolset_initialized(self, tool_name: str) -> Optional[str]:
         """Ensure the toolset containing the given tool is lazily initialized.

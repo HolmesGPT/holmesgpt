@@ -1,3 +1,10 @@
+"""
+Pre-LLM-call context window check — triggers compaction when conversation is too large.
+
+For an overview of all context management mechanisms, see:
+docs/reference/context-management.md
+"""
+
 import logging
 import time
 from typing import Any, Optional
@@ -21,7 +28,7 @@ def check_compaction_needed(
 ) -> Optional[StreamMessage]:
     """Check if compaction is needed and return a COMPACTION_START event if so.
 
-    This is separated from limit_input_context_window so the caller can yield
+    This is separated from compact_if_necessary so the caller can yield
     the START event to the SSE stream *before* the blocking compaction call.
     """
     if not ENABLE_CONVERSATION_HISTORY_COMPACTION:
@@ -71,7 +78,7 @@ class ContextWindowLimiterOutput(BaseModel):
 
 
 @sentry_sdk.trace
-def limit_input_context_window(
+def compact_if_necessary(
     llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]]
 ) -> ContextWindowLimiterOutput:
     t0 = time.monotonic()
@@ -174,7 +181,7 @@ def limit_input_context_window(
         raise CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
 
     elapsed_ms = (time.monotonic() - t0) * 1000
-    logging.debug(f"limit_input_context_window: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")
+    logging.debug(f"compact_if_necessary: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")
 
     return ContextWindowLimiterOutput(
         events=events,

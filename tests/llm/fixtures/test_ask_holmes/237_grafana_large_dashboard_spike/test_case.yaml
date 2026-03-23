@@ -1,0 +1,173 @@
+setup_timeout: 420  # 7 minutes for image pulls + Chromium cold start in renderer
+
+# 40 panels in a 20-row x 2-column grid. 39 panels show flat/steady data.
+# Panel 27 "Message Broker Partition Lag" (row 14, left column) has a massive spike:
+# baseline ~8, spikes to ~4200-4800 in the middle, then returns to baseline.
+# This panel is deep in the dashboard (y=65 out of y=95 total), so the LLM
+# must render the FULL dashboard (not just the visible viewport) to see it.
+
+user_prompt: "Look at the 'Infrastructure Capacity Overview' dashboard in Grafana. It has 40 panels across 20 rows monitoring different infrastructure services. Visually render the dashboard and identify which panel shows an anomalous spike. Tell me the panel name and describe the spike."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call grafana_render_dashboard or grafana_render_panel tool to visually inspect the dashboard"
+  - "Must identify 'Message Broker Partition Lag' as the panel with the anomalous spike"
+  - "Must describe the spike as going from a low baseline (around 8) to very high values (thousands)"
+
+before_test: |
+  set -e
+  kubectl create namespace app-237 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl apply -f ../../shared/grafana-with-renderer.yaml -n app-237
+
+  # Wait for Grafana pod to be ready (both containers: grafana + renderer)
+  echo "⏳ Waiting for Grafana pod to be ready..."
+  POD_READY=false
+  for i in {1..90}; do
+    if kubectl wait --for=condition=ready pod -l app=grafana -n app-237 --timeout=5s 2>/dev/null; then
+      echo "✅ Grafana pod is ready (both containers)!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/90: Pod not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Grafana pod failed to become ready after 90 seconds"
+    kubectl get pods -n app-237
+    kubectl describe pod -l app=grafana -n app-237
+    exit 1
+  fi
+
+  # Verify Grafana API is working
+  echo "⏳ Verifying Grafana API..."
+  API_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n app-237 deployment/grafana -c grafana -- wget -q -O- http://localhost:3000/api/health 2>/dev/null | grep -q "ok"; then
+      echo "✅ Grafana API is working!"
+      API_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/30: Grafana API not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$API_READY" = false ]; then
+    echo "❌ Grafana API failed verification"
+    kubectl logs -l app=grafana -n app-237 -c grafana --tail=20
+    exit 1
+  fi
+
+  # Add TestData datasource
+  echo "⏳ Adding TestData datasource..."
+  DS_CREATED=false
+  for i in {1..10}; do
+    DS_RESULT=$(kubectl exec -n app-237 deployment/grafana -c grafana -- \
+      wget -q -O- --post-data='{"name":"TestData","type":"testdata","uid":"testdata-ds","access":"proxy"}' \
+      --header="Content-Type: application/json" \
+      http://localhost:3000/api/datasources 2>/dev/null || true)
+    if echo "$DS_RESULT" | grep -qE '"id"|"message":"Datasource added"'; then
+      echo "✅ TestData datasource created!"
+      DS_CREATED=true
+      break
+    elif echo "$DS_RESULT" | grep -q "Data source with the same name already exists"; then
+      echo "✅ TestData datasource already exists!"
+      DS_CREATED=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Datasource creation response: $DS_RESULT"
+      sleep 1
+    fi
+  done
+
+  if [ "$DS_CREATED" = false ]; then
+    echo "❌ Failed to create TestData datasource"
+    exit 1
+  fi
+
+  # Create the dashboard with 40 panels
+  echo "⏳ Creating Infrastructure Capacity Overview dashboard (40 panels)..."
+  DASHBOARD_CREATED=false
+  for i in {1..10}; do
+    if kubectl exec -n app-237 deployment/grafana -c grafana -- \
+      wget -q -O- --post-data="$(cat custom-dashboard.json)" \
+      --header="Content-Type: application/json" \
+      http://localhost:3000/api/dashboards/db 2>/dev/null | grep -q '"id"'; then
+      echo "✅ Dashboard created successfully!"
+      DASHBOARD_CREATED=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Dashboard creation failed, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$DASHBOARD_CREATED" = false ]; then
+    echo "❌ Failed to create dashboard"
+    exit 1
+  fi
+
+  # Verify dashboard is searchable
+  echo "⏳ Verifying dashboard is searchable..."
+  DASHBOARD_FOUND=false
+  for i in {1..10}; do
+    if kubectl exec -n app-237 deployment/grafana -c grafana -- \
+      wget -q -O- "http://localhost:3000/api/search?query=Infrastructure%20Capacity" 2>/dev/null | grep -q "Infrastructure Capacity Overview"; then
+      echo "✅ Dashboard is searchable!"
+      DASHBOARD_FOUND=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Dashboard not found yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$DASHBOARD_FOUND" = false ]; then
+    echo "❌ Dashboard verification failed"
+    exit 1
+  fi
+
+  # Render smoke test - verify the full pipeline works
+  echo "⏳ Testing render pipeline (smoke test on panel 1)..."
+  RENDER_OK=false
+  for i in {1..15}; do
+    HTTP_CODE=$(kubectl exec -n app-237 deployment/grafana -c grafana -- \
+      wget -q -O /dev/null -S "http://localhost:3000/render/d-solo/infra-capacity-overview/_?panelId=1&width=400&height=200&from=now-1h&to=now" 2>&1 | grep "HTTP/" | awk '{print $2}' || true)
+    if [ "$HTTP_CODE" = "200" ]; then
+      echo "✅ Render pipeline working - panel rendered successfully!"
+      RENDER_OK=true
+      break
+    else
+      echo "⏳ Attempt $i/15: Render returned HTTP $HTTP_CODE, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$RENDER_OK" = false ]; then
+    echo "❌ Render pipeline verification failed - renderer cannot render panels"
+    kubectl logs -l app=grafana -n app-237 -c renderer --tail=30
+    echo ""
+    kubectl logs -l app=grafana -n app-237 -c grafana --tail=30
+    exit 1
+  fi
+
+  echo "✅ Test setup completed - 40-panel dashboard with 1 spike panel ready!"
+
+after_test: |
+  kubectl delete namespace app-237 || true
+
+port_forwards:
+  - namespace: app-237
+    service: grafana
+    local_port: 10237
+    remote_port: 3000
+
+tags:
+  - hard
+  - grafana
+  - images
+  - question-answer
+  - kubernetes

@@ -2,17 +2,6 @@ import pytest
 from dateutil import parser  # type: ignore
 from freezegun import freeze_time
 
-from holmes.core.tools import (
-    StructuredToolResult,
-    StructuredToolResultStatus,
-    Toolset,
-    ToolsetStatusEnum,
-)
-from holmes.core.tools_utils.toolset_utils import filter_out_default_logging_toolset
-from holmes.plugins.toolsets.logging_utils.logging_api import (
-    BasePodLoggingToolset,
-    FetchPodLogsParams,
-)
 from holmes.plugins.toolsets.utils import (
     process_timestamps_to_rfc3339,
     to_unix_ms,
@@ -145,112 +134,6 @@ def test_process_timestamps_to_rfc3339(
 )
 def test_to_unix_ms(date_time_str, expected_timestamp):
     assert to_unix_ms(date_time_str) == expected_timestamp
-
-
-class DummyNonLoggingToolset(Toolset):
-    def __init__(self):
-        super().__init__(
-            name="non_logging_toolset", description="Dummy toolset", tools=[]
-        )
-
-    def _invoke(
-        self, params: dict, user_approved: bool = False
-    ) -> StructuredToolResult:
-        return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
-
-    def get_parameterized_one_liner(self, params: dict) -> str:
-        """Generate a one-line description of this tool invocation"""
-        namespace = params.get("namespace", "unknown-namespace")
-        pod_name = params.get("pod_name", "unknown-pod")
-        return f"Fetching logs for pod {pod_name} in namespace {namespace}"
-
-
-class DummyLoggingToolset(BasePodLoggingToolset):
-    def __init__(self, name, enabled: bool = True):
-        super().__init__(name=name, description=name, tools=[])
-        if enabled:
-            self.status = ToolsetStatusEnum.ENABLED
-
-    @property
-    def supported_capabilities(self) -> set:
-        return set()  # No advanced capabilities for dummy toolset
-
-    def fetch_pod_logs(self, params: FetchPodLogsParams) -> StructuredToolResult:
-        return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
-
-
-@pytest.mark.parametrize(
-    "unfiltered_toolsets, expected_toolsets",
-    [
-        # non logging toolsets are not filtered
-        ([DummyNonLoggingToolset()], [DummyNonLoggingToolset()]),
-        # disabled toolsets are returned as-is
-        (
-            [DummyLoggingToolset(name="toolset1", enabled=False)],
-            [DummyLoggingToolset(name="toolset1", enabled=False)],
-        ),
-        (
-            [
-                DummyLoggingToolset(name="toolset1"),
-                DummyLoggingToolset(name="toolset2", enabled=False),
-            ],
-            [
-                DummyLoggingToolset(name="toolset1"),
-                DummyLoggingToolset(name="toolset2", enabled=False),
-            ],
-        ),
-        # kubernetes/logs is never favoured
-        (
-            [DummyLoggingToolset(name="kubernetes/logs")],
-            [DummyLoggingToolset(name="kubernetes/logs")],
-        ),
-        (
-            [
-                DummyLoggingToolset(name="kubernetes/logs"),
-                DummyLoggingToolset(name="toolset1"),
-            ],
-            [DummyLoggingToolset(name="toolset1")],
-        ),
-        (
-            [
-                DummyLoggingToolset(name="kubernetes/logs"),
-                DummyLoggingToolset(name="toolset1", enabled=False),
-            ],
-            [
-                DummyLoggingToolset(name="kubernetes/logs"),
-                DummyLoggingToolset(name="toolset1", enabled=False),
-            ],
-        ),
-        # enabled toolset is favoured in alphabetical order
-        (
-            [
-                DummyLoggingToolset(name="toolset1"),
-                DummyLoggingToolset(name="toolset2"),
-            ],
-            [
-                DummyLoggingToolset(name="toolset1"),
-            ],
-        ),
-        (
-            [
-                DummyLoggingToolset(name="toolset2"),
-                DummyLoggingToolset(name="toolset1"),
-            ],
-            [
-                DummyLoggingToolset(name="toolset1"),
-            ],
-        ),
-    ],
-)
-def test_filter_out_default_toolset(unfiltered_toolsets, expected_toolsets):
-    filtered_toolsets = filter_out_default_logging_toolset(unfiltered_toolsets)
-
-    assert len(filtered_toolsets) == len(expected_toolsets)
-
-    expected_toolsets_names = [t.name for t in expected_toolsets].sort()
-    filtered_toolsets_names = [t.name for t in filtered_toolsets].sort()
-
-    assert expected_toolsets_names == filtered_toolsets_names
 
 
 @pytest.mark.parametrize(
