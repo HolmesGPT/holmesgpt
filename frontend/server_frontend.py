@@ -1783,6 +1783,21 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             incident_url = data.get("self", "") or data.get("html_url", "")
             incident_body = (data.get("body") or {}).get("details", "")
 
+            # ── Resolve project from PD service name ────────────────────
+            pd_service = (data.get("service") or {}).get("summary", "") or (
+                data.get("service") or {}
+            ).get("id", "")
+            from projects import resolve_project_for_webhook  # noqa: PLC0415
+
+            matched_project = resolve_project_for_webhook("pagerduty", pd_service)
+            matched_project_id = matched_project.id if matched_project else ""
+            if matched_project:
+                logging.info(
+                    "PagerDuty webhook: matched project '%s' for service '%s'",
+                    matched_project.name,
+                    pd_service,
+                )
+
             if not incident_id:
                 logging.warning("PagerDuty webhook: missing incident id in payload")
                 continue
@@ -1799,6 +1814,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 inc_title=incident_title,
                 inc_url=incident_url,
                 inc_body=incident_body,
+                project_id=matched_project_id,
             ):
                 investigation_id = _uuid.uuid4().hex
                 started_at = datetime.now(timezone.utc).isoformat()
@@ -1895,7 +1911,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                         question=question,
                         answer=answer,
                         tool_calls=[ToolCallRecord(**tc) for tc in tool_calls_data],
-                        project_id="",
+                        project_id=project_id,
                         status=status,
                         error=error_msg,
                     )
@@ -2283,6 +2299,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         case_subject = ""
         case_description = ""
         case_url = ""
+        sf_account = ""
 
         if "xml" in content_type or raw_body.lstrip().startswith(b"<"):
             # SOAP outbound message — extract fields with basic string parsing
@@ -2303,6 +2320,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             case_description = _soap_field("Description")
             sf_instance = os.environ.get("SALESFORCE_INSTANCE_URL", "").rstrip("/")
             case_url = f"{sf_instance}/{case_id}" if sf_instance and case_id else ""
+            sf_account = _soap_field("AccountName") or _soap_field("Account")
         else:
             # JSON payload (Flow HTTP callout or custom webhook)
             try:
@@ -2321,6 +2339,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             case_url = payload.get("url") or (
                 f"{sf_instance}/{case_id}" if sf_instance and case_id else ""
             )
+            sf_account = payload.get("AccountName") or payload.get("Account", "")
 
         if not case_id:
             logging.warning("Salesforce webhook: missing case id in payload")
