@@ -368,6 +368,12 @@ resource "helm_release" "holmes" {
             app_key = "{{ env.DATADOG_APP_KEY }}"
           }
         }
+        "pagerduty" = {
+          enabled = true
+          config = {
+            api_key = "{{ env.PAGERDUTY_API_KEY }}"
+          }
+        }
         "bash" = {
           enabled = true
           config  = { builtin_allowlist = "extended" }
