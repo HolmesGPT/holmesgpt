@@ -2351,6 +2351,17 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             case_subject,
         )
 
+        from projects import resolve_project_for_webhook  # noqa: PLC0415
+
+        matched_project = resolve_project_for_webhook("salesforce", sf_account)
+        matched_project_id = matched_project.id if matched_project else ""
+        if matched_project:
+            logging.info(
+                "Salesforce webhook: matched project '%s' for account '%s'",
+                matched_project.name,
+                sf_account,
+            )
+
         # ── 3. Run investigation in background thread ─────────────────────────
         def _run_sf_investigation(
             c_id=case_id,
@@ -2358,6 +2369,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             c_subject=case_subject,
             c_description=case_description,
             c_url=case_url,
+            project_id=matched_project_id,
         ):
             investigation_id = _uuid.uuid4().hex
             started_at = datetime.now(timezone.utc).isoformat()
@@ -2453,7 +2465,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     question=question,
                     answer=answer,
                     tool_calls=[ToolCallRecord(**tc) for tc in tool_calls_data],
-                    project_id="",
+                    project_id=project_id,
                     status=status,
                     error=error_msg,
                 )
