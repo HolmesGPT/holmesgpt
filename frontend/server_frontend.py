@@ -2048,6 +2048,20 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         ).get("href", "")
         work_item_description = _ado_field(fields.get("System.Description"))
 
+        # ── 2b. Resolve project from ADO team project name ──────────────
+        ado_team_project = _ado_field(fields.get("System.TeamProject"))
+        from projects import resolve_project_for_webhook  # noqa: PLC0415
+
+        matched_project = resolve_project_for_webhook("ado", ado_team_project)
+        matched_project_id = matched_project.id if matched_project else ""
+        if matched_project:
+            logging.info(
+                "ADO webhook: matched project '%s' (%s) for ADO team project '%s'",
+                matched_project.name,
+                matched_project.id,
+                ado_team_project,
+            )
+
         if not work_item_id:
             logging.warning("ADO webhook: missing work item id in payload")
             return JSONResponse({"ok": True})
@@ -2065,6 +2079,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             wi_type=work_item_type,
             wi_url=work_item_url,
             wi_description=work_item_description,
+            project_id=matched_project_id,
         ):
             investigation_id = _uuid.uuid4().hex
             started_at = datetime.now(timezone.utc).isoformat()
@@ -2159,7 +2174,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     question=question,
                     answer=answer,
                     tool_calls=[ToolCallRecord(**tc) for tc in tool_calls_data],
-                    project_id="",
+                    project_id=project_id,
                     status=status,
                     error=error_msg,
                 )
