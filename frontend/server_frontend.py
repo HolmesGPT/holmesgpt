@@ -127,22 +127,23 @@ def _restore_llm_overrides_from_dynamodb(config) -> None:
 
         overrides = get_llm_store().load_all()
         for toolset_name, instructions in overrides.items():
-            # Determine whether this is an MCP server or a regular toolset
-            is_mcp = False
-            if config.mcp_servers and toolset_name in config.mcp_servers:
-                is_mcp = True
+            is_mcp = bool(config.mcp_servers and toolset_name in config.mcp_servers)
             if is_mcp:
-                if config.mcp_servers is None:
-                    config.mcp_servers = {}
-                config.mcp_servers.setdefault(toolset_name, {})["llm_instructions"] = (
-                    instructions
-                )
+                if config.mcp_servers is None or toolset_name not in config.mcp_servers:
+                    logging.debug(
+                        "Ignoring DynamoDB LLM override for unknown MCP server '%s'",
+                        toolset_name,
+                    )
+                    continue
+                config.mcp_servers[toolset_name]["llm_instructions"] = instructions
             else:
-                if config.toolsets is None:
-                    config.toolsets = {}
-                config.toolsets.setdefault(toolset_name, {})["llm_instructions"] = (
-                    instructions
-                )
+                if config.toolsets is None or toolset_name not in config.toolsets:
+                    logging.debug(
+                        "Ignoring DynamoDB LLM override for unknown toolset '%s'",
+                        toolset_name,
+                    )
+                    continue
+                config.toolsets[toolset_name]["llm_instructions"] = instructions
         if overrides:
             logging.info(
                 "Restored %d LLM instruction override(s) from DynamoDB", len(overrides)
@@ -163,13 +164,60 @@ def _restore_toolset_state_from_dynamodb(config) -> None:
 
         states = get_toolset_state_store().load_all()
         for toolset_name, enabled in states.items():
-            if config.toolsets is None:
-                config.toolsets = {}
-            config.toolsets.setdefault(toolset_name, {})["enabled"] = enabled
+            if config.toolsets is None or toolset_name not in config.toolsets:
+                logging.debug(
+                    "Ignoring DynamoDB state for unknown toolset '%s'",
+                    toolset_name,
+                )
+                continue
+            config.toolsets[toolset_name]["enabled"] = enabled
         if states:
             logging.info("Restored %d toolset state(s) from DynamoDB", len(states))
     except Exception:
         logging.warning("Failed to restore toolset states from DynamoDB", exc_info=True)
+
+
+def _restore_toolset_config_from_dynamodb(config) -> None:
+    """Load persisted toolset config overrides from DynamoDB into the in-memory config.
+
+    Performs a shallow merge: DynamoDB keys override Helm keys.
+    Keys containing {{ env.* }} in the Helm config are never overridden.
+    """
+    if config is None:
+        return
+    table_name = os.environ.get("HOLMES_DYNAMODB_TABLE", "")
+    if not table_name:
+        return
+    try:
+        from projects import get_toolset_config_store  # noqa: PLC0415
+
+        overrides = get_toolset_config_store().load_all()
+        restored = 0
+        for toolset_name, config_override in overrides.items():
+            if config.toolsets is None or toolset_name not in config.toolsets:
+                logging.debug(
+                    "Ignoring DynamoDB config override for unknown toolset '%s'",
+                    toolset_name,
+                )
+                continue
+            if "config" not in config.toolsets[toolset_name]:
+                config.toolsets[toolset_name]["config"] = {}
+
+            helm_config = config.toolsets[toolset_name]["config"]
+            for key, value in config_override.items():
+                # Never override {{ env.* }} secret references from Helm
+                helm_value = helm_config.get(key, "")
+                if isinstance(helm_value, str) and "{{ env." in helm_value:
+                    continue
+                helm_config[key] = value
+            restored += 1
+
+        if restored:
+            logging.info(
+                "Restored %d toolset config override(s) from DynamoDB", restored
+            )
+    except Exception:
+        logging.warning("Failed to restore toolset config from DynamoDB", exc_info=True)
 
 
 # In-memory flag for webhook development mode (auth bypass).
@@ -333,6 +381,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     # ── DynamoDB persistence: restore state on startup ────────────────────────
     _restore_llm_overrides_from_dynamodb(config)
     _restore_toolset_state_from_dynamodb(config)
+    _restore_toolset_config_from_dynamodb(config)
     _restore_app_settings_from_dynamodb()
 
     @app.get("/auth/check")
