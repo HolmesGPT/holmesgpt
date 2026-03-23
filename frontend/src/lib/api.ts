@@ -205,12 +205,19 @@ export interface ProjectPreview {
   resolved_count: number;
 }
 
+export interface WebhookRouting {
+  ado: string[];
+  pagerduty: string[];
+  salesforce: string[];
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
   tag_filter: TagFilter | null;
   webhook_write_back: Record<string, boolean | null> | null;
+  webhook_routing: WebhookRouting | null;
   created_at: string;
 }
 
@@ -446,14 +453,24 @@ export const api = {
     return request('/api/projects');
   },
 
-  createProject(data: { name: string; description?: string; tag_filter?: TagFilter | null }): Promise<Project> {
+  createProject(data: {
+    name: string;
+    description?: string;
+    tag_filter?: TagFilter | null;
+    webhook_routing?: WebhookRouting | null;
+  }): Promise<Project> {
     return request('/api/projects', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  updateProject(id: string, data: Partial<{ name: string; description: string; tag_filter: TagFilter | null }>): Promise<Project> {
+  updateProject(id: string, data: Partial<{
+    name: string;
+    description: string;
+    tag_filter: TagFilter | null;
+    webhook_routing: WebhookRouting | null;
+  }>): Promise<Project> {
     return request(`/api/projects/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
