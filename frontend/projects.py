@@ -7,6 +7,7 @@ Table schema (single-table design):
   INSTANCE#<id>         | META            | JSON-serialised Instance
   LLM_OVERRIDE          | <toolset_name>  | instructions string
   TOOLSET_STATE         | <toolset_name>  | enabled bool
+  TOOLSET_CONFIG        | <toolset_name>  | config_json (JSON dict of config overrides)
   INVESTIGATION#<id>    | META            | JSON-serialised Investigation
 """
 
@@ -421,6 +422,49 @@ _toolset_state_store = ToolsetStateStore()
 
 def get_toolset_state_store() -> ToolsetStateStore:
     return _toolset_state_store
+
+
+# ── Toolset config override store ─────────────────────────────────────────
+
+
+class ToolsetConfigStore:
+    """Persist toolset config overrides (api_url, etc.) across pod restarts.
+
+    Stores a JSON dict of config key-value pairs per toolset.
+    These override the Helm-provided base config on startup.
+    """
+
+    def load_all(self) -> dict[str, dict]:
+        """Return {toolset_name: {config_key: value}} for all stored overrides."""
+        resp = _get_table().query(
+            KeyConditionExpression=Key("pk").eq("TOOLSET_CONFIG"),
+        )
+        result = {}
+        for item in resp.get("Items", []):
+            try:
+                result[item["sk"]] = json.loads(item["config_json"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return result
+
+    def save(self, toolset_name: str, config_override: dict) -> None:
+        _get_table().put_item(
+            Item={
+                "pk": "TOOLSET_CONFIG",
+                "sk": toolset_name,
+                "config_json": json.dumps(config_override),
+            }
+        )
+
+    def delete(self, toolset_name: str) -> None:
+        _get_table().delete_item(Key={"pk": "TOOLSET_CONFIG", "sk": toolset_name})
+
+
+_toolset_config_store = ToolsetConfigStore()
+
+
+def get_toolset_config_store() -> ToolsetConfigStore:
+    return _toolset_config_store
 
 
 # ── Webhook settings store ─────────────────────────────────────────────────────
