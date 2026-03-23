@@ -317,6 +317,35 @@ class Config(RobustaBaseConfig):
                 instance on subsequent calls with the *same* parameters.
                 A call with different ``toolset_tag_filter`` or
                 ``enable_all_toolsets_possible`` will create and cache a fresh executor.
+
+        Migration from removed helpers
+        ------------------------------
+        ``create_console_tool_executor(dal, refresh_status)``::
+
+            create_tool_executor(
+                dal=dal,
+                toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+                enable_all_toolsets_possible=True,
+                prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH if refresh_status else PrerequisiteCacheMode.ENABLED,
+            )
+
+        ``create_agui_tool_executor(dal)``::
+
+            create_tool_executor(
+                dal=dal,
+                toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+                enable_all_toolsets_possible=True,
+                prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH,
+                reuse_executor=True,
+            )
+
+        ``refresh_server_tool_executor(dal)``::
+
+            refresh_tool_executor(
+                dal=dal,
+                toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+                enable_all_toolsets_possible=False,
+            )
         """
         tags = toolset_tag_filter or [ToolsetTag.CORE]
         cache_key = self._executor_cache_key(tags, enable_all_toolsets_possible)
@@ -411,6 +440,34 @@ class Config(RobustaBaseConfig):
         Executor parameters (toolset_tag_filter, enable_all_toolsets_possible,
         prerequisite_cache, reuse_executor) are forwarded to
         :meth:`create_tool_executor`.
+
+        Migration from removed helpers
+        ------------------------------
+        ``create_console_toolcalling_llm(dal, refresh_toolsets, tracer, model_name, tool_results_dir, on_event)``::
+
+            create_toolcalling_llm(
+                dal=dal,
+                toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+                enable_all_toolsets_possible=True,
+                prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH if refresh_toolsets else PrerequisiteCacheMode.ENABLED,
+                model=model_name,
+                tracer=tracer,
+                tool_results_dir=tool_results_dir,
+                on_event=on_event,
+            )
+
+        ``create_agui_toolcalling_llm(dal, model, tracer, tool_results_dir)``::
+
+            create_toolcalling_llm(
+                dal=dal,
+                toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+                enable_all_toolsets_possible=True,
+                prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH,
+                reuse_executor=True,
+                model=model,
+                tracer=tracer,
+                tool_results_dir=tool_results_dir,
+            )
         """
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
@@ -428,79 +485,6 @@ class Config(RobustaBaseConfig):
             tool_executor,
             self.max_steps,
             llm,
-            tool_results_dir=tool_results_dir,
-        )
-
-    # ── Deprecated wrappers (will be removed in a future version) ──
-
-    def create_console_tool_executor(
-        self, dal: Optional["SupabaseDal"] = None, refresh_status: bool = False
-    ) -> ToolExecutor:
-        """.. deprecated:: Use :meth:`create_tool_executor` with explicit parameters."""
-        return self.create_tool_executor(
-            dal,
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
-            enable_all_toolsets_possible=True,
-            prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH if refresh_status else PrerequisiteCacheMode.ENABLED,
-        )
-
-    def create_agui_tool_executor(self, dal: Optional["SupabaseDal"] = None) -> ToolExecutor:
-        """.. deprecated:: Use :meth:`create_tool_executor` with explicit parameters."""
-        return self.create_tool_executor(
-            dal,
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
-            enable_all_toolsets_possible=True,
-            prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH,
-            reuse_executor=True,
-        )
-
-    def refresh_server_tool_executor(
-        self, dal: Optional["SupabaseDal"] = None,
-    ) -> list[tuple[str, str, str]]:
-        """.. deprecated:: Use :meth:`refresh_tool_executor` with explicit parameters."""
-        return self.refresh_tool_executor(
-            dal,
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
-            enable_all_toolsets_possible=False,
-        )
-
-    def create_console_toolcalling_llm(
-        self,
-        dal: Optional["SupabaseDal"] = None,
-        refresh_toolsets: bool = False,
-        tracer=None,
-        model_name: Optional[str] = None,
-        tool_results_dir: Optional[Path] = None,
-        on_event: EventCallback = None,
-    ) -> "ToolCallingLLM":
-        """.. deprecated:: Use :meth:`create_toolcalling_llm` with explicit parameters."""
-        return self.create_toolcalling_llm(
-            dal,
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
-            enable_all_toolsets_possible=True,
-            prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH if refresh_toolsets else PrerequisiteCacheMode.ENABLED,
-            model=model_name,
-            tracer=tracer,
-            tool_results_dir=tool_results_dir,
-            on_event=on_event,
-        )
-
-    def create_agui_toolcalling_llm(
-        self,
-        dal: Optional["SupabaseDal"] = None,
-        model: Optional[str] = None,
-        tracer=None,
-        tool_results_dir: Optional[Path] = None,
-    ) -> "ToolCallingLLM":
-        """.. deprecated:: Use :meth:`create_toolcalling_llm` with explicit parameters."""
-        return self.create_toolcalling_llm(
-            dal,
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
-            enable_all_toolsets_possible=True,
-            prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH,
-            reuse_executor=True,
-            model=model,
-            tracer=tracer,
             tool_results_dir=tool_results_dir,
         )
 
