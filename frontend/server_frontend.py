@@ -987,6 +987,8 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             return JSONResponse(p.model_dump(), status_code=201)
         except KeyError as e:
             raise HTTPException(status_code=400, detail=f"Missing required field: {e}")
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except Exception as e:
             logging.error("Failed to create project: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
@@ -1020,6 +1022,8 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             return JSONResponse(p.model_dump())
         except HTTPException:
             raise
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except Exception as e:
             logging.error("Failed to update project %s: %s", project_id, e)
             raise HTTPException(status_code=500, detail=str(e))

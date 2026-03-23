@@ -252,6 +252,33 @@ def get_instances_store() -> InstancesStore:
     return _instances_store
 
 
+# ── Duplicate routing validation ───────────────────────────────────────────────
+
+
+def _check_duplicate_routing(
+    webhook_routing: Optional[WebhookRouting],
+    exclude_project_id: Optional[str] = None,
+) -> None:
+    """Raise ValueError if any routing value is already claimed by another project."""
+    if not webhook_routing:
+        return
+    for project in get_store().list():
+        if exclude_project_id and project.id == exclude_project_id:
+            continue
+        if not project.webhook_routing:
+            continue
+        for source in ("ado", "pagerduty", "salesforce"):
+            existing = {
+                v.strip().lower() for v in getattr(project.webhook_routing, source, [])
+            }
+            incoming = {v.strip().lower() for v in getattr(webhook_routing, source, [])}
+            overlap = existing & incoming
+            if overlap:
+                raise ValueError(
+                    f"{source} routing value(s) {overlap} already claimed by project '{project.name}'"
+                )
+
+
 # ── Projects store ─────────────────────────────────────────────────────────────
 
 
@@ -263,6 +290,9 @@ class ProjectsStore:
         tag_filter: Optional[dict] = None,
         webhook_routing: Optional[dict] = None,
     ) -> Project:
+        _check_duplicate_routing(
+            WebhookRouting(**webhook_routing) if webhook_routing else None
+        )
         p = Project(
             name=name,
             description=description,
@@ -287,6 +317,7 @@ class ProjectsStore:
             elif k == "webhook_routing":
                 v = WebhookRouting(**v) if v else None
             setattr(p, k, v)
+        _check_duplicate_routing(p.webhook_routing, exclude_project_id=project_id)
         _get_table().put_item(
             Item={"pk": f"PROJECT#{p.id}", "sk": "META", "data": p.model_dump_json()}
         )
