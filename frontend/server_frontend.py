@@ -609,6 +609,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             config.toolsets[name]["config"] = {}
         config.toolsets[name]["config"].update(new_config)
 
+        # Persist config overrides to DynamoDB (exclude {{ env.* }} secret refs)
+        if new_config:
+            try:
+                from projects import get_toolset_config_store  # noqa: PLC0415
+
+                # Only persist non-secret config values
+                persistable = {
+                    k: v
+                    for k, v in config.toolsets[name]["config"].items()
+                    if not (isinstance(v, str) and "{{ env." in v)
+                }
+                if persistable:
+                    get_toolset_config_store().save(name, persistable)
+            except Exception:
+                logging.warning(
+                    "Failed to persist toolset config to DynamoDB", exc_info=True
+                )
+
         if enabled is not None:
             config.toolsets[name]["enabled"] = enabled
             # Persist enabled state to DynamoDB so it survives pod restarts
