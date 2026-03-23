@@ -2090,6 +2090,19 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             "html", {}
         ).get("href", "")
         work_item_description = _ado_field(fields.get("System.Description"))
+        work_item_area = _ado_field(fields.get("System.AreaPath"))
+        work_item_iteration = _ado_field(fields.get("System.IterationPath"))
+        work_item_state = _ado_field(fields.get("System.State"))
+        work_item_severity = _ado_field(fields.get("Microsoft.VSTS.Common.Severity"))
+        work_item_assigned = ""
+        assigned_raw = fields.get("System.AssignedTo")
+        if isinstance(assigned_raw, dict):
+            work_item_assigned = assigned_raw.get(
+                "displayName", ""
+            ) or assigned_raw.get("newValue", "")
+        elif isinstance(assigned_raw, str):
+            work_item_assigned = assigned_raw
+        work_item_reason = _ado_field(fields.get("System.Reason"))
 
         # ── 2b. Resolve project from ADO team project name ──────────────
         ado_team_project = _ado_field(fields.get("System.TeamProject"))
@@ -2122,16 +2135,52 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             wi_type=work_item_type,
             wi_url=work_item_url,
             wi_description=work_item_description,
+            wi_area=work_item_area,
+            wi_iteration=work_item_iteration,
+            wi_state=work_item_state,
+            wi_severity=work_item_severity,
+            wi_assigned=work_item_assigned,
+            wi_reason=work_item_reason,
+            wi_project=ado_team_project,
             project_id=matched_project_id,
             resolved_project=matched_project,
         ):
             investigation_id = _uuid.uuid4().hex
             started_at = datetime.now(timezone.utc).isoformat()
+
+            # Build a rich context block from available fields
+            context_lines = []
+            if wi_project:
+                context_lines.append(f"- Project: {wi_project}")
+            if wi_area:
+                context_lines.append(f"- Area: {wi_area}")
+            if wi_iteration:
+                context_lines.append(f"- Iteration: {wi_iteration}")
+            if wi_state:
+                context_lines.append(f"- State: {wi_state}")
+            if wi_severity:
+                context_lines.append(f"- Severity: {wi_severity}")
+            if wi_assigned:
+                context_lines.append(f"- Assigned to: {wi_assigned}")
+            if wi_reason:
+                context_lines.append(f"- Reason: {wi_reason}")
+            if wi_url:
+                context_lines.append(f"- URL: {wi_url}")
+            context_block = "\n".join(context_lines)
+
             question = (
-                f"Azure DevOps work item created: [{wi_type}] {wi_title}\n\n"
-                + (f"Description: {wi_description}\n\n" if wi_description else "")
-                + "Please investigate this work item and provide relevant context, "
-                "potential impact analysis, and recommended next steps."
+                f"Azure DevOps {wi_type or 'work item'} #{wi_id}: {wi_title}\n\n"
+                + (f"**Description:**\n{wi_description}\n\n" if wi_description else "")
+                + (
+                    f"**Work Item Details:**\n{context_block}\n\n"
+                    if context_block
+                    else ""
+                )
+                + "Investigate this work item using all available tools. "
+                "Check for related recent incidents, deployments, code changes, "
+                "logs, and metrics that could provide context. "
+                "Provide a root cause analysis if applicable, potential impact, "
+                "and recommended next steps."
             )
             answer = ""
             tool_calls_data: list = []
