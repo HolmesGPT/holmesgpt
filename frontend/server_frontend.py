@@ -2029,20 +2029,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         resource = payload.get("resource") or {}
         fields = resource.get("fields") or {}
         work_item_id = str(resource.get("id", ""))
+
+        def _ado_field(val):
+            """Extract field value: handles both str and {newValue: ...} dict formats."""
+            if isinstance(val, str):
+                return val
+            if isinstance(val, dict):
+                return val.get("newValue", "")
+            return ""
+
         work_item_title = (
-            (fields.get("System.Title") or {}).get("newValue", "")
-            or fields.get("System.Title", "")
+            _ado_field(fields.get("System.Title"))
             or resource.get("url", "")
         )
-        work_item_type = (fields.get("System.WorkItemType") or {}).get(
-            "newValue", ""
-        ) or fields.get("System.WorkItemType", "")
+        work_item_type = _ado_field(fields.get("System.WorkItemType"))
         work_item_url = resource.get("url", "") or resource.get("_links", {}).get(
             "html", {}
         ).get("href", "")
-        work_item_description = (fields.get("System.Description") or {}).get(
-            "newValue", ""
-        ) or fields.get("System.Description", "")
+        work_item_description = _ado_field(fields.get("System.Description"))
 
         if not work_item_id:
             logging.warning("ADO webhook: missing work item id in payload")
