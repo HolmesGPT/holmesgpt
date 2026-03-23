@@ -66,13 +66,18 @@ toolsets that don't require user configuration:
 | `kubernetes/logs` | `True` | Core K8s capability |
 | `internet` | `True` | Web search, always available |
 | `connectivity_check` | `True` | Network checks, always available |
-| `confluence` | `True` | Always on (but has env var prereqs that gate it) |
 | `robusta` | `True if dal else False` | Conditional on having a DAL connection |
 | `core_investigation` | `True` | Internal orchestration toolset |
 | `runbook` | `True` | Runbook fetcher, always available |
 
-All other Python toolsets (grafana, prometheus, datadog, elasticsearch, etc.) keep
-`enabled=False` and rely on config to turn them on.
+All other Python toolsets (confluence, grafana, prometheus, datadog, elasticsearch,
+etc.) keep `enabled=False` and rely on config or auto-enable to turn them on.
+
+Note: `confluence` does NOT set `enabled=True` in its constructor despite appearances.
+The `enabled=True` at line 225 of `confluence.py` is for an internal `HttpToolset`
+instance, not the `ConfluenceToolset` itself. Confluence uses a `CallablePrerequisite`
+(not env var prerequisites) and has required config fields (`api_url`, `api_key`), so
+it is gated by the `missing_config` guard on the CLI auto-enable path.
 
 ### Layer 3: YAML Toolsets Never Set `enabled` (*.yaml files)
 
@@ -136,9 +141,23 @@ commands exist, callable checks pass). A toolset can be `enabled=True` but have
 
 The `enable_all_toolsets=True` path (CLI) skips toolsets where `missing_config` returns
 True. This property checks whether the toolset's `config_classes` have required fields
-(fields with no default) AND no `config` was provided. In practice, **no current Python
-toolset has truly required config fields** — they all use Optional fields with defaults.
-So this guard currently never triggers, but it exists as a safety net.
+(fields with no default) AND no `config` was provided.
+
+**This guard actively fires in production.** Multiple toolsets have required config
+fields declared as `str = Field(...)` with no default:
+
+| Toolset | Required field(s) |
+|---|---|
+| `confluence` | `ConfluenceConfig.api_url`, `ConfluenceConfig.api_key` |
+| `grafana/dashboards` | `GrafanaCommonConfig.api_url` |
+| `elasticsearch/data`, `elasticsearch/cluster` | `ElasticsearchConfig.api_url` |
+| `servicenow/tables` | `ServiceNowConfig.api_url` |
+| `rabbitmq/core` | `RabbitMQConfig.api_url` |
+
+When a user runs the CLI without configuring these toolsets, the auto-enable loop
+calls `toolset.missing_config`, gets `True`, and skips them. Without this guard,
+the CLI would attempt to enable every toolset and then fail at the prerequisite
+check stage for all unconfigured ones — a much noisier and slower experience.
 
 ---
 
@@ -154,11 +173,14 @@ that Helm, Kubernetes core, ArgoCD, etc. are mysteriously missing.
 ### 2. "What does `enabled=False` actually mean?"
 
 It depends on context:
-- On CLI: it means nothing, because `enable_all_toolsets=True` overrides it
+- On CLI: it means almost nothing — `enable_all_toolsets=True` overrides it for any
+  toolset where `missing_config` is False. Toolsets with required config fields but no
+  config provided are the exception: they stay disabled.
 - On server: it means the toolset is off unless config says otherwise
 
 So the `enabled` field on a toolset definition is effectively only meaningful for the
-server path, which makes it misleading for anyone reading the code.
+server path (and for the `missing_config` edge case on CLI), which makes it misleading
+for anyone reading the code.
 
 ### 3. "Built-in in config = enabled, right?"
 
@@ -197,11 +219,14 @@ verified it works". These could be named better.
 
 ### 5. Python toolsets with `enabled=True` + prerequisites = always-try toolsets
 
-Toolsets like `confluence` set `enabled=True` but have environment variable
-prerequisites (`CONFLUENCE_API_TOKEN`, etc.). On the server path, they're always
-enabled, always checked, and always fail if the env vars aren't set. This is fine
-functionally but conceptually odd — "enabled by default but expected to fail" is a
-weird pattern.
+Toolsets like `internet` and `connectivity_check` set `enabled=True` and have
+prerequisites. On the server path, they're always enabled, always checked, and fail
+if prerequisites aren't met. This is fine functionally but conceptually odd —
+"enabled by default but expected to fail sometimes" is a weird pattern.
+
+Note: `confluence` does NOT follow this pattern — it starts with `enabled=False` and
+has required config fields, so it is gated by `missing_config` on the CLI path and
+must be explicitly configured on the server path.
 
 ### 6. YAML toolsets and Python toolsets use different registration paths
 
