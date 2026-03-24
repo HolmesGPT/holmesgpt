@@ -10,6 +10,15 @@
 
 Open-source AI agent for investigating production incidents and finding root causes. Works with any stack — Kubernetes, VMs, cloud providers, databases, and SaaS platforms. We are a [Cloud Native Computing Foundation](https://www.cncf.io/) sandbox project. Originally created by [Robusta.Dev](http://robusta.dev), with major contributions from [Microsoft](https://microsoft.com/).
 
+## New: Operator Mode — Find Problems 24/7 in the Background
+
+With **[Operator Mode](https://holmesgpt.dev/operator/)**, HolmesGPT runs in the background 24/7, spots problems before your customers notice, and messages you in Slack with the fix. Connect the [GitHub integration](https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/) and it can even open PRs to fix what it finds.
+
+- **[Deployment verification](https://holmesgpt.dev/operator/deployment-verification/)** — Deploy a health check alongside your app to verify the new version is healthy
+- **[Scheduled health checks](https://holmesgpt.dev/operator/scheduled-health-checks/)** — Continuously monitor services and catch regressions automatically
+- **Not just Kubernetes** — Holmes investigates across your entire stack (VMs, cloud services, databases, SaaS platforms), so operator checks can query any [connected data source](https://holmesgpt.dev/data-sources/builtin-toolsets/)
+
+## Features
 
 - **Petabyte-scale data**: Server-side filtering, JSON tree traversal, and tool output transformers keep large payloads out of context windows
 - **Memory-safe execution**: Per-tool memory limits, streaming large results to disk, and automatic output budgeting prevent OOM kills when querying large observability datasets
@@ -17,9 +26,6 @@ Open-source AI agent for investigating production incidents and finding root cau
 - **Bidirectional alert integrations**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
 - **[Any LLM provider](https://holmesgpt.dev/ai-providers/)**: OpenAI, Anthropic, Azure, Bedrock, Gemini, and more
 - **No Kubernetes required**: Works with any infrastructure — VMs, bare metal, cloud services, or containers
-- **[Operator mode](https://holmesgpt.dev/operator/)**: Run HolmesGPT 24/7 in your cluster — it spots problems before your customers notice and messages you with the fix
-- **[Deployment verification](https://holmesgpt.dev/operator/deployment-verification/)**: Deploy a health check alongside your app to verify the new version is healthy
-- **[Scheduled health checks](https://holmesgpt.dev/operator/scheduled-health-checks/)**: Continuously monitor services and catch regressions automatically
 
 ## How it Works
 

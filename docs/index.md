@@ -38,12 +38,13 @@ Open-source SRE agent for investigating production incidents across any infrastr
 
 **[Connect your data sources](data-sources/recommended-setup.md)** to unlock deeper investigations with metrics, logs, and cloud provider access.
 
-## Run HolmesGPT 24/7
+## New: Operator Mode — Find Problems 24/7 in the Background
 
-With **[Operator Mode](operator/index.md)**, HolmesGPT runs in the background in your cluster, spots problems before your customers notice, and messages you in Slack with the fix.
+With **[Operator Mode](operator/index.md)**, HolmesGPT runs in the background 24/7, spots problems before your customers notice, and messages you in Slack with the fix. Connect the [GitHub integration](data-sources/builtin-toolsets/github-mcp.md) and it can even open PRs to fix what it finds.
 
 - **[Deployment Verification](operator/deployment-verification.md)** - Deploy a health check alongside your app to verify the new version is healthy
 - **[Scheduled Health Checks](operator/scheduled-health-checks.md)** - Continuously monitor services and catch regressions automatically
+- **Not just Kubernetes** - Holmes investigates across your entire stack (VMs, cloud services, databases, SaaS platforms), so operator checks can query any [connected data source](data-sources/builtin-toolsets/index.md)
 
 ## Need Help?
 
