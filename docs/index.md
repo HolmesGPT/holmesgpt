@@ -38,12 +38,12 @@ Open-source SRE agent for investigating production incidents across any infrastr
 
 **[Connect your data sources](data-sources/recommended-setup.md)** to unlock deeper investigations with metrics, logs, and cloud provider access.
 
-## Running in Kubernetes?
+## Run HolmesGPT 24/7
 
-Use the **[Holmes Operator](operator/index.md)** for Kubernetes-native health checks:
+With **[Operator Mode](operator/index.md)**, HolmesGPT runs in the background in your cluster, spots problems before your customers notice, and messages you in Slack with the fix.
 
-- **[Deployment Verification](operator/deployment-verification.md)** - Deploy a HealthCheck alongside your app and gate CI/CD on the result
-- **[Scheduled Health Checks](operator/scheduled-health-checks.md)** - Continuously monitor services with cron-based LLM checks
+- **[Deployment Verification](operator/deployment-verification.md)** - Deploy a health check alongside your app to verify the new version is healthy
+- **[Scheduled Health Checks](operator/scheduled-health-checks.md)** - Continuously monitor services and catch regressions automatically
 
 ## Need Help?
 

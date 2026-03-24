@@ -17,9 +17,9 @@ Open-source AI agent for investigating production incidents and finding root cau
 - **Bidirectional alert integrations**: Fetch alerts from AlertManager, PagerDuty, OpsGenie, or Jira—and write findings back
 - **[Any LLM provider](https://holmesgpt.dev/ai-providers/)**: OpenAI, Anthropic, Azure, Bedrock, Gemini, and more
 - **No Kubernetes required**: Works with any infrastructure — VMs, bare metal, cloud services, or containers
-- **[Operator mode](https://holmesgpt.dev/operator/)**: Optionally run as a Kubernetes operator for automated investigations
-- **[Deployment verification](https://holmesgpt.dev/operator/deployment-verification/)**: Deploy a health check alongside your app to verify the new version is healthy and gate CI/CD on the result
-- **[Scheduled health checks](https://holmesgpt.dev/operator/scheduled-health-checks/)**: Continuously monitor services with cron-based LLM health checks
+- **[Operator mode](https://holmesgpt.dev/operator/)**: Run HolmesGPT 24/7 in your cluster — it spots problems before your customers notice and messages you with the fix
+- **[Deployment verification](https://holmesgpt.dev/operator/deployment-verification/)**: Deploy a health check alongside your app to verify the new version is healthy
+- **[Scheduled health checks](https://holmesgpt.dev/operator/scheduled-health-checks/)**: Continuously monitor services and catch regressions automatically
 
 ## How it Works
 

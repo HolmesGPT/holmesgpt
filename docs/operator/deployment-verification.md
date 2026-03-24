@@ -102,9 +102,9 @@ spec:
 
 This catches regressions that appear after the initial rollout — memory leaks, connection pool exhaustion, gradual performance degradation — not just immediate crash failures.
 
-## Tips
+## Tips for One-Time HealthChecks
 
-- **Version the check name** (e.g., `checkout-api-deploy-v2-4-1`) so each deploy creates a distinct resource and you keep an audit trail.
+- **Version the check name** (e.g., `checkout-api-deploy-v2-4-1`) so each deploy creates a distinct resource and you keep an audit trail. This applies to one-time `HealthCheck` resources only — `ScheduledHealthCheck` resources use a fixed name and create child HealthChecks automatically.
 - **Set a longer timeout** (60–120s) to give the rollout time to complete before Holmes evaluates.
 - **Use labels** like `deploy-version` to query checks for a specific release: `kubectl get hc -l deploy-version=v2.4.1`.
 - **Combine with ArgoCD**: If you use ArgoCD, the query can reference sync status — e.g., *"Is the ArgoCD application 'checkout-api' synced and healthy with no degraded resources?"* — since Holmes has access to the [ArgoCD toolset](../data-sources/builtin-toolsets/argocd.md).
