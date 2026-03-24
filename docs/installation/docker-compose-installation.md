@@ -61,10 +61,12 @@ The Docker Compose file mounts `~/.holmes` into the container. Create `~/.holmes
 # Change the LLM model
 model: "anthropic/claude-sonnet-4-5-20250929"
 
-# Enable fast mode — uses a smaller model to summarize large tool
-# outputs before sending them to the main LLM. Reduces token usage,
-# lowers costs, and speeds up responses.
-fast_model: "gpt-4o-mini"
+# Enable fast mode — uses a smaller, cheaper model to summarize large
+# tool outputs before sending them to the main LLM. Reduces token
+# usage, lowers costs, and speeds up responses.
+# Good choices: fast, inexpensive models with large context windows.
+fast_model: "anthropic/claude-haiku-4-5-20251001"
+# Other options: "gpt-4o-mini", "gemini/gemini-2.0-flash"
 
 # Limit the number of tool-calling steps per investigation
 max_steps: 50

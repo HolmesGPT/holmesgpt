@@ -14,15 +14,21 @@ Configure transformer behavior globally in your HolmesGPT configuration:
 
 ```bash
 # CLI flags
-holmes ask "what pods are unhealthy?" --fast-model gpt-4o-mini
+holmes ask "what pods are unhealthy?" --fast-model anthropic/claude-haiku-4-5-20251001
 
 # Environment variables
-export FAST_MODEL="gpt-4o-mini"
+export FAST_MODEL="anthropic/claude-haiku-4-5-20251001"
 
 # Or via config file
 # ~/.holmes/config.yaml:
-# fast_model: gpt-4o-mini
+# fast_model: anthropic/claude-haiku-4-5-20251001
 ```
+
+Choose a fast, inexpensive model with a large context window. Good options:
+
+- `anthropic/claude-haiku-4-5-20251001` — fast and cheap with 200k context
+- `gpt-4o-mini` — OpenAI's lightweight model
+- `gemini/gemini-2.0-flash` — Google's fast model
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
