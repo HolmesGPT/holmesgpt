@@ -53,6 +53,36 @@ See the [HTTP API Reference](../reference/http-api.md) for full documentation on
 
 ## Next Steps
 
+### Customize Holmes Settings
+
+The Docker Compose file mounts `~/.holmes` into the container. Create `~/.holmes/config.yaml` to customize Holmes behavior:
+
+```yaml
+# Change the LLM model
+model: "anthropic/claude-sonnet-4-5-20250929"
+
+# Enable fast mode — uses a smaller model to summarize large tool
+# outputs before sending them to the main LLM. Reduces token usage,
+# lowers costs, and speeds up responses.
+fast_model: "gpt-4o-mini"
+
+# Limit the number of tool-calling steps per investigation
+max_steps: 50
+
+# Add custom toolsets
+# custom_toolsets: ["path/to/toolset.yaml"]
+```
+
+After editing, restart the container to apply changes:
+
+```bash
+docker compose restart
+```
+
+For the full list of environment variables and options, see the [Environment Variables](../reference/environment-variables.md) reference.
+
+### Learn More
+
 - **[HTTP API Reference](../reference/http-api.md)** — Full API documentation
 - **[Helm Chart](kubernetes-installation.md)** — Deploy the HTTP server on Kubernetes
 - **[CLI Installation](cli-installation.md)** — Run HolmesGPT as a command-line tool instead
