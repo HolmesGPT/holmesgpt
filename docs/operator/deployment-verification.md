@@ -75,32 +75,9 @@ echo "Timed out waiting for health check"
 exit 1
 ```
 
-## Ongoing Monitoring with ScheduledHealthCheck
+## You Can Also: Ongoing Monitoring with ScheduledHealthCheck
 
-After the initial deploy verification, add a [ScheduledHealthCheck](scheduled-health-checks.md) to continuously monitor the service:
-
-```yaml
-apiVersion: holmesgpt.dev/v1alpha1
-kind: ScheduledHealthCheck
-metadata:
-  name: checkout-api-monitor
-  namespace: production
-spec:
-  schedule: "0 9 * * *"  # Once per day at 9:00 UTC
-  query: "Is the checkout-api deployment in 'production' healthy with all replicas ready, no crash-looping pods, and no elevated error rates?"
-  timeout: 60
-  mode: alert
-  destinations:
-    - type: slack
-      config:
-        channel: "#production-alerts"
-```
-
-!!! tip "Start with a low frequency"
-
-    Each scheduled execution makes at least one LLM API call, and a complex check could cost $1 or more with state-of-the-art models like Claude Opus. Start with a daily schedule and only increase frequency after monitoring costs. A `*/15 * * * *` (every 15 minutes) schedule produces 96 API calls per day per check.
-
-This catches regressions that appear after the initial rollout — memory leaks, connection pool exhaustion, gradual performance degradation — not just immediate crash failures.
+One-time deploy checks catch immediate failures, but some problems only appear later — memory leaks, connection pool exhaustion, gradual performance degradation. [Scheduled Health Checks](scheduled-health-checks.md) run on a cron schedule to catch these regressions automatically.
 
 ## Tips for One-Time HealthChecks
 
