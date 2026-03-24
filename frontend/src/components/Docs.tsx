@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { api } from '../lib/api'
 
 type DocTab = 'setup' | 'aws' | 'pagerduty' | 'ado' | 'salesforce'
 
@@ -266,7 +267,9 @@ function downloadScript(filename: string, content: string) {
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  document.body.appendChild(a)
   a.click()
+  document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 
@@ -325,6 +328,11 @@ function CopyableUrl({ url, urlKey, copied, onCopy }: CopyableUrlProps) {
 export default function Docs() {
   const [activeTab, setActiveTab] = useState<DocTab>('setup')
   const [copied, setCopied] = useState<string | null>(null)
+  const [irsaRole, setIrsaRole] = useState<string>('')
+
+  useEffect(() => {
+    api.getAwsAccounts().then((data) => setIrsaRole(data.irsa_role || '')).catch(() => {})
+  }, [])
 
   function copyText(text: string, key: string) {
     navigator.clipboard.writeText(text)
@@ -529,12 +537,33 @@ export default function Docs() {
                 </p>
               </div>
 
+              {/* IRSA Role ARN display */}
+              {irsaRole && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-2">
+                  <p className="text-xs font-medium text-blue-700 uppercase tracking-wider">HolmesGPT Platform IRSA Role ARN</p>
+                  <div className="flex items-center gap-2 bg-white border border-blue-200 rounded-lg px-4 py-2.5 font-mono text-sm text-gray-700">
+                    <span className="flex-1 truncate select-all">{irsaRole}</span>
+                    <button
+                      onClick={() => copyText(irsaRole, 'irsa')}
+                      className={`flex-shrink-0 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                        copied === 'irsa'
+                          ? 'bg-pdi-grass/10 text-pdi-grass border border-pdi-grass/20'
+                          : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {copied === 'irsa' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-blue-600">The script will ask for this value. Copy it before running.</p>
+                </div>
+              )}
+
               <StepList
                 steps={[
                   <>Ensure the <strong>AWS CLI</strong> is installed and configured for the target account (<code className="bg-gray-100 px-1 py-0.5 rounded text-xs">aws configure</code>).</>,
-                  <>Get the HolmesGPT platform IRSA role ARN from your administrator (e.g. <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">arn:aws:iam::717423812395:role/holmesgpt-dev-aws-mcp</code>).</>,
+                  <>Copy the <strong>IRSA Role ARN</strong> shown above — the script will prompt for it.</>,
                   <>Download the setup script for your operating system using the buttons below.</>,
-                  <>Run the script — it will prompt for the IRSA role ARN, then create a role named <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">HolmesReadOnly</code> with scoped read-only permissions and print its ARN.</>,
+                  <>Run the script — it will create a role named <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">HolmesReadOnly</code> with scoped read-only permissions and print its ARN.</>,
                   <>Copy the <strong>Role ARN</strong> printed by the script.</>,
                   <>In HolmesGPT, go to <strong>Integrations</strong> → add an AWS integration → paste the Role ARN.</>,
                 ]}
@@ -569,7 +598,7 @@ export default function Docs() {
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Script Preview (Linux / Mac)</p>
                 <pre className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-xs text-gray-700 overflow-x-auto leading-relaxed">
-                  {SH_SCRIPT.split('\n').slice(0, 12).join('\n')}
+                  {SH_SCRIPT.split('\n').slice(0, 45).join('\n')}
                   {'\n...'}
                 </pre>
               </div>
