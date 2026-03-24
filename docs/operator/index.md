@@ -1,6 +1,6 @@
 # Holmes Operator - Overview & Installation
 
-HolmesGPT is great at troubleshooting problems, but it still needs a human to notice something is wrong and trigger an investigation. Operator mode fixes that — HolmesGPT runs in the background 24/7, spots problems before your customers notice, and messages you in Slack with the fix.
+Most AI agents are great at troubleshooting problems, but still need a human to notice something is wrong and trigger an investigation. Operator mode fixes that — HolmesGPT runs in the background 24/7, spots problems before your customers notice, and messages you in Slack with the fix.
 
 Under the hood, it uses Kubernetes CRDs to declaratively define one-time and scheduled health checks. While the operator itself runs in Kubernetes, **health checks can query any data source Holmes is connected to** — VMs, cloud services, databases, SaaS platforms, and more. If you've [connected a data source](../data-sources/builtin-toolsets/index.md), operator checks can query it.
 
