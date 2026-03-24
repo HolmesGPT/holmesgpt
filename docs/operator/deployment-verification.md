@@ -75,7 +75,7 @@ echo "Timed out waiting for health check"
 exit 1
 ```
 
-## You Can Also: Ongoing Monitoring with ScheduledHealthCheck
+## Ongoing Monitoring with ScheduledHealthCheck
 
 One-time deploy checks catch immediate failures, but some problems only appear later — memory leaks, connection pool exhaustion, gradual performance degradation. [Scheduled Health Checks](scheduled-health-checks.md) run on a cron schedule to catch these regressions automatically.
 

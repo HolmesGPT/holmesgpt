@@ -12,11 +12,12 @@ Open-source AI agent for investigating production incidents and finding root cau
 
 ## New: Operator Mode — Find Problems 24/7 in the Background
 
-With **[Operator Mode](https://holmesgpt.dev/operator/)**, HolmesGPT runs in the background 24/7, spots problems before your customers notice, and messages you in Slack with the fix. Connect the [GitHub integration](https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/) and it can even open PRs to fix what it finds.
+Most AI agents are great at troubleshooting problems, but still need a human to notice something is wrong and trigger an investigation. [Operator mode](https://holmesgpt.dev/operator/) fixes that — HolmesGPT runs in the background 24/7, spots problems before your customers notice, and messages you in Slack with the fix. Connect the [GitHub integration](https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/) and it can even open PRs to fix what it finds.
+
+While the operator itself runs in Kubernetes, health checks can query any data source Holmes is connected to — VMs, cloud services, databases, SaaS platforms, and more.
 
 - **[Deployment verification](https://holmesgpt.dev/operator/deployment-verification/)** — Deploy a health check alongside your app to verify the new version is healthy
 - **[Scheduled health checks](https://holmesgpt.dev/operator/scheduled-health-checks/)** — Continuously monitor services and catch regressions automatically
-- **Not just Kubernetes** — Holmes investigates across your entire stack (VMs, cloud services, databases, SaaS platforms), so operator checks can query any [connected data source](https://holmesgpt.dev/data-sources/builtin-toolsets/)
 
 ## Features
 
