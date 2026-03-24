@@ -154,6 +154,19 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
+class PrerequisiteCacheMode(str, Enum):
+    """Controls how prerequisite check results are cached.
+
+    DISABLED:      Run full prerequisite checks eagerly, no disk caching.
+    ENABLED:       Use cached results if available; fast config-validity checks on startup.
+    FORCE_REFRESH: Re-run all checks now and update the disk cache.
+    """
+
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    FORCE_REFRESH = "force_refresh"
+
+
 class ToolsetStatusEnum(str, Enum):
     ENABLED = "enabled"
     DISABLED = "disabled"
@@ -168,7 +181,7 @@ class ToolsetTag(str, Enum):
 
 class ToolsetType(str, Enum):
     BUILTIN = "built-in"
-    CUSTOMIZED = "custom"
+    CUSTOM_YAML = "custom"
     MCP = "mcp"
     HTTP = "http"
     DATABASE = "database"
@@ -276,23 +289,12 @@ class Tool(ABC, BaseModel):
 
     def model_post_init(self, __context) -> None:
         """Initialize transformer instances once during tool creation for better performance."""
-        logger.debug(
-            f"Tool '{self.name}' model_post_init: creating transformer instances"
-        )
-
         if self.transformers:
-            logger.debug(
-                f"Tool '{self.name}' has {len(self.transformers)} transformers to initialize"
-            )
             self._transformer_instances = []
             for transformer in self.transformers:
                 if not transformer:
                     continue
-                logger.debug(
-                    f"  Initializing transformer '{transformer.name}' with config: {transformer.config}"
-                )
                 try:
-                    # Create transformer instance once and cache it
                     transformer_instance = registry.create_transformer(
                         transformer.name, transformer.config
                     )
@@ -304,10 +306,8 @@ class Tool(ABC, BaseModel):
                     logger.warning(
                         f"Failed to initialize transformer '{transformer.name}' for tool '{self.name}': {e}"
                     )
-                    # Continue with other transformers, don't fail the entire initialization
                     continue
         else:
-            logger.debug(f"Tool '{self.name}' has no transformers")
             self._transformer_instances = None
 
     def _coerce_params(self, params: Dict) -> Dict:
@@ -435,7 +435,6 @@ class Tool(ABC, BaseModel):
         transformed_data = original_data
         transformers_applied = []
 
-        # Use cached transformer instances instead of creating new ones
         for transformer_instance in self._transformer_instances:
             try:
                 # Check if transformer should be applied
@@ -862,17 +861,12 @@ class Toolset(BaseModel):
 
     @property
     def missing_config(self) -> bool:
-        """True when this toolset requires user-supplied configuration that was not provided.
+        """True when config_classes have required fields and no config was provided.
 
-        A toolset does NOT have missing config when any of these hold:
-        1. Already enabled or is_default
-        2. No config_classes (YAML toolsets, simple Python toolsets)
-        3. Config classes exist but all fields have defaults
-        4. Config is required AND was provided by user
+        This is a pure fact-check with no policy logic. The decision of whether
+        to enable/disable a toolset based on this lives in
+        ToolsetRegistry.should_enable_toolset().
         """
-        if self.enabled or self.is_default:
-            return False
-
         if not self.config_classes:
             return False
 
@@ -884,10 +878,7 @@ class Toolset(BaseModel):
         if not requires_config:
             return False
 
-        if self.config is not None:
-            return False
-
-        return True
+        return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
