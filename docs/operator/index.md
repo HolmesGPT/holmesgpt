@@ -12,8 +12,9 @@ Holmes Operator extends HolmesGPT with Kubernetes-native, LLM-driven health chec
 
 ## Features
 
-- **One-time Health Checks**: Create `HealthCheck` resources that run immediately and report results
-- **Scheduled Health Checks**: Create `ScheduledHealthCheck` resources that run on cron schedules
+- **[Deployment Verification](deployment-verification.md)**: Deploy a HealthCheck alongside your app to verify the new version is healthy — and gate CI/CD on the result
+- **[One-time Health Checks](health-checks.md)**: Create `HealthCheck` resources that run immediately and report results
+- **[Scheduled Health Checks](scheduled-health-checks.md)**: Create `ScheduledHealthCheck` resources that run on cron schedules for continuous monitoring
 - **Kubernetes-native**: Uses standard CRDs with kubectl support
 - **Status Tracking**: Full execution history and results stored in resource status
 - **Alert Integration**: Send notifications to Slack and other destinations on failures
@@ -143,6 +144,7 @@ kubectl describe hc example-check
 
 ## Next Steps
 
+- **[Deployment Verification](deployment-verification.md)** - Verify new deploys are healthy and gate CI/CD pipelines on the result
 - **[Health Checks](health-checks.md)** - Learn how to create and manage one-time HealthCheck resources
 - **[Scheduled Health Checks](scheduled-health-checks.md)** - Set up recurring health checks with cron schedules
 - **[Alert Destinations](destinations.md)** - Configure Slack and PagerDuty notifications

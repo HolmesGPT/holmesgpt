@@ -18,6 +18,8 @@ Open-source AI agent for investigating production incidents and finding root cau
 - **[Any LLM provider](https://holmesgpt.dev/ai-providers/)**: OpenAI, Anthropic, Azure, Bedrock, Gemini, and more
 - **No Kubernetes required**: Works with any infrastructure — VMs, bare metal, cloud services, or containers
 - **[Operator mode](https://holmesgpt.dev/operator/)**: Optionally run as a Kubernetes operator for automated investigations
+- **[Deployment verification](https://holmesgpt.dev/operator/deployment-verification/)**: Deploy a health check alongside your app to verify the new version is healthy and gate CI/CD on the result
+- **[Scheduled health checks](https://holmesgpt.dev/operator/scheduled-health-checks/)**: Continuously monitor services with cron-based LLM health checks
 
 ## How it Works
 

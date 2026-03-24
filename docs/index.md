@@ -38,6 +38,13 @@ Open-source SRE agent for investigating production incidents across any infrastr
 
 **[Connect your data sources](data-sources/recommended-setup.md)** to unlock deeper investigations with metrics, logs, and cloud provider access.
 
+## Running in Kubernetes?
+
+Use the **[Holmes Operator](operator/index.md)** for Kubernetes-native health checks:
+
+- **[Deployment Verification](operator/deployment-verification.md)** - Deploy a HealthCheck alongside your app and gate CI/CD on the result
+- **[Scheduled Health Checks](operator/scheduled-health-checks.md)** - Continuously monitor services with cron-based LLM checks
+
 ## Need Help?
 
 - **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="_blank"}** - Get help from the community
