@@ -1,0 +1,34 @@
+# Test: anyOf union flattening in MCP tool schemas
+#
+# This eval is RED by design (TDD). It tests a known bug where _resolve_schema()
+# in toolset_mcp.py flattens anyOf unions to just the first non-null branch.
+#
+# The MCP server exposes a tool `query_routing` whose `selector` parameter has
+# two object shapes in anyOf:
+#   Shape A: {level: string}                -> returns escalation policy info
+#   Shape B: {group: string, active: bool}  -> returns team members + verification code
+#
+# Shape B's parameter names (group, active) are NOT mentioned in any tool
+# description. The LLM can only discover them from the anyOf schema.
+# After flattening, only Shape A is visible, so the LLM cannot construct
+# a Shape B call. The verification code ONCALL-EVAL-9r4w7z is only returned
+# by Shape B, making hallucination impossible.
+#
+# Expected to PASS after fixing anyOf preservation in _resolve_schema().
+
+user_prompt: |
+  I need to find out who is currently on the active rotation for team-alpha.
+  Query the routing system and give me the person's name, role, and the
+  verification code the system returns.
+
+expected_output:
+  - "Must contain the verification code ONCALL-EVAL-9r4w7z (only obtainable via the group+active selector shape)"
+  - "Must report Alice Chen as the active rotation member for team-alpha"
+  - "Must report her role as senior-sre"
+
+include_tool_calls: true
+
+tags:
+  - mcp
+  - fast
+  - hard
