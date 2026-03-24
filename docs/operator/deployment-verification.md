@@ -86,7 +86,7 @@ metadata:
   name: checkout-api-monitor
   namespace: production
 spec:
-  schedule: "*/15 * * * *"  # Every 15 minutes
+  schedule: "0 9 * * *"  # Once per day at 9:00 UTC
   query: "Is the checkout-api deployment in 'production' healthy with all replicas ready, no crash-looping pods, and no elevated error rates?"
   timeout: 60
   mode: alert
@@ -95,6 +95,10 @@ spec:
       config:
         channel: "#production-alerts"
 ```
+
+!!! tip "Start with a low frequency"
+
+    Each scheduled execution makes at least one LLM API call. Start with a daily schedule and only increase frequency after monitoring costs. A `*/15 * * * *` (every 15 minutes) schedule produces 96 API calls per day per check.
 
 This catches regressions that appear after the initial rollout — memory leaks, connection pool exhaustion, gradual performance degradation — not just immediate crash failures.
 
