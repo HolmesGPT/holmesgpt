@@ -98,7 +98,7 @@ spec:
 
 !!! tip "Start with a low frequency"
 
-    Each scheduled execution makes at least one LLM API call. Start with a daily schedule and only increase frequency after monitoring costs. A `*/15 * * * *` (every 15 minutes) schedule produces 96 API calls per day per check.
+    Each scheduled execution makes at least one LLM API call, and a complex check could cost $1 or more with state-of-the-art models like Claude Opus. Start with a daily schedule and only increase frequency after monitoring costs. A `*/15 * * * *` (every 15 minutes) schedule produces 96 API calls per day per check.
 
 This catches regressions that appear after the initial rollout — memory leaks, connection pool exhaustion, gradual performance degradation — not just immediate crash failures.
 
