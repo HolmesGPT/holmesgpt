@@ -15,6 +15,7 @@ expected_output:
 tags:
   - prometheus
   - kubernetes
+  - context_window
 
 # Port forward configuration for Prometheus
 port_forwards:

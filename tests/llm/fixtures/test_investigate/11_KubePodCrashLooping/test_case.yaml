@@ -1,8 +1,0 @@
-expected_output:
-  - The DEPLOY_ENV environment variable is missing
-expected_sections:
-  Related logs:
-    - Environment variable DEPLOY_ENV is undefined
-evaluation:
-  correctness: 1
-mock_policy: always_mock

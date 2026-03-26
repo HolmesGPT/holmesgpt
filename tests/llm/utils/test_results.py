@@ -23,7 +23,7 @@ class TestResult:
     tool_call_count: Optional[int] = None  # Total number of tool calls
     expected_correctness_score: float = 1.0
     actual_correctness_score: float = 0.0
-    mock_data_failure: bool = False
+    mock_data_failure: bool = False  # Deprecated, always False
 
     @property
     def test_case_name(self) -> str:
@@ -51,7 +51,7 @@ class TestStatus:
     def __init__(self, result: dict):
         self.actual_score = int(result.get("actual_correctness_score", 0))
         self.expected_score = int(result.get("expected_correctness_score", 1))
-        self.is_mock_failure = result.get("mock_data_failure", False)
+        self.is_mock_failure = False  # Mock system removed
         self.status = result.get(
             "status", ""
         )  # pytest status (passed, failed, skipped, etc.)

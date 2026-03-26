@@ -2,7 +2,6 @@ import logging
 import os
 from typing import Dict, List, Optional
 
-from holmes.common.env_vars import load_bool
 from holmes.core.supabase_dal import FindingType, SupabaseDal
 from holmes.core.tools import (
     StaticPrerequisite,
@@ -15,8 +14,6 @@ from holmes.core.tools import (
     ToolsetTag,
 )
 
-PULL_EXTERNAL_FINDINGS = load_bool("PULL_EXTERNAL_FINDINGS", False)
-
 PARAM_FINDING_ID = "id"
 START_TIME = "start_datetime"
 END_TIME = "end_datetime"
@@ -24,6 +21,8 @@ NAMESPACE = "namespace"
 WORKLOAD = "workload"
 DEFAULT_LIMIT_CHANGE_ROWS = 100
 MAX_LIMIT_CHANGE_ROWS = 200
+DEFAULT_LIMIT_KRR_ROWS = 10
+MAX_LIMIT_KRR_ROWS = 1000
 
 
 class FetchRobustaFinding(Tool):
@@ -94,12 +93,15 @@ class FetchResourceRecommendation(Tool):
                 "KRR provides AI-powered recommendations based on actual historical usage patterns for right-sizing workloads. "
                 "Supports two usage modes: "
                 "(1) Specific workload lookup - Use name_pattern with an exact name, namespace, and kind to get recommendations for a single workload. "
-                "(2) Discovery mode - Use limit and sort_by to get a ranked list of top optimization opportunities. Optionally filter by namespace, name_pattern (wildcards supported), kind, or container. "
-                "Returns current configured resources alongside recommended values. In discovery mode, results are sorted by potential savings."
+                "(2) Discovery mode - Use limit and sort_by to get a ranked list of top optimization opportunities. "
+                "Optionally filter by namespace, name_pattern (wildcards supported), kind, or container. "
+                "Returns current configured resources alongside recommended values. In discovery mode, results are sorted by potential savings. "
+                "CLUSTER SCOPE: By default, queries the current cluster only. Set all_clusters=true to search across all clusters, "
+                "or provide a specific list of cluster names in the 'clusters' parameter."
             ),
             parameters={
                 "limit": ToolParameter(
-                    description="Maximum number of recommendations to return (default: 10, max: 100).",
+                    description=f"Maximum number of recommendations to return (default: {DEFAULT_LIMIT_KRR_ROWS}, max: {MAX_LIMIT_KRR_ROWS}).",
                     type="integer",
                     required=False,
                 ),
@@ -146,15 +148,44 @@ class FetchResourceRecommendation(Tool):
                     type="string",
                     required=False,
                 ),
+                "all_clusters": ToolParameter(
+                    description=(
+                        "If true, search across ALL clusters in the account instead of just the current cluster. "
+                        "Default is false (current cluster only). Use this when investigating cross-cluster issues "
+                        "or when the user asks about recommendations across their entire infrastructure."
+                    ),
+                    type="boolean",
+                    required=False,
+                ),
+                "clusters": ToolParameter(
+                    description=(
+                        "Optional list of specific cluster names to query. If provided, overrides all_clusters. "
+                        "Use this to query a specific subset of clusters. Example: ['prod-us-east', 'prod-us-west']. "
+                        "Leave empty to use default behavior (current cluster or all clusters based on all_clusters flag)."
+                    ),
+                    type="array",
+                    required=False,
+                ),
             },
         )
         self._dal = dal
 
     def _fetch_recommendations(self, params: Dict) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
-            # Set default values
-            limit = min(params.get("limit", 10) or 10, 100)
+            # Set default values and enforce max limit
+            limit = min(
+                params.get("limit") or DEFAULT_LIMIT_KRR_ROWS,
+                MAX_LIMIT_KRR_ROWS,
+            )
             sort_by = params.get("sort_by") or "cpu_total"
+
+            # Determine cluster scope
+            clusters: Optional[List[str]] = None
+            if params.get("clusters"):
+                clusters = params["clusters"]
+            elif params.get("all_clusters"):
+                clusters = ["*"]
+            # else: None means current cluster only
 
             return self._dal.get_resource_recommendation(
                 limit=limit,
@@ -163,6 +194,7 @@ class FetchResourceRecommendation(Tool):
                 name_pattern=params.get("name_pattern"),
                 kind=params.get("kind"),
                 container=params.get("container"),
+                clusters=clusters,
             )
         return None
 
@@ -194,68 +226,107 @@ class FetchResourceRecommendation(Tool):
         return f"Robusta: Fetch KRR Recommendations ({str(params)})"
 
 
-class FetchConfigurationChangesMetadataBase(Tool):
+class FetchConfigurationChangesMetadata(Tool):
+    """
+    Unified tool for fetching configuration changes from both Kubernetes clusters
+    and external sources (e.g., LaunchDarkly, feature flags).
+    """
+
     _dal: Optional[SupabaseDal]
 
-    def __init__(
-        self,
-        dal: Optional[SupabaseDal],
-        name: str,
-        description: str,
-        add_cluster_filter: bool = True,
-    ):
-        """
-        We need seperate tools for external and cluster configuration changes due to the different cluster parameters that are not on "external" changes like 'workload' and 'namespace'.
-        add_cluster_filter: adds the namespace and workload parameters for configuration changes tool.
-        """
-        parameters = {
-            START_TIME: ToolParameter(
-                description="The starting time boundary for the search period. String in RFC3339 format.",
-                type="string",
-                required=True,
-            ),
-            END_TIME: ToolParameter(
-                description="The ending time boundary for the search period. String in RFC3339 format.",
-                type="string",
-                required=True,
-            ),
-            "limit": ToolParameter(
-                description=f"Maximum number of rows to return. Default is {DEFAULT_LIMIT_CHANGE_ROWS} and the maximum is 200",
-                type="integer",
-                required=False,
-            ),
-        }
-
-        if add_cluster_filter:
-            parameters.update(
-                {
-                    "namespace": ToolParameter(
-                        description="The Kubernetes namespace name for filtering configuration changes",
-                        type="string",
-                        required=False,
-                    ),
-                    "workload": ToolParameter(
-                        description="Kubernetes resource name to filter configuration changes (e.g., Pod, Deployment, Job, etc.). Must be the full name. For Pods, include the exact generated suffix.",
-                        type="string",
-                        required=False,
-                    ),
-                }
-            )
-
+    def __init__(self, dal: Optional[SupabaseDal]):
         super().__init__(
-            name=name,
-            description=description,
-            parameters=parameters,
+            name="fetch_configuration_changes_metadata",
+            description=(
+                "Fetch configuration changes metadata in a given time range. "
+                "Returns changes from Kubernetes clusters (deployments, configmaps, secrets, etc.) "
+                "and external sources (e.g., LaunchDarkly feature flag changes). "
+                "CLUSTER SCOPE: By default, queries the CURRENT cluster only and includes external changes. "
+                "Set all_clusters=true to search across ALL clusters. "
+                "Set include_external=false to exclude external (non-Kubernetes) changes. "
+                "Can be filtered by namespace or specific workload name. "
+                "Use fetch_finding_by_id to get detailed information about a specific change."
+            ),
+            parameters={
+                START_TIME: ToolParameter(
+                    description="The starting time boundary for the search period. String in RFC3339 format.",
+                    type="string",
+                    required=True,
+                ),
+                END_TIME: ToolParameter(
+                    description="The ending time boundary for the search period. String in RFC3339 format.",
+                    type="string",
+                    required=True,
+                ),
+                "limit": ToolParameter(
+                    description=f"Maximum number of rows to return. Default is {DEFAULT_LIMIT_CHANGE_ROWS} and the maximum is {MAX_LIMIT_CHANGE_ROWS}.",
+                    type="integer",
+                    required=False,
+                ),
+                "namespace": ToolParameter(
+                    description="Filter by Kubernetes namespace (exact match). Only applies to cluster changes, not external changes.",
+                    type="string",
+                    required=False,
+                ),
+                "workload": ToolParameter(
+                    description=(
+                        "Filter by Kubernetes resource name (e.g., Pod, Deployment, Job). "
+                        "Must be the full name. For Pods, include the exact generated suffix. "
+                        "Only applies to cluster changes, not external changes."
+                    ),
+                    type="string",
+                    required=False,
+                ),
+                "include_external": ToolParameter(
+                    description=(
+                        "If true (default), include external configuration changes not associated with any Kubernetes cluster "
+                        "(e.g., LaunchDarkly feature flag changes, external system configurations). "
+                        "Set to false to only see Kubernetes cluster changes."
+                    ),
+                    type="boolean",
+                    required=False,
+                ),
+                "all_clusters": ToolParameter(
+                    description=(
+                        "If true, search across ALL Kubernetes clusters in the account instead of just the current cluster. "
+                        "Default is false (current cluster only). Use this when investigating cross-cluster issues "
+                        "or when the user asks about changes across their entire infrastructure."
+                    ),
+                    type="boolean",
+                    required=False,
+                ),
+                "clusters": ToolParameter(
+                    description=(
+                        "Optional list of specific cluster names to query. If provided, overrides all_clusters. "
+                        "Use this to query a specific subset of clusters. Example: ['prod-us-east', 'prod-us-west']. "
+                        "Leave empty to use default behavior (current cluster or all clusters based on all_clusters flag)."
+                    ),
+                    type="array",
+                    required=False,
+                ),
+            },
         )
         self._dal = dal
 
     def _fetch_issues(
         self,
         params: Dict,
-        cluster: Optional[str] = None,
         finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
+            # Determine cluster scope
+            clusters: Optional[List[str]] = None
+            if params.get("clusters"):
+                clusters = params["clusters"]
+            elif params.get("all_clusters"):
+                clusters = ["*"]
+            # else: None means current cluster only
+
+            # Default include_external to True
+            include_external = params.get("include_external")
+            if include_external is None:
+                include_external = True
+
             return self._dal.get_issues_metadata(
                 start_datetime=params["start_datetime"],
                 end_datetime=params["end_datetime"],
@@ -265,7 +336,8 @@ class FetchConfigurationChangesMetadataBase(Tool):
                 ),
                 ns=params.get("namespace"),
                 workload=params.get("workload"),
-                cluster=cluster,
+                clusters=clusters,
+                include_external=include_external,
                 finding_type=finding_type,
             )
         return None
@@ -298,76 +370,125 @@ class FetchConfigurationChangesMetadataBase(Tool):
         return f"Robusta: Search Change History {params}"
 
 
-class FetchConfigurationChangesMetadata(FetchConfigurationChangesMetadataBase):
-    def __init__(self, dal: Optional[SupabaseDal]):
-        super().__init__(
-            dal=dal,
-            name="fetch_configuration_changes_metadata",
-            description=(
-                "Fetch configuration changes metadata in a given time range. "
-                "By default, fetch all cluster changes. Can be filtered on a given namespace or a specific kubernetes resource. "
-                "Use fetch_finding_by_id to get detailed change of one specific configuration change."
-            ),
-        )
-
-
-class FetchExternalConfigurationChangesMetadata(FetchConfigurationChangesMetadataBase):
+class FetchResourceIssuesMetadata(Tool):
     """
-    Fetch configuration changes from external sources, e.g., LaunchDarkly changes.
-    It needs to be a seperate tool due to the different cluster parameter used in the DAL method like workload and namespace.
+    Fetch issues and alerts metadata with multi-cluster support.
     """
 
+    _dal: Optional[SupabaseDal]
+
     def __init__(self, dal: Optional[SupabaseDal]):
         super().__init__(
-            dal=dal,
-            name="fetch_external_configuration_changes_metadata",
-            description=(
-                "Fetch external configuration changes metadata in a given time range. "
-                "Fetches configuration changes from external sources. "
-                "Use fetch_finding_by_id to get detailed change of one specific configuration change."
-            ),
-            add_cluster_filter=False,
-        )
-
-    def _fetch_issues(self, params: Dict) -> Optional[List[Dict]]:  # type: ignore
-        return super()._fetch_issues(params, cluster="external")
-
-    def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Robusta: Search External Change History {params}"
-
-
-class FetchResourceIssuesMetadata(FetchConfigurationChangesMetadataBase):
-    def __init__(self, dal: Optional[SupabaseDal]):
-        super().__init__(
-            dal=dal,
             name="fetch_resource_issues_metadata",
             description=(
                 "Fetch issues and alert metadata in a given time range. "
-                "Must be filtered on a given namespace and specific kubernetes resource, such as pod, deployment, job, etc. "
-                "Use fetch_finding_by_id to get further information on a specific issue or alert."
+                "Can be filtered by namespace and/or specific Kubernetes resource. "
+                "CLUSTER SCOPE: By default, queries the CURRENT cluster only. "
+                "Set all_clusters=true to search across ALL clusters for issues affecting similar workloads. "
+                "Use fetch_finding_by_id to get detailed information about a specific issue or alert."
             ),
-            add_cluster_filter=False,
-        )
-        self.parameters.update(
-            {
-                "namespace": ToolParameter(
-                    description="The Kubernetes namespace name for filtering issues and alerts",
+            parameters={
+                START_TIME: ToolParameter(
+                    description="The starting time boundary for the search period. String in RFC3339 format.",
                     type="string",
                     required=True,
+                ),
+                END_TIME: ToolParameter(
+                    description="The ending time boundary for the search period. String in RFC3339 format.",
+                    type="string",
+                    required=True,
+                ),
+                "limit": ToolParameter(
+                    description=f"Maximum number of rows to return. Default is {DEFAULT_LIMIT_CHANGE_ROWS} and the maximum is {MAX_LIMIT_CHANGE_ROWS}.",
+                    type="integer",
+                    required=False,
+                ),
+                "namespace": ToolParameter(
+                    description="Filter by Kubernetes namespace (exact match).",
+                    type="string",
+                    required=False,
                 ),
                 "workload": ToolParameter(
-                    description="Kubernetes resource name to filter issues and alerts (e.g., Pod, Deployment, Job, etc.). Must be the full name. For Pods, include the exact generated suffix.",
+                    description=(
+                        "Filter by Kubernetes resource name (e.g., Pod, Deployment, Job). "
+                        "Must be the full name. For Pods, include the exact generated suffix."
+                    ),
                     type="string",
-                    required=True,
+                    required=False,
                 ),
-            }
+                "all_clusters": ToolParameter(
+                    description=(
+                        "If true, search across ALL Kubernetes clusters in the account instead of just the current cluster. "
+                        "Default is false (current cluster only). Use this when investigating cross-cluster issues "
+                        "or when the user asks about issues across their entire infrastructure."
+                    ),
+                    type="boolean",
+                    required=False,
+                ),
+                "clusters": ToolParameter(
+                    description=(
+                        "Optional list of specific cluster names to query. If provided, overrides all_clusters. "
+                        "Use this to query a specific subset of clusters. Example: ['prod-us-east', 'prod-us-west']. "
+                        "Leave empty to use default behavior (current cluster or all clusters based on all_clusters flag)."
+                    ),
+                    type="array",
+                    required=False,
+                ),
+            },
         )
+        self._dal = dal
 
-    def _fetch_issues(self, params: Dict) -> Optional[List[Dict]]:  # type: ignore
-        return super()._fetch_issues(params, finding_type=FindingType.ISSUE)
+    def _fetch_issues(self, params: Dict) -> Optional[List[Dict]]:
+        if self._dal and self._dal.enabled:
+            # Determine cluster scope
+            clusters: Optional[List[str]] = None
+            if params.get("clusters"):
+                clusters = params["clusters"]
+            elif params.get("all_clusters"):
+                clusters = ["*"]
+            # else: None means current cluster only
+
+            return self._dal.get_issues_metadata(
+                start_datetime=params["start_datetime"],
+                end_datetime=params["end_datetime"],
+                limit=min(
+                    params.get("limit") or DEFAULT_LIMIT_CHANGE_ROWS,
+                    MAX_LIMIT_CHANGE_ROWS,
+                ),
+                ns=params.get("namespace"),
+                workload=params.get("workload"),
+                clusters=clusters,
+                include_external=False,  # Issues don't have external sources
+                finding_type=FindingType.ISSUE,
+            )
+        return None
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            issues = self._fetch_issues(params)
+            if issues:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.SUCCESS,
+                    data=issues,
+                    params=params,
+                )
+            else:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.NO_DATA,
+                    data=f"{self.name} found no data. {params}",
+                    params=params,
+                )
+        except Exception as e:
+            msg = f"There was an internal error while fetching issues for {params}. {str(e)}"
+            logging.exception(msg)
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                data=msg,
+                params=params,
+            )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
-        return f"Robusta: fetch resource issues metadata {params}"
+        return f"Robusta: Fetch Resource Issues {params}"
 
 
 class RobustaToolset(Toolset):
@@ -387,9 +508,6 @@ class RobustaToolset(Toolset):
             FetchResourceRecommendation(dal),
             FetchResourceIssuesMetadata(dal),
         ]
-
-        if PULL_EXTERNAL_FINDINGS:
-            tools.append(FetchExternalConfigurationChangesMetadata(dal))
 
         super().__init__(
             icon_url="https://cdn.prod.website-files.com/633e9bac8f71dfb7a8e4c9a6/646be7710db810b14133bdb5_logo.svg",

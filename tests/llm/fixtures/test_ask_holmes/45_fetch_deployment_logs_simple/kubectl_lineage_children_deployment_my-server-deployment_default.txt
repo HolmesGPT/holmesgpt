@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/kube-lineage-extras","tool_name":"kubectl_lineage_children","match_params":{"kind":"deployment","name":"my-server-deployment","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kube-lineage deployment my-server-deployment -n default` failed with return code 1\nOutput:\nError from server (NotFound): deployments.apps \"my-server-deployment\" not found", "return_code": 1, "data": null, "url": null, "invocation": "kube-lineage deployment my-server-deployment -n default", "params": {"kind": "deployment", "name": "my-server-deployment", "namespace": "default"}}
-Error from server (NotFound): deployments.apps "my-server-deployment" not found

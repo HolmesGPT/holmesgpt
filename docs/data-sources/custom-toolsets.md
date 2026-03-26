@@ -331,6 +331,8 @@ HolmesGPT supports two types of variables in commands:
 
 - **`{{ variable }}`**: Dynamic variables inferred by the LLM based on context
 - **`${VARIABLE}`**: Environment variables (not visible to the LLM)
+- **`{{ request_context.headers['Header-Name'] }}`**: Headers from the incoming HTTP request (see [HTTP Header Propagation](header-propagation.md))
+- **`{{ env.VAR_NAME }}`**: Environment variables accessible via Jinja2 templates
 
 ### Tags
 

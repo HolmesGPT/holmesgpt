@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"orders-app"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep orders-app", "params": {"kind": "pod", "keyword": "orders-app"}}
-ask-holmes-namespace-55             orders-app-6c8868cb6d-qcv2t                                1/1     Running                 2 (8m55s ago)      42h     10.244.1.82    kind-double-node-worker          <none>           <none>            app=orders-app,pod-template-hash=6c8868cb6d

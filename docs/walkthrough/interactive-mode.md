@@ -152,14 +152,14 @@ limit_req_zone $limit_key zone=perip:10m rate=100r/s;
 
 ### Scenarios to Consider Using /run or /shell
 
-1. **Access to Data HolmesGPT Can't Access on It's Own**
+1. **Access to Data HolmesGPT Can't Access on Its Own**
    - ssh'ing into a machine
-   - run commands with escalated permisssions (sudo)
-   - accessing data sources HolmesGPT can't access on it's own
+   - run commands with escalated permissions (sudo)
+   - accessing data sources HolmesGPT can't access on its own
 
 2. **Adding Business Context**
    - Pulling in marketing data with recent campaign launch times
-   - Fetcing planned maintenance windows from a source HolmesGPT does not know about
+   - Fetching planned maintenance windows from a source HolmesGPT does not know about
 
 3. **Sharing Development/Testing Insights**
    - Point HolmesGPT at recent code deployments or git commits
@@ -168,10 +168,10 @@ limit_req_zone $limit_key zone=perip:10m rate=100r/s;
 ## Tips and Best Practices
 
 1. **Use `/clear` when switching topics** - This gives you a fresh context and prevents confusion
-3. **Use `/run` if the AI is missing something important** - Guide the investigation by showing it what it is missing
-4. **Check `/context` periodically** - Especially during long investigations
-5. **View evidence with `/show`** - Full outputs often contain important details
-6. **Add comments when sharing shell output** - Helps the AI understand what you're looking for
+2. **Use `/run` if the AI is missing something important** - Guide the investigation by showing it what it is missing
+3. **Check `/context` periodically** - Especially during long investigations
+4. **View evidence with `/show`** - Full outputs often contain important details
+5. **Add comments when sharing shell output** - Helps the AI understand what you're looking for
 
 ## Beyond Interactive Mode
 

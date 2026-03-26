@@ -5,10 +5,9 @@ import os
 import threading
 from contextlib import asynccontextmanager
 from enum import Enum
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, TextIO, Tuple, Type, Union
 
 import httpx
-from jinja2 import Template
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -17,6 +16,7 @@ from mcp.types import Tool as MCP_Tool
 from pydantic import AnyUrl, Field, model_validator
 
 from holmes.common.env_vars import SSE_READ_TIMEOUT
+from holmes.core.config import config_path_dir
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
@@ -26,22 +26,31 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
 )
+from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
+
+logger = logging.getLogger(__name__)
+display_logger = logging.getLogger("holmes.display.mcp_toolset")
+
+
+def _extract_root_error_message(exc: Exception) -> str:
+    """Extract the actual error message from an ExceptionGroup.
+
+    When the MCP library's internal asyncio.TaskGroup encounters errors (e.g. auth
+    failures, connection refused), the real exception gets wrapped in an
+    ExceptionGroup with the unhelpful message "unhandled errors in a TaskGroup
+    (1 sub-exception)".  This function unwraps the group to surface the actual
+    root-cause error so that users see, for example, "401 Unauthorized" instead.
+    """
+    current: BaseException = exc
+    while hasattr(current, "exceptions") and current.exceptions:
+        current = current.exceptions[0]
+    return str(current)
+
 
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
-
-
-class CaseInsensitiveDict(dict):
-    """Dictionary with case-insensitive key lookup for HTTP headers."""
-
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            for k, v in self.items():
-                if k.lower() == key.lower():
-                    return v
-        raise KeyError(key)
 
 
 def create_mcp_http_client_factory(verify_ssl: bool = True):
@@ -84,16 +93,16 @@ class MCPMode(str, Enum):
 
 
 class MCPConfig(ToolsetConfig):
-    url: AnyUrl = Field(
-        title="URL",
-        description="MCP server URL (for SSE or Streamable HTTP modes).",
-        examples=["http://example.com:8000/mcp/messages"],
-    )
     mode: MCPMode = Field(
         default=MCPMode.SSE,
         title="Mode",
         description="Connection mode to use when talking to the MCP server.",
         examples=[MCPMode.STREAMABLE_HTTP],
+    )
+    url: AnyUrl = Field(
+        title="URL",
+        description="MCP server URL (for SSE or Streamable HTTP modes).",
+        examples=["http://example.com:8000/mcp/messages"],
     )
     headers: Optional[Dict[str, str]] = Field(
         default=None,
@@ -162,6 +171,19 @@ class StdioMCPConfig(ToolsetConfig):
         return str(self.command)
 
 
+def _get_mcp_log_file(server_name: str) -> TextIO:
+    """Get a file handle for MCP server stderr output.
+
+    Redirects MCP subprocess stderr to ~/.holmes/logs/mcp/<server_name>.log
+    so it doesn't pollute the CLI output.
+    """
+    log_dir = os.path.join(config_path_dir, "logs", "mcp")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f"{server_name}.log")
+    display_logger.info(f"MCP server '{server_name}' logs: {log_path}")
+    return open(log_path, "w")
+
+
 @asynccontextmanager
 async def get_initialized_mcp_session(
     toolset: "RemoteMCPToolset", request_context: Optional[Dict[str, Any]] = None
@@ -175,13 +197,17 @@ async def get_initialized_mcp_session(
             args=toolset._mcp_config.args or [],
             env=toolset._mcp_config.env,
         )
-        async with stdio_client(server_params) as (
-            read_stream,
-            write_stream,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                _ = await session.initialize()
-                yield session
+        errlog = _get_mcp_log_file(toolset.name)
+        try:
+            async with stdio_client(server_params, errlog=errlog) as (
+                read_stream,
+                write_stream,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    _ = await session.initialize()
+                    yield session
+        finally:
+            errlog.close()
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
         httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
@@ -231,9 +257,10 @@ class RemoteMCPTool(Tool):
             with lock:
                 return asyncio.run(self._invoke_async(params, context.request_context))
         except Exception as e:
+            error_detail = _extract_root_error_message(e)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=str(e.args),
+                error=error_detail,
                 params=params,
                 invocation=f"MCPtool {self.name} with params {params}",
             )
@@ -256,13 +283,24 @@ class RemoteMCPTool(Tool):
             tool_result = await session.call_tool(self.name, params)
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
+
+        is_error = tool_result.isError or self._is_content_error(merged_text)
+
+        images = None
+        if not is_error:
+            images = [
+                {"data": c.data, "mimeType": c.mimeType}
+                for c in tool_result.content
+                if c.type == "image"
+            ] or None
+
         return StructuredToolResult(
             status=(
-                StructuredToolResultStatus.ERROR
-                if (tool_result.isError or self._is_content_error(merged_text))
+                StructuredToolResultStatus.ERROR if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
             data=merged_text,
+            images=images,
             params=params,
             invocation=f"MCPtool {self.name} with params {params}",
         )
@@ -289,13 +327,146 @@ class RemoteMCPTool(Tool):
         schema_params = input_schema.get("properties", {})
         parameters = {}
         for key, val in schema_params.items():
-            parameters[key] = ToolParameter(
-                description=val.get("description"),
-                type=val.get("type", "string"),
-                required=key in required_list,
+            parameters[key] = cls._parse_tool_parameter(
+                val, root_schema=input_schema, required=key in required_list
             )
 
         return parameters
+
+    @classmethod
+    def _resolve_schema(
+        cls, schema: dict[str, Any], root_schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf."""
+        if not isinstance(schema, dict):
+            return schema
+
+        # 1. Resolve $ref
+        if "$ref" in schema:
+            ref_path = str(schema["$ref"])
+            if ref_path.startswith("#/"):
+                parts = ref_path[2:].split("/")
+                resolved = root_schema
+                for part in parts:
+                    if isinstance(resolved, dict):
+                        resolved = resolved.get(part, {})
+                    else:
+                        resolved = {}
+                        break
+
+                # Recursively resolve the matched definition in case it contains more refs/anyOf
+                resolved_schema = dict(schema)
+                resolved_schema.pop("$ref")
+                resolved_schema.update(cls._resolve_schema(resolved, root_schema))
+                return resolved_schema
+
+        # 2. Handle anyOf / oneOf / allOf for nullable or union types
+        for compound_key in ["anyOf", "oneOf", "allOf"]:
+            if compound_key in schema and isinstance(schema[compound_key], list):
+                if compound_key == "allOf":
+                    merged = dict(schema)
+                    merged.pop(compound_key)
+                    for sub_schema in schema[compound_key]:
+                        if isinstance(sub_schema, dict):
+                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            if resolved_sub.get("type") != "null":
+                                for k, v in resolved_sub.items():
+                                    if k == "properties" and isinstance(v, dict):
+                                        merged.setdefault("properties", {}).update(v)
+                                    elif k == "required" and isinstance(v, list):
+                                        reqs = merged.setdefault("required", [])
+                                        for req in v:
+                                            if req not in reqs:
+                                                reqs.append(req)
+                                    elif k == "type":
+                                        if "type" not in merged or merged["type"] == "null":
+                                            merged["type"] = v
+                                    else:
+                                        merged[k] = v
+                    return merged
+                else:
+                    for sub_schema in schema[compound_key]:
+                        if isinstance(sub_schema, dict):
+                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            # Skip null types, pick the first valid underlying schema type
+                            if resolved_sub.get("type") != "null":
+                                merged = dict(schema)
+                                merged.pop(compound_key)
+                                merged.update(resolved_sub)
+                                return merged
+
+        return schema
+
+    @classmethod
+    def _parse_tool_parameter(
+        cls, schema: dict[str, Any], root_schema: dict[str, Any], required: bool = True
+    ) -> ToolParameter:
+        """Recursively parse a JSON Schema property into a ToolParameter.
+
+        This preserves nested items, properties, and enum from MCP tool schemas
+        so that the OpenAI-formatted schema sent to the LLM accurately describes
+        complex parameter types (arrays, objects).
+        """
+        schema = cls._resolve_schema(schema, root_schema)
+
+        param_type = schema.get("type", "string")
+
+        items = None
+        if "items" in schema and isinstance(schema["items"], dict):
+            items = cls._parse_tool_parameter(
+                schema["items"], root_schema, required=True
+            )
+
+        properties = None
+        if "properties" in schema and isinstance(schema["properties"], dict):
+            nested_required = schema.get("required", [])
+            properties = {
+                name: cls._parse_tool_parameter(
+                    prop, root_schema, required=name in nested_required
+                )
+                for name, prop in schema["properties"].items()
+            }
+
+        enum = schema.get("enum")
+
+        additional_properties = None
+        raw_ap = schema.get("additionalProperties")
+        if raw_ap is not None:
+            if isinstance(raw_ap, bool):
+                additional_properties = raw_ap
+            elif isinstance(raw_ap, dict):
+                # Resolve $ref pointers so the LLM sees concrete types, but
+                # preserve compound keywords (anyOf/oneOf) intact — _resolve_schema
+                # collapses those to a single branch which loses type information
+                # (e.g. string|array becomes just string).
+                if "$ref" in raw_ap:
+                    additional_properties = cls._resolve_schema(raw_ap, root_schema)
+                else:
+                    additional_properties = raw_ap
+
+        # Capture JSON Schema validation keywords that aren't modeled as
+        # dedicated ToolParameter fields.  These are passed through to the
+        # OpenAI-formatted schema so the LLM sees constraints like array
+        # length limits, numeric ranges, and string patterns.
+        _PASSTHROUGH_KEYWORDS = {
+            "minItems", "maxItems",
+            "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+            "minLength", "maxLength",
+            "pattern",
+            "default",
+        }
+        json_schema_extra = {k: v for k, v in schema.items() if k in _PASSTHROUGH_KEYWORDS}
+
+        return ToolParameter(
+            description=schema.get("description"),
+            type=param_type,
+            required=required,
+            items=items,
+            properties=properties,
+            enum=enum,
+            additional_properties=additional_properties,
+            json_schema_extra=json_schema_extra or None,
+        )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         # AWS MCP cli_command
@@ -321,6 +492,7 @@ class RemoteMCPToolset(Toolset):
         MCPConfig,
         StdioMCPConfig,
     ]
+    description: str = "MCP server toolset"
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
 
@@ -332,88 +504,31 @@ class RemoteMCPToolset(Toolset):
 
         Process:
         1. Start with 'headers' field (backward compatibility, passed as-is)
-        2. Render 'extra_headers' templates with request_context and env vars
-        3. Merge them (extra_headers takes precedence)
-
-        Template sources for extra_headers:
-        - {{ request_context.headers['foo'] }}: Pass-through from client request
-        - {{ env.CORALOGIX_API_KEY }}: From environment variables
-        - "hardcoded value": Static hardcoded values
+        2. Render 'extra_headers' via Jinja2 templates
+        3. Merge them (later layers take precedence)
 
         Returns:
             Merged headers dictionary or None
-
-        Example of mcp_config:
-            mcp_servers:
-                my_mcp_server:
-                    config:
-                        ...
-                        headers:
-                            Header-Name: "hardcoded value"
-                        extra_headers:
-                            Header-Name-1: "hardcoded value"
-                            Header-Name-2: "{{ request_context.headers['foo'] }}"
-                            Header-Name-3: "{{ env.CORALOGIX_API_KEY }}"
         """
         if not isinstance(self._mcp_config, MCPConfig):
             return None
 
         # Start with direct headers (no rendering, backward compatibility)
-        final_headers = {}
+        final_headers: Dict[str, str] = {}
         if self._mcp_config.headers:
             final_headers.update(self._mcp_config.headers)
 
-        # Render and merge extra_headers
+        # Render and merge config-level extra_headers
         if self._mcp_config.extra_headers:
-            for header_name, header_template in self._mcp_config.extra_headers.items():
-                try:
-                    rendered_value = self._render_template(
-                        header_template, request_context
-                    )
-                    final_headers[header_name] = rendered_value
-                except Exception as e:  # noqa: BLE001
-                    logging.warning(
-                        f"MCP toolset '{self.name}': Failed to render header template "
-                        f"'{header_name}': {e}"
-                    )
+            rendered = render_header_templates(
+                extra_headers=self._mcp_config.extra_headers,
+                request_context=request_context,
+                source_name=self.name,
+            )
+            if rendered:
+                final_headers.update(rendered)
 
         return final_headers if final_headers else None
-
-    def _render_template(
-        self, template_str: str, request_context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        """
-        Render a single template string using Jinja2.
-
-        Supports:
-        - {{ request_context.headers['foo'] }} - case-insensitive header lookup
-        - {{ env.API_KEY }} - environment variables
-        - Plain strings (no template syntax)
-        """
-        # Build context for Jinja2 template rendering
-        context: Dict[str, Any] = {
-            "env": os.environ,
-        }
-
-        if request_context:
-            # Wrap headers in CaseInsensitiveDict for case-insensitive lookup
-            request_context_copy = request_context.copy()
-            if "headers" in request_context_copy:
-                request_context_copy["headers"] = CaseInsensitiveDict(
-                    request_context_copy["headers"]
-                )
-            context["request_context"] = request_context_copy
-        else:
-            context["request_context"] = {"headers": CaseInsensitiveDict()}
-
-        try:
-            template = Template(template_str)
-            return template.render(context)
-        except Exception as e:
-            logging.warning(
-                f"MCP toolset '{self.name}': Failed to render template '{template_str}': {e}"
-            )
-            return template_str
 
     def model_post_init(self, __context: Any) -> None:
         self.prerequisites = [
@@ -491,9 +606,11 @@ class RemoteMCPToolset(Toolset):
 
             return (True, "")
         except Exception as e:
+            error_detail = _extract_root_error_message(e)
             return (
                 False,
-                f"Failed to load mcp server {self.name}: {str(e)}",
+                f"Failed to load mcp server {self.name}: {error_detail}"
+                ". If the server is still starting up, Holmes will retry automatically",
             )
 
     async def _get_server_tools(self):

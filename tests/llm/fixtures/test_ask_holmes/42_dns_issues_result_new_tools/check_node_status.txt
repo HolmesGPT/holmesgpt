@@ -1,5 +1,0 @@
-{"toolset_name":"aks/node-health","tool_name":"check_node_status","match_params":{}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get nodes", "params": {}}
-NAME                             STATUS   ROLES           AGE   VERSION
-kind-double-node-control-plane   Ready    control-plane   42d   v1.31.2
-kind-double-node-worker          Ready    <none>          42d   v1.31.2

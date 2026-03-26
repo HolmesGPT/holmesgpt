@@ -1,5 +1,8 @@
 # AKS Node Health
 
+!!! tip "Consider Azure MCP instead"
+    Most users should start with the [Azure MCP](azure-mcp.md) integration, which provides broad access to all Azure APIs including AKS node diagnostics. This standalone toolset is only needed if you require specific AKS node health CLI commands that aren't available through the MCP server.
+
 By enabling this toolset, HolmesGPT will be able to perform specialized health checks and troubleshooting for Azure Kubernetes Service (AKS) nodes, including node-specific diagnostics and performance analysis.
 
 ## Prerequisites

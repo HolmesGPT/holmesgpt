@@ -2,28 +2,40 @@ import re
 from typing import Any, Optional
 
 from holmes.common.env_vars import (
-    LLMS_WITH_STRICT_TOOL_CALLS,
+    STRICT_TOOL_CALLS_ENABLED,
     TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS,
 )
-from holmes.utils.llms import model_matches_list
 
 # parses both simple types: "int", "array", "string"
 # but also arrays of those simpler types: "array[int]", "array[string]", etc.
 pattern = r"^(array\[(?P<inner_type>\w+)\])|(?P<simple_type>\w+)$"
 
-LLMS_WITH_STRICT_TOOL_CALLS_LIST = [
-    llm.strip() for llm in LLMS_WITH_STRICT_TOOL_CALLS.split(",")
-]
+
+def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
+    """Check if all parameters in a tool are compatible with strict mode."""
+    for param in tool_parameters.values():
+        if hasattr(param, "is_strict_compatible") and not param.is_strict_compatible():
+            return False
+    return True
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
-    param_type = param_attributes.type.strip()
+    # Normalize schema types: MCP servers may emit nullable lists (e.g., ["string", "null"])
+    # per JSON Schema spec, while OpenAI expects a primary type with explicit nullability via anyOf.
+    raw_type = param_attributes.type
+    is_nullable_from_schema = False
+
+    if isinstance(raw_type, list):
+        non_null_types = [t.strip() if isinstance(t, str) else t for t in raw_type if t != "null"]
+        is_nullable_from_schema = "null" in raw_type
+        param_type = non_null_types[0] if non_null_types else "string"
+    else:
+        param_type = raw_type.strip()
+
     type_obj: Optional[dict[str, Any]] = None
 
     if param_type == "object":
         type_obj = {"type": "object"}
-        if strict_mode:
-            type_obj["additionalProperties"] = False
 
         # Use explicit properties if provided
         if hasattr(param_attributes, "properties") and param_attributes.properties:
@@ -33,6 +45,13 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
             }
             if strict_mode:
                 type_obj["required"] = list(param_attributes.properties.keys())
+                type_obj["additionalProperties"] = False
+
+        # Preserve additionalProperties schema for dynamic-key objects
+        elif hasattr(param_attributes, "additional_properties") and param_attributes.additional_properties not in (None, False):
+            type_obj["additionalProperties"] = param_attributes.additional_properties
+        elif strict_mode:
+            type_obj["additionalProperties"] = False
 
     elif param_type == "array":
         # Handle arrays with explicit item schemas
@@ -61,18 +80,30 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
         else:
             type_obj = {"type": match.group("simple_type")}
 
-    if strict_mode and type_obj and not param_attributes.required:
-        type_obj["type"] = [type_obj["type"], "null"]
+    # Merge passthrough JSON Schema keywords (minItems, maxItems, minimum, etc.)
+    # so the LLM sees validation constraints from the source schema.
+    if type_obj and hasattr(param_attributes, "json_schema_extra") and param_attributes.json_schema_extra:
+        type_obj.update(param_attributes.json_schema_extra)
+
+    # Add nullability using anyOf per the OpenAI Structured Outputs spec when strict mode
+    # requires optional params to accept null, or when the source schema explicitly marks
+    # the field as nullable (e.g., MCP ["string", "null"]).
+    if type_obj and (is_nullable_from_schema or (strict_mode and not param_attributes.required)):
+        type_obj = {"anyOf": [type_obj, {"type": "null"}]}
 
     return type_obj
 
 
 def format_tool_to_open_ai_standard(
-    tool_name: str, tool_description: str, tool_parameters: dict, target_model: str
+    tool_name: str, tool_description: str, tool_parameters: dict
 ):
-    tool_properties = {}
+    # Strict mode is enabled globally unless disabled via HOLMES_DISABLE_STRICT_TOOL_CALLS.
+    # However, tools with dynamic-key objects (additionalProperties with a schema) are
+    # automatically excluded from strict mode since both OpenAI and Anthropic require
+    # additionalProperties: false on all objects in strict mode.
+    strict_mode = STRICT_TOOL_CALLS_ENABLED and _is_tool_strict_compatible(tool_parameters)
 
-    strict_mode = model_matches_list(target_model, LLMS_WITH_STRICT_TOOL_CALLS_LIST)
+    tool_properties = {}
 
     for param_name, param_attributes in tool_parameters.items():
         tool_properties[param_name] = type_to_open_ai_schema(

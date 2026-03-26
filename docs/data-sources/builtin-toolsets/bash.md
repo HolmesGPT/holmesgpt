@@ -16,12 +16,9 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
       bash:
         enabled: true
         config:
-          allow:
-            - "kubectl get"
-            - "kubectl describe"
-            - "kubectl logs"
-            - "grep"
-            - "cat"
+          builtin_allowlist: "core"  # "none", "core", or "extended"
+          allow:                     # additional prefixes (merged with builtins)
+            - "my-custom-tool"
           deny:
             - "kubectl get secret"
             - "kubectl describe secret"
@@ -44,21 +41,39 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
         bash:
           enabled: true
           config:
-            include_default_allow_deny_list: true
+            builtin_allowlist: "extended"
             allow:
-              - "my-custom-command"  # Added to defaults
+              - "my-custom-command"
             deny:
-              - "kubectl get secret"  # Added to defaults
+              - "kubectl get secret"
     ```
 
-    With `include_default_allow_deny_list: true`, Holmes includes a default list of safe read-only commands:
+    `extended` is recommended for Helm deployments where Holmes runs in a container with a minimal filesystem.
 
-    - Kubernetes: `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl events`
-    - Text processing: `grep`, `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`
-    - JSON: `jq`, `base64`
-    - File system: `ls`, `find`, `stat`, `df`, `du`
+## Builtin Allowlist Levels
 
-    See [default_lists.py](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/bash/common/default_lists.py) for the complete list.
+The `builtin_allowlist` field controls which commands are pre-approved:
+
+**`core`** (CLI default) - safe on local machines and containers:
+
+| Category | Commands |
+|----------|----------|
+| Kubernetes | `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl explain`, `kubectl api-resources`, `kubectl config view`, `kubectl config current-context`, `kubectl cluster-info`, `kubectl version`, `kubectl auth can-i`, `kubectl diff`, `kubectl events` |
+| JSON | `jq` |
+| Text processing | `grep`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr` |
+| System info | `id`, `whoami`, `hostname`, `uname`, `date`, `which`, `type` |
+
+**`extended`** (Helm default) - adds these on top of `core`:
+
+| Category | Commands | Why container-only |
+|----------|----------|--------------------|
+| File reading | `cat`, `echo`, `base64` | Can read sensitive files (~/.ssh, ~/.aws) on local machines |
+| Filesystem | `ls`, `find`, `stat`, `du`, `df` | Exposes local filesystem structure |
+| Archives | `tar -tf`, `gzip -l`, `zcat`, `zgrep` | Can inspect local archives |
+
+**`none`** - empty builtin list. Only commands in your `allow` list and previously approved commands are allowed.
+
+User-provided `allow` and `deny` entries are always merged with the selected builtin level.
 
 ## Command Approval
 
@@ -98,6 +113,22 @@ kubectl get pods | grep error | head -10
 ```
 
 This requires `kubectl get`, `grep`, and `head` to all be allowed.
+
+## Large Tool Result Storage
+
+When a tool response exceeds the LLM context window limit, Holmes saves the result to disk and gives the LLM a file path. The bash toolset automatically allows read-only commands (`cat`, `head`, `tail`, `wc`, `jq`) on the storage directory so the LLM can access saved results without approval prompts.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOLMES_TOOL_RESULT_STORAGE_ENABLED` | `true` | Enable/disable saving large results to disk. When disabled, oversized results are dropped and the LLM is asked to retry with a narrower query. |
+| `HOLMES_TOOL_RESULT_STORAGE_PATH` | `/tmp/.holmes` | Directory for saved results. Auto-cleaned per session. |
+
+```bash
+# Disable filesystem storage entirely
+export HOLMES_TOOL_RESULT_STORAGE_ENABLED=false
+```
+
+See [Environment Variables](../../reference/environment-variables.md#tool-result-size-limits) for the full list of size-limit settings.
 
 ## Blocked Commands
 

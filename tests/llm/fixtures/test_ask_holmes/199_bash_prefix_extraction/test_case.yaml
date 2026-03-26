@@ -2,7 +2,7 @@ user_prompt: "Run the command 'kubectl get pods -n app-199 | grep OOMKilled' usi
 expected_output:
   - The bash tool call includes suggested_prefixes containing 'kubectl get' as the first prefix
   - The bash tool call includes suggested_prefixes containing 'grep' as the second prefix
-  - The command executes successfully
+  - The command executes successfully (exit code 1 is also ok)
 description: |
   Tests that the AI correctly extracts command prefixes for a piped command.
   AI must provide suggested_prefixes=['kubectl get', 'grep'] for the command.

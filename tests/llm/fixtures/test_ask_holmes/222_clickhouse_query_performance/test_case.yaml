@@ -1,0 +1,102 @@
+# Test: ClickHouse Query Performance - connectivity and performance diagnosis
+# Tests that Holmes can connect to ClickHouse (OLAP database), discover schema,
+# query data, and diagnose performance issues (missing index).
+
+user_prompt: |
+  1. List the tables in the database and tell me the verification code from the holmes_eval_222 table
+  2. I'm experiencing slow queries with this SQL: SELECT * FROM orders WHERE customer_id = 12345
+     Analyze why this query is slow and suggest how to fix it
+
+expected_output:
+  - "Must report the verification code: HOLMES-CLICKHOUSE-EVAL-222-v5t8n2"
+  - "Must mention the holmes_eval_222 table"
+  - "Must identify missing index or inefficient query pattern"
+  - "Must suggest optimization (index or data ordering)"
+
+include_tool_calls: true
+
+tags:
+  - db-connectors
+
+setup_timeout: 120
+
+port_forwards:
+  - namespace: app-222
+    service: clickhouse
+    local_port: 10222
+    remote_port: 8123
+
+before_test: |
+  set -e
+
+  echo "⏳ Setting up ClickHouse in cluster..."
+
+  # Create namespace
+  kubectl create namespace app-222 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Deploy ClickHouse
+  kubectl apply -f clickhouse.yaml -n app-222
+
+  # Wait for ClickHouse to be ready
+  echo "⏳ Waiting for ClickHouse pod to be ready..."
+  POD_READY=false
+  for i in {1..90}; do
+    if kubectl wait --for=condition=ready pod -l app=clickhouse -n app-222 --timeout=5s 2>/dev/null; then
+      echo "✅ ClickHouse pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ ClickHouse pod failed to become ready after 90 seconds"
+    kubectl get pods -n app-222
+    kubectl logs -l app=clickhouse -n app-222 --tail=20
+    exit 1
+  fi
+
+  # Wait for ClickHouse to fully initialize
+  sleep 5
+
+  # Create test tables and data
+  echo "⏳ Creating test data..."
+
+  # Create verification table
+  kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "DROP TABLE IF EXISTS holmes_eval_222"
+  kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "CREATE TABLE holmes_eval_222 (
+      id UInt32,
+      category String,
+      verification_code String,
+      created_at DateTime DEFAULT now()
+  ) ENGINE = MergeTree()
+  ORDER BY id"
+
+  kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "INSERT INTO holmes_eval_222 (id, category, verification_code) VALUES (1, 'eval_test', 'HOLMES-CLICKHOUSE-EVAL-222-v5t8n2')"
+
+  # Create orders table without proper ordering for performance test
+  kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "DROP TABLE IF EXISTS orders"
+  kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "CREATE TABLE orders (
+      id UInt32,
+      customer_id UInt32,
+      order_date Date,
+      total_amount Decimal(10,2),
+      status String
+  ) ENGINE = MergeTree()
+  ORDER BY id"
+
+  # Insert sample data (10K rows)
+  kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "INSERT INTO orders SELECT number AS id, (rand() % 1000 + 1) AS customer_id, today() - toIntervalDay(rand() % 365) AS order_date, round((10 + rand() % 990) / 100.0, 2) AS total_amount, CASE rand() % 3 WHEN 0 THEN 'pending' WHEN 1 THEN 'completed' ELSE 'cancelled' END AS status FROM numbers(10000)"
+
+  # Verify data
+  VERIFICATION_CODE=$(kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "SELECT verification_code FROM holmes_eval_222 FORMAT TSV")
+  ORDER_COUNT=$(kubectl exec -n app-222 deployment/clickhouse -- clickhouse-client --query "SELECT COUNT(*) FROM orders FORMAT TSV")
+  echo "✅ Verification code: $VERIFICATION_CODE"
+  echo "✅ Orders table has $ORDER_COUNT rows"
+
+  echo "✅ ClickHouse setup complete"
+
+after_test: |
+  echo "⏳ Cleaning up ClickHouse..."
+  kubectl delete namespace app-222 --ignore-not-found=true --wait=false 2>/dev/null || true
+  echo "✅ Cleanup initiated"

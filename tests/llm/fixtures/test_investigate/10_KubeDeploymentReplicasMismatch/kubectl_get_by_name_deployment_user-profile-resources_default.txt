@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"deployment","name":"user-profile-resources","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide deployment user-profile-resources -n default", "params": {"kind": "deployment", "name": "user-profile-resources", "namespace": "default"}}
-NAME                     READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS       IMAGES   SELECTOR                     LABELS
-user-profile-resources   0/1     1            0           34m   profile-getter   nginx    app=user-profile-resources   <none>

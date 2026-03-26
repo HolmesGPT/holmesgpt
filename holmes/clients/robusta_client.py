@@ -41,7 +41,7 @@ def fetch_robusta_models(
         response_json = resp.json()
         return RobustaModelsResponse(**{"models": response_json})
     except Exception:
-        logging.exception("Failed to fetch robusta models")
+        logging.exception("Failed to fetch robusta models for account")
         return None
 
 

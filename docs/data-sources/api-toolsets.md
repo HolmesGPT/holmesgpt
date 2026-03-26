@@ -1,20 +1,20 @@
-# API Toolsets
+# HTTP Connectors
 
-API Toolsets enable HolmesGPT to make authenticated HTTP requests to external APIs and services. This is useful for integrating with SaaS platforms, internal APIs, and any service that provides an HTTP REST API.
+HTTP connectors enable HolmesGPT to make authenticated HTTP requests to external APIs and services. This is useful for integrating with SaaS platforms, internal APIs, and any service that provides an HTTP REST API.
 
-Unlike MCP servers which require custom server implementations, API toolsets work directly with existing HTTP APIs using standard authentication methods.
+Unlike MCP servers which require custom server implementations, HTTP connectors work directly with existing HTTP APIs using standard authentication methods.
 
-## When to Use API Toolsets
+## When to Use HTTP Connectors
 
-**Use API Toolsets when:**
+**Use HTTP connectors when:**
 - You need to integrate with an existing HTTP API (Confluence, Jira, etc.)
-- The MCP servers available doesn't satisfy your requirements
+- The available MCP servers don't satisfy your requirements
 - The API requires authentication (API keys, tokens, credentials)
 - You want fine-grained control over which endpoints are accessible
 
 ## Configuration
 
-API toolsets are configured using `type: http` in your toolsets configuration.
+HTTP connectors are configured using `type: http` in your toolsets configuration.
 
 ### Basic Structure
 
@@ -53,13 +53,14 @@ toolsets:
 - **Multiple Authentication Methods**: Support for Basic Auth, Bearer tokens, and custom headers
 - **Multi-Instance Support**: Configure multiple instances of the same API with different credentials
 - **Custom Instructions**: Provide API-specific guidance to improve LLM tool usage
+- **[Header Propagation](header-propagation.md)**: Forward HTTP headers from incoming requests to backend APIs using `extra_headers` templates
 
 
 ### Configuration Fields
 
 #### Toolset Level
 
-- **`type`** (required): Must be `http` for API toolsets
+- **`type`** (required): Must be `http` for HTTP connectors
 - **`enabled`**: Whether the toolset is active
 - **`config`**: HTTP-specific configuration (see below)
 - **`llm_instructions`**: Custom instructions for the LLM about how to use this API
@@ -78,7 +79,7 @@ toolsets:
 
 Authentication is optional. If your API doesn't require authentication, omit the `auth` field.
 
-API toolsets support three authentication types:
+HTTP connectors support three authentication types:
 
 #### Basic Authentication
 
@@ -117,7 +118,10 @@ password: "{{ env.CONFLUENCE_API_KEY }}"
 
 ## Example: Confluence Integration
 
-This example integrates with Atlassian Confluence to search pages and retrieve content.
+!!! tip "Use the dedicated Confluence toolset instead"
+    HolmesGPT includes a [dedicated Confluence toolset](builtin-toolsets/confluence.md) with CQL search and support for both Cloud and Data Center. The HTTP connector example below is only needed for advanced use cases not covered by the built-in toolset.
+
+This example shows how to use an HTTP connector with Atlassian Confluence to search pages and retrieve content.
 
 === "Holmes CLI"
 
@@ -213,7 +217,7 @@ This example integrates with Atlassian Confluence to search pages and retrieve c
 
 ## Tool Naming
 
-When you create an API toolset with name `my_api`, HolmesGPT automatically creates a tool named `my_api_request` that the LLM can call.
+When you create an HTTP connector with name `my_api`, HolmesGPT automatically creates a tool named `my_api_request` that the LLM can call.
 
 For example:
 - Toolset name: `confluence-api` → Tool name: `confluence-api_request`
@@ -244,7 +248,7 @@ This creates two separate tools: `confluence_prod_request` and `confluence_dev_r
 
 ## Endpoint Whitelisting
 
-The endpoint whitelist provides security by restricting which APIs HolmesGPT can access.
+The endpoint whitelist provides security by restricting which APIs the HTTP connector can access.
 
 ### Host Patterns
 
@@ -339,4 +343,3 @@ llm_instructions: |
 - Verify the path pattern matches the endpoint you're trying to access
 - Ensure the HTTP method is in the allowed methods list
 - Check HolmesGPT logs for the exact URL being blocked
-

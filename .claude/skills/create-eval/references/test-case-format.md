@@ -38,7 +38,7 @@ Test categorization. Only use tags from `pyproject.toml` markers. Invalid tags c
 
 Common tags:
 - Difficulty: `easy`, `medium`, `hard`
-- Infrastructure: `kubernetes`, `prometheus`, `loki`, `grafana-dashboard`, `elasticsearch`, `datadog`
+- Infrastructure: `kubernetes`, `prometheus`, `loki`, `grafana`, `elasticsearch`, `datadog`
 - Type: `question-answer`, `chain-of-causation`, `logs`, `metrics`, `traces`
 - Special: `regression` (must always pass), `no-cicd` (skip in CI), `fast` (quick tests)
 
@@ -113,9 +113,6 @@ Environment variables injected during test execution:
 test_env_vars:
   CUSTOM_API_KEY: "test-key-123"
 ```
-
-### `mock_policy` (str)
-Controls HTTP mocking: `"always_mock"`, `"never_mock"`, or `"inherit"` (default).
 
 ### `skip` / `skip_reason` (bool / str)
 Skip test execution with a reason:

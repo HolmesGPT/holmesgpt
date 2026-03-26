@@ -3,46 +3,47 @@ from typing import List, Optional
 
 import sentry_sdk
 
+from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind
 from holmes.core.tools import (
     Tool,
     Toolset,
     ToolsetStatusEnum,
 )
-from holmes.core.tools_utils.toolset_utils import filter_out_default_logging_toolset
+
+display_logger = logging.getLogger("holmes.display.tool_executor")
 
 
 class ToolExecutor:
-    def __init__(self, toolsets: List[Toolset]):
+    def __init__(self, toolsets: List[Toolset], on_event: EventCallback = None):
         # TODO: expose function for this instead of callers accessing directly
         self.toolsets = toolsets
 
-        enabled_toolsets: list[Toolset] = list(
-            filter(
-                lambda toolset: toolset.status == ToolsetStatusEnum.ENABLED,
-                toolsets,
-            )
-        )
-
-        self.enabled_toolsets: list[Toolset] = filter_out_default_logging_toolset(
-            enabled_toolsets
-        )
+        self.enabled_toolsets: list[Toolset] = [
+            ts for ts in toolsets if ts.status == ToolsetStatusEnum.ENABLED
+        ]
 
         toolsets_by_name: dict[str, Toolset] = {}
         for ts in self.enabled_toolsets:
             if ts.name in toolsets_by_name:
-                logging.warning(f"Overriding toolset '{ts.name}'!")
+                msg = f"Overriding toolset '{ts.name}'!"
+                display_logger.warning(msg)
+                if on_event is not None:
+                    on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=ts.name, message=msg))
             toolsets_by_name[ts.name] = ts
 
         self.tools_by_name: dict[str, Tool] = {}
+        self._tool_to_toolset: dict[str, Toolset] = {}
         for ts in toolsets_by_name.values():
             for tool in ts.tools:
                 if tool.icon_url is None and ts.icon_url is not None:
                     tool.icon_url = ts.icon_url
                 if tool.name in self.tools_by_name:
-                    logging.warning(
-                        f"Overriding existing tool '{tool.name} with new tool from {ts.name} at {ts.path}'!"
-                    )
+                    msg = f"Overriding existing tool '{tool.name} with new tool from {ts.name} at {ts.path}'!"
+                    display_logger.warning(msg)
+                    if on_event is not None:
+                        on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=tool.name, message=msg))
                 self.tools_by_name[tool.name] = tool
+                self._tool_to_toolset[tool.name] = ts
 
     def get_tool_by_name(self, name: str) -> Optional[Tool]:
         if name in self.tools_by_name:
@@ -50,16 +51,45 @@ class ToolExecutor:
         logging.warning(f"could not find tool {name}. skipping")
         return None
 
+    def get_toolset_name(self, tool_name: str) -> Optional[str]:
+        """Return the toolset name that provides a given tool, or None."""
+        ts = self._tool_to_toolset.get(tool_name)
+        return ts.name if ts else None
+
+    def ensure_toolset_initialized(self, tool_name: str) -> Optional[str]:
+        """Ensure the toolset containing the given tool is lazily initialized.
+
+        For toolsets loaded from cache without full initialization, this triggers
+        the deferred prerequisite checks (callable and command prerequisites)
+        on first tool use.
+
+        Returns None on success, or an error message string on failure.
+        """
+        toolset = self._tool_to_toolset.get(tool_name)
+        if toolset is None:
+            return None
+
+        if toolset.needs_initialization:
+            if not toolset.lazy_initialize():
+                error_msg = f"Toolset '{toolset.name}' failed to initialize: {toolset.error}"
+                logging.error(error_msg)
+                return error_msg
+        elif toolset.status == ToolsetStatusEnum.FAILED:
+            # Toolset was already initialized but failed — don't let tools execute
+            error_msg = f"Toolset '{toolset.name}' is unavailable: {toolset.error}"
+            logging.error(error_msg)
+            return error_msg
+
+        return None
+
     @sentry_sdk.trace
     def get_all_tools_openai_format(
         self,
-        target_model: str,
         include_restricted: bool = True,
     ):
         """Get all tools in OpenAI format.
 
         Args:
-            target_model: The target LLM model name
             include_restricted: If False, filter out tools marked as restricted.
                                Set to True when runbook is in use or restricted
                                tools are explicitly enabled.
@@ -69,5 +99,5 @@ class ToolExecutor:
             # Filter out restricted tools if not authorized
             if not include_restricted and tool._is_restricted():
                 continue
-            tools.append(tool.get_openai_format(target_model=target_model))
+            tools.append(tool.get_openai_format())
         return tools

@@ -1,0 +1,30 @@
+services:
+  holmes:
+    image: us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes
+    ports:
+      - "127.0.0.1:5050:5050"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Uncomment the API key for your LLM provider:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      # - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      # - AZURE_API_KEY=${AZURE_API_KEY:-}
+      # - AZURE_API_BASE=${AZURE_API_BASE:-}
+      # - AZURE_API_VERSION=${AZURE_API_VERSION:-}
+    volumes:
+      - ~/.holmes:/root/.holmes
+      - ~/.kube/config:/tmp/.kube/config:ro
+      - ~/.aws:/root/.aws:ro
+      - ~/.config/gcloud:/root/.config/gcloud:ro
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /root/.kube && cp /tmp/.kube/config /root/.kube/config && sed -i 's|server: https://127\\.0\\.0\\.1|server: https://host.docker.internal|g; s|server: https://localhost|server: https://host.docker.internal|g' /root/.kube/config && exec python -u server.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

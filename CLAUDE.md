@@ -189,7 +189,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 **Config File Location**: `~/.holmes/config.yaml`
 
 **Key Configuration Sections**:
-- `model`: LLM model to use (default: gpt-4.1)
+- `model`: LLM model to use (default: gpt-5.4)
 - `api_key`: LLM API key (or use environment variables)
 - `custom_toolsets`: Override or add toolsets
 - `custom_runbooks`: Add investigation runbooks
@@ -197,9 +197,10 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
-- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`). When using OpenRouter, you must also set `CLASSIFIER_MODEL` to an OpenRouter model (e.g., `CLASSIFIER_MODEL="openrouter/openai/gpt-4.1"`) because the default classifier model is not available via OpenRouter.
 - `MODEL`: Override default model(s) - supports comma-separated list
-- `RUN_LIVE`: Use live tools in tests (strongly recommended)
+- `CLASSIFIER_MODEL`: Override the classifier model used internally. Required when using OpenRouter (e.g., `openrouter/openai/gpt-4.1`)
+- `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`: For Elasticsearch/OpenSearch cloud testing
@@ -214,11 +215,11 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - **NEVER run `pre-commit`, `ruff`, or `mypy` unless the user explicitly asks you to**. These tools are triggered by commit hooks which are not installed on all machines, and running them causes widespread formatting/type changes to files unrelated to your task. Only lint/format files you are actively editing, and only if asked.
 
 **Documentation Examples**:
-- **ALWAYS use Anthropic Claude models** in code examples and documentation:
+- **Primary examples should use the latest Anthropic Claude models**:
   - Recommended: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101`
-  - Use the latest Claude 4.5 family models (Sonnet or Opus)
+  - Use the latest Claude 4.5 family models (Sonnet or Opus) as the default/primary examples
+- You may include other providers (OpenAI, Gemini, etc.) where it would be useful for users, such as in model listing sections or provider-specific documentation
 - Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
-- Do NOT use GPT-4o or Gemini models in documentation examples
 
 **Testing Requirements**:
 - All new features require unit tests
@@ -247,6 +248,57 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - Prompts: `holmes/plugins/prompts/{name}.jinja2`
 - Tests: Match source structure under `tests/`
 
+**Adding a New Integration (Toolset)**:
+When adding a new toolset or integration, update all of the following pages to keep them in sync:
+
+1. `README.md` — Data Sources table (add a row with logo, link, status, and description)
+2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
+3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
+4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
+5. Add a logo image to `images/integration_logos/` if one is available
+
+## Debugging CLI / Rich Live Display Issues
+
+When troubleshooting terminal rendering bugs (ghost frames, flickering, misaligned output):
+
+**Capturing terminal output through a PTY:**
+```bash
+# Use `script` to force a PTY and capture raw ANSI escape sequences
+script -qec "poetry run python your_script.py" /dev/null > /tmp/raw_output.txt 2>&1
+```
+Without a PTY, Rich detects non-interactive mode and skips Live rendering entirely.
+
+**Analyzing ANSI escape sequences:**
+```python
+# Key escape codes for Rich Live:
+# \x1b[1A  = cursor up 1 line
+# \x1b[2K  = erase entire line
+# Rich erases previous frame with: (erase + cursor-up) × height, then prints new frame
+
+# Count cursor-ups per frame transition to detect drift:
+import re
+erase_pattern = r"\x1b\[2K(?:\x1b\[1A\x1b\[2K)*"
+for match in re.finditer(erase_pattern, raw_output):
+    ups = match.group(0).count("\x1b[1A")
+```
+
+**Writing unit tests for Live display (no LLM required):**
+```python
+# Render to StringIO with force_terminal=True to get ANSI sequences
+from io import StringIO
+buf = StringIO()
+console = Console(file=buf, force_terminal=True, width=120)
+# ... render frames ...
+raw = buf.getvalue()  # Contains full ANSI escape sequences
+# Parse cursor-up counts vs frame heights to detect ghost frames
+```
+
+**Key patterns:**
+- Ghost frames = cumulative drift where each frame leaves 1+ orphaned lines
+- Verify by counting: cursor-ups per transition should equal rendered lines per frame
+- Known Rich 13.9.4 bug: `Live.refresh()` calls `console.print(Control())` with default `end="\\n"`, adding a trailing newline not counted in `LiveRender._shape`. When the terminal has room below the display, each frame leaks 1 ghost line. When the display is at the bottom (common case), the `\\n` causes scrolling and `height-1` cursor-ups is correct.
+- Workaround: subclass `Live` and override `refresh()` to pass `end=""`. Do NOT patch `position_cursor` — that over-erases when the display is at the terminal bottom (the common case).
+
 ## Security Notes
 
 - All tools have read-only access by design
@@ -272,10 +324,15 @@ For creating, running, and debugging LLM eval tests, use the `/create-eval` skil
 **Cloud Service Evals (No Kubernetes Required)**:
 - Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
-- `before_test` creates test data in the cloud service, `after_test` cleans up
+- `before_test` creates test data in the cloud service; `after_test` cleans up **only if safe** (see reentrancy below)
 - Use `toolsets.yaml` to configure the toolset with env var references: `api_url: "{{ env.ELASTICSEARCH_URL }}"`
 - **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 - **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
+- **Cloud Service Eval Reentrancy**: The same eval can run on multiple PRs in parallel in CI. Cloud service evals that create resources with static names (e.g., Confluence spaces, Elasticsearch indices) must be **reentrant**:
+  - `before_test` must be **idempotent**: create-or-reuse resources, never fail if they already exist
+  - `after_test` must **NOT delete shared resources** that another parallel run may be using. Either omit `after_test` entirely, or limit cleanup to resources with a unique run-scoped identifier
+  - Use test-ID-based resource names (e.g., `HLMS233` for space keys) to avoid collisions with other evals, but accept that the same eval may overlap with itself across parallel PR runs
+  - Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs
 
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
@@ -459,6 +516,24 @@ toolsets:
 2. `poetry run pytest -k "test_name" --no-cov` — run full test
 3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
 
+## Reading CodeRabbit Review Comments
+
+In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:
+
+1. **Find the PR number** via the GitHub API (unauthenticated, one call):
+   ```bash
+   curl -s "https://api.github.com/repos/HolmesGPT/holmesgpt/pulls?head=HolmesGPT:BRANCH_NAME&state=open" \
+     | python3 -c "import sys,json; [print(f'PR #{p[\"number\"]}') for p in json.load(sys.stdin)]"
+   ```
+2. **Fetch comments with WebFetch** (not rate-limited):
+   Use the `WebFetch` tool on `https://github.com/HolmesGPT/holmesgpt/pull/<NUMBER>` and ask it to extract all CodeRabbit comments, including file/line references, full text, and code suggestions.
+
+**What does NOT work:**
+
+- `gh` CLI — not installed in the sandbox
+- Multiple `curl` calls to `api.github.com` — hits unauthenticated rate limits (60/hour) fast
+- The local git proxy (`127.0.0.1`) — only supports git protocol, not the GitHub REST API
+
 ## Documentation Lookup
 
 When asked about content from the HolmesGPT documentation website (https://holmesgpt.dev/), look in the local `docs/` directory:
@@ -467,6 +542,10 @@ When asked about content from the HolmesGPT documentation website (https://holme
 - Kubernetes deployment: `docs/installation/kubernetes-installation.md`
 - Toolset documentation: `docs/data-sources/builtin-toolsets/`
 - API reference: `docs/reference/`
+
+## MkDocs Navigation
+
+The docs site uses the `awesome-nav` plugin. Navigation is controlled by `.nav.yml` files in each `docs/` subdirectory, **not** by the `nav:` section in `mkdocs.yml`. When adding a new docs page, you must add it to the `.nav.yml` file in the corresponding directory (e.g., `docs/reference/.nav.yml` for reference pages).
 
 ## MkDocs Formatting Notes
 

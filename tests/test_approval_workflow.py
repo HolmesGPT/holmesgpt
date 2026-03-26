@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from holmes.core.llm import LLM, TokenCountMetadata
+from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -85,10 +85,15 @@ def test_streaming_chat_approval_workflow_requires_approval(
     mock_tool_executor = MagicMock(spec=ToolExecutor)
 
     # Create the actual ToolCallingLLM instance
-    ai = ToolCallingLLM(tool_executor=mock_tool_executor, max_steps=5, llm=mock_llm)
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=5,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
 
     # Mock LLM methods
-    mock_llm.count_tokens.return_value = TokenCountMetadata(
+    mock_llm.count_tokens.return_value = ContextWindowUsage(
         total_tokens=100,
         system_tokens=0,
         tools_to_call_tokens=0,
@@ -221,10 +226,15 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
     mock_tool_executor = MagicMock(spec=ToolExecutor)
 
     # Create the actual ToolCallingLLM instance
-    ai = ToolCallingLLM(tool_executor=mock_tool_executor, max_steps=5, llm=mock_llm)
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=5,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
 
     # Mock LLM methods - Return final answer after tool execution
-    mock_llm.count_tokens.return_value = TokenCountMetadata(
+    mock_llm.count_tokens.return_value = ContextWindowUsage(
         total_tokens=100,
         system_tokens=0,
         tools_to_call_tokens=0,
@@ -265,9 +275,9 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
     mock_toolset.status.value = "enabled"
     mock_tool_executor.toolsets = [mock_toolset]
 
-    # Mock process_tool_decisions to simulate approval and execution
-    ai.process_tool_decisions = MagicMock(
-        side_effect=lambda messages, tool_decisions, request_context=None: (
+    # Mock _execute_tool_decisions to simulate approval and execution
+    ai._execute_tool_decisions = MagicMock(
+        side_effect=lambda messages, tool_decisions, request_context=None, trace_span=None: (
             messages
             + [
                 {
@@ -340,8 +350,8 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
     assert "Command executed successfully" in answer_event["analysis"]
 
     # Verify tool execution was called
-    ai.process_tool_decisions.assert_called_once()
-    args, kwargs = ai.process_tool_decisions.call_args
+    ai._execute_tool_decisions.assert_called_once()
+    args, kwargs = ai._execute_tool_decisions.call_args
     tool_decisions = args[1]  # Second argument is tool_decisions
     assert len(tool_decisions) == 1
     assert tool_decisions[0].tool_call_id == "tool_call_123"
@@ -368,10 +378,15 @@ def test_streaming_chat_approval_workflow_reject_command(
     mock_tool_executor = MagicMock(spec=ToolExecutor)
 
     # Create the actual ToolCallingLLM instance
-    ai = ToolCallingLLM(tool_executor=mock_tool_executor, max_steps=5, llm=mock_llm)
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=5,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
 
     # Mock LLM methods - Return final answer after tool rejection
-    mock_llm.count_tokens.return_value = TokenCountMetadata(
+    mock_llm.count_tokens.return_value = ContextWindowUsage(
         total_tokens=100,
         system_tokens=0,
         tools_to_call_tokens=0,
@@ -412,9 +427,9 @@ def test_streaming_chat_approval_workflow_reject_command(
     mock_toolset.status.value = "enabled"
     mock_tool_executor.toolsets = [mock_toolset]
 
-    # Mock process_tool_decisions to simulate rejection
-    ai.process_tool_decisions = MagicMock(
-        side_effect=lambda messages, tool_decisions, request_context=None: (
+    # Mock _execute_tool_decisions to simulate rejection
+    ai._execute_tool_decisions = MagicMock(
+        side_effect=lambda messages, tool_decisions, request_context=None, trace_span=None: (
             messages
             + [
                 {
@@ -487,8 +502,8 @@ def test_streaming_chat_approval_workflow_reject_command(
     assert "won't execute" in answer_event["analysis"]
 
     # Verify tool processing was called
-    ai.process_tool_decisions.assert_called_once()
-    args, kwargs = ai.process_tool_decisions.call_args
+    ai._execute_tool_decisions.assert_called_once()
+    args, kwargs = ai._execute_tool_decisions.call_args
     tool_decisions = args[1]  # Second argument is tool_decisions
     assert len(tool_decisions) == 1
     assert tool_decisions[0].tool_call_id == "tool_call_123"

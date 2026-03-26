@@ -1,4 +1,0 @@
-{"toolset_name": "robusta", "tool_name": "fetch_finding_by_id", "match_params": {"id": "aff5113d-1310-4fa8-a24d-6838171273ee"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "fetch_finding_by_id command", "params": {"id": "aff5113d-1310-4fa8-a24d-6838171273ee"}}
-error: 'Failed to find a finding with finding_id=aff5113d-1310-4fa8-a24d-6838171273ee:
-  Holmes'' data access layer is not enabled.'

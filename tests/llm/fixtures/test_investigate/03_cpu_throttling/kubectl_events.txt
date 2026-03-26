@@ -1,8 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_events","match_params":{"namespace":"default","resource_type":"pod","pod_name":"frontend-service"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl events --for pod/frontend-service -n default", "params": {"namespace": "default", "resource_type": "pod", "pod_name": "frontend-service"}}
-LAST SEEN   TYPE     REASON      OBJECT                 MESSAGE
-49m         Normal   Scheduled   Pod/frontend-service   Successfully assigned default/frontend-service to kind-double-node-worker
-49m         Normal   Pulling     Pod/frontend-service   Pulling image "jfusterm/stress"
-49m         Normal   Pulled      Pod/frontend-service   Successfully pulled image "jfusterm/stress" in 2.703s (2.703s including waiting). Image size: 2355194 bytes.
-49m         Normal   Created     Pod/frontend-service   Created container stress
-48m         Normal   Started     Pod/frontend-service   Started container stress

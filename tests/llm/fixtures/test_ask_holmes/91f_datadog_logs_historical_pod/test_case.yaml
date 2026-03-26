@@ -17,6 +17,10 @@ tags:
   - logs
   - datadog
   - hard
+
+toolsets_matrix:
+  - toolsets.yaml
+  - toolsets_http.yaml
 #  - benchmark
 # we need the datadog api key for it to work as a benchmark
 

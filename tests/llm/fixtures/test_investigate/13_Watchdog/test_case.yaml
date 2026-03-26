@@ -1,8 +1,0 @@
-expected_output:
-  - This is not an issue
-  - The `Watchdog` alert is designed to always be active. It serves as a health check for the alerting pipeline, ensuring that the Alertmanager is functioning correctly.
-  - This alert should always be firing, and if it stops, it indicates a problem with the alerting system.
-evaluation:
-  correctness: 1
-mock_policy: always_mock
-# Success rate 97% for 100 evals

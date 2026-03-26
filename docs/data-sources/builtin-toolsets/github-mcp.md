@@ -4,9 +4,12 @@ The GitHub MCP server provides access to GitHub repositories, pull requests, iss
 
 ## Overview
 
-The GitHub MCP server is deployed as a separate pod in your cluster when using the Holmes or Robusta Helm charts. For CLI users, you'll need to deploy the MCP server manually and configure Holmes to connect to it.
+Holmes supports two authentication methods for GitHub. Both deploy a self-hosted MCP server pod in your cluster that wraps the [official GitHub MCP server](https://github.com/github/github-mcp-server):
 
-The server supports both GitHub.com and GitHub Enterprise Server, making it suitable for both cloud and on-premises deployments.
+- **Personal Access Token (PAT)**: Uses the standard `github-mcp` image. The PAT is passed directly to the MCP server.
+- **GitHub App**: Uses the `github-app-mcp` image which automatically generates and refreshes short-lived installation tokens from GitHub App credentials.
+
+Both methods support GitHub.com and GitHub Enterprise Server.
 
 ## Prerequisites
 
@@ -53,6 +56,8 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
     8. **Copy the token immediately** - it won't be shown again
 
 ## Configuration
+
+### Using a Personal Access Token
 
 === "Holmes CLI"
 
@@ -255,6 +260,189 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
+### Using a GitHub App
+
+Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This deploys the `github-app-mcp` image which wraps the official GitHub MCP server with automatic installation token generation and refresh.
+
+**Step 1: Create a GitHub App**
+
+Follow [Creating a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app) with these settings:
+
+- **GitHub App name**: e.g., "Holmes MCP"
+- **Homepage URL**: any valid URL
+- **Webhook**: uncheck "Active" (not needed)
+- **Permissions** → **Repository permissions**:
+    - **Actions**: Read-only
+    - **Contents**: Read-only (or Read and write if Holmes should push code)
+    - **Commit statuses**: Read-only
+    - **Issues**: Read and write
+    - **Metadata**: Read-only
+    - **Pull requests**: Read and write
+- Click **Create GitHub App**
+
+**Step 2: Generate a private key**
+
+On the App settings page, scroll to **Private keys** and click **Generate a private key**. A `.pem` file will be downloaded. See [Managing private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps) for details.
+
+**Step 3: Install the App**
+
+Install the App on your organization or repositories:
+
+1. Go to the App settings → **Install App**
+2. Select the account/organization
+3. Choose **All repositories** or **Only select repositories**
+4. Click **Install**
+
+Note the **Installation ID** from the URL after installation: `https://github.com/settings/installations/<INSTALLATION_ID>`. See [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for more details.
+
+**Step 4: Note the App ID**
+
+Find the **App ID** on the App's settings page (under "About").
+
+**Step 5: Configure Holmes**
+
+=== "Holmes CLI"
+
+    For CLI usage, deploy the `github-app-mcp` server in your cluster and connect Holmes to it.
+
+    **Create the Kubernetes secret:**
+
+    ```bash
+    kubectl create namespace holmes-mcp  # if not already created
+
+    kubectl create secret generic holmes-github-app \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
+      -n holmes-mcp
+    ```
+
+    **Deploy the GitHub App MCP server:**
+
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: github-mcp-server
+      namespace: holmes-mcp
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: github-mcp-server
+      template:
+        metadata:
+          labels:
+            app: github-mcp-server
+        spec:
+          containers:
+          - name: github-mcp
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.0
+            ports:
+            - containerPort: 8000
+            args:
+              - "--stdio"
+              - "python3 /app/wrapper.py"
+              - "--port"
+              - "8000"
+              - "--outputTransport"
+              - "streamableHttp"
+            env:
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-github-app
+                  key: GITHUB_APP_ID
+            - name: GITHUB_APP_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-github-app
+                  key: GITHUB_APP_INSTALLATION_ID
+            - name: GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-github-app
+                  key: GITHUB_APP_PRIVATE_KEY
+    ```
+
+    Then add the MCP server to **~/.holmes/config.yaml**:
+
+    ```yaml
+    mcp_servers:
+      github:
+        description: "GitHub MCP Server"
+        config:
+          url: "http://github-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
+          mode: "streamable-http"
+    ```
+
+=== "Holmes Helm Chart"
+
+    **Create the Kubernetes secret:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
+      -n <NAMESPACE>
+    ```
+
+    **Add to your `values.yaml`:**
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          githubApp:
+            secretName: "holmes-github-app"
+    ```
+
+    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and auto-refreshes installation tokens internally. The token refresh interval defaults to 30 minutes.
+
+    ```bash
+    helm upgrade --install holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    **Create the Kubernetes secret:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
+      -n <NAMESPACE>
+    ```
+
+    **Add to your `generated_values.yaml`:**
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            githubApp:
+              secretName: "holmes-github-app"
+    ```
+
+    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and auto-refreshes installation tokens internally.
+
+    ```bash
+    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    ```
+
+!!! info "How token refresh works"
+    The `github-app-mcp` image handles token management internally:
+
+    1. At startup, generates a JWT signed with the private key
+    2. Exchanges it for a short-lived GitHub installation token
+    3. Sets the token as `GITHUB_PERSONAL_ACCESS_TOKEN` for the underlying MCP server
+    4. A background thread refreshes the token every 30 minutes
+
 ## Available Tools
 
 By default, the GitHub MCP server enables 4 toolsets that provide comprehensive access to GitHub functionality:
@@ -420,37 +608,6 @@ kubectl create secret generic github-ca-cert \
 
 **Step 2:** Configure the GitHub MCP addon to use the CA certificate:
 
-=== "Holmes Helm Chart"
-
-    ```yaml
-    mcpAddons:
-      github:
-        enabled: true
-        auth:
-          secretName: "github-mcp-token"
-        config:
-          host: "https://github.mycompany.com"
-          customCACert:
-            enabled: true
-            # secretName: "github-ca-cert"  # default
-            # secretKey: "ca.crt"           # default
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        github:
-          enabled: true
-          auth:
-            secretName: "github-mcp-token"
-          config:
-            host: "https://github.mycompany.com"
-            customCACert:
-              enabled: true
-    ```
-
 === "Holmes CLI (Manual Deployment)"
 
     Add volume, volumeMount, and environment variables to your deployment:
@@ -482,6 +639,37 @@ kubectl create secret generic github-ca-cert \
           defaultMode: 420
     ```
 
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "github-mcp-token"
+        config:
+          host: "https://github.mycompany.com"
+          customCACert:
+            enabled: true
+            # secretName: "github-ca-cert"  # default
+            # secretKey: "ca.crt"           # default
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            secretName: "github-mcp-token"
+          config:
+            host: "https://github.mycompany.com"
+            customCACert:
+              enabled: true
+    ```
+
 ### Tool Not Found Errors
 
 **Problem:** Holmes reports a tool is not available
@@ -492,4 +680,6 @@ kubectl create secret generic github-ca-cert \
 
 - [GitHub MCP Server (upstream)](https://github.com/github/github-mcp-server)
 - [GitHub Personal Access Tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+- [Creating a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
+- [Managing private keys for GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
 - [GitHub Enterprise Server](https://docs.github.com/en/enterprise-server)

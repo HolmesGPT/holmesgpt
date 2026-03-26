@@ -12,49 +12,22 @@ import pytest
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.llm import DefaultLLM
+from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
-from tests.llm.utils.mock_dal import load_mock_dal
-from tests.llm.utils.mock_toolset import (
-    MockGenerationConfig,
-    MockMode,
-    MockToolsetManager,
-)
+from tests.llm.utils.mock_dal import load_test_dal
+from tests.llm.utils.test_toolset import TestToolsetManager
 from tests.llm.utils.test_case_utils import get_models
 
 logger = logging.getLogger(__name__)
 
 
-def extract_cached_tokens_from_dict(usage: Dict[str, Any]) -> int:
-    prompt_details = usage.get("prompt_tokens_details", {})
-    return prompt_details.get("cached_tokens", 0)
-
-
-def extract_cached_tokens_from_object(usage: Any) -> int:
-    if not hasattr(usage, "prompt_tokens_details"):
-        return 0
-    prompt_details = usage.prompt_tokens_details
-    if not hasattr(prompt_details, "cached_tokens"):
-        return 0
-    return prompt_details.cached_tokens or 0
-
-
 def get_cached_tokens(raw_response: Any) -> int:
-    if not hasattr(raw_response, "usage") or not raw_response.usage:
-        return 0
-    usage = raw_response.usage
-    if isinstance(usage, dict):
-        return extract_cached_tokens_from_dict(usage)
-    return extract_cached_tokens_from_object(usage)
+    return extract_usage_from_response(raw_response)["cached_tokens"] or 0
 
 
 def get_prompt_tokens(raw_response: Any) -> int:
-    if not hasattr(raw_response, "usage") or not raw_response.usage:
-        return 0
-    usage = raw_response.usage
-    if isinstance(usage, dict):
-        return usage.get("prompt_tokens", 0)
-    return getattr(usage, "prompt_tokens", 0)
+    return extract_usage_from_response(raw_response)["prompt_tokens"]
 
 
 def extract_cached_tokens_list(raw_responses: List[Any]) -> List[int]:
@@ -88,25 +61,20 @@ def test_cached_output(model: str, request):
 
     with patch.object(litellm, "completion", side_effect=capture_litellm_completion):
         llm = DefaultLLM(model, tracer=None)
-        mock_generation_config = MockGenerationConfig(
-            generate_mocks_enabled=False,
-            regenerate_all_enabled=False,
-            mock_mode=MockMode.MOCK,
-        )
 
         temp_dir = TemporaryDirectory()
         try:
-            toolset_manager = MockToolsetManager(
+            toolset_manager = TestToolsetManager(
                 test_case_folder=str(temp_dir.name),
-                mock_generation_config=mock_generation_config,
-                request=request,
             )
             tool_executor = ToolExecutor(toolset_manager.toolsets)
-            ai = ToolCallingLLM(tool_executor=tool_executor, max_steps=1, llm=llm)
+            ai = ToolCallingLLM(
+                tool_executor=tool_executor, max_steps=1, llm=llm, tool_results_dir=None
+            )
             config = Config()
 
-            mock_dal = load_mock_dal(
-                Path(temp_dir.name), generate_mocks=False, initialize_base=False
+            test_dal = load_test_dal(
+                Path(temp_dir.name), initialize_base=False
             )
             runbooks = config.get_runbook_catalog()
 
@@ -119,7 +87,7 @@ def test_cached_output(model: str, request):
             conversation_history: List[Dict[str, Any]] = None
 
             for iteration, ask in enumerate(asks):
-                global_instructions = mock_dal.get_global_instructions_for_account()
+                global_instructions = test_dal.get_global_instructions_for_account()
                 messages = build_chat_messages(
                     ask=ask,
                     conversation_history=conversation_history,
@@ -129,7 +97,7 @@ def test_cached_output(model: str, request):
                     additional_system_prompt=None,
                     runbooks=runbooks,
                 )
-                result = ai.messages_call(messages=messages, trace_span=None)
+                result = ai.call(messages=messages, trace_span=None)
                 assert result is not None
                 assert len(raw_responses) >= iteration + 1
                 conversation_history = messages.copy()

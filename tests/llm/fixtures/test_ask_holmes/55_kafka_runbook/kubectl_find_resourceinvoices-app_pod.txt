@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"invoices-app"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep invoices-app", "params": {"kind": "pod", "keyword": "invoices-app"}}
-ask-holmes-namespace-55             invoices-app-68777dc45d-tqs2h                              1/1     Running                 2 (8m56s ago)      42h     10.244.1.75    kind-double-node-worker          <none>           <none>            app=invoices-app,pod-template-hash=68777dc45d

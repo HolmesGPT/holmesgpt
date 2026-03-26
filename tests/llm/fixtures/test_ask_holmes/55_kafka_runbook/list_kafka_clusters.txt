@@ -1,4 +1,0 @@
-{"toolset_name":"kafka/admin","tool_name":"list_kafka_clusters","match_params":{}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {}}
-Available Kafka Clusters:
-kafka

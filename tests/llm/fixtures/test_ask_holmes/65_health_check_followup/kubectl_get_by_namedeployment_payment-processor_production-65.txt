@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"deployment","name":"payment-processor","namespace":"production-65"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide deployment payment-processor -n production-65", "params": {"kind": "deployment", "name": "payment-processor", "namespace": "production-65"}}
-NAME                READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS          IMAGES         SELECTOR                LABELS
-payment-processor   0/2     2            0           14s   payment-processor   busybox:1.35   app=payment-processor   app=payment-processor,version=v2.1.0

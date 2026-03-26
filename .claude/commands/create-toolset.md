@@ -7,7 +7,6 @@ The steps to write a toolset are defined below. Use subagents.
 # 1. Check existing toolsets
 
 Check holmes/plugins/toolsets for other similar toolsets to see how they are implemented before implementing a new toolset
-If implementing a toolset to fetch logs, you need to follow a specific pattern by implementing `BasePodLoggingToolset`
 
 # 2. Choose where to create the new toolset file
 
@@ -43,7 +42,7 @@ Some tools may require parameters.
 
 # 6. LLM instructions
 
-If the toolset implements `BasePodLoggingToolset` then update the template `_fetch_logs.jinja2` with the new toolset and use `_default_log_prompt.jinja2` otherwise follow these instructions:
+Follow these instructions:
 
     Generate a short set of instructions for HolmesGPT to use the tools provided by the toolset. HolmesGPT will only see the tool names and is not aware of the toolset's name. Keep the instructions short and to the point. Do not exceed 50 lines.
 
@@ -70,7 +69,7 @@ If the toolset implements `BasePodLoggingToolset` then update the template `_fet
     - Environment variables are missing
     - The credentials are missing permissions
     - No data is returned by the tools in the live tests
-2. Implement integration tests. Because you have actually verified that the data returned by the system is what you expect, you can now mock its behaviour and implement integration tests for each tool and for different scenarios.
+2. Implement integration tests for each tool and for different scenarios, using the data patterns you verified in the live tests.
 
 Run the tests with the `--no-cov` option to avoid code coverage noise.
 

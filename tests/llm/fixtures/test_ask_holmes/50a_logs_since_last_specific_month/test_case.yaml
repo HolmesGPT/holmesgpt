@@ -10,13 +10,5 @@ expected_output:
 evaluation:
   correctness: 1
 
-# Default policy is to not mock (run live)
-mock_policy: never_mock
-
-# Override to mock logs and kubectl_find_resource
-mock_overrides:
-  kubernetes/logs: always_mock
-  #kubernetes/core: always_mock
-
 skip: true
 skip_reason: "this test fails now as the toolset are not consistent with the mocked data"

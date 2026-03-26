@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_kind_in_namespace","match_params":{"kind":"scaledobject","namespace":"invoices-64"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl get --show-labels -o wide scaledobject -n invoices-64` failed with return code 1\nOutput:\nerror: the server doesn't have a resource type \"scaledobject\"", "return_code": 1, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide scaledobject -n invoices-64", "params": {"kind": "scaledobject", "namespace": "invoices-64"}}
-error: the server doesn't have a resource type "scaledobject"

@@ -8,7 +8,7 @@ import pytest
 
 from tests.llm.utils.test_case_utils import (
     HolmesTestCase,
-    MockHelper,
+    TestCaseLoader,
 )
 
 
@@ -63,10 +63,8 @@ def get_test_cases(test_cases_folder: Path) -> List:
     Returns:
         List of test cases with iterations expanded and tags added
     """
-    mh = MockHelper(test_cases_folder)
+    loader = TestCaseLoader(test_cases_folder)
 
-    # The MockHelper determines the test type based on the folder name,
-    # so we just use the generic load_test_cases() method
-    test_cases = mh.load_test_cases()
+    test_cases = loader.load_test_cases()
 
     return expand_with_iterations(test_cases)

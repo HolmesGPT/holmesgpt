@@ -1,6 +1,7 @@
 .DS_STORE
 tmp/
 config.yaml
+checks.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

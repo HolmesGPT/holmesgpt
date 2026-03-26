@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"pod","keyword":"long-logs-app"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide pod | grep long-logs-app", "params": {"kind": "pod", "keyword": "long-logs-app"}}
-ask-holmes-namespace-47             long-logs-app-84fbcbfb5f-57zrx                           1/1     Running                 0                  26s     10.244.1.154   kind-double-node-worker          <none>           <none>            app=long-logs-app,pod-template-hash=84fbcbfb5f

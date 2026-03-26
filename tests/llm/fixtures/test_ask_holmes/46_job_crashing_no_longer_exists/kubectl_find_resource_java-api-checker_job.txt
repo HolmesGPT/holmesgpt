@@ -1,2 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"job","keyword":"java-api-checker"}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl get -A --show-labels -o wide job | grep java-api-checker` failed with return code 1\nOutput:\n", "return_code": 1, "data": null, "url": null, "invocation": "kubectl get -A --show-labels -o wide job | grep java-api-checker", "params": {"kind": "job", "keyword": "java-api-checker"}}

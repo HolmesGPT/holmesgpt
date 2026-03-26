@@ -1,8 +1,0 @@
-{"toolset_name":"kubernetes/kube-lineage-extras","tool_name":"kubectl_lineage_children","match_params":{"kind":"deployment","name":"front-end","namespace":"sock-shop"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kube-lineage deployment front-end -n sock-shop", "params": {"kind": "deployment", "name": "front-end", "namespace": "sock-shop"}}
-NAME                                            READY   STATUS    AGE
-Deployment/front-end                            1/1               18d
-└── ReplicaSet/front-end-6bc5876d74             1/1               18d
-    └── Pod/front-end-6bc5876d74-kn2zt          1/1     Running   18d
-        └── Service/front-end                   -                 18d
-            └── EndpointSlice/front-end-gxs7w   -                 18d

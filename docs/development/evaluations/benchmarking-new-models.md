@@ -61,14 +61,6 @@ When testing new models, you may encounter rate limiting from your provider:
 - **Symptom**: You might see a `ThrottledError` or rate limit errors
 - **Solution**: Contact your provider to raise the rate limit for your API key
 
-### Mock Errors
-
-If you see mock-related errors:
-
-- Ensure `RUN_LIVE=true` is set
-- Verify your Kubernetes cluster is accessible (if testing Kubernetes-related evals)
-- Check that all required toolsets are properly configured
-
 ## Step 4: Run Benchmarks
 
 Run the benchmark script with your new model (along with other models you have configured in your model list):

@@ -37,7 +37,7 @@ def _ulimit_produces_clean_output() -> bool:
     """Check if ulimit commands run without producing stderr output."""
     # Test the same command pattern used in get_ulimit_prefix()
     result = subprocess.run(
-        "ulimit -v 1048576 || true",
+        "ulimit -v 1048576 2>/dev/null || true",
         shell=True,
         capture_output=True,
         text=True,

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.runbooks import RunbookCatalog
 from holmes.utils.global_instructions import Instructions, generate_runbooks_args
+from holmes.version import get_version
 
 
 class PromptComponent(str, Enum):
@@ -24,6 +25,10 @@ class PromptComponent(str, Enum):
     STYLE_GUIDE = "style_guide"
     CLUSTER_NAME = "cluster_name"
     SYSTEM_PROMPT_ADDITIONS = "system_prompt_additions"
+
+
+# Components that are disabled by default (can be explicitly enabled via overrides or env var)
+DISABLED_BY_DEFAULT = {PromptComponent.AI_SAFETY}
 
 
 class InvalidImageDictError(ValueError):
@@ -97,16 +102,17 @@ def is_component_enabled(
     """
     Check if a prompt component is enabled, considering both env var and API overrides.
 
-    Precedence: env var > API override > default (enabled)
+    Precedence: env var > API override > default
     - If env var disables component: always disabled (API can't override)
-    - If env var allows component: API override decides, or default enabled
+    - If env var allows component: API override decides, or use default
+    - Default is enabled for most components, except those in DISABLED_BY_DEFAULT
     """
     env_allowed = is_prompt_allowed_by_env(component)
     if not env_allowed:
         return False  # env var wins, can't override to enabled
     if overrides and component in overrides:
         return overrides[component]  # env allows, API decides
-    return True  # env allows, no override, default enabled
+    return component not in DISABLED_BY_DEFAULT  # env allows, no override, use default
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
@@ -188,6 +194,7 @@ def build_system_prompt(
     toolset_instructions_enabled = is_enabled(PromptComponent.TOOLSET_INSTRUCTIONS)
 
     template_context = {
+        "holmes_version": get_version(),
         "intro_enabled": is_enabled(PromptComponent.INTRO),
         "ask_user_enabled": ask_user_enabled and is_enabled(PromptComponent.ASK_USER),
         "todowrite_enabled": is_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
@@ -198,7 +205,7 @@ def build_system_prompt(
             PromptComponent.GENERAL_INSTRUCTIONS
         ),
         "style_guide_enabled": is_enabled(PromptComponent.STYLE_GUIDE),
-        "runbooks_enabled": bool(runbooks)
+        "runbooks_enabled": bool(runbooks and getattr(runbooks, "catalog", True))
         and is_enabled(PromptComponent.TIME_RUNBOOKS),
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
