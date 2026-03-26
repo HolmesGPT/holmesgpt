@@ -114,6 +114,22 @@ kubectl get pods | grep error | head -10
 
 This requires `kubectl get`, `grep`, and `head` to all be allowed.
 
+## Large Tool Result Storage
+
+When a tool response exceeds the LLM context window limit, Holmes saves the result to disk and gives the LLM a file path. The bash toolset automatically allows read-only commands (`cat`, `head`, `tail`, `wc`, `jq`) on the storage directory so the LLM can access saved results without approval prompts.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOLMES_TOOL_RESULT_STORAGE_ENABLED` | `true` | Enable/disable saving large results to disk. When disabled, oversized results are dropped and the LLM is asked to retry with a narrower query. |
+| `HOLMES_TOOL_RESULT_STORAGE_PATH` | `/tmp/.holmes` | Directory for saved results. Auto-cleaned per session. |
+
+```bash
+# Disable filesystem storage entirely
+export HOLMES_TOOL_RESULT_STORAGE_ENABLED=false
+```
+
+See [Environment Variables](../../reference/environment-variables.md#tool-result-size-limits) for the full list of size-limit settings.
+
 ## Blocked Commands
 
 The following are always blocked and cannot be overridden:

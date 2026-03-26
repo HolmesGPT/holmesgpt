@@ -4,7 +4,8 @@ from typing import Any, ClassVar, Dict, Optional, Tuple, Type, cast
 from urllib.parse import urljoin
 
 import requests  # type: ignore
-from pydantic import Field
+from pydantic import Field, model_validator
+from requests.auth import HTTPBasicAuth
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -23,10 +24,19 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 class ServiceNowTablesConfig(ToolsetConfig):
     """Configuration for ServiceNow Tables API access.
 
-    Example configuration:
+    You may use either api key or username and password.
+
+    Example configuration (with api key):
     ```yaml
-    api_key: "now_1234567890abcdef"
     api_url: "https://your-instance.service-now.com"
+    api_key: "now_1234567890abcdef"
+    ```
+
+    Or with basic auth:
+    ```yaml
+    api_url: "https://your-instance.service-now.com"
+    username: "your-username"
+    password: "your-password"
     ```
     """
 
@@ -34,21 +44,32 @@ class ServiceNowTablesConfig(ToolsetConfig):
         "instance_url": "api_url",
     }
 
-    api_key: str = Field(
-        title="API Key",
-        description="ServiceNow API key for authentication",
-        examples=["now_1234567890abcdef"],
-    )
     api_url: str = Field(
         title="API URL",
         description="ServiceNow instance base URL",
         examples=["https://your-instance.service-now.com"],
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        title="API Key",
+        description="ServiceNow API key for authentication",
+        examples=["now_1234567890abcdef"],
     )
     api_key_header: str = Field(
         default="x-sn-apikey",
         title="API Key Header",
         description="HTTP header name to use for passing the API key",
         examples=["x-sn-apikey"],
+    )
+    username: Optional[str] = Field(
+        default=None,
+        title="Username",
+        description="Username for basic auth authentication (used if api_key is not provided)",
+    )
+    password: Optional[str] = Field(
+        default=None,
+        title="Password",
+        description="Password for basic auth authentication (used if api_key is not provided)",
     )
     health_check_table: str = Field(
         default="sys_user",
@@ -63,6 +84,23 @@ class ServiceNowTablesConfig(ToolsetConfig):
         "Supports request context (e.g. {{ request_context.headers['X-Tenant-Id'] }}) and env vars (e.g. {{ env.MY_TOKEN }}).",
         examples=[{"X-Custom-Header": "{{ env.MY_TOKEN }}"}],
     )
+
+    @model_validator(mode="after")
+    def validate_auth(self) -> "ServiceNowTablesConfig":
+        """
+        Ensure that authentication is either:
+          - api_key is provided
+        OR
+          - both username and password are provided
+        but not both methods at the same time.
+        """
+        if self.api_key and (self.username or self.password):
+            raise ValueError("authentication method must be either api key or basic auth, not both")
+        if self.username and not self.password:
+            raise ValueError("password is required when username is set")
+        if self.password and not self.username:
+            raise ValueError("username is required when password is set")
+        return self
 
 
 class ServiceNowTablesToolset(Toolset):
@@ -165,12 +203,14 @@ class ServiceNowTablesToolset(Toolset):
             self.servicenow_config.api_url.rstrip("/") + "/", endpoint.lstrip("/")
         )
 
+        # Build request headers
         headers = {
-            self.servicenow_config.api_key_header: self.servicenow_config.api_key,
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-
+        if self.servicenow_config.api_key:
+            headers[self.servicenow_config.api_key_header] = self.servicenow_config.api_key
+        
         if self.servicenow_config.extra_headers:
             rendered = render_header_templates(
                 extra_headers=self.servicenow_config.extra_headers,
@@ -180,8 +220,17 @@ class ServiceNowTablesToolset(Toolset):
             if rendered:
                 headers.update(rendered)
 
+        # Build request basic auth if username & password configured
+        if self.servicenow_config.username and self.servicenow_config.password:
+            auth = HTTPBasicAuth(
+                username=self.servicenow_config.username,
+                password=self.servicenow_config.password,
+            )
+        else:
+            auth = None
+
         response = requests.get(
-            url, headers=headers, params=query_params, timeout=timeout
+            url, headers=headers, auth=auth, params=query_params, timeout=timeout
         )
         response.raise_for_status()
         return response.json(), dict(response.headers)

@@ -15,7 +15,14 @@ A ScheduledHealthCheck is a Kubernetes Custom Resource that:
 
 !!! warning "Cost Management"
 
-    Each scheduled execution creates at least one LLM API call. A schedule running every 5 minutes = 288 API calls per day. Start with infrequent schedules (hourly or daily) and monitor costs before increasing frequency.
+    Each scheduled execution makes at least one LLM API call, and a complex check could cost $1 or more with state-of-the-art models like Claude Opus. Start with infrequent schedules (hourly or daily) and monitor costs before increasing frequency.
+
+    | Schedule | Runs per day |
+    |----------|-------------|
+    | `0 9 * * *` (daily) | 1 |
+    | `0 * * * *` (hourly) | 24 |
+    | `*/15 * * * *` (every 15 min) | 96 |
+    | `*/5 * * * *` (every 5 min) | 288 |
 
 ## Creating a Scheduled Check
 
