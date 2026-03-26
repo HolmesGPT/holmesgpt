@@ -1,6 +1,12 @@
 # Holmes Operator - Overview & Installation
 
-Holmes Operator extends HolmesGPT with Kubernetes-native, LLM-driven health checks using Custom Resource Definitions (CRDs). It provides a declarative way to define and schedule LLM-driven investigations, proactively notifying your team when it finds issues.
+Most AI agents are great at troubleshooting problems, but still need a human to notice something is wrong and trigger an investigation. Operator mode fixes that — HolmesGPT runs in the background 24/7, spots problems before your customers notice, and messages you in Slack with the fix.
+
+Under the hood, it uses Kubernetes CRDs to declaratively define one-time and scheduled health checks. While the operator itself runs in Kubernetes, **health checks can query any data source Holmes is connected to** — VMs, cloud services, databases, SaaS platforms, and more. If you've [connected a data source](../data-sources/builtin-toolsets/index.md), operator checks can query it.
+
+!!! tip "Recommended: Connect the GitHub integration"
+
+    Connect the [GitHub MCP server](../data-sources/builtin-toolsets/github-mcp.md) so Holmes can open PRs to fix the problems it finds — not just report them.
 
 !!! warning "Holmes Operator - Alpha Release"
 
@@ -12,8 +18,10 @@ Holmes Operator extends HolmesGPT with Kubernetes-native, LLM-driven health chec
 
 ## Features
 
-- **One-time Health Checks**: Create `HealthCheck` resources that run immediately and report results
-- **Scheduled Health Checks**: Create `ScheduledHealthCheck` resources that run on cron schedules
+- **[Deployment Verification](deployment-verification.md)**: Deploy a HealthCheck alongside your app to verify the new version is healthy — and gate CI/CD on the result
+- **[One-time Health Checks](health-checks.md)**: Create `HealthCheck` resources that run immediately and report results
+- **[Scheduled Health Checks](scheduled-health-checks.md)**: Create `ScheduledHealthCheck` resources that run on cron schedules for continuous monitoring
+- **Not just Kubernetes**: Health checks can query any connected data source — Prometheus, Datadog, AWS, databases, and [more](../data-sources/builtin-toolsets/index.md)
 - **Kubernetes-native**: Uses standard CRDs with kubectl support
 - **Status Tracking**: Full execution history and results stored in resource status
 - **Alert Integration**: Send notifications to Slack and other destinations on failures
@@ -143,6 +151,7 @@ kubectl describe hc example-check
 
 ## Next Steps
 
+- **[Deployment Verification](deployment-verification.md)** - Verify new deploys are healthy and gate CI/CD pipelines on the result
 - **[Health Checks](health-checks.md)** - Learn how to create and manage one-time HealthCheck resources
 - **[Scheduled Health Checks](scheduled-health-checks.md)** - Set up recurring health checks with cron schedules
 - **[Alert Destinations](destinations.md)** - Configure Slack and PagerDuty notifications

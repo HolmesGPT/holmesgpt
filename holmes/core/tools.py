@@ -725,7 +725,7 @@ class Toolset(BaseModel):
         default_factory=lambda: [ToolsetTag.CORE],
     )
     config: Optional[Any] = None
-    is_default: bool = False
+
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
@@ -862,17 +862,7 @@ class Toolset(BaseModel):
 
     @property
     def missing_config(self) -> bool:
-        """True when this toolset requires user-supplied configuration that was not provided.
-
-        A toolset does NOT have missing config when any of these hold:
-        1. Already enabled or is_default
-        2. No config_classes (YAML toolsets, simple Python toolsets)
-        3. Config classes exist but all fields have defaults
-        4. Config is required AND was provided by user
-        """
-        if self.enabled or self.is_default:
-            return False
-
+        """True when this toolset has required config fields but no config was provided."""
         if not self.config_classes:
             return False
 
@@ -884,10 +874,7 @@ class Toolset(BaseModel):
         if not requires_config:
             return False
 
-        if self.config is not None:
-            return False
-
-        return True
+        return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
