@@ -23,6 +23,7 @@ You can find these in your New Relic account under Administration > API keys and
           api_key: "<your New Relic API key>"
           account_id: "<your New Relic account ID>"
           is_eu_datacenter: false  # Set to true if using New Relic EU region
+          enable_multi_account: false  # Optional: set to true to query across multiple accounts
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -38,6 +39,7 @@ You can find these in your New Relic account under Administration > API keys and
             api_key: "<your New Relic API key>"
             account_id: "<your New Relic account ID>"
             is_eu_datacenter: false  # Set to true if using New Relic EU region
+            enable_multi_account: false  # Optional: set to true to query across multiple accounts
     ```
 
 ## Capabilities
@@ -45,6 +47,14 @@ You can find these in your New Relic account under Administration > API keys and
 | Tool Name | Description |
 |-----------|-------------|
 | newrelic_execute_nrql_query | Execute NRQL queries for Traces, APM, Spans, Logs and more |
+
+## Multi-Account Mode
+
+If your organization has multiple New Relic accounts, setting `enable_multi_account: true` lets Holmes query across all of them.
+
+Your API key must have access to all the accounts you want Holmes to query. Without the required permissions, Holmes won't be able to retrieve data from those accounts.
+
+The `account_id` in your config is used as the default when no specific account is specified.
 
 ## How it Works
 

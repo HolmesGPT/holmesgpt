@@ -115,7 +115,6 @@ class ConnectivityCheckToolset(Toolset):
             tags=[
                 ToolsetTag.CORE,
             ],
-            is_default=True,
             enabled=True,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/connectivity-check/",
         )
