@@ -88,6 +88,12 @@ class ModelEntry(BaseModel):
     api_base: Optional[str] = None
     api_version: Optional[str] = None
 
+    # AWS Bedrock cost-allocation / request tags.
+    # Specified as a plain key→value dict; Holmes converts them to the
+    # [{"key": k, "value": v}, …] format that LiteLLM/Bedrock expects.
+    # Only applied when the model identifier starts with "bedrock/".
+    bedrock_tags: Optional[Dict[str, str]] = None
+
     model_config = ConfigDict(
         extra="allow",
     )
@@ -272,6 +278,10 @@ class DefaultLLM(LLM):
     def update_custom_args(self):
         self.max_context_size = self.args.get("custom_args", {}).get("max_context_size")
         self.args.pop("custom_args", None)
+
+        bedrock_tags = self.args.pop("bedrock_tags", None)
+        if bedrock_tags and self.model.startswith("bedrock/"):
+            self.args["tags"] = [{"key": k, "value": v} for k, v in bedrock_tags.items()]
 
     def check_llm(
         self,
