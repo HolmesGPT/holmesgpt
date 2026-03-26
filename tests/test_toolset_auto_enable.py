@@ -122,10 +122,6 @@ class TestToolsetManagerAutoEnable:
     """Verify that ToolsetManager._list_all_toolsets respects missing_config
     when enable_all_toolsets=True (the CLI path)."""
 
-    def _make_manager_with_toolsets(self, toolsets: List[Toolset]) -> ToolsetManager:
-        manager = ToolsetManager()
-        return manager
-
     @patch("holmes.core.toolset_manager.load_builtin_toolsets")
     def test_auto_enable_skips_missing_config_toolset(self, mock_load):
         """A toolset with required config but no config provided should NOT be
