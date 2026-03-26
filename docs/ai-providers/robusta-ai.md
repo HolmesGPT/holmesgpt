@@ -3,7 +3,7 @@
 Access multiple AI models from different providers through Robusta's unified API, without managing individual API keys.
 
 !!! info "Robusta Enterprise Feature"
-    Robusta AI is available exclusively for [Robusta Enterprise](../installation/ui-installation.md) customers running HolmesGPT in Kubernetes. It provides access to various AI models through a single managed endpoint.
+    Robusta AI is available for [Robusta Enterprise](../installation/ui-installation.md) customers. It provides access to various AI models through a single managed endpoint.
 
 ## Overview
 
