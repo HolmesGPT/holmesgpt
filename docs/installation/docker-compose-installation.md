@@ -62,7 +62,7 @@ The Docker Compose file mounts `~/.holmes` into the container. Create `~/.holmes
 model: "anthropic/claude-sonnet-4-5-20250929"
 
 # Limit the number of tool-calling steps per investigation
-max_steps: 50
+max_steps: 100
 
 # Enable a builtin integration (e.g. Confluence)
 toolsets:
@@ -73,6 +73,8 @@ toolsets:
       user: "your-email@example.com"
       api_key: "your-api-token"
 ```
+
+For configuring additional data sources, see [Toolset Configuration](../data-sources/builtin-toolsets/index.md).
 
 After editing, restart the container to apply changes:
 
