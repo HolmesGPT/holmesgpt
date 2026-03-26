@@ -64,8 +64,14 @@ model: "anthropic/claude-sonnet-4-5-20250929"
 # Limit the number of tool-calling steps per investigation
 max_steps: 50
 
-# Add custom toolsets
-# custom_toolsets: ["path/to/toolset.yaml"]
+# Enable a builtin integration (e.g. Confluence)
+toolsets:
+  confluence:
+    enabled: true
+    config:
+      api_url: "https://yourcompany.atlassian.net"
+      user: "your-email@example.com"
+      api_key: "your-api-token"
 ```
 
 After editing, restart the container to apply changes:
