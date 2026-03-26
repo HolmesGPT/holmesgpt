@@ -6,6 +6,7 @@ import yaml
 
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.config import Config
+from holmes.core.llm import DefaultLLM
 
 # Global model configs for reuse across tests
 SONNET_MODEL_CONFIG = {
@@ -179,3 +180,75 @@ def test_create_console_toolcalling_llm_with_model_from_list(
             _assert_model_config_matches_call_kwargs(
                 call_kwargs, model_config, model_name
             )
+
+
+# ── bedrock_tags tests ────────────────────────────────────────────────────────
+
+
+def _make_bedrock_llm(extra_args: dict) -> DefaultLLM:
+    """Create a DefaultLLM for a bedrock model, bypassing credential checks."""
+    with patch.object(DefaultLLM, "check_llm"):
+        return DefaultLLM(
+            model="bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            args=extra_args,
+        )
+
+
+def test_bedrock_tags_converted_to_litellm_format():
+    """bedrock_tags dict is converted to [{key, value}] list passed as 'tags' to LiteLLM."""
+    llm = _make_bedrock_llm({"bedrock_tags": {"env": "prod", "team": "platform"}})
+
+    assert "bedrock_tags" not in llm.args
+    assert llm.args["tags"] == [
+        {"key": "env", "value": "prod"},
+        {"key": "team", "value": "platform"},
+    ]
+
+
+def test_bedrock_tags_not_applied_for_non_bedrock_model():
+    """bedrock_tags is silently dropped for non-bedrock models (no 'tags' injected)."""
+    with patch.object(DefaultLLM, "check_llm"):
+        llm = DefaultLLM(
+            model="gpt-5",
+            args={"bedrock_tags": {"env": "prod"}},
+        )
+
+    assert "bedrock_tags" not in llm.args
+    assert "tags" not in llm.args
+
+
+def test_no_bedrock_tags_leaves_args_unchanged():
+    """When bedrock_tags is absent, args are unaffected."""
+    llm = _make_bedrock_llm({"temperature": 1, "aws_region_name": "us-east-1"})
+
+    assert "bedrock_tags" not in llm.args
+    assert "tags" not in llm.args
+    assert llm.args["temperature"] == 1
+
+
+def test_bedrock_tags_from_model_list_file(monkeypatch, tmp_path):
+    """End-to-end: bedrock_tags defined in model_list.yaml is passed to DefaultLLM.__init__."""
+    data = {
+        "tagged-bedrock": {
+            "model": "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "aws_access_key_id": "test-key",
+            "aws_secret_access_key": "test-secret",
+            "aws_region_name": "us-east-1",
+            "bedrock_tags": {"cost-center": "infra", "env": "staging"},
+        }
+    }
+    temp_config_file = tmp_path / "model_list.yaml"
+    temp_config_file.write_text(yaml.dump(data))
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", str(temp_config_file))
+
+    config = Config()
+
+    with patch("holmes.config.DefaultLLM") as mock_default_llm:
+        mock_default_llm.return_value = _get_mock_llm()
+        config._get_llm("tagged-bedrock")
+
+        call_kwargs = mock_default_llm.call_args[1]
+        # bedrock_tags should be present in args passed to DefaultLLM.__init__;
+        # the conversion to [{key, value}] format happens inside DefaultLLM.update_custom_args()
+        # which is covered by the unit tests above.
+        assert call_kwargs["args"]["bedrock_tags"] == {"cost-center": "infra", "env": "staging"}

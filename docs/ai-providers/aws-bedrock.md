@@ -304,6 +304,53 @@ Or, for Helm:
             anthropic-beta: context-1m-2025-08-07
 
 
+## Request Tags
+
+You can attach AWS cost-allocation tags to every Bedrock request by adding a `bedrock_tags` map to the model entry in `modelList`. Tags are forwarded to the Bedrock API as request metadata and appear in AWS Cost Explorer for billing breakdowns.
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    # values.yaml
+    modelList:
+      bedrock-claude-sonnet-4:
+        aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
+        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+        aws_region_name: us-east-1
+        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+        temperature: 1
+        thinking:
+          budget_tokens: 10000
+          type: enabled
+        bedrock_tags:
+          environment: production
+          team: platform
+          cost-center: infra-123
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    # values.yaml
+    holmes:
+      modelList:
+        bedrock-claude-sonnet-4:
+          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
+          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+          aws_region_name: us-east-1
+          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+          temperature: 1
+          thinking:
+            budget_tokens: 10000
+            type: enabled
+          bedrock_tags:
+            environment: production
+            team: platform
+            cost-center: infra-123
+    ```
+
+`bedrock_tags` is a flat key/value map. It is only applied when the model identifier starts with `bedrock/` and has no effect on other providers.
+
 ## Additional Resources
 
 HolmesGPT uses the LiteLLM API to support AWS Bedrock provider. Refer to [LiteLLM Bedrock docs](https://litellm.vercel.app/docs/providers/bedrock){:target="_blank"} for more details.
