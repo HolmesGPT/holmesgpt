@@ -347,9 +347,6 @@ class DefaultLLM(LLM):
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
-                model_requirements = litellm.validate_environment(
-                    model=model, api_key=api_key, api_base=api_base
-                )
         elif provider == "azure":
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base, api_version=api_version
