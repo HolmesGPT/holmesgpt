@@ -1280,6 +1280,37 @@ class ShowCommandCompleter(Completer):
 
 WELCOME_BANNER = f"[dim]Type [bold]{SlashCommands.HELP.command}[/bold] for commands, [bold]{SlashCommands.CONFIG.command}[/bold] to configure, [bold]{SlashCommands.EXIT.command}[/bold] to quit[/dim]"
 
+SAMPLE_QUESTIONS = [
+    "Find surprising or unusual things in my Kubernetes cluster",
+    "Are any of my pods unhealthy? If so, why?",
+    "Check my cluster for security misconfigurations",
+    "Scan my cluster for resource issues (high CPU, memory, disk pressure)",
+    "What's running in my cluster and is anything misconfigured?",
+]
+
+_ASK_OWN_QUESTION_LABEL = "Ask my own question..."
+
+
+def _show_sample_questions_menu(console: Console) -> Optional[str]:
+    """Show sample questions menu on startup when no question is provided.
+
+    Returns the selected question text, or None if the user wants to type their own.
+    """
+    options = SAMPLE_QUESTIONS + [_ASK_OWN_QUESTION_LABEL]
+    default_index = len(options) - 1  # "Ask my own question" is the default
+
+    header = Panel(
+        "[bold]Try one of these questions to get started:[/bold]",
+        border_style="dim",
+        padding=(0, 1),
+    )
+
+    result = _run_inline_menu(options, console, header=header, default_index=default_index)
+
+    if result is None or result == default_index:
+        return None
+    return SAMPLE_QUESTIONS[result]
+
 
 def format_tool_call_output(
     tool_call: ToolCallResult, tool_index: Optional[int] = None
@@ -1688,7 +1719,10 @@ def prompt_for_llm_sharing(
 
 
 def _run_inline_menu(
-    options: list[str], console: Console, header: Any = None
+    options: list[str],
+    console: Console,
+    header: Any = None,
+    default_index: int = 0,
 ) -> Optional[int]:
     """Run an inline menu with arrow-key navigation using prompt_toolkit.
 
@@ -1702,11 +1736,12 @@ def _run_inline_menu(
         console: Rich console for output.
         header: Optional Rich renderable printed above the menu (erased
                 via ANSI codes after the menu exits).
+        default_index: Index of the initially selected option (0-based).
 
     Returns:
         Index of selected option (0-based), or ``None`` if cancelled.
     """
-    selected = [0]
+    selected = [default_index]
     result: List[Optional[int]] = [None]
 
     def get_menu_text():
@@ -2372,6 +2407,11 @@ def run_interactive_loop(
     if feedback_callback:
         welcome_banner += f", [bold]{SlashCommands.FEEDBACK.command}[/bold] for feedback"
     console.print(welcome_banner)
+
+    if not initial_user_input:
+        sample = _show_sample_questions_menu(console)
+        if sample:
+            initial_user_input = sample
 
     if initial_user_input:
         console.print(
