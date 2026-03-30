@@ -82,6 +82,23 @@ class FetchRobustaFinding(Tool):
         return f"Robusta: Fetch finding data {params}"
 
 
+def _parse_cluster_scope(params: Dict) -> Optional[List[str]]:
+    """Determine cluster scope from tool params.
+
+    LLMs sometimes pass clusters=[null] instead of omitting the parameter.
+    Filter out null values so that all_clusters / current-cluster fallback works.
+    """
+    # Filter null values from the clusters array
+    clusters = [c for c in (params.get("clusters") or []) if c is not None and c != ""]
+    if clusters:
+        return clusters
+    # If no valid clusters specified, check all_clusters flag
+    if params.get("all_clusters"):
+        return ["*"]
+    # else: None means current cluster only
+    return None
+
+
 class FetchResourceRecommendation(Tool):
     _dal: Optional[SupabaseDal]
 
@@ -164,6 +181,7 @@ class FetchResourceRecommendation(Tool):
                         "Leave empty to use default behavior (current cluster or all clusters based on all_clusters flag)."
                     ),
                     type="array",
+                    items=ToolParameter(type="string"),
                     required=False,
                 ),
             },
@@ -179,13 +197,7 @@ class FetchResourceRecommendation(Tool):
             )
             sort_by = params.get("sort_by") or "cpu_total"
 
-            # Determine cluster scope
-            clusters: Optional[List[str]] = None
-            if params.get("clusters"):
-                clusters = params["clusters"]
-            elif params.get("all_clusters"):
-                clusters = ["*"]
-            # else: None means current cluster only
+            clusters = _parse_cluster_scope(params)
 
             return self._dal.get_resource_recommendation(
                 limit=limit,
@@ -302,6 +314,7 @@ class FetchConfigurationChangesMetadata(Tool):
                         "Leave empty to use default behavior (current cluster or all clusters based on all_clusters flag)."
                     ),
                     type="array",
+                    items=ToolParameter(type="string"),
                     required=False,
                 ),
             },
@@ -314,13 +327,7 @@ class FetchConfigurationChangesMetadata(Tool):
         finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
-            # Determine cluster scope
-            clusters: Optional[List[str]] = None
-            if params.get("clusters"):
-                clusters = params["clusters"]
-            elif params.get("all_clusters"):
-                clusters = ["*"]
-            # else: None means current cluster only
+            clusters = _parse_cluster_scope(params)
 
             # Default include_external to True
             include_external = params.get("include_external")
@@ -432,6 +439,7 @@ class FetchResourceIssuesMetadata(Tool):
                         "Leave empty to use default behavior (current cluster or all clusters based on all_clusters flag)."
                     ),
                     type="array",
+                    items=ToolParameter(type="string"),
                     required=False,
                 ),
             },
@@ -440,13 +448,7 @@ class FetchResourceIssuesMetadata(Tool):
 
     def _fetch_issues(self, params: Dict) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
-            # Determine cluster scope
-            clusters: Optional[List[str]] = None
-            if params.get("clusters"):
-                clusters = params["clusters"]
-            elif params.get("all_clusters"):
-                clusters = ["*"]
-            # else: None means current cluster only
+            clusters = _parse_cluster_scope(params)
 
             return self._dal.get_issues_metadata(
                 start_datetime=params["start_datetime"],
