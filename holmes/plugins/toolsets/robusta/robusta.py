@@ -89,7 +89,7 @@ def _parse_cluster_scope(params: Dict) -> Optional[List[str]]:
     Filter out null values so that all_clusters / current-cluster fallback works.
     """
     # Filter null values from the clusters array
-    clusters = [c for c in (params.get("clusters") or []) if c is not None]
+    clusters = [c for c in (params.get("clusters") or []) if c is not None and c != ""]
     if clusters:
         return clusters
     # If no valid clusters specified, check all_clusters flag
