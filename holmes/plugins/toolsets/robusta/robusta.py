@@ -521,7 +521,6 @@ class RobustaToolset(Toolset):
             tags=[
                 ToolsetTag.CORE,
             ],
-            is_default=True,
         )
         template_file_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "robusta_instructions.jinja2")
