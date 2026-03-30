@@ -99,3 +99,68 @@ class TestGetInstanceDetails:
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         toolset.client.get.assert_called_once_with("/api/instances/1")
+
+
+class TestGetActiveAlerts:
+    def test_returns_active_alerts(self):
+        from holmes.plugins.toolsets.dbdash.tools.alerts import GetActiveAlerts
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "alerts": [
+                {
+                    "Priority": 1,
+                    "AlertType": "CPU",
+                    "AlertKey": "prod-sql-01",
+                    "InstanceDisplayName": "prod-sql-01",
+                    "FirstMessage": "CPU > 90%",
+                    "TriggerDate": "2026-03-30T10:00:00Z",
+                    "UpdateCount": 3,
+                    "IsAcknowledged": False,
+                },
+            ],
+            "counts": {"critical": 1, "warning": 0, "info": 0, "acknowledged": 0},
+        }
+
+        tool = GetActiveAlerts(toolset)
+        result = tool._invoke({}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert len(result.data["alerts"]) == 1
+        toolset.client.get.assert_called_once_with("/api/alerts", params={"status": "active"})
+
+    def test_returns_no_data_when_no_alerts(self):
+        from holmes.plugins.toolsets.dbdash.tools.alerts import GetActiveAlerts
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "alerts": [],
+            "counts": {"critical": 0, "warning": 0, "info": 0, "acknowledged": 0},
+        }
+
+        tool = GetActiveAlerts(toolset)
+        result = tool._invoke({}, make_context())
+
+        assert result.status == StructuredToolResultStatus.NO_DATA
+
+
+class TestGetClosedAlerts:
+    def test_returns_closed_alerts(self):
+        from holmes.plugins.toolsets.dbdash.tools.alerts import GetClosedAlerts
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "alerts": [
+                {
+                    "AlertType": "Memory",
+                    "InstanceDisplayName": "prod-sql-01",
+                    "ClosedDate": "2026-03-30T09:00:00Z",
+                },
+            ],
+        }
+
+        tool = GetClosedAlerts(toolset)
+        result = tool._invoke({}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        toolset.client.get.assert_called_once_with("/api/alerts", params={"status": "closed"})
