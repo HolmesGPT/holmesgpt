@@ -220,3 +220,82 @@ class TestGetWaitStats:
         result = tool._invoke({"instanceId": "1"}, make_context())
 
         assert result.status == StructuredToolResultStatus.SUCCESS
+
+
+class TestGetSlowQueries:
+    def test_returns_slow_queries(self):
+        from holmes.plugins.toolsets.dbdash.tools.queries import GetSlowQueries
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "summary": [{"Grp": "Total", "Total": 50, "TotalDurationMs": 120000}],
+            "detail": [{"InstanceDisplayName": "prod-sql-01", "SQLText": "SELECT *", "Duration": 5000}],
+        }
+
+        tool = GetSlowQueries(toolset)
+        result = tool._invoke({"instanceId": "1"}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+
+
+class TestGetRunningQueries:
+    def test_returns_running_queries(self):
+        from holmes.plugins.toolsets.dbdash.tools.queries import GetRunningQueries
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "data": [{"SPID": 55, "DatabaseName": "PaymentDB", "Duration": 120, "SQLText": "UPDATE orders..."}],
+        }
+
+        tool = GetRunningQueries(toolset)
+        result = tool._invoke({"instanceId": "1"}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+
+    def test_blocked_only_filter(self):
+        from holmes.plugins.toolsets.dbdash.tools.queries import GetRunningQueries
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {"data": []}
+
+        tool = GetRunningQueries(toolset)
+        result = tool._invoke({"instanceId": "1", "blockedOnly": "true"}, make_context())
+
+        call_params = toolset.client.get.call_args[1]["params"]
+        assert call_params["blockedOnly"] == "true"
+
+
+class TestGetBlockingQueries:
+    def test_returns_blocking_data(self):
+        from holmes.plugins.toolsets.dbdash.tools.queries import GetBlockingQueries
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "data": [{"HeadBlockerSPID": 55, "BlockedSPID": 60, "WaitType": "LCK_M_X"}],
+            "summary": [{"WaitType": "LCK_M_X", "BlockingCount": 5}],
+            "snapshots": [],
+        }
+
+        tool = GetBlockingQueries(toolset)
+        result = tool._invoke({"instanceId": "1"}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+
+
+class TestGetQueryStoreTop:
+    def test_returns_top_queries(self):
+        from holmes.plugins.toolsets.dbdash.tools.queries import GetQueryStoreTop
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "databases": [{"DatabaseID": 1, "name": "PaymentDB"}],
+            "data": [{"QueryID": 42, "QueryText": "SELECT * FROM orders", "TotalCPU": 50000}],
+            "metric": "cpu",
+        }
+
+        tool = GetQueryStoreTop(toolset)
+        result = tool._invoke({"instanceId": "1", "metric": "cpu"}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        call_params = toolset.client.get.call_args[1]["params"]
+        assert call_params["metric"] == "cpu"
