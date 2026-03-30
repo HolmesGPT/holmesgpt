@@ -1,5 +1,6 @@
 import json
 import logging
+from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -124,6 +125,56 @@ class ToolApprovalDecision(BaseModel):
     feedback: Optional[str] = None  # User feedback when denying a tool call
 
 
+class FrontendToolMode(str, Enum):
+    PAUSE = "pause"
+    NOOP = "noop"
+
+
+class FrontendToolDefinition(BaseModel):
+    """A tool defined by the frontend client for the LLM to call.
+
+    mode="pause" (default): Holmes pauses the stream and asks the client to
+    execute the tool, returning results in the next request.
+
+    mode="noop": Holmes returns a canned response immediately and the LLM
+    continues without pausing. The client sees the tool call in SSE events
+    and can execute it as a fire-and-forget side effect.
+    """
+
+    name: str
+    description: str
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="JSON Schema object describing the tool's parameters (OpenAI function calling format)",
+    )
+    mode: FrontendToolMode = Field(
+        default=FrontendToolMode.PAUSE,
+        description="'pause' (default): stream pauses, client executes and returns results. "
+        "'noop': server returns canned response immediately, client executes as side effect.",
+    )
+    noop_response: Optional[str] = Field(
+        default=None,
+        description="Custom canned response for noop-mode tools. "
+        "Defaults to 'The action was performed successfully in the user's browser.'",
+    )
+
+
+class FrontendToolResult(BaseModel):
+    """Result of a frontend-executed tool, sent by the client to resume the stream."""
+
+    tool_call_id: str
+    tool_name: str
+    result: str
+
+
+class PendingFrontendToolCall(BaseModel):
+    """A frontend tool call that the LLM requested, awaiting client execution."""
+
+    tool_call_id: str
+    tool_name: str
+    arguments: Dict[str, Any]
+
+
 class ChatRequestBaseModel(BaseModel):
     conversation_history: Optional[list[dict]] = None
     model: Optional[str] = None
@@ -132,6 +183,14 @@ class ChatRequestBaseModel(BaseModel):
         False  # Optional boolean for backwards compatibility
     )
     tool_decisions: Optional[List[ToolApprovalDecision]] = None
+    frontend_tools: Optional[List[FrontendToolDefinition]] = Field(
+        default=None,
+        description="Tools defined by the frontend client. When the LLM calls one, Holmes pauses and asks the client to execute it.",
+    )
+    frontend_tool_results: Optional[List[FrontendToolResult]] = Field(
+        default=None,
+        description="Results from frontend-executed tools, sent to resume a paused stream.",
+    )
     additional_system_prompt: Optional[str] = None
     trace_span: Optional[Any] = (
         None  # Optional span for tracing and heartbeat callbacks
