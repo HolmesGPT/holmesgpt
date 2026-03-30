@@ -1035,6 +1035,9 @@ def version() -> None:
 
 
 def run():
+    # Default to "ask" command when no subcommand is given
+    if len(sys.argv) == 1:
+        sys.argv.insert(1, "ask")
     app()
 
 

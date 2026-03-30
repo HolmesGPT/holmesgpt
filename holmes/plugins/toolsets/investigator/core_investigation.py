@@ -142,7 +142,6 @@ class CoreInvestigationToolset(Toolset):
             enabled=True,
             tools=[TodoWriteTool()],
             tags=[ToolsetTag.CORE],
-            is_default=True,
         )
 
     def _reload_instructions(self):

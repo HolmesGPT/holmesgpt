@@ -417,7 +417,6 @@ class BashExecutorToolset(Toolset):
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[RunBashCommand(self), ReadImageFile(self)],
             tags=[ToolsetTag.CORE],
-            is_default=True,
         )
 
         self._reload_llm_instructions()

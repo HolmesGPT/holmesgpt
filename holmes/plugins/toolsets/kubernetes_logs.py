@@ -56,7 +56,7 @@ class KubernetesLogsToolset(Toolset):
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/",
             icon_url="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s",
             prerequisites=[prerequisite],
-            is_default=True,
+            enabled=True,
             tools=[],  # Initialize with empty tools first
             tags=[ToolsetTag.CORE],
         )

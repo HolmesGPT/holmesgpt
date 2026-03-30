@@ -13,7 +13,6 @@ class TestCoreInvestigationToolset:
         assert toolset.name == "core_investigation"
         assert "investigation tools" in toolset.description
         assert toolset.enabled is True
-        assert toolset.is_default is True
         assert ToolsetTag.CORE in toolset.tags
 
     def test_toolset_has_todo_write_tool(self):
