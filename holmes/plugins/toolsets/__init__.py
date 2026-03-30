@@ -56,6 +56,7 @@ from holmes.plugins.toolsets.pagerduty.toolset_pagerduty import PagerDutyToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
 from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
+from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
@@ -118,6 +119,7 @@ def load_python_toolsets(
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        DBADashToolset(),
         DatabaseToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
@@ -269,6 +271,7 @@ PYTHON_TOOLSET_FACTORIES: dict[str, type] = {
     "grafana/dashboards": GrafanaToolset,
     "grafana/loki": GrafanaLokiToolset,
     "grafana/tempo": GrafanaTempoToolset,
+    "dbdash": DBADashToolset,
 }
 
 # PrometheusToolset is conditionally imported, so add it only when available
