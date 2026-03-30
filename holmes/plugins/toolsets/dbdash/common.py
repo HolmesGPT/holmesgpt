@@ -51,6 +51,47 @@ class DBADashConfig(ToolsetConfig):
         return self
 
 
+def filter_instances_by_tags(
+    instances: list[Dict[str, Any]],
+    instance_tags: list[Dict[str, Any]],
+    configured_tags: Optional[Dict[str, str]],
+) -> list[Dict[str, Any]]:
+    """Filter instances to only those matching ALL configured tags.
+
+    Args:
+        instances: List of {"InstanceID": int, "InstanceDisplayName": str}
+        instance_tags: List of {"InstanceID": int, "TagName": str, "TagValue": str}
+        configured_tags: Tags to filter by (e.g., {"project": "payments"}).
+                         If None, returns all instances.
+
+    Returns:
+        Filtered list of instances matching all configured tags.
+    """
+    if not configured_tags:
+        return instances
+
+    # Build a map: instance_id -> {tag_name: tag_value}
+    tag_map: Dict[int, Dict[str, str]] = {}
+    for tag_entry in instance_tags:
+        instance_id = tag_entry["InstanceID"]
+        if instance_id not in tag_map:
+            tag_map[instance_id] = {}
+        tag_map[instance_id][tag_entry["TagName"]] = tag_entry["TagValue"]
+
+    # Filter instances where ALL configured tags match
+    filtered = []
+    for instance in instances:
+        instance_id = instance["InstanceID"]
+        instance_tag_values = tag_map.get(instance_id, {})
+        if all(
+            instance_tag_values.get(tag_name) == tag_value
+            for tag_name, tag_value in configured_tags.items()
+        ):
+            filtered.append(instance)
+
+    return filtered
+
+
 class DBADashClient:
     """Thin HTTP wrapper for dbdash-web API with JWT authentication."""
 
