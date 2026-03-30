@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -299,3 +299,77 @@ class TestGetQueryStoreTop:
         assert result.status == StructuredToolResultStatus.SUCCESS
         call_params = toolset.client.get.call_args[1]["params"]
         assert call_params["metric"] == "cpu"
+
+
+class TestDBADashToolsetIntegration:
+    """Smoke test: verify the toolset initializes and all tools are wired correctly."""
+
+    def test_toolset_has_all_12_tools(self):
+        from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
+
+        toolset = DBADashToolset()
+        assert len(toolset.tools) == 12
+
+        tool_names = {t.name for t in toolset.tools}
+        expected_names = {
+            "dbdash_list_instances",
+            "dbdash_get_instance_details",
+            "dbdash_get_active_alerts",
+            "dbdash_get_closed_alerts",
+            "dbdash_get_cpu_metrics",
+            "dbdash_get_memory_metrics",
+            "dbdash_get_wait_stats",
+            "dbdash_get_io_stats",
+            "dbdash_get_slow_queries",
+            "dbdash_get_running_queries",
+            "dbdash_get_blocking_queries",
+            "dbdash_get_query_store_top",
+        }
+        assert tool_names == expected_names
+
+    def test_toolset_name_and_description(self):
+        from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
+
+        toolset = DBADashToolset()
+        assert toolset.name == "dbdash"
+        assert "SQL Server" in toolset.description
+
+    def test_toolset_custom_name(self):
+        from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
+
+        toolset = DBADashToolset(name="dbdash:payments")
+        assert toolset.name == "dbdash:payments"
+
+    def test_prerequisites_fail_without_config(self):
+        from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
+
+        toolset = DBADashToolset()
+        success, error = toolset.prerequisites_callable({})
+        assert success is False
+        assert "missing" in error.lower()
+
+    @patch("holmes.plugins.toolsets.dbdash.common.requests.Session")
+    def test_prerequisites_succeed_with_valid_config(self, mock_session_cls):
+        from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
+
+        mock_session = MagicMock()
+        login_response = MagicMock()
+        login_response.status_code = 200
+        login_response.json.return_value = {"user": {"username": "holmes"}}
+        health_response = MagicMock()
+        health_response.status_code = 200
+        health_response.json.return_value = {"status": "connected"}
+        health_response.raise_for_status = MagicMock()
+        mock_session.post.return_value = login_response
+        mock_session.get.return_value = health_response
+        mock_session_cls.return_value = mock_session
+
+        toolset = DBADashToolset()
+        success, error = toolset.prerequisites_callable({
+            "api_url": "https://db-monitor.example.com",
+            "username": "holmes",
+            "password": "secret123",
+        })
+
+        assert success is True
+        assert error == ""
