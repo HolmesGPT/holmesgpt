@@ -1,4 +1,3 @@
-# ruff: noqa: F821
 import logging
 import os
 import time
@@ -7,7 +6,10 @@ from time import sleep
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from prometheus_client import start_http_server
 from prometheus_fastapi_instrumentator import Instrumentator
+
+import uvicorn
 
 app = FastAPI()
 
