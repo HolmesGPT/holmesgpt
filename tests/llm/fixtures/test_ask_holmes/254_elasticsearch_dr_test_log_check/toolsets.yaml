@@ -1,0 +1,25 @@
+# ES-only eval — only elasticsearch toolsets are available
+# Robusta and bash disabled to ensure Holmes investigates via ES indices
+toolsets:
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  robusta:
+    enabled: false
+  bash:
+    enabled: false

@@ -65,7 +65,7 @@
     {
       "id": "azure-mcp",
       "name": "Azure",
-      "description": "Activity Logs, AKS, NSGs, VNets, Key Vault, Storage, Cost analysis",
+      "description": "Any Azure Service",
       "categories": ["cloud-providers"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/microsoftazure.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/azure-mcp/?tab=robusta-helm-chart",

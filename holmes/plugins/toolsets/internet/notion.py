@@ -125,7 +125,6 @@ class NotionToolset(InternetBaseToolset):
             tags=[
                 ToolsetTag.CORE,
             ],
-            is_default=False,
         )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:

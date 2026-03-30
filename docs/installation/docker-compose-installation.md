@@ -53,6 +53,39 @@ See the [HTTP API Reference](../reference/http-api.md) for full documentation on
 
 ## Next Steps
 
+### Customize Holmes Settings
+
+The Docker Compose file mounts `~/.holmes` into the container. Create `~/.holmes/config.yaml` to customize Holmes behavior:
+
+```yaml
+# Change the LLM model
+model: "anthropic/claude-sonnet-4-5-20250929"
+
+# Limit the number of tool-calling steps per investigation
+max_steps: 100
+
+# Enable a builtin integration (e.g. Confluence)
+toolsets:
+  confluence:
+    enabled: true
+    config:
+      api_url: "https://yourcompany.atlassian.net"
+      user: "your-email@example.com"
+      api_key: "your-api-token"
+```
+
+For configuring additional data sources, see [Toolset Configuration](../data-sources/builtin-toolsets/index.md).
+
+After editing, restart the container to apply changes:
+
+```bash
+docker compose restart
+```
+
+For the full list of environment variables and options, see the [Environment Variables](../reference/environment-variables.md) reference.
+
+### Learn More
+
 - **[HTTP API Reference](../reference/http-api.md)** — Full API documentation
 - **[Helm Chart](kubernetes-installation.md)** — Deploy the HTTP server on Kubernetes
 - **[CLI Installation](cli-installation.md)** — Run HolmesGPT as a command-line tool instead
