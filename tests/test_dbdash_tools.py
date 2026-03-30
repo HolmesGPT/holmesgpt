@@ -164,3 +164,59 @@ class TestGetClosedAlerts:
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         toolset.client.get.assert_called_once_with("/api/alerts", params={"status": "closed"})
+
+
+class TestGetCpuMetrics:
+    def test_returns_cpu_data(self):
+        from holmes.plugins.toolsets.dbdash.tools.performance import GetCpuMetrics
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "data": [{"EventTime": "2026-03-30T10:00:00Z", "SQLProcessCPU": 85, "OtherCPU": 5, "MaxCPU": 90}],
+            "histogram": [{"CPUBucket": 90, "OccurrenceCount": 15}],
+        }
+
+        tool = GetCpuMetrics(toolset)
+        result = tool._invoke({"instanceId": "1"}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        toolset.client.get.assert_called_once()
+        call_args = toolset.client.get.call_args
+        assert call_args[0][0] == "/api/performance/cpu"
+        assert call_args[1]["params"]["instanceId"] == "1"
+
+    def test_returns_no_data_when_empty(self):
+        from holmes.plugins.toolsets.dbdash.tools.performance import GetCpuMetrics
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {"data": [], "histogram": []}
+
+        tool = GetCpuMetrics(toolset)
+        result = tool._invoke({"instanceId": "1"}, make_context())
+
+        assert result.status == StructuredToolResultStatus.NO_DATA
+
+    def test_missing_instance_id_returns_error(self):
+        from holmes.plugins.toolsets.dbdash.tools.performance import GetCpuMetrics
+
+        toolset = make_mock_toolset()
+        tool = GetCpuMetrics(toolset)
+        result = tool._invoke({}, make_context())
+
+        assert result.status == StructuredToolResultStatus.ERROR
+
+
+class TestGetWaitStats:
+    def test_returns_wait_data(self):
+        from holmes.plugins.toolsets.dbdash.tools.performance import GetWaitStats
+
+        toolset = make_mock_toolset()
+        toolset.client.get.return_value = {
+            "data": [{"Time": "2026-03-30T10:00:00Z", "WaitType": "PAGEIOLATCH_SH", "TotalWaitSec": 120}],
+            "summary": [{"WaitType": "PAGEIOLATCH_SH", "Description": "I/O wait", "TotalWaitSec": 120}],
+        }
+
+        tool = GetWaitStats(toolset)
+        result = tool._invoke({"instanceId": "1"}, make_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
