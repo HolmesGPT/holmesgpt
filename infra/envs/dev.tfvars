@@ -98,4 +98,4 @@ ado_webhook_username   = "holmesgpt"
 
 # DBADash Web integration — credentials stored in Secrets Manager (fetched at runtime by the pod)
 dbdash_api_url             = "https://db-monitor.shared.platform.pditechnologies.com"
-dbdash_secrets_manager_arn = "arn:aws:secretsmanager:us-east-1:827852520868:secret:holmesgpt/dbdash-web/credentials-ZlBuJ0"
+dbdash_secrets_manager_arn = "arn:aws:secretsmanager:us-east-1:717423812395:secret:holmesgpt-dev/dbdash-web-credentials-g3D5at"

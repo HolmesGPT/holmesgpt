@@ -105,7 +105,7 @@ class GetCpuMetrics(Tool):
                 status=StructuredToolResultStatus.ERROR,
                 error=(
                     f"Failed to fetch CPU metrics from "
-                    f"{self._toolset.config.api_url}/api/performance/cpu "
+                    f"{self._toolset.dbdash_config.api_url}/api/performance/cpu "
                     f"with params {query_params}: {e}"
                 ),
                 params=params,
@@ -158,7 +158,7 @@ class GetMemoryMetrics(Tool):
                 status=StructuredToolResultStatus.ERROR,
                 error=(
                     f"Failed to fetch memory metrics from "
-                    f"{self._toolset.config.api_url}/api/performance/memory "
+                    f"{self._toolset.dbdash_config.api_url}/api/performance/memory "
                     f"with params {query_params}: {e}"
                 ),
                 params=params,
@@ -212,7 +212,7 @@ class GetWaitStats(Tool):
                 status=StructuredToolResultStatus.ERROR,
                 error=(
                     f"Failed to fetch wait stats from "
-                    f"{self._toolset.config.api_url}/api/performance/waits "
+                    f"{self._toolset.dbdash_config.api_url}/api/performance/waits "
                     f"with params {query_params}: {e}"
                 ),
                 params=params,
@@ -265,7 +265,7 @@ class GetIoStats(Tool):
                 status=StructuredToolResultStatus.ERROR,
                 error=(
                     f"Failed to fetch I/O stats from "
-                    f"{self._toolset.config.api_url}/api/performance/io "
+                    f"{self._toolset.dbdash_config.api_url}/api/performance/io "
                     f"with params {query_params}: {e}"
                 ),
                 params=params,

@@ -33,7 +33,7 @@ class ListInstances(Tool):
         try:
             instances = self._toolset.client.get("/api/instances")
 
-            configured_tags = self._toolset.config.instance_tags
+            configured_tags = self._toolset.dbdash_config.instance_tags
             if configured_tags:
                 tags_response = self._toolset.client.get("/api/settings/tags")
                 instance_tags = tags_response.get("instanceTags", [])
@@ -55,7 +55,7 @@ class ListInstances(Tool):
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to list instances from {self._toolset.config.api_url}/api/instances: {e}",
+                error=f"Failed to list instances from {self._toolset.dbdash_config.api_url}/api/instances: {e}",
                 params=params,
             )
 
@@ -104,7 +104,7 @@ class GetInstanceDetails(Tool):
                 status=StructuredToolResultStatus.ERROR,
                 error=(
                     f"Failed to get instance details from "
-                    f"{self._toolset.config.api_url}/api/instances/{instance_id}: {e}"
+                    f"{self._toolset.dbdash_config.api_url}/api/instances/{instance_id}: {e}"
                 ),
                 params=params,
             )

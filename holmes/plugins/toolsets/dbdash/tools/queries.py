@@ -75,7 +75,7 @@ class GetSlowQueries(Tool):
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to fetch slow queries from {self._toolset.config.api_url}/api/queries/slow: {e}",
+                error=f"Failed to fetch slow queries from {self._toolset.dbdash_config.api_url}/api/queries/slow: {e}",
                 params=params,
             )
 
@@ -142,7 +142,7 @@ class GetRunningQueries(Tool):
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to fetch running queries from {self._toolset.config.api_url}/api/queries/running: {e}",
+                error=f"Failed to fetch running queries from {self._toolset.dbdash_config.api_url}/api/queries/running: {e}",
                 params=params,
             )
 
@@ -204,7 +204,7 @@ class GetBlockingQueries(Tool):
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to fetch blocking queries from {self._toolset.config.api_url}/api/queries/blocking: {e}",
+                error=f"Failed to fetch blocking queries from {self._toolset.dbdash_config.api_url}/api/queries/blocking: {e}",
                 params=params,
             )
 
@@ -294,7 +294,7 @@ class GetQueryStoreTop(Tool):
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to fetch Query Store data from {self._toolset.config.api_url}/api/queries/query-store: {e}",
+                error=f"Failed to fetch Query Store data from {self._toolset.dbdash_config.api_url}/api/queries/query-store: {e}",
                 params=params,
             )
 

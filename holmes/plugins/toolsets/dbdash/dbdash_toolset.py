@@ -61,7 +61,7 @@ class DBADashToolset(Toolset):
         )
 
     @property
-    def config(self) -> DBADashConfig:
+    def dbdash_config(self) -> DBADashConfig:
         if not hasattr(self, "_dbdash_config") or self._dbdash_config is None:
             raise RuntimeError("DBADash toolset not initialized — config is None")
         return self._dbdash_config

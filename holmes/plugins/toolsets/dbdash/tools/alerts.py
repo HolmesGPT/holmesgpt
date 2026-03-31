@@ -47,7 +47,7 @@ class GetActiveAlerts(Tool):
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to fetch active alerts from {self._toolset.config.api_url}/api/alerts: {e}",
+                error=f"Failed to fetch active alerts from {self._toolset.dbdash_config.api_url}/api/alerts: {e}",
                 params=params,
             )
 
@@ -80,7 +80,7 @@ class GetClosedAlerts(Tool):
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to fetch closed alerts from {self._toolset.config.api_url}/api/alerts: {e}",
+                error=f"Failed to fetch closed alerts from {self._toolset.dbdash_config.api_url}/api/alerts: {e}",
                 params=params,
             )
 

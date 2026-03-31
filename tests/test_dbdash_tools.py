@@ -16,7 +16,7 @@ def make_mock_toolset(instance_tags=None):
         instance_tags=instance_tags,
     )
     toolset = MagicMock()
-    toolset.config = config
+    toolset.dbdash_config = config
     toolset.client = MagicMock(spec=DBADashClient)
     toolset.name = "dbdash"
     return toolset
