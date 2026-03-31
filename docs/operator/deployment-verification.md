@@ -36,7 +36,7 @@ metadata:
     app: checkout-api
     deploy-version: v2.4.1
 spec:
-  query: "Is the checkout-api deployment in 'production' fully rolled out with all replicas ready and not crash-looping? Check that pods are running the expected image and responding without errors."
+  query: "We just deployed checkout-api v2.4.1 to production. Does everything look healthy? Any issues with the rollout?"
   timeout: 120
   mode: alert
   destinations:
