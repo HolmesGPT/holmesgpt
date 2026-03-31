@@ -336,7 +336,13 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
     selected: list = []
     total_tools = 0
 
-    for ts in source_ts + core_ts + other_ts:
+    # When a specific source is provided, use focused mode: only source + core toolsets.
+    # This dramatically reduces token count (from ~37K to ~5K) and avoids AI gateway
+    # "internal error" on large tool-calling requests.
+    # When no source is provided, include all toolsets up to the cap (original behavior).
+    toolsets_to_include = source_ts + core_ts if priority_prefixes else source_ts + core_ts + other_ts
+
+    for ts in toolsets_to_include:
         count = _toolset_tool_count(ts)
         if total_tools + count > MAX_TOOLS_PER_CALL:
             logging.info(
