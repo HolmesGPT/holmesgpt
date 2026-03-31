@@ -1020,22 +1020,33 @@ def build_project_tool_executor(
             # ── Global toolset reuse (no per-project overrides) ───────────────
             # Match by instance name first, then by instance type (which IS the toolset name
             # for built-in toolsets like datadog/general, datadog/logs, grafana/dashboards, etc.)
-            if instance.name in global_by_name:
-                project_toolsets.append(global_by_name[instance.name])
-                continue
-            if instance.type in global_by_name:
-                project_toolsets.append(global_by_name[instance.type])
-                continue
+            # Skip global reuse if instance has a secret_arn — it needs dynamic instantiation
+            # with per-project credentials/config from the secret.
+            if not instance.secret_arn:
+                if instance.name in global_by_name:
+                    project_toolsets.append(global_by_name[instance.name])
+                    continue
+                if instance.type in global_by_name:
+                    project_toolsets.append(global_by_name[instance.type])
+                    continue
 
             # ── Dynamically instantiate Python toolset with Secrets Manager creds ──
             creds = _fetch_secret(instance.secret_arn) if instance.secret_arn else {}
-            synthetic_config = {instance.name: {"enabled": True, "config": creds}}
+            # For toolsets registered in PYTHON_TOOLSET_FACTORIES (e.g. "dbdash"),
+            # inject _python_base so load_toolsets_from_config uses the factory.
+            from holmes.plugins.toolsets import PYTHON_TOOLSET_FACTORIES
+
+            synthetic_config: dict = {"enabled": True, "config": creds}
+            if instance.type in PYTHON_TOOLSET_FACTORIES:
+                synthetic_config["_python_base"] = instance.type
+                synthetic_config["_instance_name"] = instance.name
+
             from holmes.plugins.toolsets import (
                 load_toolsets_from_config,  # type: ignore
             )
 
             new_toolsets = load_toolsets_from_config(
-                synthetic_config, strict_check=False
+                {instance.name: synthetic_config}, strict_check=False
             )
             if new_toolsets:
                 ts = new_toolsets[0]

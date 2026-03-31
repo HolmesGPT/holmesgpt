@@ -41,8 +41,9 @@ resource "aws_iam_policy" "holmes_secrets" {
           aws_secretsmanager_secret.ado_webhook.arn,
           aws_secretsmanager_secret.salesforce_webhook.arn,
           "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.cluster_name}/project-*",
-          # DBADash credentials — fetched at runtime by the dbdash toolset via boto3
+          # DBADash credentials — global + per-project secrets fetched at runtime via boto3
           var.dbdash_secrets_manager_arn != "" ? var.dbdash_secrets_manager_arn : "",
+          "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.cluster_name}/dbdash-*",
         ])
       }
     ]
