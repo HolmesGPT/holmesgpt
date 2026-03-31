@@ -275,6 +275,9 @@ _SOURCE_TOOLSET_PRIORITY: dict[str, list[str]] = {
     "grafana": ["grafana"],
     "kubernetes": ["kubernetes"],
     "aws": ["aws_api"],
+    "dbdash": ["dbdash"],
+    "dbadash": ["dbdash"],
+    "sql_server": ["dbdash"],
 }
 
 # Toolsets that are always included regardless of source

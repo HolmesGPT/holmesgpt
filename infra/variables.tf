@@ -288,3 +288,16 @@ variable "aws_mcp_enabled" {
   type        = bool
   default     = false
 }
+
+# DBADash Web integration
+variable "dbdash_api_url" {
+  description = "Base URL of the dbdash-web instance"
+  type        = string
+  default     = "https://db-monitor.shared.platform.pditechnologies.com"
+}
+
+variable "dbdash_secrets_manager_arn" {
+  description = "ARN of the Secrets Manager secret containing dbdash-web Cognito credentials (username, password, cognito_user_pool_id, cognito_client_id)"
+  type        = string
+  default     = ""
+}

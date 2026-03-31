@@ -381,6 +381,13 @@ resource "helm_release" "holmes" {
         "runbook"            = { enabled = true }
         "connectivity_check" = { enabled = true }
         "internet"           = { enabled = true }
+        "dbdash" = var.dbdash_secrets_manager_arn != "" ? {
+          enabled = true
+          config = {
+            api_url             = var.dbdash_api_url
+            secrets_manager_arn = var.dbdash_secrets_manager_arn
+          }
+        } : { enabled = false }
       }
 
       mcp_servers = local.mcp_keys["MCP_ADO_API_KEY"] != "" || local.mcp_keys["MCP_ATLASSIAN_API_KEY"] != "" || local.mcp_keys["MCP_SALESFORCE_API_KEY"] != "" ? merge(
