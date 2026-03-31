@@ -88,3 +88,10 @@ logistics_accounts = {
 
 # Enable the AWS MCP server addon now that real account IDs are set
 aws_mcp_enabled = true
+
+
+
+# ADO Webhook — set via TF_VAR_ environment variables, not here (secrets!)
+# TF_VAR_ado_pat, TF_VAR_ado_organization, TF_VAR_ado_webhook_username, TF_VAR_ado_webhook_password
+ado_organization       = "pdidev"
+ado_webhook_username   = "holmesgpt"

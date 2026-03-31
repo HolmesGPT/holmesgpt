@@ -1576,6 +1576,20 @@ files = [
 ]
 
 [[package]]
+name = "envs"
+version = "1.4"
+description = "Easy access of environment variables from Python with support for strings, booleans, list, tuples, and dicts."
+optional = false
+python-versions = ">=3.6,<4.0"
+files = [
+    {file = "envs-1.4-py3-none-any.whl", hash = "sha256:4a1fcf85e4d4443e77c348ff7cdd3bfc4c0178b181d447057de342e4172e5ed1"},
+    {file = "envs-1.4.tar.gz", hash = "sha256:9d8435c6985d1cdd68299e04c58e2bdb8ae6cf66b2596a8079e6f9a93f2a0398"},
+]
+
+[package.extras]
+cli = ["Jinja2[cli] (>=3.0.3,<4.0.0)", "click[cli] (>=8.0.3,<9.0.0)", "terminaltables[cli] (>=3.1.10,<4.0.0)"]
+
+[[package]]
 name = "events"
 version = "0.5"
 description = "Bringing the elegance of C# EventHandler to Python"
@@ -4803,6 +4817,23 @@ files = [
 pyasn1 = ">=0.6.1,<0.7.0"
 
 [[package]]
+name = "pycognito"
+version = "2024.5.1"
+description = "Python class to integrate Boto3's Cognito client so it is easy to login users. With SRP support."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pycognito-2024.5.1-py3-none-any.whl", hash = "sha256:c821895dc62b7aea410fdccae4f96d8be7cab374182339f50a03de0fcb93f9ea"},
+    {file = "pycognito-2024.5.1.tar.gz", hash = "sha256:e211c66698c2c3dc8680e95107c2b4a922f504c3f7c179c27b8ee1ab0fc23ae4"},
+]
+
+[package.dependencies]
+boto3 = ">=1.10.49"
+envs = ">=1.3"
+pyjwt = {version = ">=2.8.0", extras = ["crypto"]}
+requests = ">=2.22.0"
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 description = "C parser in Python"
@@ -7361,4 +7392,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "5248d9a1c511fdedffa4790d8f10528c3677821da3e0a756ae145cd63261f052"
+content-hash = "0dbd9013d7634c8f76502335cb72af5a54241b8502a649b856991fddce617429"
