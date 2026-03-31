@@ -132,7 +132,7 @@ metadata:
   name: example-check
   namespace: default
 spec:
-  query: "Anything look off in the default namespace? Check pod health, recent restarts, and any warning events."
+  query: "Is the default namespace healthy? Check pod status, recent restarts, and warning events."
   timeout: 30
 ```
 
