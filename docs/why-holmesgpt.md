@@ -28,7 +28,7 @@ kind: HealthCheck
 metadata:
   name: check-payments
 spec:
-  query: "Are all pods in the payments namespace running and healthy?"
+  query: "How is the payments namespace looking? Check pod health, error rates, resource usage, and anything unusual in the logs."
   timeout: 30
 ```
 
@@ -41,7 +41,7 @@ metadata:
   name: hourly-cluster-health
 spec:
   schedule: "0 * * * *"
-  query: "Are there any unhealthy pods or failing deployments?"
+  query: "Anything going wrong in the cluster? Check pod health, deployment rollouts, error rates, resource pressure, and recent log anomalies."
   timeout: 60
   destinations:
     - type: slack
