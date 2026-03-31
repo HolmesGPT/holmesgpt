@@ -348,14 +348,20 @@ class TestDBADashToolsetIntegration:
         assert success is False
         assert "missing" in error.lower()
 
+    @patch("holmes.plugins.toolsets.dbdash.common.Cognito")
     @patch("holmes.plugins.toolsets.dbdash.common.requests.Session")
-    def test_prerequisites_succeed_with_valid_config(self, mock_session_cls):
+    def test_prerequisites_succeed_with_valid_config(self, mock_session_cls, mock_cognito_cls):
         from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
+
+        mock_cognito = MagicMock()
+        mock_cognito.id_token = "fake-id-token"
+        mock_cognito.refresh_token = "fake-refresh-token"
+        mock_cognito_cls.return_value = mock_cognito
 
         mock_session = MagicMock()
         login_response = MagicMock()
         login_response.status_code = 200
-        login_response.json.return_value = {"user": {"username": "holmes"}}
+        login_response.json.return_value = {"success": True, "user": {"username": "holmes"}}
         health_response = MagicMock()
         health_response.status_code = 200
         health_response.json.return_value = {"status": "connected"}
@@ -369,6 +375,8 @@ class TestDBADashToolsetIntegration:
             "api_url": "https://db-monitor.example.com",
             "username": "holmes",
             "password": "secret123",
+            "cognito_user_pool_id": "us-east-1_TEST",
+            "cognito_client_id": "test-client",
         })
 
         assert success is True
