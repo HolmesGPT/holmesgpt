@@ -36,7 +36,7 @@ metadata:
     app: checkout-api
     deploy-version: v2.4.1
 spec:
-  query: "We just deployed checkout-api v2.4.1 to production. Does everything look healthy? Any issues with the rollout?"
+  query: "We just rolled out checkout-api v2.4.1 to production. Compare logs, error rates, latency, and resource usage before and after the deploy. Flag anything that changed or looks off."
   timeout: 120
   mode: alert
   destinations:
