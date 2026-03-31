@@ -39,7 +39,7 @@ before_test: |
 
   if [ "$HTTP_CODE" -eq 200 ]; then
     echo "Space created."
-  elif [ "$HTTP_CODE" -eq 409 ]; then
+  elif echo "$BODY" | grep -q "already exists"; then
     echo "Space already exists, reusing."
   else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
@@ -74,12 +74,18 @@ before_test: |
     PAGE_ID=$(echo "$PAGE_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   else
     echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
-    PAGE_ID=$(curl -L -s -G \
+    SEARCH_RESP=$(curl -L -s -w "\n%{http_code}" -G \
       "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
       --data-urlencode "title=${PAGE_TITLE}" \
       --data-urlencode "spaceKey=${SPACE_KEY}" \
-      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
-      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+    SEARCH_HTTP=$(echo "$SEARCH_RESP" | tail -n1)
+    SEARCH_BODY=$(echo "$SEARCH_RESP" | sed '$d')
+    if [ "$SEARCH_HTTP" -ne 200 ]; then
+      echo "Page search returned HTTP ${SEARCH_HTTP}: ${SEARCH_BODY}"
+      exit 1
+    fi
+    PAGE_ID=$(echo "$SEARCH_BODY" | python3 -c 'import sys,json; r=json.load(sys.stdin).get("results",[]); print(r[0]["id"]) if r else sys.exit(1)')
     if [ -z "$PAGE_ID" ]; then
       echo "Failed to create or find page."
       exit 1

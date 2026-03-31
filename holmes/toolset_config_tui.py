@@ -1248,64 +1248,70 @@ def run_toolset_config_tui(
     console: Console,
     preloaded_toolsets: Optional[List[Toolset]] = None,
 ) -> None:
-    """Main entry point – runs the full 2-screen config flow."""
+    """Main entry point – runs the full 2-screen config flow.
+
+    After configuring a toolset (or pressing Exit/Esc in the editor),
+    the user is returned to the toolset selection list instead of
+    exiting entirely.  Press Esc at the toolset list to quit.
+    """
     if preloaded_toolsets is not None:
         toolsets = preloaded_toolsets
     else:
         toolsets = config.toolset_manager.list_console_toolsets()
 
     toolsets = [t for t in toolsets if t.config_classes]
-    selected = select_toolset(toolsets, console)
-    if selected is _MCP_SELECTED_SENTINEL:
-        console.print(
-            f"[bold {STATUS_COLOR}]Opened MCP Documentation: "
-            f"[link={_MCP_SERVER_DOCS_URL}]{_MCP_SERVER_DOCS_URL}[/link][/bold {STATUS_COLOR}]"
-        )
-        return
-    if selected is None:
-        console.print(f"[bold {STATUS_COLOR}]No toolset selected.[/bold {STATUS_COLOR}]")
-        return
-
-    config_values = _get_existing_config(selected, config)
-    config_path = Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
-    test_status: Optional[List[Tuple[str, str]]] = None
-    ever_saved = False
-    cursor_on_test = False
 
     while True:
-        test_config, saved = run_tree_editor(
-            selected,
-            config_values,
-            config_path,
-            initial_status=test_status,
-            cursor_on_test_button=cursor_on_test,
-        )
-        ever_saved = ever_saved or saved
-
-        if test_config is not None:
-            # User pressed Test – run outside the TUI so output goes to the
-            # normal terminal and asyncio.run() has no event-loop conflict.
-            config_values = test_config
-            ok, msg = run_config_test(selected, test_config)
-            if ok:
-                console.print(f"[bold green]{msg}[/bold green]")
-            else:
-                console.print(f"[bold {ERROR_COLOR}]{msg}[/bold {ERROR_COLOR}]")
-            style_cls = "class:status-ok" if ok else "class:status-fail"
-            test_status = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
-            cursor_on_test = True
+        selected = select_toolset(toolsets, console)
+        if selected is _MCP_SELECTED_SENTINEL:
+            console.print(
+                f"[bold {STATUS_COLOR}]Opened MCP Documentation: "
+                f"[link={_MCP_SERVER_DOCS_URL}]{_MCP_SERVER_DOCS_URL}[/link][/bold {STATUS_COLOR}]"
+            )
             continue
+        if selected is None:
+            return
 
-        break
+        config_values = _get_existing_config(selected, config)
+        config_path = Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
+        test_status: Optional[List[Tuple[str, str]]] = None
+        ever_saved = False
+        cursor_on_test = False
 
-    if ever_saved:
-        _refresh_toolset_from_file(config_path, selected, console)
-        # Update in-memory config so subsequent edits see the saved values
-        if selected.type == ToolsetType.MCP:
-            if config.mcp_servers is None:
-                config.mcp_servers = {}
-            set_mcp_config(config.mcp_servers, selected.name, selected.config)
-        else:
-            if config.toolsets is None:
-                config.toolsets = {}
-            set_toolset_config(config.toolsets, selected.name, selected.config)
+        while True:
+            test_config, saved = run_tree_editor(
+                selected,
+                config_values,
+                config_path,
+                initial_status=test_status,
+                cursor_on_test_button=cursor_on_test,
+            )
+            ever_saved = ever_saved or saved
+
+            if test_config is not None:
+                # User pressed Test – run outside the TUI so output goes to the
+                # normal terminal and asyncio.run() has no event-loop conflict.
+                config_values = test_config
+                ok, msg = run_config_test(selected, test_config)
+                if ok:
+                    console.print(f"[bold green]{msg}[/bold green]")
+                else:
+                    console.print(f"[bold {ERROR_COLOR}]{msg}[/bold {ERROR_COLOR}]")
+                style_cls = "class:status-ok" if ok else "class:status-fail"
+                test_status = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
+                cursor_on_test = True
+                continue
+
+            break
+
+        if ever_saved:
+            _refresh_toolset_from_file(config_path, selected, console)
+            # Update in-memory config so subsequent edits see the saved values
+            if selected.type == ToolsetType.MCP:
+                if config.mcp_servers is None:
+                    config.mcp_servers = {}
+                set_mcp_config(config.mcp_servers, selected.name, selected.config)
+            else:
+                if config.toolsets is None:
+                    config.toolsets = {}
+                set_toolset_config(config.toolsets, selected.name, selected.config)

@@ -39,7 +39,7 @@ from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tracing import SpanType, TracingFactory
-from holmes.interactive import run_interactive_loop
+from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
 from holmes.plugins.destinations import DestinationType
 from holmes.plugins.interfaces import Issue
 from holmes.plugins.prompts import load_and_render_prompt
@@ -98,7 +98,7 @@ opt_custom_toolsets: Optional[List[Path]] = typer.Option(
     help="Path to a custom toolsets. The status of the custom toolsets specified here won't be cached (can specify -t multiple times to add multiple toolsets)",
 )
 opt_max_steps: Optional[int] = typer.Option(
-    40,
+    100,
     "--max-steps",
     help="Advanced. Maximum number of steps the LLM can take to investigate the issue",
 )
@@ -172,7 +172,11 @@ def _investigate_issue(
         f"\n #This is context from the issue:\n{issue.raw}",
         context={},
     )
-    return ai.prompt_call(system_prompt, user_prompt)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    return ai.call(messages)
 
 
 # TODO: add streaming output
@@ -274,6 +278,11 @@ def ask(
             )
             interactive = False
 
+    # Silence display loggers early for interactive mode so that
+    # init messages are rendered via the InitProgressRenderer instead.
+    if interactive:
+        silence_display_loggers()
+
     config = Config.load_from_file(
         config_file,
         api_key=api_key,
@@ -327,13 +336,26 @@ def ask(
         }
 
     with tool_result_storage() as tool_results_dir:
+        init_renderer = None
+        on_event = None
+        if interactive:
+            init_renderer = InitProgressRenderer(
+                console, model_name=model or config.model or ""
+            )
+            on_event = init_renderer.on_event
+            init_renderer.start()
+
         ai = config.create_console_toolcalling_llm(
             dal=None,  # type: ignore
             refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
             tracer=tracer,
             model_name=model,
             tool_results_dir=tool_results_dir,
+            on_event=on_event,
         )
+
+        if init_renderer is not None:
+            init_renderer.stop()
 
         if interactive:
             run_interactive_loop(
@@ -668,6 +690,7 @@ def ticket(
             ticket_username=ticket_username,
             ticket_api_key=ticket_api_key,
             ticket_id=ticket_id,
+            model=model,
         )
     except Exception as e:
         console.print(f"[bold red]Error: {str(e)}[/bold red]")
@@ -713,7 +736,11 @@ def ticket(
         )
 
         ticket_user_prompt = generate_user_prompt(prompt, context={})
-        result = ai.prompt_call(system_prompt, ticket_user_prompt)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": ticket_user_prompt},
+        ]
+        result = ai.call(messages)
 
         console.print(Rule())
         console.print(
@@ -1008,6 +1035,9 @@ def version() -> None:
 
 
 def run():
+    # Default to "ask" command when no subcommand is given
+    if len(sys.argv) == 1:
+        sys.argv.insert(1, "ask")
     app()
 
 

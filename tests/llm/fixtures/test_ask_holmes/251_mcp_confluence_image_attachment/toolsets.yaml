@@ -1,0 +1,24 @@
+# MCP Atlassian server (stdio mode via uvx) for Confluence image attachment tests
+# Uses personal API key credentials (user + token) directly against the Confluence instance.
+# We append /wiki because mcp-atlassian expects the Confluence wiki base path.
+toolsets:
+  atlassian-mcp:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "uvx"
+      args: ["mcp-atlassian==0.21.0"]
+      env:
+        CONFLUENCE_URL: "{{ env.CONFLUENCE_BASE_URL }}/wiki"
+        CONFLUENCE_USERNAME: "{{ env.CONFLUENCE_USER }}"
+        CONFLUENCE_API_TOKEN: "{{ env.CONFLUENCE_API_KEY }}"
+        READ_ONLY_MODE: "true"
+  confluence:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

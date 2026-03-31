@@ -2,7 +2,7 @@
 
 The HolmesGPT Microsoft Teams bot is available via [Robusta.dev](https://home.robusta.dev/), which created HolmesGPT and donated it to the CNCF.
 
-First install [Robusta SaaS](ui-installation.md), then use the Teams integration to get instant analysis of alerts and incidents.
+First install [Robusta](ui-installation.md), then use the Teams integration to get instant analysis of alerts and incidents.
 
 ## Next Steps
 

@@ -6,7 +6,7 @@ After installing HolmesGPT and running your first investigation, connect your da
 
 HolmesGPT is an AI troubleshooting agent that investigates issues by pulling data from your existing observability stack. The more data sources you connect, the more thoroughly Holmes can investigate — correlating metrics with logs, tracing infrastructure changes to application failures, and building a complete picture of what went wrong.
 
-Holmes works across cloud, on-premise, and hybrid environments. If you use Kubernetes, the Kubernetes toolsets are enabled automatically. Everything else — metrics, logs, cloud APIs, databases — is configured through toolsets you enable based on your stack.
+Holmes works across cloud, on-premise, and hybrid environments. If you use Kubernetes, the Kubernetes toolsets are enabled automatically. But Kubernetes is not required — Holmes works equally well with Prometheus, Datadog, Elasticsearch, AWS, GCP, databases, and [many other data sources](builtin-toolsets/index.md). Configure the toolsets that match your stack.
 
 ## 1. Connect a Metrics Provider
 

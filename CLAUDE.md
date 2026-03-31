@@ -189,7 +189,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 **Config File Location**: `~/.holmes/config.yaml`
 
 **Key Configuration Sections**:
-- `model`: LLM model to use (default: gpt-4.1)
+- `model`: LLM model to use (default: gpt-5.4)
 - `api_key`: LLM API key (or use environment variables)
 - `custom_toolsets`: Override or add toolsets
 - `custom_runbooks`: Add investigation runbooks
@@ -197,8 +197,9 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
-- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`). When using OpenRouter, you must also set `CLASSIFIER_MODEL` to an OpenRouter model (e.g., `CLASSIFIER_MODEL="openrouter/openai/gpt-4.1"`) because the default classifier model is not available via OpenRouter.
 - `MODEL`: Override default model(s) - supports comma-separated list
+- `CLASSIFIER_MODEL`: Override the classifier model used internally. Required when using OpenRouter (e.g., `openrouter/openai/gpt-4.1`)
 - `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
@@ -256,6 +257,48 @@ When adding a new toolset or integration, update all of the following pages to k
 4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
 5. Add a logo image to `images/integration_logos/` if one is available
 
+## Debugging CLI / Rich Live Display Issues
+
+When troubleshooting terminal rendering bugs (ghost frames, flickering, misaligned output):
+
+**Capturing terminal output through a PTY:**
+```bash
+# Use `script` to force a PTY and capture raw ANSI escape sequences
+script -qec "poetry run python your_script.py" /dev/null > /tmp/raw_output.txt 2>&1
+```
+Without a PTY, Rich detects non-interactive mode and skips Live rendering entirely.
+
+**Analyzing ANSI escape sequences:**
+```python
+# Key escape codes for Rich Live:
+# \x1b[1A  = cursor up 1 line
+# \x1b[2K  = erase entire line
+# Rich erases previous frame with: (erase + cursor-up) × height, then prints new frame
+
+# Count cursor-ups per frame transition to detect drift:
+import re
+erase_pattern = r"\x1b\[2K(?:\x1b\[1A\x1b\[2K)*"
+for match in re.finditer(erase_pattern, raw_output):
+    ups = match.group(0).count("\x1b[1A")
+```
+
+**Writing unit tests for Live display (no LLM required):**
+```python
+# Render to StringIO with force_terminal=True to get ANSI sequences
+from io import StringIO
+buf = StringIO()
+console = Console(file=buf, force_terminal=True, width=120)
+# ... render frames ...
+raw = buf.getvalue()  # Contains full ANSI escape sequences
+# Parse cursor-up counts vs frame heights to detect ghost frames
+```
+
+**Key patterns:**
+- Ghost frames = cumulative drift where each frame leaves 1+ orphaned lines
+- Verify by counting: cursor-ups per transition should equal rendered lines per frame
+- Known Rich 13.9.4 bug: `Live.refresh()` calls `console.print(Control())` with default `end="\\n"`, adding a trailing newline not counted in `LiveRender._shape`. When the terminal has room below the display, each frame leaks 1 ghost line. When the display is at the bottom (common case), the `\\n` causes scrolling and `height-1` cursor-ups is correct.
+- Workaround: subclass `Live` and override `refresh()` to pass `end=""`. Do NOT patch `position_cursor` — that over-erases when the display is at the terminal bottom (the common case).
+
 ## Security Notes
 
 - All tools have read-only access by design
@@ -281,10 +324,15 @@ For creating, running, and debugging LLM eval tests, use the `/create-eval` skil
 **Cloud Service Evals (No Kubernetes Required)**:
 - Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
-- `before_test` creates test data in the cloud service, `after_test` cleans up
+- `before_test` creates test data in the cloud service; `after_test` cleans up **only if safe** (see reentrancy below)
 - Use `toolsets.yaml` to configure the toolset with env var references: `api_url: "{{ env.ELASTICSEARCH_URL }}"`
 - **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 - **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
+- **Cloud Service Eval Reentrancy**: The same eval can run on multiple PRs in parallel in CI. Cloud service evals that create resources with static names (e.g., Confluence spaces, Elasticsearch indices) must be **reentrant**:
+  - `before_test` must be **idempotent**: create-or-reuse resources, never fail if they already exist
+  - `after_test` must **NOT delete shared resources** that another parallel run may be using. Either omit `after_test` entirely, or limit cleanup to resources with a unique run-scoped identifier
+  - Use test-ID-based resource names (e.g., `HLMS233` for space keys) to avoid collisions with other evals, but accept that the same eval may overlap with itself across parallel PR runs
+  - Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs
 
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`

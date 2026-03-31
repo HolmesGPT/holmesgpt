@@ -12,7 +12,7 @@ default
 {{- end -}}
 
 {{/*
-Determine if this is a Robusta SaaS environment.
+Determine if this is a Robusta (hosted) environment.
 Returns "true" if ROBUSTA_UI_DOMAIN is not set OR ends with "robusta.dev"
 */}}
 {{- define "holmes.isSaasEnvironment" -}}

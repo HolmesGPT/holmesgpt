@@ -1,0 +1,7 @@
+toolsets:
+  grafana/dashboards:
+    enabled: true
+    config:
+      api_url: http://localhost:10212
+      api_key: ""
+      enable_rendering: true

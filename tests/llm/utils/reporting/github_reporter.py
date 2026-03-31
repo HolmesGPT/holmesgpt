@@ -309,8 +309,8 @@ def generate_markdown_report(
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Output | Cached | Non-cached | Reasoning | Max output | Compactions |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
@@ -322,6 +322,7 @@ def generate_markdown_report(
     total_non_cached_tokens_sum = 0
     total_reasoning_tokens_sum = 0
     max_completion_per_call_max = 0
+    max_prompt_per_call_max = 0
     total_compactions = 0
     total_turns = 0
     total_tools = 0
@@ -380,6 +381,7 @@ def generate_markdown_report(
         cached_tokens = result.get("cached_tokens")
         reasoning_tokens = result.get("reasoning_tokens", 0) or 0
         max_completion = result.get("max_completion_tokens_per_call", 0) or 0
+        max_prompt = result.get("max_prompt_tokens_per_call", 0) or 0
         num_compactions = result.get("num_compactions", 0) or 0
 
         # Compute total_tokens from parts if not reported directly
@@ -404,6 +406,7 @@ def generate_markdown_report(
             total_non_cached_tokens_sum += non_cached_tokens
         total_reasoning_tokens_sum += reasoning_tokens
         max_completion_per_call_max = max(max_completion_per_call_max, max_completion)
+        max_prompt_per_call_max = max(max_prompt_per_call_max, max_prompt)
         total_compactions += num_compactions
 
         # Format for display
@@ -414,9 +417,10 @@ def generate_markdown_report(
         non_cached_tokens_str = f"{non_cached_tokens:,}" if non_cached_tokens is not None else "—"
         reasoning_str = _fmt_tokens(reasoning_tokens)
         max_completion_str = _fmt_tokens(max_completion)
+        max_prompt_str = _fmt_tokens(max_prompt)
         compactions_str = str(num_compactions) if num_compactions > 0 else "—"
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {output_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {max_completion_str} | {compactions_str} |\n"
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
@@ -430,8 +434,9 @@ def generate_markdown_report(
     total_non_cached_tokens_str = _fmt_tokens(total_non_cached_tokens_sum)
     total_reasoning_str = _fmt_tokens(total_reasoning_tokens_sum)
     max_completion_max_str = _fmt_tokens(max_completion_per_call_max)
+    max_prompt_max_str = _fmt_tokens(max_prompt_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{total_completion_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{max_completion_max_str}** | **{total_compactions_str}** |\n"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** |\n"
 
     # Add footer explaining benchmark comparison status
     if not benchmark and historical_details and historical_details.status:

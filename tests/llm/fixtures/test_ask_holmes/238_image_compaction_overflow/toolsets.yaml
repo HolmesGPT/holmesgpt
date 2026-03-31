@@ -1,0 +1,17 @@
+# Mock MCP image gallery server for testing compaction with images.
+toolsets:
+  mock-image-gallery:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/238_image_compaction_overflow/mock_image_gallery_server.py"]
+  confluence:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

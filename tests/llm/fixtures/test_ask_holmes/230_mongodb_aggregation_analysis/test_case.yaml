@@ -1,0 +1,107 @@
+# Test: MongoDB Aggregation Analysis
+# Tests that Holmes can use MongoDB aggregation pipelines to analyze data
+# and derive specific counts that cannot be guessed.
+#
+# Deploys MongoDB 7.0 with an "events" collection containing 200 documents
+# across 5 services. The LLM must use aggregation to determine which service
+# has the most errors and identify the dominant error code with its count.
+#
+# Anti-hallucination: The specific counts (47 errors for payment-processor,
+# TXN-4821 appearing 23 times) can only be determined by running an
+# aggregation pipeline against the actual data.
+
+user_prompt: "Which service has the most error events in the events collection? What is the most common error code for that service and how many times does it appear?"
+
+expected_output:
+  - "Must identify payment-processor as the service with the most errors"
+  - "Must report that payment-processor has 47 error events"
+  - "Must identify TXN-4821 as the most common error code"
+  - "Must report that TXN-4821 appears 23 times"
+
+include_tool_calls: true
+
+tags:
+  - db-connectors
+  - medium
+
+setup_timeout: 180
+
+port_forwards:
+  - namespace: app-228
+    service: mongodb
+    local_port: 10228
+    remote_port: 27017
+
+before_test: |
+  set -e
+
+  echo "⏳ Setting up MongoDB in cluster..."
+
+  # Create namespace
+  kubectl create namespace app-228 --dry-run=client -o yaml | kubectl apply -f -
+
+  # Deploy MongoDB
+  kubectl apply -f mongodb.yaml -n app-228
+
+  # Wait for MongoDB to be ready
+  echo "⏳ Waiting for MongoDB pod to be ready..."
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=mongodb -n app-228 --timeout=5s 2>/dev/null; then
+      echo "✅ MongoDB pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ MongoDB pod failed to become ready after 60 seconds"
+    kubectl get pods -n app-228
+    kubectl logs -l app=mongodb -n app-228 --tail=20
+    exit 1
+  fi
+
+  # Wait for MongoDB to accept authenticated connections
+  echo "⏳ Waiting for MongoDB to accept connections..."
+  MONGO_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n app-228 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+      echo "✅ MongoDB is accepting connections!"
+      MONGO_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$MONGO_READY" = false ]; then
+    echo "❌ MongoDB not accepting connections after 60 seconds"
+    kubectl logs -l app=mongodb -n app-228 --tail=20
+    exit 1
+  fi
+
+  # Copy seed script into the pod and execute it
+  echo "⏳ Seeding events data..."
+  kubectl cp seed_data.js app-228/$(kubectl get pod -n app-228 -l app=mongodb -o jsonpath='{.items[0].metadata.name}'):/tmp/seed_data.js
+  kubectl exec -n app-228 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin opsdb /tmp/seed_data.js
+
+  # Verify the needle: payment-processor should have 47 errors, TXN-4821 should have 23
+  RESULT=$(kubectl exec -n app-228 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin opsdb --quiet --eval '
+  var ppErrors = db.events.countDocuments({ level: "error", service: "payment-processor" });
+  var txn4821 = db.events.countDocuments({ error_code: "TXN-4821" });
+  print(ppErrors + "," + txn4821);
+  ')
+
+  if echo "$RESULT" | grep -q "47,23"; then
+    echo "✅ Data verified: payment-processor=47 errors, TXN-4821=23 occurrences"
+  else
+    echo "❌ Data verification failed. Expected 47,23 but got: $RESULT"
+    exit 1
+  fi
+
+  echo "✅ MongoDB setup complete"
+
+after_test: |
+  echo "⏳ Cleaning up MongoDB..."
+  kubectl delete namespace app-228 --ignore-not-found=true --wait=false 2>/dev/null || true
+  echo "✅ Cleanup initiated"

@@ -1,6 +1,6 @@
 # Install Web UI (3&#8203;rd party)
 
-The fastest way to use HolmesGPT is via the managed Robusta SaaS platform.
+The fastest way to use HolmesGPT is via the Robusta platform, which can be used as SaaS or self-hosted.
 
 === "AWS Troubleshooting"
 

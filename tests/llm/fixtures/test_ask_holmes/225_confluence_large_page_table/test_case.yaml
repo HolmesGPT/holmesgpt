@@ -9,7 +9,7 @@
 
 user_prompt: |
   Look up the environment matrix page titled 'Platform Services Environment Matrix'
-  in Confluence space 'HOLMES225'. What is the production endpoint for the
+  in Confluence space 'HLMS225'. What is the production endpoint for the
   inventory-service?
 
 expected_output:
@@ -23,8 +23,8 @@ tags:
 before_test: |
   set -e
 
-  SPACE_KEY="HOLMES225"
-  SPACE_NAME="Holmes Test Space 225"
+  SPACE_KEY="HLMS225"
+  SPACE_NAME="Holmes Eval 225"
   PAGE_TITLE="Platform Services Environment Matrix"
   VERIFICATION_ENDPOINT="https://inventory.prod.internal.acme.io:8443/api/v2"
 
@@ -49,8 +49,19 @@ before_test: |
 
   if [ "$HTTP_CODE" -eq 200 ]; then
     echo "Space created."
-  elif [ "$HTTP_CODE" -eq 409 ]; then
-    echo "Space already exists, reusing."
+  elif echo "$BODY" | grep -q "already exists"; then
+    echo "Space already exists, verifying it is accessible..."
+    # A space in Confluence's trash still reserves the key but isn't queryable.
+    # Verify we can actually reach it before continuing.
+    SPACE_CHECK=$(curl -L -s -w "\n%{http_code}" \
+      "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+    SPACE_CHECK_HTTP=$(echo "$SPACE_CHECK" | tail -n1)
+    if [ "$SPACE_CHECK_HTTP" -ne 200 ]; then
+      echo "Space key '${SPACE_KEY}' is reserved but not accessible (HTTP ${SPACE_CHECK_HTTP}). It may be in the Confluence trash — purge it manually or wait for the trash retention period to expire."
+      exit 1
+    fi
+    echo "Space is accessible, reusing."
   else
     echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
     exit 1
@@ -295,12 +306,18 @@ before_test: |
     PAGE_ID=$(echo "$PAGE_BODY_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
   else
     echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
-    PAGE_ID=$(curl -L -s -G \
+    SEARCH_RESP=$(curl -L -s -w "\n%{http_code}" -G \
       "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/content" \
       --data-urlencode "title=${PAGE_TITLE}" \
       --data-urlencode "spaceKey=${SPACE_KEY}" \
-      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" \
-      | python3 -c 'import sys,json; r=json.load(sys.stdin)["results"]; print(r[0]["id"]) if r else sys.exit(1)')
+      -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
+    SEARCH_HTTP=$(echo "$SEARCH_RESP" | tail -n1)
+    SEARCH_BODY=$(echo "$SEARCH_RESP" | sed '$d')
+    if [ "$SEARCH_HTTP" -ne 200 ]; then
+      echo "Page search returned HTTP ${SEARCH_HTTP}: ${SEARCH_BODY}"
+      exit 1
+    fi
+    PAGE_ID=$(echo "$SEARCH_BODY" | python3 -c 'import sys,json; r=json.load(sys.stdin).get("results",[]); print(r[0]["id"]) if r else sys.exit(1)')
     if [ -z "$PAGE_ID" ]; then
       echo "Failed to create or find page."
       exit 1
@@ -323,18 +340,7 @@ before_test: |
 
   echo "Setup complete"
 
-after_test: |
-  set -e
-
-  SPACE_KEY="HOLMES225"
-
-  echo "Deleting space ${SPACE_KEY}..."
-  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
-    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
-    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
-
-  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
-    echo "Cleanup complete"
-  else
-    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
-  fi
+# No after_test cleanup — intentionally omitted for reentrancy.
+# Cloud service evals with static resource names must NOT delete resources
+# in after_test because parallel CI runs would race. The space/page are tiny
+# and reused across runs. See CLAUDE.md "Cloud Service Eval Reentrancy".

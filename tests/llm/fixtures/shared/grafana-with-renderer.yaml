@@ -1,0 +1,118 @@
+# Grafana deployment with grafana-image-renderer sidecar for visual rendering
+# The renderer runs as a sidecar container in the same pod, communicating over localhost
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+      annotations:
+        admission.datadoghq.com/enabled: "false"
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:12.3.1
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "true"
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: "Admin"
+        # Point Grafana to the renderer sidecar
+        - name: GF_RENDERING_SERVER_URL
+          value: "http://localhost:8081/render"
+        - name: GF_RENDERING_CALLBACK_URL
+          value: "http://localhost:3000/"
+        volumeMounts:
+        - name: grafana-data
+          mountPath: /var/lib/grafana
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          periodSeconds: 5
+          failureThreshold: 30
+      - name: renderer
+        image: grafana/grafana-image-renderer:3.11.6
+        ports:
+        - containerPort: 8081
+          name: renderer
+        env:
+        - name: ENABLE_METRICS
+          value: "true"
+        - name: HTTP_PORT
+          value: "8081"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "50m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        readinessProbe:
+          tcpSocket:
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        startupProbe:
+          tcpSocket:
+            port: 8081
+          periodSeconds: 5
+          failureThreshold: 30
+      volumes:
+      - name: grafana-data
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http
