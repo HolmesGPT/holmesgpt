@@ -82,6 +82,32 @@ class ToolExecutor:
 
         return None
 
+    def clone_with_extra_tools(self, extra_tools: List[Tool]) -> "ToolExecutor":
+        """Create a shallow clone with additional tools registered.
+
+        The clone shares the same toolsets and base tools but adds extra_tools
+        on top. The original ToolExecutor is never mutated.
+
+        This is used to inject frontend tools (FrontendPauseTool) on a
+        per-request basis without modifying the shared ToolExecutor.
+        """
+        clone = object.__new__(ToolExecutor)
+        clone.toolsets = self.toolsets
+        clone.enabled_toolsets = self.enabled_toolsets
+        clone.tools_by_name = dict(self.tools_by_name)
+        clone._tool_to_toolset = dict(self._tool_to_toolset)
+
+        for tool in extra_tools:
+            if tool.name in clone.tools_by_name:
+                logging.warning(
+                    f"Frontend tool '{tool.name}' overrides existing tool"
+                )
+            clone.tools_by_name[tool.name] = tool
+            # No toolset mapping — frontend tools don't belong to a toolset,
+            # so ensure_toolset_initialized() returns None (no-op) for them.
+
+        return clone
+
     @sentry_sdk.trace
     def get_all_tools_openai_format(
         self,

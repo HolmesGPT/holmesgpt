@@ -24,7 +24,7 @@ metadata:
   name: check-pod-health
   namespace: default
 spec:
-  query: "Are all pods in namespace 'default' healthy and running?"
+  query: "Anything look off in the default namespace? Check pod health, recent restarts, and any warning events."
 ```
 
 Apply this check and view its status:
@@ -51,7 +51,7 @@ metadata:
   name: frontend-deployment-check
   namespace: production
 spec:
-  query: "Is the 'frontend' deployment healthy with at least 3 ready replicas?"
+  query: "How is the frontend deployment doing in production? Check replicas, pod health, logs, and any recent errors."
   timeout: 60
   mode: alert
   destinations:
@@ -70,7 +70,7 @@ Natural language question about system health. The LLM will analyze your cluster
 
 - Min length: 1 character
 - Max length: 5000 characters
-- Example: `"Are all pods in deployment 'api' ready and not crash-looping?"`
+- Example: `"How is the api deployment doing? Check pod health, logs, and any recent errors."`
 
 ### Optional Fields
 
@@ -257,7 +257,7 @@ kind: HealthCheck
 metadata:
   name: check-api-replicas
 spec:
-  query: "Does the 'api' deployment in 'production' namespace have at least 5 ready replicas?"
+  query: "Is the api deployment in production running at full capacity? Check replica count, pod health, resource usage, and any errors in the logs."
   timeout: 30
 ```
 
@@ -269,7 +269,7 @@ kind: HealthCheck
 metadata:
   name: check-crashlooping-pods
 spec:
-  query: "Are there any CrashLoopBackOff pods in the 'production' namespace?"
+  query: "Any pods in production having trouble starting or restarting frequently? Check logs for the root cause."
   timeout: 45
 ```
 
@@ -281,7 +281,7 @@ kind: HealthCheck
 metadata:
   name: check-node-memory
 spec:
-  query: "Are any nodes in the cluster using more than 90% memory?"
+  query: "Are any cluster nodes running hot on memory or CPU? Check resource usage trends and flag anything that looks like it could cause problems soon."
   timeout: 60
 ```
 
@@ -293,7 +293,7 @@ kind: HealthCheck
 metadata:
   name: check-critical-pods
 spec:
-  query: "Are all pods with label 'tier=critical' in 'production' namespace running and ready?"
+  query: "How are the tier=critical pods in production doing? Check health, resource pressure, error rates, and anything unusual in the logs."
   timeout: 60
   mode: alert
   destinations:
@@ -310,7 +310,7 @@ kind: HealthCheck
 metadata:
   name: check-with-cheaper-model
 spec:
-  query: "Are all pods in 'staging' namespace healthy?"
+  query: "Quick check on the staging namespace — any pods misbehaving, high resource usage, or errors in the logs?"
   model: "anthropic/claude-sonnet-4-5-20250929"
   timeout: 30
 ```
@@ -329,7 +329,7 @@ metadata:
     environment: production
     team: platform
 spec:
-  query: "Is the frontend deployment healthy?"
+  query: "How is the frontend deployment doing? Anything unusual?"
 ```
 
 Query by labels:

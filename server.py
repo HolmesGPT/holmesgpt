@@ -56,6 +56,8 @@ from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
+from holmes.core.models import FrontendToolMode
+from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool, build_frontend_pause_tool
 from holmes.utils.stream import stream_chat_formatter
 
 # removed: add_runbooks_to_user_prompt
@@ -381,12 +383,55 @@ def chat(chat_request: ChatRequest, http_request: Request):
             prompt_component_overrides=prompt_component_overrides,
         )
 
+        # Build a per-request AI instance with frontend tools injected into the executor
+        request_ai = ai
+        has_pause_tools = False
+        if chat_request.frontend_tools:
+            # Validate no name collisions with backend tools
+            backend_tool_names = set(ai.tool_executor.tools_by_name.keys())
+            frontend_tool_instances = []
+            for ft in chat_request.frontend_tools:
+                if ft.name in backend_tool_names:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Frontend tool name '{ft.name}' conflicts with a built-in Holmes tool. Use a different name.",
+                    )
+                if ft.mode == FrontendToolMode.NOOP:
+                    frontend_tool_instances.append(
+                        build_frontend_noop_tool(
+                            name=ft.name,
+                            description=ft.description,
+                            parameters=ft.parameters,
+                            canned_response=ft.noop_response,
+                        )
+                    )
+                else:
+                    has_pause_tools = True
+                    frontend_tool_instances.append(
+                        build_frontend_pause_tool(
+                            name=ft.name,
+                            description=ft.description,
+                            parameters=ft.parameters,
+                        )
+                    )
+
+            # Pause-mode tools require streaming (the pause/resume flow needs SSE)
+            if has_pause_tools and not chat_request.stream:
+                raise HTTPException(
+                    status_code=400,
+                    detail="frontend_tools with mode='pause' requires stream=true (the pause/resume flow needs SSE)",
+                )
+
+            cloned_executor = ai.tool_executor.clone_with_extra_tools(frontend_tool_instances)
+            request_ai = ai.with_executor(cloned_executor)
+
         if chat_request.stream:
             stream = stream_chat_formatter(
-                ai.call_stream(
+                request_ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
                     tool_decisions=chat_request.tool_decisions,
+                    frontend_tool_results=chat_request.frontend_tool_results,
                     response_format=chat_request.response_format,
                     request_context=request_context,
                 ),
