@@ -73,6 +73,7 @@ pymysql = "^1.1.2"
 clickhouse-sqlalchemy = "^0.3.2"
 pymssql = "^2.3.0"
 cryptography = "^46.0.5"
+pycognito = "^2024.5.1"
 
 [tool.poetry.group.dev]
 optional = true
@@ -106,7 +107,6 @@ opentelemetry-sdk = "^1.20.0"
 opentelemetry-exporter-otlp-proto-grpc = "^1.20.0"
 opentelemetry-exporter-otlp-proto-http = "^1.20.0"
 types-requests = "^2.32.4.20260107"
-pycognito = "^2024.5.1"
 
 [build-system]
 requires = ["poetry-core"]
