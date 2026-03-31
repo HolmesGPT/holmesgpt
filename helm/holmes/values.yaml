@@ -48,6 +48,25 @@ affinity: {}
 nodeSelector: ~
 tolerations: []
 
+# Pod-level security context
+# Applied to spec.securityContext in the Deployment
+podSecurityContext: {}
+  # runAsNonRoot: true
+  # runAsUser: 10001
+  # runAsGroup: 10001
+  # fsGroup: 10001
+  # seccompProfile:
+  #   type: RuntimeDefault
+
+# Container-level security context for the Holmes container
+# Applied to containers[].securityContext in the Deployment
+# Note: readOnlyRootFilesystem is always true (required for Holmes operation)
+containerSecurityContext: {}
+  # allowPrivilegeEscalation: false
+  # capabilities:
+  #   drop:
+  #     - ALL
+
 serviceAccount:
   imagePullSecrets: []
   annotations: {}
