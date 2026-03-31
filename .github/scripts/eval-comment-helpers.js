@@ -31,8 +31,11 @@ function parseRunHistory(body) {
   const historyRegex = /<details>\s*<summary>📜\s*(.+?)<\/summary>\s*([\s\S]*?)<!-- END_HISTORY_RUN -->\s*<\/details>/g;
   let match;
   while ((match = historyRegex.exec(body)) !== null) {
+    // Strip existing run number prefix (e.g., "#3 · ") to avoid double-numbering on re-render
+    let summary = match[1].trim();
+    summary = summary.replace(/^#\d+\s*·\s*/, '');
     runs.push({
-      summary: match[1].trim(),
+      summary: summary,
       content: match[2].trim()
     });
   }
@@ -62,7 +65,8 @@ function extractCurrentRun(body) {
   }
 
   // Find the header line (## ✅ Results... or ## ⏳ HolmesGPT evals running...)
-  const headerMatch = cleanBody.match(/^(## [^\n]+)/);
+  // Use multiline flag since content may start with hidden HTML comments (e.g., eval-timestamp)
+  const headerMatch = cleanBody.match(/^(## [^\n]+)/m);
   if (!headerMatch) return null;
 
   const header = headerMatch[1];
@@ -100,13 +104,29 @@ function extractCurrentRun(body) {
   const runUrlMatch = currentSection.match(/\[View workflow logs\]\(([^)]+)\)/);
   const runUrl = runUrlMatch ? runUrlMatch[1] : '';
 
+  // Extract embedded timestamp if available
+  const timestampMatch = currentSection.match(/<!-- eval-timestamp: (\S+) -->/);
+  const evalTimestamp = timestampMatch ? timestampMatch[1] : '';
+
+  // Format date for display (e.g., "Mar 21, 14:32 UTC")
+  let dateStr = '';
+  if (evalTimestamp) {
+    try {
+      const d = new Date(evalTimestamp);
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      dateStr = `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')} UTC`;
+    } catch (e) {
+      // ignore parse errors
+    }
+  }
+
   // Build a descriptive summary with trigger info
   let summary = 'Previous Run';
   if (trigger) {
     // Extract commit and branch info from trigger like "commit abc1234 on branch `feature`"
     const commitMatch = trigger.match(/commit ([a-f0-9]+)/);
     const commit = commitMatch ? commitMatch[1] : '';
-    summary = commit ? `Run @ ${commit}` : `Run: ${trigger.substring(0, 50)}`;
+    summary = commit ? `Run @ __${commit}__` : `Run: ${trigger.substring(0, 50)}`;
   }
   if (runUrl) {
     // Extract run ID from URL for reference
@@ -114,6 +134,9 @@ function extractCurrentRun(body) {
     if (runIdMatch) {
       summary += ` (#${runIdMatch[1]})`;
     }
+  }
+  if (dateStr) {
+    summary += ` — ${dateStr}`;
   }
 
   // Build content for when this run becomes collapsed
@@ -149,9 +172,13 @@ function buildAutoCommentWithHistory(currentContent, previousRuns, footer, maxHi
   if (runsToShow.length > 0) {
     historySection = '## 📂 Previous Runs\n\n';
 
-    for (const run of runsToShow) {
+    for (let i = 0; i < runsToShow.length; i++) {
+      const run = runsToShow[i];
+      // Number runs: most recent = N, oldest = 1 (descending, newest first)
+      const runNumber = runsToShow.length - i;
+      const numberedSummary = `#${runNumber} · ${run.summary}`;
       // Use END_HISTORY_RUN marker to properly delimit content (handles nested <details> tags in reports)
-      const historyEntry = `<details>\n<summary>📜 ${run.summary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
+      const historyEntry = `<details>\n<summary>📜 ${numberedSummary}</summary>\n\n${run.content}\n\n${HISTORY_RUN_END_MARKER}\n</details>\n\n`;
 
       // Check if adding this entry would exceed the limit
       const projectedSize = body.length + historySection.length + historyEntry.length + currentContent.length + footer.length;
@@ -200,6 +227,7 @@ function buildParams(raw) {
     testPreview: raw.test_preview || '',
     duration: raw.duration || 'N/A',
     validMarkers: raw.valid_markers || '',
+    validModels: raw.valid_models || '',
     triggered_by: raw.triggered_by || ''
   };
 }
@@ -233,7 +261,7 @@ function renderParamsTable(p, context = null) {
     (p.displayBranch ? `| **Branch** | \`${p.displayBranch}\` |\n` : '') +
     `| **Model** | \`${p.model}\` |\n` +
     `| **Tags** | \`${p.markers || 'all LLM tests'}\` |\n` +
-    (p.filter ? `| **Filter (-k)** | \`${p.filter}\` |\n` : '') +
+    (p.filter ? `| **ID (-k)** | \`${p.filter}\` |\n` : '') +
     `| **Iterations** | ${p.iterations} |\n` +
     (p.duration ? `| **Duration** | ${p.duration} |\n` : '') +
     `| **Workflow** | ${workflowLinks} |\n`;
@@ -247,7 +275,10 @@ function renderParamsTable(p, context = null) {
  * @returns {string} Markdown body
  */
 function buildBody(p, progressSteps, extras = {}) {
-  let body = p.isManual
+  // Embed timestamp as hidden comment for history display
+  const timestamp = new Date().toISOString();
+  let body = `<!-- eval-timestamp: ${timestamp} -->\n`;
+  body += p.isManual
     ? `## ${extras.icon || '🚀'} ${extras.title || 'Manual Eval Running...'}\n\n` +
       renderParamsTable(p, extras.context)
     : `## ${extras.icon || '⏳'} ${extras.title || 'HolmesGPT evals running...'}\n\n` +
@@ -293,11 +324,12 @@ function buildRerunFooter(p, context, options = {}) {
   const baseWorkflowUrl = `https://github.com/${repoFullName}/actions/workflows/eval-regression.yaml`;
   const workflowUrl = p.displayBranch ? `${baseWorkflowUrl}?ref=${encodeURIComponent(p.displayBranch)}` : baseWorkflowUrl;
 
-  // Format markers as comma-separated code-styled names
+  // Format markers and models as comma-separated code-styled names
   const markersFormatted = formatAsCodes(p.validMarkers);
+  const modelsFormatted = formatAsCodes(p.validModels);
 
   // gh CLI command to run workflow from PR branch (include empty filter= for easy copy-paste)
-  // Note: workflow_dispatch still uses 'markers' parameter name
+  // Note: workflow_dispatch uses 'filter' parameter name (maps to 'id' in /eval comments)
   const ghCommand = p.displayBranch
     ? `gh workflow run eval-regression.yaml --repo ${repoFullName} --ref ${p.displayBranch} -f markers=regression -f filter=`
     : `gh workflow run eval-regression.yaml --repo ${repoFullName} -f markers=regression -f filter=`;
@@ -327,25 +359,29 @@ function buildRerunFooter(p, context, options = {}) {
     '**Option 1: Comment on this PR** with `/eval`:\n\n' +
     '```\n/eval\ntags: regression\n```\n\n' +
     'Or with more options (one per line):\n\n' +
-    '```\n/eval\nmodel: gpt-4o\ntags: regression\nfilter: 09_crashpod\niterations: 5\n```\n\n' +
+    '```\n/eval\nmodel: gpt-4o\ntags: regression\nid: 09_crashpod\niterations: 5\n```\n\n' +
     'Run evals on a different branch (e.g., master) for comparison:\n\n' +
     '```\n/eval\nbranch: master\ntags: regression\n```\n\n' +
     '| Option | Description |\n|--------|-------------|\n' +
     '| `model` | Model(s) to test (default: same as automatic runs) |\n' +
     '| `tags` | Pytest tags / markers (**no default - runs all tests!**) |\n' +
-    '| `filter` | Pytest -k filter (use `/list` to see valid eval names) |\n' +
+    '| `id` | Eval ID / pytest -k filter (use `/list` to see valid eval names) |\n' +
     '| `iterations` | Number of runs, max 10 |\n' +
     '| `branch` | Run evals on a different branch (for cross-branch comparison) |\n\n' +
     '**Quick re-run:** Use `/rerun` to re-run the most recent `/eval` on this PR with the same parameters.\n\n' +
     `**Option 2: [Trigger via GitHub Actions UI](${workflowUrl})** → "Run workflow"\n\n` +
-    '**Option 3: Add PR labels** to include extra evals in automatic regression runs:\n\n' +
+    '**Option 3: Add PR labels** to include extra evals (applies to both automatic runs and `/eval` comments):\n\n' +
     '| Label | Effect |\n|-------|--------|\n' +
     '| `evals-tag-<name>` | Run tests with tag `<name>` alongside regression |\n' +
-    '| `evals-id-<name>` | Run a specific eval by test ID |\n\n' +
-    'Examples: `evals-tag-easy`, `evals-id-09_crashpod`\n' +
+    '| `evals-id-<name>` | Run a specific eval by test ID |\n' +
+    '| `evals-model-<name>` | Override the model (use model list name, e.g. `sonnet-4.5`) |\n\n' +
+    'Examples: `evals-tag-easy`, `evals-id-09_crashpod`, `evals-model-sonnet-4.5`\n' +
     '</details>\n' +
     '\n<details>\n<summary>🏷️ <b>Valid tags</b></summary>\n\n' +
     markersFormatted +
+    '\n</details>\n' +
+    '\n<details>\n<summary>🤖 <b>Valid models</b></summary>\n\n' +
+    modelsFormatted +
     '\n</details>\n' +
     '\n---\n**Commands:** `/eval` · `/rerun` · `/list`\n\n' +
     '**CLI:** `' + ghCommand + '`\n';

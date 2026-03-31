@@ -14,7 +14,7 @@ toolsets:
 
     tools:
       - name: "kubernetes_jq_query"
-        user_description: "Query Kubernetes Resources (JSON): kubectl get {{kind}} --all-namespaces -o json | jq {{jq_expr}}"
+        user_description: "jq query: kubectl get {{kind}} | jq '{{jq_expr}}'"
         description: >
           Use kubectl to get json for all resources of a specific kind and filter with jq.
           More memory-efficient than bash for large queries - uses Kubernetes API pagination
@@ -28,6 +28,11 @@ toolsets:
           Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
         script: |
           #!/bin/bash
+
+          # Collapse multi-line jq expressions (LLMs sometimes write multi-line jq)
+          # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
+          JQ_FILTER={{ jq_expr }}
+          JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr $'\n\r' '  ')
 
           err_file=$(mktemp)
 
@@ -114,7 +119,7 @@ toolsets:
 
             ITEMS_COUNT=$(echo "$OUTPUT" | jq '.items | length')
 
-            MATCHES=$(echo "$OUTPUT" | jq -c {{ jq_expr }} 2>>"$err_file")
+            MATCHES=$(echo "$OUTPUT" | jq -c "$JQ_FILTER" 2>>"$err_file")
             jq_exit=$?
             if [ $jq_exit -ne 0 ]; then
               err_content=$(cat "$err_file" 2>/dev/null)
@@ -177,7 +182,7 @@ toolsets:
                 - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
 
       - name: "kubernetes_tabular_query"
-        user_description: "Tabular output of specific fields: kubectl get {{kind}} --all-namespaces -o custom-columns={{columns}}"
+        user_description: "filter: kubectl get {{kind}} columns='{{columns}}'{% if filter_pattern %} filter={{filter_pattern}}{% endif %}"
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
           Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
@@ -269,7 +274,7 @@ toolsets:
                 - Keep output actionable and focused on anomalies
 
       - name: "kubernetes_count"
-        user_description: "Count Kubernetes Resources (JSON): kubectl get {{kind}} --all-namespaces -o json | jq -c -r {{ jq_expr }}"
+        user_description: "count: kubectl get {{kind}} | jq '{{jq_expr}}'"
         description: >
           Use kubectl to apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.

@@ -43,6 +43,11 @@ runs:
         path: ${{ inputs.working-directory }}/.venv
         key: venv-${{ inputs.python-version }}-${{ hashFiles(format('{0}/poetry.lock', inputs.working-directory)) }}
 
+    - name: Install uv (provides uvx for MCP stdio servers)
+      shell: bash
+      run: |
+        python -m pip install uv
+
     - name: Install project dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}

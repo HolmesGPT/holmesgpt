@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import List, Optional, Type
 
+import yaml
+
 from holmes.core.tools import (
     Toolset,
     ToolsetStatusEnum,
@@ -84,24 +86,59 @@ class TestToolsetManager:
         self.toolsets = self._configure_toolsets(builtin_toolsets, custom_definitions)
 
     def _load_custom_toolsets(self, config_path: str) -> List[Toolset]:
-        """Load custom toolsets from a YAML file."""
+        """Load custom toolsets from a YAML file.
+
+        Raises ToolsetPrerequisiteError if any explicitly enabled toolset fails
+        to load (e.g., validation errors during construction). This prevents
+        tests from silently running without expected toolsets.
+        """
         if not os.path.isfile(config_path):
             return []
-        return load_toolsets_from_file(toolsets_path=config_path, strict_check=False)
+
+        loaded = load_toolsets_from_file(toolsets_path=config_path, strict_check=False)
+
+        # Detect toolsets that were silently dropped during loading
+        with open(config_path) as f:
+            raw = yaml.safe_load(f) or {}
+        expected_names = set()
+        for section_key in ("toolsets", "mcp_servers"):
+            for name, cfg in (raw.get(section_key) or {}).items():
+                if isinstance(cfg, dict) and cfg.get("enabled", True):
+                    expected_names.add(name)
+
+        loaded_names = {t.name for t in loaded}
+        missing = expected_names - loaded_names
+        if missing and not self.allow_toolset_failures:
+            raise ToolsetPrerequisiteError(
+                toolset_name=", ".join(sorted(missing)),
+                error_detail=(
+                    f"Toolset(s) failed to load from {config_path}. "
+                    "Check logs for 'Toolset ... is invalid' warnings. "
+                    "Common causes: missing required fields (e.g., 'description'), "
+                    "validation errors, or unresolved env var placeholders."
+                ),
+            )
+
+        return loaded
 
     def _configure_toolsets(
         self, builtin_toolsets: List[Toolset], custom_definitions: List[Toolset]
     ) -> List[Toolset]:
         """Configure builtin toolsets with custom definitions."""
+        from holmes.plugins.toolsets.database.database import DatabaseToolset
         from holmes.plugins.toolsets.http.http_toolset import HttpToolset
+        from holmes.plugins.toolsets.mongodb.mongodb import MongoDBToolset
 
         configured = []
 
         # Validate that all custom definitions reference existing toolsets
-        # (except for HTTP and MCP toolsets which are dynamically created)
+        # (except for dynamically-created toolsets: HTTP, MCP, Database, MongoDB)
         builtin_names = {ts.name for ts in builtin_toolsets}
         for definition in custom_definitions:
-            if isinstance(definition, (HttpToolset, RemoteMCPToolset)):
+            if isinstance(
+                definition,
+                (HttpToolset, RemoteMCPToolset, DatabaseToolset, MongoDBToolset),
+            ):
                 continue
             if definition.name not in builtin_names:
                 raise RuntimeError(
@@ -109,14 +146,17 @@ class TestToolsetManager:
                     f"Available toolsets: {', '.join(sorted(builtin_names))}"
                 )
 
-        # Collect HTTP toolsets from custom definitions
+        # Collect dynamically-created toolsets from custom definitions
         http_toolsets = {
             d.name: d for d in custom_definitions if isinstance(d, HttpToolset)
         }
-
-        # Collect MCP toolsets from custom definitions
         mcp_toolsets = {
             d.name: d for d in custom_definitions if isinstance(d, RemoteMCPToolset)
+        }
+        database_toolsets = {
+            d.name: d
+            for d in custom_definitions
+            if isinstance(d, (DatabaseToolset, MongoDBToolset))
         }
 
         dal = load_test_dal(
@@ -124,8 +164,12 @@ class TestToolsetManager:
             initialize_base=False,
         )
         for toolset in builtin_toolsets:
-            # Skip built-in toolsets that are replaced by HTTP or MCP toolsets
-            if toolset.name in http_toolsets or toolset.name in mcp_toolsets:
+            # Skip built-in toolsets that are replaced by dynamic toolsets
+            if (
+                toolset.name in http_toolsets
+                or toolset.name in mcp_toolsets
+                or toolset.name in database_toolsets
+            ):
                 continue
             # Replace RunbookToolset with one that has test folder search path
             if toolset.name == "runbook":
@@ -256,6 +300,30 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
                 except Exception as e:
                     raise ToolsetPrerequisiteError(
                         toolset_name=mcp_toolset.name,
+                        error_detail=str(e),
+                    ) from e
+
+        # Add Database/MongoDB toolsets from custom definitions
+        for db_toolset in database_toolsets.values():
+            configured.append(db_toolset)
+
+            if db_toolset.enabled:
+                try:
+                    db_toolset.check_prerequisites()
+
+                    if (
+                        db_toolset.status != ToolsetStatusEnum.ENABLED
+                        and not self.allow_toolset_failures
+                    ):
+                        raise ToolsetPrerequisiteError(
+                            toolset_name=db_toolset.name,
+                            error_detail=db_toolset.error or "Unknown error",
+                        )
+                except ToolsetPrerequisiteError:
+                    raise
+                except Exception as e:
+                    raise ToolsetPrerequisiteError(
+                        toolset_name=db_toolset.name,
                         error_detail=str(e),
                     ) from e
 

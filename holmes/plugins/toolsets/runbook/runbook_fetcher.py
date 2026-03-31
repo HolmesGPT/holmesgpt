@@ -261,7 +261,6 @@ class RunbookToolset(Toolset):
             tags=[
                 ToolsetTag.CORE,
             ],
-            is_default=True,
             config=config,
             enabled=True,
         )

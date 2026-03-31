@@ -26,6 +26,8 @@ from typing import (
 )
 
 from jinja2 import Template
+
+from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
@@ -54,6 +56,9 @@ if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
 
 logger = logging.getLogger(__name__)
+# Named logger for user-facing display messages (tool progress lines).
+# In interactive mode this logger is silenced; the CLI renders from stream events instead.
+display_logger = logging.getLogger("holmes.display.tools")
 
 
 class StructuredToolResultStatus(str, Enum):
@@ -61,6 +66,7 @@ class StructuredToolResultStatus(str, Enum):
     ERROR = "error"
     NO_DATA = "no_data"
     APPROVAL_REQUIRED = "approval_required"
+    FRONTEND_PAUSE = "frontend_pause"
 
     def to_color(self) -> str:
         if self == StructuredToolResultStatus.SUCCESS:
@@ -69,6 +75,8 @@ class StructuredToolResultStatus(str, Enum):
             return "red"
         elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
             return "yellow"
+        elif self == StructuredToolResultStatus.FRONTEND_PAUSE:
+            return "cyan"
         else:
             return "white"
 
@@ -79,6 +87,8 @@ class StructuredToolResultStatus(str, Enum):
             return "❌"
         elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
             return "⚠️"
+        elif self == StructuredToolResultStatus.FRONTEND_PAUSE:
+            return "⏸"
         else:
             return "⚪️"
 
@@ -89,10 +99,12 @@ class StructuredToolResult(BaseModel):
     error: Optional[str] = None
     return_code: Optional[int] = None
     data: Optional[Any] = None
+    images: Optional[List[Dict[str, str]]] = None
     url: Optional[str] = None
     invocation: Optional[str] = None
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
+    elapsed_seconds: Optional[float] = None
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
@@ -165,6 +177,7 @@ class ToolsetType(str, Enum):
     MCP = "mcp"
     HTTP = "http"
     DATABASE = "database"
+    MONGODB = "mongodb"
 
 
 class ToolParameter(BaseModel):
@@ -176,6 +189,43 @@ class ToolParameter(BaseModel):
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
     enum: Optional[List[str]] = None  # For restricting to specific values
+    # For object types: stores the additionalProperties JSON Schema value.
+    # None = not specified, False = no additional properties allowed,
+    # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
+    additional_properties: Optional[Union[bool, Dict[str, Any]]] = None
+    # JSON Schema validation keywords (minItems, maxItems, minimum, maximum,
+    # minLength, maxLength, pattern, etc.) preserved from the source schema.
+    # These are passed through to the OpenAI-formatted schema so the LLM
+    # knows about constraints.
+    json_schema_extra: Optional[Dict[str, Any]] = None
+
+    def is_strict_compatible(self) -> bool:
+        """Check if this parameter (and all nested parameters) can be used in strict mode.
+
+        Strict mode requires additionalProperties: false on all objects.
+        Parameters with dynamic keys (additionalProperties set to a schema dict or True)
+        are incompatible with strict mode.
+        """
+        # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
+        if self.additional_properties is not None and self.additional_properties is not False:
+            return False
+        # Recursively check nested properties
+        if self.properties:
+            for prop in self.properties.values():
+                if not prop.is_strict_compatible():
+                    return False
+        # Recursively check array items
+        if self.items and not self.items.is_strict_compatible():
+            return False
+        return True
+
+    @property
+    def primary_type(self) -> str:
+        """Return the primary (non-null) type as a string."""
+        if isinstance(self.type, list):
+            non_null = [t for t in self.type if t != "null"]
+            return non_null[0] if non_null else "string"
+        return self.type
 
 
 class ToolInvokeContext(BaseModel):
@@ -265,12 +315,19 @@ class Tool(ABC, BaseModel):
             logger.debug(f"Tool '{self.name}' has no transformers")
             self._transformer_instances = None
 
-    def get_openai_format(self, target_model: str):
+    def _coerce_params(self, params: Dict) -> Dict:
+        """Coerce LLM tool-call parameters to match their JSON Schema types.
+
+        Delegates to :func:`holmes.core.json_schema_coerce.coerce_params`.
+        See that module's docstring for the full rationale and design notes.
+        """
+        return coerce_params(params, self.parameters, tool_name=self.name)
+
+    def get_openai_format(self):
         return format_tool_to_open_ai_standard(
             tool_name=self.name,
             tool_description=self.description,
             tool_parameters=self.parameters,
-            target_model=target_model,
         )
 
     def invoke(
@@ -279,14 +336,14 @@ class Tool(ABC, BaseModel):
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
         tool_number_str = f"#{context.tool_number} " if context.tool_number else ""
-        logger.info(
+        display_logger.info(
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
 
         if not context.user_approved:
             approval_check = self._get_approval_requirement(params, context)
             if approval_check and approval_check.needs_approval:
-                logger.info(
+                display_logger.info(
                     f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
                 )
                 # Bash toolset: override suggested_prefixes with filtered list
@@ -299,12 +356,15 @@ class Tool(ABC, BaseModel):
                     invocation=self.get_parameterized_one_liner(params),
                 )
 
+        params = self._coerce_params(params)
+
         start_time = time.time()
         result = self._invoke(params=params, context=context)
         result.icon_url = self.icon_url
 
         transformed_result = self._apply_transformers(result)
         elapsed = time.time() - start_time
+        transformed_result.elapsed_seconds = elapsed
         output_str = (
             transformed_result.get_stringified_data()
             if hasattr(transformed_result, "get_stringified_data")
@@ -312,7 +372,7 @@ class Tool(ABC, BaseModel):
         )
         show_hint = f"/show {context.tool_number}" if context.tool_number else "/show"
         line_count = output_str.count("\n") + 1 if output_str else 0
-        logger.info(
+        display_logger.info(
             f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
@@ -591,6 +651,7 @@ class YAMLTool(Tool, BaseModel):
             result = subprocess.run(
                 protected_cmd,
                 shell=True,
+                executable="/bin/bash",
                 text=True,
                 check=False,  # do not throw error, we just return the error code
                 stdin=subprocess.DEVNULL,
@@ -669,7 +730,7 @@ class Toolset(BaseModel):
         default_factory=lambda: [ToolsetTag.CORE],
     )
     config: Optional[Any] = None
-    is_default: bool = False
+
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
@@ -804,21 +865,11 @@ class Toolset(BaseModel):
 
         return interpolated_command
 
-    def should_auto_enable(self) -> bool:
-        """Determine if this toolset should be auto-enabled without explicit user config.
-
-        Rules:
-        1. Already enabled or is_default → enable
-        2. No config_classes (YAML toolsets, simple Python toolsets) → enable
-        3. Config classes exist but all fields have defaults → enable
-        4. Config is required AND was provided by user → enable
-        5. Config is required but not provided → disable
-        """
-        if self.enabled or self.is_default:
-            return True
-
+    @property
+    def missing_config(self) -> bool:
+        """True when this toolset has required config fields but no config was provided."""
         if not self.config_classes:
-            return True
+            return False
 
         requires_config = any(
             config_cls.has_required_fields()
@@ -826,12 +877,9 @@ class Toolset(BaseModel):
             if hasattr(config_cls, "has_required_fields")
         )
         if not requires_config:
-            return True
+            return False
 
-        if self.config is not None:
-            return True
-
-        return False
+        return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
@@ -894,12 +942,12 @@ class Toolset(BaseModel):
                 or self.status == ToolsetStatusEnum.FAILED
             ):
                 if not silent:
-                    logger.info(f"❌ Toolset {self.name}: {self.error}")
+                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
                 return
 
         if not silent:
-            logger.info(f"✅ Toolset {self.name}")
+            display_logger.info(f"✅ Toolset {self.name}")
 
     def check_config_prerequisites(self, silent: bool = False) -> None:
         """Run only fast config-validity checks (static flags and environment variables).
@@ -934,7 +982,7 @@ class Toolset(BaseModel):
                 or self.status == ToolsetStatusEnum.FAILED
             ):
                 if not silent:
-                    logger.info(f"❌ Toolset {self.name}: {self.error}")
+                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
                 return
 
         if has_deferred_prereqs:
@@ -964,7 +1012,7 @@ class Toolset(BaseModel):
             if self._initialized:
                 return self.status == ToolsetStatusEnum.ENABLED
 
-            logger.info(f"Lazily initializing toolset {self.name}...")
+            display_logger.info(f"Lazily initializing toolset {self.name}...")
             self.check_prerequisites(silent=silent)
             self._initialized = True
             self._lazy_init = False

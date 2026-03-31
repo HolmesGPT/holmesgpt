@@ -1,19 +1,71 @@
+import copy
 import re
 from typing import Any, Optional
 
 from holmes.common.env_vars import (
-    LLMS_WITH_STRICT_TOOL_CALLS,
+    STRICT_TOOL_CALLS_ENABLED,
     TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS,
 )
-from holmes.utils.llms import model_matches_list
 
 # parses both simple types: "int", "array", "string"
 # but also arrays of those simpler types: "array[int]", "array[string]", etc.
 pattern = r"^(array\[(?P<inner_type>\w+)\])|(?P<simple_type>\w+)$"
 
-LLMS_WITH_STRICT_TOOL_CALLS_LIST = [
-    llm.strip() for llm in LLMS_WITH_STRICT_TOOL_CALLS.split(",")
-]
+
+def _ensure_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Recursively enforce OpenAI strict-mode constraints on a JSON Schema dict.
+
+    - Sets ``additionalProperties: false`` on every object that has ``properties``.
+    - Ensures ``required`` lists all property names (strict mode requires it).
+    - Recurses into nested objects, array items, and anyOf/oneOf branches.
+
+    Returns a shallow-copied schema so the caller's original is not mutated.
+    """
+    schema = dict(schema)  # shallow copy top level
+
+    schema_type = schema.get("type")
+
+    if schema_type == "object" and "properties" in schema:
+        schema["additionalProperties"] = False
+        schema["required"] = list(schema["properties"].keys())
+        schema["properties"] = {
+            k: _ensure_strict_schema(v) for k, v in schema["properties"].items()
+        }
+
+    if "items" in schema and isinstance(schema["items"], dict):
+        schema["items"] = _ensure_strict_schema(schema["items"])
+
+    for keyword in ("anyOf", "oneOf"):
+        if keyword in schema and isinstance(schema[keyword], list):
+            schema[keyword] = [
+                _ensure_strict_schema(branch) if isinstance(branch, dict) else branch
+                for branch in schema[keyword]
+            ]
+
+    return schema
+
+
+def apply_strict_mode(result: dict[str, Any]) -> dict[str, Any]:
+    """Apply strict-mode envelope to a fully-built OpenAI tool definition.
+
+    Sets ``strict: true`` on the function and enforces
+    ``additionalProperties: false`` recursively on the parameters schema.
+    Shared by both the ToolParameter pipeline and the frontend raw-schema path.
+    """
+    result = copy.deepcopy(result)
+    func = result.get("function", {})
+    func["strict"] = True
+    if "parameters" in func:
+        func["parameters"] = _ensure_strict_schema(func["parameters"])
+    return result
+
+
+def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
+    """Check if all parameters in a tool are compatible with strict mode."""
+    for param in tool_parameters.values():
+        if hasattr(param, "is_strict_compatible") and not param.is_strict_compatible():
+            return False
+    return True
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
@@ -33,8 +85,6 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
 
     if param_type == "object":
         type_obj = {"type": "object"}
-        if strict_mode:
-            type_obj["additionalProperties"] = False
 
         # Use explicit properties if provided
         if hasattr(param_attributes, "properties") and param_attributes.properties:
@@ -44,6 +94,13 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
             }
             if strict_mode:
                 type_obj["required"] = list(param_attributes.properties.keys())
+                type_obj["additionalProperties"] = False
+
+        # Preserve additionalProperties schema for dynamic-key objects
+        elif hasattr(param_attributes, "additional_properties") and param_attributes.additional_properties not in (None, False):
+            type_obj["additionalProperties"] = param_attributes.additional_properties
+        elif strict_mode:
+            type_obj["additionalProperties"] = False
 
     elif param_type == "array":
         # Handle arrays with explicit item schemas
@@ -72,6 +129,11 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
         else:
             type_obj = {"type": match.group("simple_type")}
 
+    # Merge passthrough JSON Schema keywords (minItems, maxItems, minimum, etc.)
+    # so the LLM sees validation constraints from the source schema.
+    if type_obj and hasattr(param_attributes, "json_schema_extra") and param_attributes.json_schema_extra:
+        type_obj.update(param_attributes.json_schema_extra)
+
     # Add nullability using anyOf per the OpenAI Structured Outputs spec when strict mode
     # requires optional params to accept null, or when the source schema explicitly marks
     # the field as nullable (e.g., MCP ["string", "null"]).
@@ -82,11 +144,15 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
 
 
 def format_tool_to_open_ai_standard(
-    tool_name: str, tool_description: str, tool_parameters: dict, target_model: str
+    tool_name: str, tool_description: str, tool_parameters: dict
 ):
-    tool_properties = {}
+    # Strict mode is enabled globally unless disabled via HOLMES_DISABLE_STRICT_TOOL_CALLS.
+    # However, tools with dynamic-key objects (additionalProperties with a schema) are
+    # automatically excluded from strict mode since both OpenAI and Anthropic require
+    # additionalProperties: false on all objects in strict mode.
+    strict_mode = STRICT_TOOL_CALLS_ENABLED and _is_tool_strict_compatible(tool_parameters)
 
-    strict_mode = model_matches_list(target_model, LLMS_WITH_STRICT_TOOL_CALLS_LIST)
+    tool_properties = {}
 
     for param_name, param_attributes in tool_parameters.items():
         tool_properties[param_name] = type_to_open_ai_schema(
@@ -125,9 +191,8 @@ def format_tool_to_open_ai_standard(
         },
     }
 
-    if strict_mode and result["function"]:
-        result["function"]["strict"] = True
-        result["function"]["parameters"]["additionalProperties"] = False
+    if strict_mode:
+        result = apply_strict_mode(result)
 
     # gemini doesnt have parameters object if it is without params
     if TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS and (

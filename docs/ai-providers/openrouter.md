@@ -12,7 +12,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
 
     ```bash
     export OPENROUTER_API_KEY="sk-or-..."  # your OpenRouter key
-    holmes ask "hello" --model="openrouter/anthropic/claude-sonnet-4-5" --no-interactive
+    holmes ask "hello" --model="openrouter/anthropic/claude-sonnet-4.5" --no-interactive
     ```
 
 === "Holmes Helm Chart"
@@ -38,7 +38,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
     modelList:
       claude-sonnet-4:
         api_key: "{{ env.OPENROUTER_API_KEY }}"
-        model: openrouter/anthropic/claude-sonnet-4-5-20250929
+        model: openrouter/anthropic/claude-sonnet-4.5-20250929
         temperature: 1
         thinking:
           budget_tokens: 10000
@@ -46,7 +46,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
 
       claude-opus-4:
         api_key: "{{ env.OPENROUTER_API_KEY }}"
-        model: openrouter/anthropic/claude-opus-4-5-20251101
+        model: openrouter/anthropic/claude-opus-4.5-20251101
         temperature: 1
 
     # Optional: Set default model (use modelList key name)
@@ -78,7 +78,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
       modelList:
         claude-sonnet-4:
           api_key: "{{ env.OPENROUTER_API_KEY }}"
-          model: openrouter/anthropic/claude-sonnet-4-5-20250929
+          model: openrouter/anthropic/claude-sonnet-4.5-20250929
           temperature: 1
           thinking:
             budget_tokens: 10000
@@ -86,7 +86,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
 
         claude-opus-4:
           api_key: "{{ env.OPENROUTER_API_KEY }}"
-          model: openrouter/anthropic/claude-opus-4-5-20251101
+          model: openrouter/anthropic/claude-opus-4.5-20251101
           temperature: 1
 
       # Optional: Set default model (use modelList key name)
@@ -112,7 +112,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
     ```bash
     export OPENAI_API_BASE="https://openrouter.ai/api/v1"
     export OPENAI_API_KEY="sk-or-..."  # your OpenRouter key
-    holmes ask "hello" --model="openai/anthropic/claude-sonnet-4-5" --no-interactive
+    holmes ask "hello" --model="openai/anthropic/claude-sonnet-4.5" --no-interactive
     ```
 
 === "Holmes Helm Chart"
@@ -141,7 +141,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
       claude-sonnet-4:
         api_key: "{{ env.OPENAI_API_KEY }}"
         api_base: "https://openrouter.ai/api/v1"
-        model: openai/anthropic/claude-sonnet-4-5-20250929
+        model: openai/anthropic/claude-sonnet-4.5-20250929
         temperature: 1
         thinking:
           budget_tokens: 10000
@@ -150,7 +150,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
       claude-opus-4:
         api_key: "{{ env.OPENAI_API_KEY }}"
         api_base: "https://openrouter.ai/api/v1"
-        model: openai/anthropic/claude-opus-4-5-20251101
+        model: openai/anthropic/claude-opus-4.5-20251101
         temperature: 1
 
     # Optional: Set default model (use modelList key name)
@@ -185,7 +185,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
         claude-sonnet-4:
           api_key: "{{ env.OPENAI_API_KEY }}"
           api_base: "https://openrouter.ai/api/v1"
-          model: openai/anthropic/claude-sonnet-4-5-20250929
+          model: openai/anthropic/claude-sonnet-4.5-20250929
           temperature: 1
           thinking:
             budget_tokens: 10000
@@ -194,7 +194,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
         claude-opus-4:
           api_key: "{{ env.OPENAI_API_KEY }}"
           api_base: "https://openrouter.ai/api/v1"
-          model: openai/anthropic/claude-opus-4-5-20251101
+          model: openai/anthropic/claude-opus-4.5-20251101
           temperature: 1
 
       # Optional: Set default model (use modelList key name)
@@ -208,16 +208,16 @@ You can use any model available on OpenRouter. The model prefix depends on which
 
 **Method 1 (Native):** Use `openrouter/` prefix
 
-- `openrouter/anthropic/claude-sonnet-4-5`
-- `openrouter/anthropic/claude-opus-4-5`
+- `openrouter/anthropic/claude-sonnet-4.5`
+- `openrouter/anthropic/claude-opus-4.5`
 - `openrouter/openai/gpt-4o`
-- `openrouter/google/gemini-pro`
+- `openrouter/google/gemini-2.5-pro`
 
 **Method 2 (OpenAI-Compatible):** Use `openai/` prefix
 
-- `openai/anthropic/claude-sonnet-4-5`
-- `openai/anthropic/claude-opus-4-5`
+- `openai/anthropic/claude-sonnet-4.5`
+- `openai/anthropic/claude-opus-4.5`
 - `openai/openai/gpt-4o`
-- `openai/google/gemini-pro`
+- `openai/google/gemini-2.5-pro`
 
 See the [OpenRouter models page](https://openrouter.ai/models) for a complete list of available models.

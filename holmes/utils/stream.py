@@ -9,7 +9,7 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import ModelResponse, TextCompletionResponse
 from pydantic import BaseModel, Field
 
-from holmes.core.llm import TokenCountMetadata, get_llm_usage
+from holmes.core.llm import ContextWindowUsage, build_usage_metadata
 
 
 class StreamEvents(str, Enum):
@@ -20,6 +20,7 @@ class StreamEvents(str, Enum):
     AI_MESSAGE = "ai_message"
     APPROVAL_REQUIRED = "approval_required"
     TOKEN_COUNT = "token_count"
+    CONVERSATION_HISTORY_COMPACTION_START = "conversation_history_compaction_start"
     CONVERSATION_HISTORY_COMPACTED = "conversation_history_compacted"
 
 
@@ -83,12 +84,14 @@ def stream_chat_formatter(
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
                     "follow_up_actions": followups,
+                    "requires_approval": True,
+                    "pending_approvals": message.data.get(
+                        "pending_approvals", []
+                    ),
+                    "pending_frontend_tool_calls": message.data.get(
+                        "pending_frontend_tool_calls", []
+                    ),
                 }
-
-                response_data["requires_approval"] = True
-                response_data["pending_approvals"] = message.data.get(
-                    "pending_approvals", []
-                )
 
                 yield create_sse_message(
                     StreamEvents.APPROVAL_REQUIRED.value, response_data
@@ -104,7 +107,7 @@ def stream_chat_formatter(
 
 
 def add_token_count_to_metadata(
-    tokens: TokenCountMetadata,
+    tokens: ContextWindowUsage,
     metadata: dict,
     max_context_size: int,
     maximum_output_token: int,
@@ -112,7 +115,7 @@ def add_token_count_to_metadata(
         ModelResponse, CustomStreamWrapper, TextCompletionResponse
     ],
 ):
-    metadata["usage"] = get_llm_usage(full_llm_response)
+    metadata["usage"] = build_usage_metadata(full_llm_response)
     metadata["tokens"] = tokens.model_dump()
     metadata["max_tokens"] = max_context_size
     metadata["max_output_tokens"] = maximum_output_token

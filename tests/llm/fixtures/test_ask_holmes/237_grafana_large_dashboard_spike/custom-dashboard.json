@@ -1,0 +1,374 @@
+{
+  "dashboard": {
+    "uid": "infra-capacity-overview",
+    "title": "Infrastructure Capacity Overview",
+    "tags": ["infrastructure", "capacity"],
+    "timezone": "utc",
+    "schemaVersion": 39,
+    "version": 1,
+    "time": {"from": "now-6h", "to": "now"},
+    "panels": [
+      {
+        "id": 1,
+        "title": "Network Ingress Bandwidth",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 0},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "net_ingress_bw", "timeStep": 300, "valuesCSV": "220,219,220,220,221,220,220,219,220,220,220,221,220,220,219,220,220,220,221,220"}]}],
+        "fieldConfig": {"defaults": {"unit": "Bps"}}
+      },
+      {
+        "id": 2,
+        "title": "Network Egress Bandwidth",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 0},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "net_egress_bw", "timeStep": 300, "valuesCSV": "180,179,180,180,181,180,180,179,180,180,180,181,180,180,179,180,180,180,181,180"}]}],
+        "fieldConfig": {"defaults": {"unit": "Bps"}}
+      },
+      {
+        "id": 3,
+        "title": "Storage Pool Alpha Utilization",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 5},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "storage_alpha_util", "timeStep": 300, "valuesCSV": "67,66,67,67,68,67,67,66,67,67,67,68,67,67,66,67,67,67,68,67"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 4,
+        "title": "Storage Pool Beta Utilization",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 5},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "storage_beta_util", "timeStep": 300, "valuesCSV": "43,42,43,43,44,43,43,42,43,43,43,44,43,43,42,43,43,43,44,43"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 5,
+        "title": "Compute Cluster CPU Allocation",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 10},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "compute_cpu_alloc", "timeStep": 300, "valuesCSV": "78,77,78,78,79,78,78,77,78,78,78,79,78,78,77,78,78,78,79,78"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 6,
+        "title": "Compute Cluster Memory Allocation",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 10},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "compute_mem_alloc", "timeStep": 300, "valuesCSV": "61,60,61,61,62,61,61,60,61,61,61,62,61,61,60,61,61,61,62,61"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 7,
+        "title": "DNS Resolution Latency",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 15},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "dns_resolution_latency", "timeStep": 300, "valuesCSV": "12,11,12,12,13,12,12,11,12,12,12,13,12,12,11,12,12,12,13,12"}]}],
+        "fieldConfig": {"defaults": {"unit": "ms"}}
+      },
+      {
+        "id": 8,
+        "title": "Load Balancer Active Connections",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 15},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "lb_active_conns", "timeStep": 300, "valuesCSV": "340,339,340,340,341,340,340,339,340,340,340,341,340,340,339,340,340,340,341,340"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 9,
+        "title": "Container Registry Pull Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 20},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "registry_pull_rate", "timeStep": 300, "valuesCSV": "25,24,25,25,26,25,25,24,25,25,25,26,25,25,24,25,25,25,26,25"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 10,
+        "title": "Container Registry Push Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 20},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "registry_push_rate", "timeStep": 300, "valuesCSV": "8,7,8,8,9,8,8,7,8,8,8,9,8,8,7,8,8,8,9,8"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 11,
+        "title": "Database Primary IOPS",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 25},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "db_primary_iops", "timeStep": 300, "valuesCSV": "450,449,450,450,451,450,450,449,450,450,450,451,450,450,449,450,450,450,451,450"}]}],
+        "fieldConfig": {"defaults": {"unit": "iops"}}
+      },
+      {
+        "id": 12,
+        "title": "Database Replica IOPS",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 25},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "db_replica_iops", "timeStep": 300, "valuesCSV": "320,319,320,320,321,320,320,319,320,320,320,321,320,320,319,320,320,320,321,320"}]}],
+        "fieldConfig": {"defaults": {"unit": "iops"}}
+      },
+      {
+        "id": 13,
+        "title": "Kafka Consumer Group Offset",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 30},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "kafka_consumer_offset", "timeStep": 300, "valuesCSV": "15000,14999,15000,15000,15001,15000,15000,14999,15000,15000,15000,15001,15000,15000,14999,15000,15000,15000,15001,15000"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 14,
+        "title": "Kafka Producer Throughput",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 30},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "kafka_producer_throughput", "timeStep": 300, "valuesCSV": "280,279,280,280,281,280,280,279,280,280,280,281,280,280,279,280,280,280,281,280"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 15,
+        "title": "Redis Cache Hit Ratio",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 35},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "redis_hit_ratio", "timeStep": 300, "valuesCSV": "94,93,94,94,95,94,94,93,94,94,94,95,94,94,93,94,94,94,95,94"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 16,
+        "title": "Redis Memory Fragmentation",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 35},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "redis_mem_frag", "timeStep": 300, "valuesCSV": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 17,
+        "title": "Vault Secret Access Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 40},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "vault_access_rate", "timeStep": 300, "valuesCSV": "45,44,45,45,46,45,45,44,45,45,45,46,45,45,44,45,45,45,46,45"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 18,
+        "title": "Vault Token Renewal Latency",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 40},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "vault_token_latency", "timeStep": 300, "valuesCSV": "3,2,3,3,4,3,3,2,3,3,3,4,3,3,2,3,3,3,4,3"}]}],
+        "fieldConfig": {"defaults": {"unit": "ms"}}
+      },
+      {
+        "id": 19,
+        "title": "Cache Tier Write Throughput",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 45},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "cache_write_throughput", "timeStep": 300, "valuesCSV": "110,109,110,110,111,110,110,109,110,110,110,111,110,110,109,110,110,110,111,110"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 20,
+        "title": "CDN Origin Pull Latency",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 45},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "cdn_origin_latency", "timeStep": 300, "valuesCSV": "89,88,89,89,90,89,89,88,89,89,89,90,89,89,88,89,89,89,90,89"}]}],
+        "fieldConfig": {"defaults": {"unit": "ms"}}
+      },
+      {
+        "id": 21,
+        "title": "Service Mesh Proxy CPU",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 50},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "mesh_proxy_cpu", "timeStep": 300, "valuesCSV": "15,14,15,15,16,15,15,14,15,15,15,16,15,15,14,15,15,15,16,15"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 22,
+        "title": "Service Mesh Request Duration",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 50},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "mesh_request_duration", "timeStep": 300, "valuesCSV": "28,27,28,28,29,28,28,27,28,28,28,29,28,28,27,28,28,28,29,28"}]}],
+        "fieldConfig": {"defaults": {"unit": "ms"}}
+      },
+      {
+        "id": 23,
+        "title": "Object Storage PUT Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 55},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "obj_storage_put_rate", "timeStep": 300, "valuesCSV": "35,34,35,35,36,35,35,34,35,35,35,36,35,35,34,35,35,35,36,35"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 24,
+        "title": "Object Storage GET Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 55},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "obj_storage_get_rate", "timeStep": 300, "valuesCSV": "120,119,120,120,121,120,120,119,120,120,120,121,120,120,119,120,120,120,121,120"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 25,
+        "title": "CI Pipeline Queue Depth",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 60},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "ci_queue_depth", "timeStep": 300, "valuesCSV": "7,6,7,7,8,7,7,6,7,7,7,8,7,7,6,7,7,7,8,7"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 26,
+        "title": "CI Pipeline Build Duration",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 60},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "ci_build_duration", "timeStep": 300, "valuesCSV": "180,179,180,180,181,180,180,179,180,180,180,181,180,180,179,180,180,180,181,180"}]}],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 27,
+        "title": "Message Broker Partition Lag",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 65},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "broker_partition_lag", "timeStep": 300, "valuesCSV": "8,8,9,8,8,8,9,4200,4500,4800,4300,9,8,8,8,9,8,8,8,8"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 28,
+        "title": "Message Broker Consumer Throughput",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 65},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "broker_consumer_throughput", "timeStep": 300, "valuesCSV": "260,259,260,260,261,260,260,259,260,260,260,261,260,260,259,260,260,260,261,260"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 29,
+        "title": "Logging Pipeline Ingestion Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 70},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "log_ingestion_rate", "timeStep": 300, "valuesCSV": "5000,4999,5000,5000,5001,5000,5000,4999,5000,5000,5000,5001,5000,5000,4999,5000,5000,5000,5001,5000"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 30,
+        "title": "Logging Pipeline Drop Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 70},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "log_drop_rate", "timeStep": 300, "valuesCSV": "2,1,2,2,3,2,2,1,2,2,2,3,2,2,1,2,2,2,3,2"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 31,
+        "title": "GPU Cluster Utilization",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 75},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "gpu_cluster_util", "timeStep": 300, "valuesCSV": "72,71,72,72,73,72,72,71,72,72,72,73,72,72,71,72,72,72,73,72"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 32,
+        "title": "GPU Memory Allocation",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 75},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "gpu_mem_alloc", "timeStep": 300, "valuesCSV": "58,57,58,58,59,58,58,57,58,58,58,59,58,58,57,58,58,58,59,58"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 33,
+        "title": "etcd Leader Elections",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 80},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "etcd_leader_elections", "timeStep": 300, "valuesCSV": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"}]}],
+        "fieldConfig": {"defaults": {"unit": "short"}}
+      },
+      {
+        "id": 34,
+        "title": "etcd DB Size",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 80},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "etcd_db_size", "timeStep": 300, "valuesCSV": "150,149,150,150,151,150,150,149,150,150,150,151,150,150,149,150,150,150,151,150"}]}],
+        "fieldConfig": {"defaults": {"unit": "decmbytes"}}
+      },
+      {
+        "id": 35,
+        "title": "API Server Request Latency",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 85},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "apiserver_req_latency", "timeStep": 300, "valuesCSV": "22,21,22,22,23,22,22,21,22,22,22,23,22,22,21,22,22,22,23,22"}]}],
+        "fieldConfig": {"defaults": {"unit": "ms"}}
+      },
+      {
+        "id": 36,
+        "title": "API Server Request Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 85},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "apiserver_req_rate", "timeStep": 300, "valuesCSV": "190,189,190,190,191,190,190,189,190,190,190,191,190,190,189,190,190,190,191,190"}]}],
+        "fieldConfig": {"defaults": {"unit": "reqps"}}
+      },
+      {
+        "id": 37,
+        "title": "Node Disk Pressure",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 90},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "node_disk_pressure", "timeStep": 300, "valuesCSV": "5,4,5,5,6,5,5,4,5,5,5,6,5,5,4,5,5,5,6,5"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 38,
+        "title": "Node Memory Pressure",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 90},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "node_mem_pressure", "timeStep": 300, "valuesCSV": "12,11,12,12,13,12,12,11,12,12,12,13,12,12,11,12,12,12,13,12"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 39,
+        "title": "Backup Job Success Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 0, "y": 95},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "backup_success_rate", "timeStep": 300, "valuesCSV": "100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100"}]}],
+        "fieldConfig": {"defaults": {"unit": "percent"}}
+      },
+      {
+        "id": 40,
+        "title": "Backup Storage Consumption",
+        "type": "timeseries",
+        "gridPos": {"h": 5, "w": 12, "x": 12, "y": 95},
+        "datasource": {"type": "testdata", "uid": "testdata-ds"},
+        "targets": [{"refId": "A", "scenarioId": "predictable_csv_wave", "csvWave": [{"name": "backup_storage", "timeStep": 300, "valuesCSV": "340,339,340,340,341,340,340,339,340,340,340,341,340,340,339,340,340,340,341,340"}]}],
+        "fieldConfig": {"defaults": {"unit": "decgbytes"}}
+      }
+    ]
+  },
+  "overwrite": true
+}

@@ -1,0 +1,119 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "fulfill-svc-dash",
+    "title": "Fulfillment Service Dashboard",
+    "tags": ["fulfillment", "monitoring"],
+    "timezone": "utc",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Service Health",
+        "type": "text",
+        "gridPos": {
+          "h": 6,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "options": {
+          "mode": "markdown",
+          "content": "## Current Deployment Status\n\n| Property | Value |\n|----------|-------|\n| Region | us-east-1 |\n| Build | v2.14.7-rc3 |\n| Deployment ID | deploy-8x3m9k |\n| Status | **DEGRADED** |\n| Last Restart | 2025-01-15 03:22 UTC |"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Order Processing Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 6
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "random_walk",
+            "datasource": {
+              "type": "testdata",
+              "uid": "testdata-ds"
+            },
+            "seriesCount": 2,
+            "alias": "p99 latency"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 50},
+                {"color": "red", "value": 80}
+              ]
+            }
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "single"},
+          "legend": {"displayMode": "list"}
+        }
+      },
+      {
+        "id": 3,
+        "title": "Inventory Sync Status",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 6
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "random_walk",
+            "datasource": {
+              "type": "testdata",
+              "uid": "testdata-ds"
+            },
+            "alias": "sync errors"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        },
+        "options": {
+          "tooltip": {"mode": "single"},
+          "legend": {"displayMode": "list"}
+        }
+      }
+    ],
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "links": [],
+    "liveNow": false,
+    "style": "dark"
+  },
+  "overwrite": true,
+  "message": "Dashboard for Holmes render vision evaluation"
+}

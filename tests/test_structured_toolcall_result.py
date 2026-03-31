@@ -202,7 +202,7 @@ def test_format_tool_result_data_error_without_message_with_unserializable():
     assert format_tool_result_data(result, tool_call_id, tool_name) == expected
 
 
-def test_as_tool_call_message_without_params():
+def test_to_llm_message_without_params():
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS, data="hello"
     )
@@ -212,7 +212,7 @@ def test_as_tool_call_message_without_params():
         description="desc",
         result=structured,
     )
-    message = tcr.as_tool_call_message()
+    message = tcr.to_llm_message()
     expected_content = (
         'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
     )
@@ -224,7 +224,7 @@ def test_as_tool_call_message_without_params():
     }
 
 
-def test_as_tool_call_message_with_params():
+def test_to_llm_message_with_params():
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS,
         data="hello",
@@ -236,7 +236,7 @@ def test_as_tool_call_message_with_params():
         description="desc",
         result=structured,
     )
-    message = tcr.as_tool_call_message()
+    message = tcr.to_llm_message()
     expected_content = (
         'Params used for the tool call: {"pod_name": "my-pod", "namespace": "my-namespace"}. The tool call output follows on the next line.\n'
         'tool_call_metadata={"tool_name": "toolX", "tool_call_id": "call1"}hello'
@@ -249,7 +249,7 @@ def test_as_tool_call_message_with_params():
     }
 
 
-def test_as_tool_result_response():
+def test_to_client_dict():
     structured = StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS, data="hello"
     )
@@ -259,9 +259,10 @@ def test_as_tool_result_response():
         description="desc",
         result=structured,
     )
-    response = tcr.as_tool_result_response()
+    response = tcr.to_client_dict()
     assert response["tool_call_id"] == "call1"
     assert response["tool_name"] == "toolX"
+    assert response["name"] == "toolX"  # both keys carry the same value
     assert response["description"] == "desc"
     assert response["role"] == "tool"
 
@@ -270,22 +271,60 @@ def test_as_tool_result_response():
     assert response["result"] == expected_dump
 
 
-def test_as_streaming_tool_result_response():
+def test_format_tool_result_data_with_images_returns_string():
+    """format_tool_result_data always returns a string, even with images.
+    Multimodal assembly (text + image blocks) happens in to_llm_message()."""
+    images = [
+        {"data": "iVBORw0KGgo=", "mimeType": "image/png"},
+        {"data": "/9j/4AAQ==", "mimeType": "image/jpeg"},
+    ]
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data="some text",
+        images=images,
+    )
+    content = format_tool_result_data(result, "call_img", "img_tool")
+
+    # format_tool_result_data is a pure string function — images are handled by to_llm_message
+    assert isinstance(content, str)
+    assert "tool_call_metadata" in content
+    assert "some text" in content
+
+
+def test_format_tool_result_data_without_images_returns_string():
+    """When no images, format_tool_result_data returns a plain string."""
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS, data="text only"
+    )
+    content = format_tool_result_data(result, "call1", "tool1")
+    assert isinstance(content, str)
+
+
+def test_to_llm_message_with_images():
+    """to_llm_message produces multimodal content with embed hint when images are present."""
+    images = [{"data": "AAAA", "mimeType": "image/png"}]
     structured = StructuredToolResult(
-        status=StructuredToolResultStatus.SUCCESS, data="hello"
+        status=StructuredToolResultStatus.SUCCESS,
+        data="description",
+        images=images,
+        url="https://grafana.example.com/d/abc123",
     )
     tcr = ToolCallResult(
-        tool_call_id="call2",
-        tool_name="toolY",
-        description="desc2",
+        tool_call_id="call_v",
+        tool_name="vision_tool",
+        description="desc",
         result=structured,
     )
-    streaming = tcr.as_streaming_tool_result_response()
-    assert streaming["tool_call_id"] == "call2"
-    assert streaming["role"] == "tool"
-    assert streaming["description"] == "desc2"
-    assert streaming["name"] == "toolY"
+    message = tcr.to_llm_message()
+    assert message["role"] == "tool"
+    assert isinstance(message["content"], list)
+    # Text block includes the embed hint
+    text_block = message["content"][0]
+    assert text_block["type"] == "text"
+    assert "tool-image://call_v" in text_block["text"]
+    assert "https://grafana.example.com/d/abc123" in text_block["text"]
+    # Image block uses OpenAI vision format with data URI
+    assert message["content"][1]["type"] == "image_url"
+    assert message["content"][1]["image_url"]["url"] == "data:image/png;base64,AAAA"
 
-    expected_dump = structured.model_dump()
-    expected_dump["data"] = structured.get_stringified_data()
-    assert streaming["result"] == expected_dump
+

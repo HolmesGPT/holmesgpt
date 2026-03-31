@@ -56,8 +56,72 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | response_format         | No       |         | object    | JSON schema for structured output (see below)   |
 | images                  | No       |         | array     | Image URLs, base64 data URIs, or objects with `url` (required), `detail` (low/high/auto), and `format` (MIME type). Requires vision-enabled model. See [Image Analysis](#image-analysis) |
 | stream                  | No       | false   | boolean   | Enable streaming response (SSE)                 |
-| enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions    |
+| enable_tool_approval    | No       | false   | boolean   | Require approval for certain tool executions (see [Tool Approval Behavior](#tool-approval-behavior))    |
+| frontend_tools          | No       |         | array     | Tools defined by the frontend client (see [Frontend Tools](#frontend-tools)). Requires `stream: true`. |
+| frontend_tool_results   | No       |         | array     | Results from frontend-executed tools, sent to resume a paused stream (see [Frontend Tools](#frontend-tools)). |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
+| behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode--prompt-controls)) |
+
+#### Fast Mode & Prompt Controls
+
+The `behavior_controls` field lets you selectively enable or disable sections of the system and user prompts. This is the API equivalent of the CLI's `--fast-mode` flag and gives you fine-grained control over which prompt components HolmesGPT includes.
+
+**Fast mode example** — skip the TodoWrite planning phase for faster, more direct responses:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Why is my pod crashing?",
+    "behavior_controls": {
+      "todowrite_instructions": false,
+      "todowrite_reminder": false
+    }
+  }'
+```
+
+**Minimal prompt example** — disable most sections to reduce token usage and latency:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "List all pods in the default namespace",
+    "behavior_controls": {
+      "todowrite_instructions": false,
+      "todowrite_reminder": false,
+      "ai_safety": false,
+      "style_guide": false,
+      "general_instructions": false
+    }
+  }'
+```
+
+**Precedence rules:**
+
+1. **`ENABLED_PROMPTS` env var** (highest) — If set on the server, it restricts which sections are allowed. The API cannot re-enable a section the env var disables.
+2. **`behavior_controls`** — Enables or disables sections within what the env var allows.
+3. **Default** (lowest) — All sections are enabled.
+
+The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.g., `"files,ai_safety,toolset_instructions"`) or `"none"` to disable all sections.
+
+**Available prompt sections:**
+
+| Section Key               | Prompt   | Description                                  |
+|---------------------------|----------|----------------------------------------------|
+| `intro`                   | System   | Introduction and identity                   |
+| `ask_user`                | System   | Instructions for asking clarifying questions |
+| `todowrite_instructions`  | System   | TodoWrite planning tool instructions         |
+| `ai_safety`               | System   | Safety guidelines (disabled by default)      |
+| `toolset_instructions`    | System   | Tool definitions and usage instructions      |
+| `permission_errors`       | System   | Permission error handling guidance           |
+| `general_instructions`    | System   | General investigation instructions           |
+| `style_guide`             | System   | Output formatting and style guide            |
+| `cluster_name`            | System   | Kubernetes cluster name context              |
+| `system_prompt_additions` | System   | Custom additions from configuration          |
+| `files`                   | User     | Attached file contents                       |
+| `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
+| `time_runbooks`           | User     | Runbook content and custom instructions      |
 
 #### Structured Output with `response_format`
 
@@ -226,6 +290,111 @@ For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision D
 | url    | string | Image URL or base64 data URI (required)                |
 | detail | string | OpenAI-specific: `low`, `high`, or `auto` for resolution control |
 | format | string | MIME type (e.g., `image/jpeg`) for providers that need explicit format |
+
+#### Tool Approval Behavior
+
+The `enable_tool_approval` field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that bashlex cannot parse).
+
+**When `enable_tool_approval: true` (interactive clients):**
+
+The stream pauses and emits an `approval_required` event with the pending tool calls. The client must send a follow-up request with `tool_decisions` to approve or deny each tool call. See the [approval_required](#approval_required) event for details.
+
+**When `enable_tool_approval: false` (default, server/automation):**
+
+Tools that would require approval are automatically converted to errors. The error message is fed back to the LLM as a tool result, giving it a chance to self-correct and retry with a valid command. For example, if the LLM generates a bash command with unquoted special characters that can't be parsed, it receives an error and can retry with proper quoting.
+
+This means server-mode integrations (e.g., Keep workflows) do not need a human in the loop — the LLM handles recoverable validation failures automatically.
+
+#### Frontend Tools
+
+Frontend tools let the client define tools that the LLM can call, but that execute on the **client side** rather than on the Holmes server. This enables use cases like rendering charts, navigating UIs, querying client-local databases, or any action that requires client-side execution.
+
+Frontend tools have two modes:
+
+- **`pause`** (default): The stream pauses when the LLM calls the tool. The client executes the tool and resumes by sending results back. The LLM receives real results and continues reasoning with that data.
+- **`noop`**: The server returns a canned response immediately and the LLM continues without pausing. The client sees the tool call in SSE events (`start_tool_calling` + `tool_calling_result`) and can execute it as a fire-and-forget side effect.
+
+**Declaring frontend tools:**
+
+Each tool in the `frontend_tools` array has:
+
+| Field         | Required | Default | Type   | Description                                           |
+|---------------|----------|---------|--------|-------------------------------------------------------|
+| name          | Yes      |         | string | Tool name (must not conflict with built-in tool names)|
+| description   | Yes      |         | string | Description shown to the LLM                         |
+| parameters    | No       |         | object | JSON Schema describing the tool's parameters          |
+| mode          | No       | pause   | string | `"pause"` or `"noop"`                                |
+| noop_response | No       |         | string | Custom canned response for noop-mode tools            |
+
+**Example with both modes:**
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Show me a CPU usage chart and navigate to the dashboards page",
+    "stream": true,
+    "frontend_tools": [
+      {
+        "name": "render_chart",
+        "description": "Render a chart in the user interface. Returns chart metadata.",
+        "mode": "pause",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "chart_type": {"type": "string", "description": "Type of chart (line, bar, pie)"},
+            "data_source": {"type": "string", "description": "Metric or data source to chart"},
+            "time_range": {"type": "string", "description": "Time range (e.g. 1h, 24h, 7d)"}
+          }
+        }
+      },
+      {
+        "name": "navigate_to_page",
+        "description": "Navigate the user to a page in the application.",
+        "mode": "noop",
+        "noop_response": "Navigation triggered successfully.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page": {"type": "string", "description": "Page path (e.g. /dashboards, /alerts)"}
+          }
+        }
+      }
+    ]
+  }'
+```
+
+**Pause-mode: resuming after frontend tool execution:**
+
+When the stream pauses, the `approval_required` event contains `pending_frontend_tool_calls` with the tool name, call ID, and arguments. Execute the tool client-side, then resume:
+
+```bash
+curl -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ask": "Show me a CPU usage chart for the last hour",
+    "stream": true,
+    "conversation_history": [...],
+    "frontend_tool_results": [
+      {
+        "tool_call_id": "call_abc123",
+        "tool_name": "render_chart",
+        "result": "{\"rendered\": true, \"chart_url\": \"/charts/cpu-1h.png\"}"
+      }
+    ]
+  }'
+```
+
+**Noop-mode: no resume needed:**
+
+Noop tools execute instantly on the server with a canned response. The client sees the tool call in `start_tool_calling` and `tool_calling_result` SSE events and can act on them (e.g., navigate to a page), but the LLM continues without waiting.
+
+**Constraints:**
+
+- Pause-mode tools require `stream: true` (returns HTTP 400 otherwise). Noop-mode tools work with both streaming and non-streaming.
+- Frontend tool names must not conflict with built-in Holmes tool names (returns HTTP 400)
+- `frontend_tool_results.result` must be a string (JSON-encode objects)
+- Both `pending_approvals` and `pending_frontend_tool_calls` can appear in the same `approval_required` event if the LLM calls both types in one iteration
 
 ---
 
@@ -450,7 +619,7 @@ Emitted when the chat is complete. This is the final event in the stream.
 
 #### `approval_required`
 
-Emitted when tool execution requires user approval (e.g., potentially destructive operations). The stream pauses until the user provides approval decisions via a subsequent request.
+Emitted when the stream needs to pause for external action — either tool approval (destructive operations) or frontend tool execution. The stream pauses until the client sends a follow-up request.
 
 **Payload:**
 ```json
@@ -466,6 +635,13 @@ Emitted when tool execution requires user approval (e.g., potentially destructiv
       "description": "kubectl delete pod failed-pod -n default",
       "params": {"pod": "failed-pod", "namespace": "default"}
     }
+  ],
+  "pending_frontend_tool_calls": [
+    {
+      "tool_call_id": "call_abc123",
+      "tool_name": "show_chart",
+      "arguments": {"chart_type": "line", "data_source": "cpu_usage"}
+    }
   ]
 }
 ```
@@ -476,18 +652,36 @@ Emitted when tool execution requires user approval (e.g., potentially destructiv
 - `conversation_history` (array): Current conversation state
 - `follow_up_actions` (array|null): Optional follow-up actions
 - `requires_approval` (boolean): Always true for this event
-- `pending_approvals` (array): List of tools awaiting approval
+- `pending_approvals` (array): List of tools awaiting user approval
   - `tool_call_id` (string): Unique identifier for the tool call
   - `tool_name` (string): Name of the tool requiring approval
   - `description` (string): Human-readable description
   - `params` (object): Parameters for the tool call
+- `pending_frontend_tool_calls` (array): List of frontend tools awaiting client execution (see [Frontend Tools](#frontend-tools))
+  - `tool_call_id` (string): Unique identifier for the tool call
+  - `tool_name` (string): Name of the frontend tool to execute
+  - `arguments` (object): Arguments the LLM passed to the tool
 
-To continue after approval, send a new request with `tool_decisions`:
+**Resuming after tool approval:**
 ```json
 {
   "conversation_history": [...],
   "tool_decisions": [
     {"tool_call_id": "call_xyz789", "approved": true}
+  ]
+}
+```
+
+**Resuming after frontend tool execution:**
+```json
+{
+  "conversation_history": [...],
+  "frontend_tool_results": [
+    {
+      "tool_call_id": "call_abc123",
+      "tool_name": "show_chart",
+      "result": "{\"rendered\": true, \"data_points\": 42}"
+    }
   ]
 }
 ```
@@ -511,18 +705,58 @@ Emitted periodically to provide token usage updates during the chat. This event 
 
 ---
 
-#### `conversation_history_compacted`
+#### `conversation_history_compaction_start`
 
-Emitted when the conversation history has been compacted to fit within the context window. This happens automatically when the conversation grows too large.
+Emitted when the conversation history is about to be compacted. This event fires before the compaction LLM call, allowing clients to show a loading state.
 
 **Payload:**
 ```json
 {
-  "content": "Conversation history was compacted to fit within context limits.",
+  "content": "Compacting conversation history (150000 tokens, 42 messages)...",
+  "metadata": {
+    "initial_tokens": 150000,
+    "num_messages": 42,
+    "max_context_size": 128000,
+    "threshold_pct": 95
+  }
+}
+```
+
+**Fields:**
+
+- `content` (string): Human-readable status message
+- `metadata` (object): Context window state before compaction
+  - `initial_tokens` (integer): Current token count triggering compaction
+  - `num_messages` (integer): Number of messages in the conversation
+  - `max_context_size` (integer): Model's maximum context window size
+  - `threshold_pct` (integer): Context window usage percentage that triggered compaction
+
+---
+
+#### `conversation_history_compacted`
+
+Emitted when the conversation history has been compacted to fit within the context window. This happens automatically when the conversation grows too large. Contains detailed statistics about the compaction result.
+
+**Payload:**
+```json
+{
+  "content": "The conversation history has been compacted from 150000 to 80000 tokens",
+  "compaction_summary": "<analysis>\n1. Primary Request: User asked to investigate pod crashes...\n2. Key Technical Concepts: OOMKilled, memory limits...\n...\n</analysis>",
   "messages": [...],
   "metadata": {
     "initial_tokens": 150000,
-    "compacted_tokens": 80000
+    "compacted_tokens": 80000,
+    "compression_ratio_pct": 46.7,
+    "num_messages_before": 42,
+    "num_messages_after": 4,
+    "max_context_size": 128000,
+    "threshold_pct": 95,
+    "compaction_cost": {
+      "total_cost": 0.003542,
+      "prompt_tokens": 12000,
+      "completion_tokens": 800,
+      "total_tokens": 12800
+    }
   }
 }
 ```
@@ -530,10 +764,21 @@ Emitted when the conversation history has been compacted to fit within the conte
 **Fields:**
 
 - `content` (string): Human-readable description of the compaction
+- `compaction_summary` (string|null): The LLM-generated summary of the previous conversation history. This is the full text the model produced to condense the conversation, wrapped in `<analysis>` tags. Useful for debugging to verify that important context was preserved during compaction.
 - `messages` (array): The compacted conversation history
-- `metadata` (object): Token information about the compaction
+- `metadata` (object): Detailed compaction statistics
   - `initial_tokens` (integer): Token count before compaction
   - `compacted_tokens` (integer): Token count after compaction
+  - `compression_ratio_pct` (number): Percentage of tokens saved (e.g., 46.7 means 46.7% reduction)
+  - `num_messages_before` (integer): Number of messages before compaction
+  - `num_messages_after` (integer): Number of messages after compaction (typically 3-4)
+  - `max_context_size` (integer): Model's maximum context window size
+  - `threshold_pct` (integer): Context window usage percentage that triggered compaction
+  - `compaction_cost` (object, optional): Cost of the compaction LLM call
+    - `total_cost` (number): Dollar cost of the compaction call
+    - `prompt_tokens` (integer): Prompt tokens used for compaction
+    - `completion_tokens` (integer): Completion tokens generated during compaction
+    - `total_tokens` (integer): Total tokens used for compaction
 
 ---
 
@@ -581,12 +826,43 @@ Emitted when an error occurs during processing.
 [chat resumes]
 ```
 
+### Chat with Frontend Pause Tool
+
+```
+1. ai_message
+2. start_tool_calling (backend tool)
+3. start_tool_calling (frontend pause tool)
+4. tool_calling_result (backend tool)
+5. token_count
+6. approval_required (pending_frontend_tool_calls populated)
+[Client executes frontend tool locally]
+[Client sends new request with frontend_tool_results + conversation_history]
+1. tool_calling_result (frontend tool result injected)
+2. ai_message
+3. token_count
+4. ai_answer_end
+```
+
+### Chat with Frontend Noop Tool
+
+```
+1. ai_message
+2. start_tool_calling (noop tool)
+3. tool_calling_result (noop tool - canned response, no pause)
+4. token_count
+5. ai_message
+6. ai_answer_end
+[Client sees start_tool_calling + tool_calling_result and executes side effect]
+```
+
 ### Chat with History Compaction
 
 ```
-1. conversation_history_compacted
-2. start_tool_calling (tool 1)
-3. tool_calling_result (tool 1)
-4. token_count
-5. ai_answer_end
+1. conversation_history_compaction_start
+2. conversation_history_compacted
+3. ai_message (compaction notice)
+4. start_tool_calling (tool 1)
+5. tool_calling_result (tool 1)
+6. token_count
+7. ai_answer_end
 ```

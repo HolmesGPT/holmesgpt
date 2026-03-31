@@ -1,0 +1,24 @@
+# Test: MCP image passthrough with local mock server
+# Validates end-to-end that Holmes can see images returned by MCP tools.
+# Uses a local Python MCP server (no external Confluence needed).
+#
+# This is the local-runnable counterpart of 233_mcp_confluence_image_attachment.
+# The mock server provides Confluence-like tools that return ImageContent blocks.
+# Holmes must call the tools, receive the image, use vision to read the code,
+# and report it — proving the full MCP image pipeline works.
+
+user_prompt: |
+  In the wiki space 'HLMS234', find the page titled 'Platform Credentials'
+  and look at the image attached to it. Tell me the code shown in the image.
+
+expected_output:
+  - "Must report the code from the image: IMGVERIFY-7Q3X9P"
+
+include_tool_calls: true
+
+tags:
+  - mcp
+  - images
+  - question-answer
+  - fast
+  - easy

@@ -1,0 +1,21 @@
+toolsets:
+  confluence:
+    enabled: true
+    config:
+      api_url: "{{ env.CONFLUENCE_BASE_URL }}"
+      user: "{{ env.CONFLUENCE_SA_USER }}"
+      api_key: "{{ env.CONFLUENCE_SA_API_KEY }}"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: true
+  internet:
+    enabled: false
+  connectivity_check:
+    enabled: false
+  robusta:
+    enabled: false

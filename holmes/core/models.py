@@ -1,22 +1,11 @@
 import json
+import logging
+from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-
-
-class TruncationMetadata(BaseModel):
-    tool_call_id: str
-    start_index: int
-    end_index: int
-    tool_name: str
-    original_token_count: int
-
-
-class TruncationResult(BaseModel):
-    truncated_messages: list[dict]
-    truncations: list[TruncationMetadata]
 
 
 class ToolCallResult(BaseModel):
@@ -25,43 +14,70 @@ class ToolCallResult(BaseModel):
     description: str
     result: StructuredToolResult
     size: Optional[int] = None
+    toolset_name: Optional[str] = None
 
-    def as_tool_call_message(self, extra_metadata: Optional[Dict[str, Any]] = None):
+    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None, supports_vision: bool = True):
+        text_content = format_tool_result_data(
+            tool_result=self.result,
+            tool_call_id=self.tool_call_id,
+            tool_name=self.tool_name,
+            extra_metadata=extra_metadata,
+        )
+        if self.result.images and supports_vision:
+            text_content += _build_image_embed_hint(
+                tool_call_id=self.tool_call_id,
+                url=self.result.url,
+            )
+            content: List[Dict[str, Any]] = [{"type": "text", "text": text_content}]
+            for img in self.result.images:
+                data_uri = f"data:{img['mimeType']};base64,{img['data']}"
+                content.append({"type": "image_url", "image_url": {"url": data_uri}})
+            return {
+                "tool_call_id": self.tool_call_id,
+                "role": "tool",
+                "name": self.tool_name,
+                "content": content,
+            }
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
             "name": self.tool_name,
-            "content": format_tool_result_data(
-                tool_result=self.result,
-                tool_call_id=self.tool_call_id,
-                tool_name=self.tool_name,
-                extra_metadata=extra_metadata,
-            ),
+            "content": text_content,
         }
 
-    def as_tool_result_response(self):
+    def to_client_dict(self):
         result_dump = self.result.model_dump()
         result_dump["data"] = self.result.get_stringified_data()
 
-        return {
+        d = {
             "tool_call_id": self.tool_call_id,
             "tool_name": self.tool_name,
+            "name": self.tool_name,  # backwards compat: streaming consumers read "name"
             "description": self.description,
             "role": "tool",
             "result": result_dump,
         }
+        if self.toolset_name:
+            d["toolset_name"] = self.toolset_name
+        return d
 
-    def as_streaming_tool_result_response(self):
-        result_dump = self.result.model_dump()
-        result_dump["data"] = self.result.get_stringified_data()
 
-        return {
-            "tool_call_id": self.tool_call_id,
-            "role": "tool",
-            "description": self.description,
-            "name": self.tool_name,
-            "result": result_dump,
-        }
+def _build_image_embed_hint(tool_call_id: str, url: Optional[str] = None) -> str:
+    """Build a hint for the LLM explaining how to embed this image in its response.
+
+    The LLM can use ![caption](tool-image://<tool_call_id>) syntax in its analysis.
+    The frontend resolves these references against the tool_calls array, rendering
+    the base64 image as a clickable link to the source URL (e.g. Grafana dashboard).
+    """
+    hint = (
+        f"\n\nTo embed this image in your response, use exactly this markdown syntax:\n"
+        f"![<descriptive caption>](tool-image://{tool_call_id})\n"
+        f"The client will render the image inline in your response"
+    )
+    if url:
+        hint += f" with a link to {url}"
+    hint += "."
+    return hint
 
 
 def format_tool_result_data(
@@ -106,6 +122,57 @@ class ToolApprovalDecision(BaseModel):
     tool_call_id: str
     approved: bool
     save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
+    feedback: Optional[str] = None  # User feedback when denying a tool call
+
+
+class FrontendToolMode(str, Enum):
+    PAUSE = "pause"
+    NOOP = "noop"
+
+
+class FrontendToolDefinition(BaseModel):
+    """A tool defined by the frontend client for the LLM to call.
+
+    mode="pause" (default): Holmes pauses the stream and asks the client to
+    execute the tool, returning results in the next request.
+
+    mode="noop": Holmes returns a canned response immediately and the LLM
+    continues without pausing. The client sees the tool call in SSE events
+    and can execute it as a fire-and-forget side effect.
+    """
+
+    name: str
+    description: str
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="JSON Schema object describing the tool's parameters (OpenAI function calling format)",
+    )
+    mode: FrontendToolMode = Field(
+        default=FrontendToolMode.PAUSE,
+        description="'pause' (default): stream pauses, client executes and returns results. "
+        "'noop': server returns canned response immediately, client executes as side effect.",
+    )
+    noop_response: Optional[str] = Field(
+        default=None,
+        description="Custom canned response for noop-mode tools. "
+        "Defaults to 'The action was performed successfully in the user's browser.'",
+    )
+
+
+class FrontendToolResult(BaseModel):
+    """Result of a frontend-executed tool, sent by the client to resume the stream."""
+
+    tool_call_id: str
+    tool_name: str
+    result: str
+
+
+class PendingFrontendToolCall(BaseModel):
+    """A frontend tool call that the LLM requested, awaiting client execution."""
+
+    tool_call_id: str
+    tool_name: str
+    arguments: Dict[str, Any]
 
 
 class ChatRequestBaseModel(BaseModel):
@@ -116,6 +183,14 @@ class ChatRequestBaseModel(BaseModel):
         False  # Optional boolean for backwards compatibility
     )
     tool_decisions: Optional[List[ToolApprovalDecision]] = None
+    frontend_tools: Optional[List[FrontendToolDefinition]] = Field(
+        default=None,
+        description="Tools defined by the frontend client. When the LLM calls one, Holmes pauses and asks the client to execute it.",
+    )
+    frontend_tool_results: Optional[List[FrontendToolResult]] = Field(
+        default=None,
+        description="Results from frontend-executed tools, sent to resume a paused stream.",
+    )
     additional_system_prompt: Optional[str] = None
     trace_span: Optional[Any] = (
         None  # Optional span for tracing and heartbeat callbacks

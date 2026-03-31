@@ -1,0 +1,5 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  helm/core:
+    enabled: false

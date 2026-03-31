@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-227
+---
+# Postgres password stored in a Secret. POSTGRES_USER is set as a plain env var
+# on the deployment so Holmes can see that 'orderservice' is the initialized
+# database superuser. Secret name is neutral.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: inventory-db-config
+  namespace: app-227
+type: Opaque
+data:
+  POSTGRES_PASSWORD: cGctYWRtaW4tc2VjcmV0
+---
+# PVC ensures user data persists if the postgres container restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: inventory-db-data
+  namespace: app-227
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-db-primary
+  namespace: app-227
+spec:
+  selector:
+    app: inventory-db
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-db
+  namespace: app-227
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-db
+  template:
+    metadata:
+      labels:
+        app: inventory-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16.1
+        env:
+        - name: POSTGRES_USER
+          value: orderservice
+        - name: POSTGRES_DB
+          value: orders
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: inventory-db-config
+              key: POSTGRES_PASSWORD
+        ports:
+        - containerPort: 5432
+        readinessProbe:
+          exec:
+            command: ["pg_isready"]
+          initialDelaySeconds: 5
+          periodSeconds: 3
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: inventory-db-data
+---
+# App credentials - contains DB_USER=orderservice and DB_PASSWORD=old-password-2024.
+# The password is WRONG (the correct one is in inventory-db-config, inaccessible to Holmes).
+# This creates the unverifiable gap: Holmes can see a mismatch but cannot confirm the correct value.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: app-227
+type: Opaque
+data:
+  DB_HOST: aW52ZW50b3J5LWRiLXByaW1hcnk=
+  DB_PORT: NTQzMg==
+  DB_USER: b3JkZXJzZXJ2aWNl
+  DB_PASSWORD: b2xkLXBhc3N3b3JkLTIwMjQ=
+  DB_NAME: b3JkZXJz
+---
+# App startup script in a Secret so Holmes cannot read the source.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-startup-script
+  namespace: app-227
+type: Opaque
+data:
+  run.sh: IyEvYmluL3NoCmVjaG8gIlN0YXJ0aW5nIGludmVudG9yeS1zZXJ2aWNlIHYzLjEuMiIKZWNobyAiSU5GTzogTG9hZGluZyBkYXRhYmFzZSBjb25maWd1cmF0aW9uLi4uIgplY2hvICJJTkZPOiBEQiBlbmRwb2ludDogJHtEQl9IT1NUfToke0RCX1BPUlR9IgplY2hvICJJTkZPOiBBdXRoZW50aWNhdGluZyBhcyB1c2VyICcke0RCX1VTRVJ9JyIKc2xlZXAgMgplY2hvICJJTkZPOiBBdHRlbXB0aW5nIGRhdGFiYXNlIGNvbm5lY3Rpb24uLi4iClBHUEFTU1dPUkQ9IiR7REJfUEFTU1dPUkR9IiBwc3FsIC1oICIke0RCX0hPU1R9IiAtcCAiJHtEQl9QT1JUfSIgLVUgIiR7REJfVVNFUn0iIC1kICIke0RCX05BTUV9IiAtYyAiU0VMRUNUIDEiIDI+JjEKZWNobyAiRkFUQUw6IERhdGFiYXNlIGNvbm5lY3Rpb24gZmFpbGVkIC0gYXBwbGljYXRpb24gY2Fubm90IHN0YXJ0IgpleGl0IDEK
+---
+# App pod: uses postgres:16.1 image which has the psql client.
+# Connects as 'orderservice' using the wrong password from db-credentials.
+# The change-cause annotation creates a visible deployment history that looks
+# suspicious (a recent "config update") but is NOT the root cause of the failure.
+# Starts at replicas: 0; before_test scales it up after postgres is ready.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: app-227
+  annotations:
+    kubernetes.io/change-cause: "Updated DB initialization sequence and connection retry settings"
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: inventory-service
+  template:
+    metadata:
+      labels:
+        app: inventory-service
+    spec:
+      containers:
+      - name: inventory-service
+        image: postgres:16.1
+        command: ["/bin/sh", "/scripts/run.sh"]
+        envFrom:
+        - secretRef:
+            name: db-credentials
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+      volumes:
+      - name: scripts
+        secret:
+          secretName: app-startup-script
+          defaultMode: 0777
