@@ -50,6 +50,10 @@ spec:
       - name: holmes
         image: "{{ .Values.registry }}/{{ .Values.image }}"
         imagePullPolicy: {{ .Values.imagePullPolicy }}
+        # Read-only root filesystem for security hardening.
+        # /tmp is mounted as a writable emptyDir for ephemeral tool result files.
+        # Required for OpenShift restricted SCC and other security-hardened
+        # environments that enforce read-only root filesystems.
         securityContext:
           readOnlyRootFilesystem: true
           {{- with .Values.containerSecurityContext }}
