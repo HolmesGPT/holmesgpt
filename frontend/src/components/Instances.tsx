@@ -11,6 +11,7 @@ const TOOLSET_TYPES = [
   'atlassian',
   'salesforce',
   'kubernetes',
+  'dbdash',
 ]
 
 const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce'])
