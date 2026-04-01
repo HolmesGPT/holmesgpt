@@ -33,7 +33,7 @@ hostname            = "holmesgpt.dev.platform.pditechnologies.com"
 # LLM
 anthropic_api_base = "https://ai-gateway.platform.pditechnologies.com"
 anthropic_api_key  = "" # Set via TF_VAR_anthropic_api_key or -var flag
-holmes_model       = "anthropic/claude-sonnet-4-5-20250929"
+holmes_model       = "anthropic/claude-opus-4-6"
 
 # Holmes
 holmes_replicas  = 1
