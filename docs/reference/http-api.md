@@ -441,7 +441,7 @@ const frontendTools = [
 
 **2. Send the streaming request and parse SSE events**
 
-Since `/api/chat` is a POST endpoint, the browser-native `EventSource` API (GET-only) doesn't work directly. Use a library like [sse.js](https://github.com/mpetazzoni/sse.js), [fetch-event-source](https://github.com/Azure/fetch-event-source), or your framework's built-in SSE support.
+Since `/api/chat` is a POST endpoint, use an SSE library that supports POST requests, such as [fetch-event-source](https://github.com/Azure/fetch-event-source) or [sse.js](https://github.com/mpetazzoni/sse.js).
 
 This helper is called for both request 1 (initial) and request 2 (resume with tool results):
 
