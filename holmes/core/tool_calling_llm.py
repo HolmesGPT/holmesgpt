@@ -1012,6 +1012,28 @@ class ToolCallingLLM:
                 f"LLM call (stream) iter={i}: {_n_msgs} messages, {_n_tools} tools, "
                 f"system_prompt_len={_sys_len}, model={self.llm.model}"
             )
+            # On iteration 2, dump message roles and content types to diagnose gateway errors
+            if i >= 2:
+                for idx, msg in enumerate(messages):
+                    role = msg.get("role", "?")
+                    content = msg.get("content")
+                    content_type = type(content).__name__
+                    tc = msg.get("tool_calls")
+                    tc_id = msg.get("tool_call_id")
+                    content_len = len(str(content)) if content else 0
+                    # Dump full message structure for assistant and tool messages
+                    if role in ("assistant", "tool"):
+                        import json as _json
+                        try:
+                            msg_dump = _json.dumps(msg, default=str)[:500]
+                        except:
+                            msg_dump = str(msg)[:500]
+                        logging.warning(f"  msg[{idx}] FULL: {msg_dump}")
+                    else:
+                        logging.warning(
+                            f"  msg[{idx}]: role={role} content_type={content_type} len={content_len} "
+                            f"tool_calls={'yes' if tc else 'no'} tool_call_id={tc_id}"
+                        )
 
             try:
                 full_response = self.llm.completion(
