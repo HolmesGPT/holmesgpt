@@ -286,6 +286,11 @@ _CORE_TOOLSET_PREFIXES = [
     "runbook",
     "internet",
     "connectivity_check",
+]
+
+# Heavy toolsets excluded from focused mode (when source is specified) to reduce prompt size.
+# core_investigation adds ~14K chars of TodoWrite instructions — irrelevant for source-scoped queries.
+_UNFOCUSED_ONLY_PREFIXES = [
     "core_investigation",
 ]
 
@@ -313,9 +318,10 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
     def _toolset_tool_count(ts) -> int:
         return len(ts.tools) if ts.tools else 0
 
-    # Bucket toolsets into three groups (preserving order within each group)
+    # Bucket toolsets into groups (preserving order within each group)
     source_ts: list = []
     core_ts: list = []
+    unfocused_ts: list = []  # heavy toolsets only included when no source specified
     other_ts: list = []
 
     for ts in all_toolsets:
@@ -330,6 +336,11 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
             for p in _CORE_TOOLSET_PREFIXES
         ):
             core_ts.append(ts)
+        elif any(
+            name == p or name.startswith(p + "/") or name.startswith(p + "_")
+            for p in _UNFOCUSED_ONLY_PREFIXES
+        ):
+            unfocused_ts.append(ts)
         else:
             other_ts.append(ts)
 
@@ -337,10 +348,13 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
     total_tools = 0
 
     # When a specific source is provided, use focused mode: only source + core toolsets.
-    # This dramatically reduces token count (from ~37K to ~5K) and avoids AI gateway
-    # "internal error" on large tool-calling requests.
+    # Excludes heavy toolsets (core_investigation ~14K instructions) and all other toolsets.
+    # This reduces system prompt from ~53K to ~33K chars, avoiding AI gateway errors.
     # When no source is provided, include all toolsets up to the cap (original behavior).
-    toolsets_to_include = source_ts + core_ts if priority_prefixes else source_ts + core_ts + other_ts
+    if priority_prefixes:
+        toolsets_to_include = source_ts + core_ts
+    else:
+        toolsets_to_include = source_ts + core_ts + unfocused_ts + other_ts
 
     for ts in toolsets_to_include:
         count = _toolset_tool_count(ts)

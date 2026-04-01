@@ -459,6 +459,15 @@ class ToolCallingLLM:
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
+            # Debug: log request size before LLM call
+            _n_tools = len(tools) if tools else 0
+            _n_msgs = len(messages)
+            _sys_len = len(str(messages[0].get("content", ""))) if messages else 0
+            logging.warning(
+                f"LLM call (non-stream) iter={i}: {_n_msgs} messages, {_n_tools} tools, "
+                f"system_prompt_len={_sys_len}, model={self.llm.model}"
+            )
+
             try:
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),
@@ -994,6 +1003,15 @@ class ToolCallingLLM:
                 tool_calls = []
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
+
+            # Debug: log request size before LLM call
+            _n_tools = len(tools) if tools else 0
+            _n_msgs = len(messages)
+            _sys_len = len(str(messages[0].get("content", ""))) if messages else 0
+            logging.warning(
+                f"LLM call (stream) iter={i}: {_n_msgs} messages, {_n_tools} tools, "
+                f"system_prompt_len={_sys_len}, model={self.llm.model}"
+            )
 
             try:
                 full_response = self.llm.completion(
