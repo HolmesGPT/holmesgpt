@@ -94,7 +94,7 @@ def compact_conversation_history(
       1. Original system prompt, uncompacted (if present)
       2. Last user prompt, uncompacted (if present)
       3. Compacted conversation history (role=assistant)
-      4. Compaction message (role=system)
+      4. Compaction message (role=user)
     """
     conversation_history, system_prompt_message = strip_system_prompt(
         original_conversation_history
@@ -164,7 +164,7 @@ def compact_conversation_history(
 
     compacted_conversation_history.append(
         {
-            "role": "system",
+            "role": "user",
             "content": "The conversation history has been compacted to preserve available space in the context window. Continue.",
         }
     )
