@@ -429,54 +429,33 @@ const frontendTools = [
 ];
 ```
 
-**2. Send the streaming request**
+**2. Send the streaming request and parse SSE events**
+
+Since `/api/chat` is a POST endpoint, the browser-native `EventSource` API (GET-only) doesn't work directly. Use a library like [sse.js](https://github.com/mpetazzoni/sse.js), [fetch-event-source](https://github.com/Azure/fetch-event-source), or your framework's built-in SSE support.
 
 ```javascript
-const response = await fetch("http://<HOLMES-URL>/api/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    ask: "Show me CPU usage for the last hour",
-    stream: true,
-    frontend_tools: frontendTools,
-    // Include these when resuming a paused stream:
-    // conversation_history: [...],
-    // frontend_tool_results: [...]
-  })
-});
-```
+import { fetchEventSource } from "@microsoft/fetch-event-source";
 
-**3. Parse the SSE stream**
-
-Read the stream and dispatch on `event` type. The key events for frontend tools are `start_tool_calling`, `tool_calling_result`, and `approval_required`.
-
-```javascript
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
-let buffer = "";
-
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  buffer += decoder.decode(value, { stream: true });
-
-  // Split on double newline (SSE event boundary)
-  const parts = buffer.split("\n\n");
-  buffer = parts.pop(); // keep incomplete chunk
-
-  for (const part of parts) {
-    const eventMatch = part.match(/^event:\s*(.+)$/m);
-    const dataMatch = part.match(/^data:\s*(.+)$/m);
-    if (!eventMatch || !dataMatch) continue;
-
-    const eventType = eventMatch[1];
-    const payload = JSON.parse(dataMatch[1]);
-    handleEvent(eventType, payload);
-  }
+function streamChat({ ask, conversationHistory, frontendToolResults }) {
+  fetchEventSource("http://<HOLMES-URL>/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ask,
+      stream: true,
+      frontend_tools: frontendTools,
+      conversation_history: conversationHistory,
+      frontend_tool_results: frontendToolResults,
+    }),
+    onmessage(event) {
+      const payload = JSON.parse(event.data);
+      handleEvent(event.event, payload);
+    },
+  });
 }
 ```
 
-**4. Handle pause-mode tool calls**
+**3. Handle pause-mode tool calls**
 
 When the LLM calls a pause-mode frontend tool, the stream emits an `approval_required` event with `pending_frontend_tool_calls`. Execute the tool locally, then resume.
 
@@ -513,7 +492,7 @@ function handleEvent(eventType, payload) {
 }
 ```
 
-**5. Execute tools and resume the stream**
+**4. Execute tools and resume the stream**
 
 For each pending frontend tool call, run your local implementation and send results back.
 
@@ -522,7 +501,6 @@ async function handleFrontendToolCalls(pendingCalls, conversationHistory) {
   const results = [];
 
   for (const call of pendingCalls) {
-    // Execute tool locally based on name
     let result;
     switch (call.tool_name) {
       case "render_chart":
@@ -539,25 +517,16 @@ async function handleFrontendToolCalls(pendingCalls, conversationHistory) {
     });
   }
 
-  // Resume the stream with results
-  const response = await fetch("http://<HOLMES-URL>/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ask: originalQuestion,
-      stream: true,
-      conversation_history: conversationHistory,
-      frontend_tools: frontendTools,  // Re-send tool definitions
-      frontend_tool_results: results
-    })
+  // Resume by opening a new stream with the results
+  streamChat({
+    ask: originalQuestion,
+    conversationHistory,
+    frontendToolResults: results,
   });
-
-  // Continue reading this new stream (same parsing logic as step 3)
-  readSSEStream(response);
 }
 ```
 
-**6. Handle noop-mode tools (fire-and-forget)**
+**5. Handle noop-mode tools (fire-and-forget)**
 
 Noop tools don't pause the stream. Watch for `start_tool_calling` events and execute side effects.
 
