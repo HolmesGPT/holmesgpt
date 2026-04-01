@@ -314,15 +314,15 @@ Frontend tools have two modes:
 - **`pause`** (default): The stream pauses when the LLM calls the tool. The client executes the tool and resumes by sending results back. The LLM receives real results and continues reasoning with that data.
 - **`noop`**: The server returns a canned response immediately and the LLM continues without pausing. The client sees the tool call in SSE events (`start_tool_calling` + `tool_calling_result`) and can execute it as a fire-and-forget side effect.
 
-**Pause mode spans two HTTP requests.** A single logical conversation turn is split across a request–pause–resume cycle:
+**Pause mode spans two HTTP requests.** What would normally be a single request is split across a request–pause–resume cycle:
 
 1. **Request 1** — the client sends `ask` + `frontend_tools`. The server streams SSE events until the LLM calls a pause-mode tool, then emits an `approval_required` event containing `pending_frontend_tool_calls` and `conversation_history`. The stream ends here.
 2. The client executes the tool locally (render a chart, query a local DB, etc.).
 3. **Request 2** — the client sends a new POST to `/api/chat` with the `conversation_history` from request 1, plus `frontend_tool_results` containing the tool output. The server feeds the results back to the LLM, which continues reasoning and streams the rest of its answer.
 
-If the LLM calls multiple pause-mode tools in one turn, they all appear in a single `approval_required` event — the client executes all of them and sends all results together in request 2. If the LLM calls another pause-mode tool later in the same conversation turn, the cycle repeats (request 3, 4, etc.).
+If the LLM calls multiple pause-mode tools in one iteration, they all appear in a single `approval_required` event — the client executes all of them and sends all results together in request 2. If the LLM calls another pause-mode tool in a later iteration, the cycle repeats (request 3, 4, etc.).
 
-Noop-mode tools do **not** pause — the entire turn completes in a single request.
+Noop-mode tools do **not** pause — the entire request completes without interruption, regardless of how many LLM iterations it takes.
 
 **Declaring frontend tools:**
 
@@ -408,7 +408,7 @@ Noop tools execute instantly on the server with a canned response. The client se
 
 #### Implementing Frontend Tools in Your Client
 
-This section walks through building client-side support for pause-mode frontend tools. The key thing to understand is that a single LLM turn spans **two HTTP requests**: the first streams until the LLM calls your tool, and the second resumes the LLM after you return results.
+This section walks through building client-side support for pause-mode frontend tools. The key thing to understand is that what would normally be a single request is split across **two HTTP requests**: the first streams until the LLM calls your tool, and the second resumes the LLM after you return results.
 
 **1. Define your tools in the request**
 
