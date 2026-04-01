@@ -230,9 +230,10 @@ def load_toolsets_from_config(
                 factory = PYTHON_TOOLSET_FACTORIES.get(base_name)
                 if factory:
                     validated_toolset = factory(name=instance_name)
-                    # Apply config overrides if present
+                    # Apply config overrides — set directly on the toolset's config field
+                    # (override_with expects a Toolset object, not a dict)
                     if "config" in config and validated_toolset is not None:
-                        validated_toolset.override_with({"config": config["config"]})
+                        validated_toolset.config = config["config"]
                     if "enabled" in config and validated_toolset is not None:
                         validated_toolset.enabled = config["enabled"]
                 else:
