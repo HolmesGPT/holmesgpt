@@ -21,9 +21,10 @@ class ListInstances(Tool):
         super().__init__(
             name="dbdash_list_instances",
             description=(
-                "List available SQL Server instances monitored by DBADash. "
-                "Returns instance IDs and display names. If tags are configured, "
-                "only instances matching those tags are returned."
+                "List SQL Server database instances monitored by DBADash (also known as 'db dash'). "
+                "Use this tool when the user asks about SQL Server databases, DB instances, "
+                "DBADash, db dash, or database servers. Returns instance IDs and display names. "
+                "If tags are configured, only instances matching those tags are returned."
             ),
             parameters={},
         )

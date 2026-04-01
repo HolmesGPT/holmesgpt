@@ -34,7 +34,7 @@ class DBADashToolset(Toolset):
     def __init__(self, name: str = "dbdash"):
         super().__init__(
             name=name,
-            description="Investigate SQL Server performance issues and alerts via DBADash Web",
+            description="Investigate SQL Server database performance issues and alerts via DBADash Web (db dash). Use dbdash tools for any question about SQL Server databases, DB instances, or DBADash.",
             icon_url=None,
             docs_url=None,
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
