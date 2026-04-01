@@ -386,6 +386,7 @@ class Config(RobustaBaseConfig):
         The cached executor is always replaced with the freshly-loaded one so that
         added/removed toolsets are picked up even when no status changes occur.
         """
+        logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
         # Normalize early so the same tags are used for both loading and caching.
         tags = toolset_tag_filter or [ToolsetTag.CORE]
 
@@ -395,11 +396,12 @@ class Config(RobustaBaseConfig):
             cached_key = self._cached_executor_key
         if not cached_executor or cached_key != cache_key:
             # Cold start or key mismatch — run live prerequisite checks.
+            # Use DISABLED to avoid writing to disk (server runs on read-only fs).
             self.create_tool_executor(
                 dal,
                 toolset_tag_filter=tags,
                 enable_all_toolsets_possible=enable_all_toolsets_possible,
-                prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH,
+                prerequisite_cache=PrerequisiteCacheMode.DISABLED,
                 reuse_executor=True,
             )
             return []
