@@ -114,7 +114,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
         dal=dal,
         toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
         enable_all_toolsets_possible=True,
-        prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH,
+        prerequisite_cache=PrerequisiteCacheMode.ENABLED,
         reuse_executor=True,
         model=chat_request.model,
     )

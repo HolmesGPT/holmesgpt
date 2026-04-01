@@ -554,6 +554,7 @@ class ToolsetManager:
                 check_prerequisites=True,
                 enable_all_toolsets=enable_all_toolsets_possible,
                 toolset_tags=tags,
+                on_event=on_event,
             )
 
         return self.load_toolset_with_status(
