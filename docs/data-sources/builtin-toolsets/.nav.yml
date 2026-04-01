@@ -10,6 +10,7 @@ nav:
   - Cilium: cilium.md
   - ClickHouse: database-clickhouse.md
   - Confluence: confluence.md
+  - Confluence (MCP): confluence-mcp.md
   - Connectivity Check: connectivity-check.md
   - Coralogix: coralogix-logs.md
   - DataDog: datadog.md
@@ -25,7 +26,9 @@ nav:
   - Inspektor Gadget: inspektor-gadget.md
   - Internet: internet.md
   - Kafka: kafka.md
+  - Kubectl Run: kubectl-run.md
   - Kubernetes: kubernetes.md
+  - Kubernetes Remediation (MCP): kubernetes-remediation-mcp.md
   - KubeVela: kubevela.md
   - MariaDB: database-mariadb.md
   - MariaDB (MCP): mariadb-mcp.md
@@ -37,8 +40,10 @@ nav:
   - OpenShift: openshift.md
   - PostgreSQL: database-postgresql.md
   - Prometheus: prometheus.md
+  - Prefect (MCP): prefect-mcp.md
   - RabbitMQ: rabbitmq.md
   - Robusta: robusta.md
+  - Sentry (MCP): sentry-mcp.md
   - ServiceNow: servicenow.md
   - Slab: slab.md
   - Splunk (MCP): splunk-mcp.md

@@ -3,6 +3,8 @@ import os
 import os.path
 from enum import Enum
 from pathlib import Path
+
+display_logger = logging.getLogger("holmes.display.config")
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import sentry_sdk
@@ -16,6 +18,7 @@ from pydantic import (
 )
 
 from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
+from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
 from holmes.core.tools import Toolset
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -51,6 +54,7 @@ class SupportedTicketSources(str, Enum):
 
 class Config(RobustaBaseConfig):
     model: Optional[str] = None
+    _model_source: Optional[str] = None  # tracks where the model was set from
     api_key: Optional[SecretStr] = (
         None  # if None, read from OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT env var
     )
@@ -148,11 +152,11 @@ class Config(RobustaBaseConfig):
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
-            logging.info(
+            display_logger.info(
                 f"Loaded models: {list(self.llm_model_registry.models.keys())}"
             )
         else:
-            logging.warning("No llm models were loaded")
+            display_logger.warning("No llm models were loaded")
 
     @classmethod
     def load_from_file(cls, config_file: Optional[Path], **kwargs) -> "Config":
@@ -185,10 +189,18 @@ class Config(RobustaBaseConfig):
         if config_file is not None and config_file.exists():
             result._config_file_path = config_file
 
+        # Track where the model setting came from
+        if "model" in cli_options:
+            pass  # CLI --model flag: no source label needed (user just typed it)
+        elif config_from_file is not None and config_from_file.model is not None:
+            result._model_source = f"in {config_file}"
+        # Fall through to env var check below
+
         if result.model is None:
             model_from_env = os.environ.get("MODEL")
             if model_from_env and model_from_env.strip():
                 result.model = model_from_env
+                result._model_source = "via $MODEL"
 
         result.log_useful_info()
         return result
@@ -224,6 +236,8 @@ class Config(RobustaBaseConfig):
         kwargs["cluster_name"] = Config.__get_cluster_name()
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
+        if "model" in kwargs:
+            result._model_source = "via $MODEL"
         result.log_useful_info()
         return result
 
@@ -253,7 +267,10 @@ class Config(RobustaBaseConfig):
         return runbook_catalog
 
     def create_console_tool_executor(
-        self, dal: Optional["SupabaseDal"], refresh_status: bool = False
+        self,
+        dal: Optional["SupabaseDal"],
+        refresh_status: bool = False,
+        on_event: EventCallback = None,
     ) -> ToolExecutor:
         """
         Creates a ToolExecutor instance configured for CLI usage. This executor manages the available tools
@@ -265,9 +282,9 @@ class Config(RobustaBaseConfig):
         3. Custom toolsets from config files which can not override built-in toolsets
         """
         cli_toolsets = self.toolset_manager.list_console_toolsets(
-            dal=dal, refresh_status=refresh_status
+            dal=dal, refresh_status=refresh_status, on_event=on_event
         )
-        return ToolExecutor(cli_toolsets)
+        return ToolExecutor(cli_toolsets, on_event=on_event)
 
     def create_agui_tool_executor(self, dal: Optional["SupabaseDal"]) -> ToolExecutor:
         """
@@ -330,14 +347,17 @@ class Config(RobustaBaseConfig):
         tracer=None,
         model_name: Optional[str] = None,
         tool_results_dir: Optional[Path] = None,
+        on_event: EventCallback = None,
     ) -> "ToolCallingLLM":
-        tool_executor = self.create_console_tool_executor(dal, refresh_toolsets)
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
+        # Create LLM first so model info appears during toolset loading
+        llm = self._get_llm(tracer=tracer, model_key=model_name, on_event=on_event)
+        tool_executor = self.create_console_tool_executor(dal, refresh_toolsets, on_event=on_event)
         return ToolCallingLLM(
             tool_executor,
             self.max_steps,
-            self._get_llm(tracer=tracer, model_key=model_name),
+            llm,
             tool_results_dir=tool_results_dir,
         )
 
@@ -482,8 +502,24 @@ class Config(RobustaBaseConfig):
             raise ValueError("--slack-channel must be specified")
         return SlackDestination(self.slack_token.get_secret_value(), self.slack_channel)
 
+    @staticmethod
+    def _format_token_count(n: int) -> str:
+        """Format a token count for display: 1048576 → '1M', 32768 → '32K'."""
+        if n >= 1_000_000:
+            value = n / 1_000_000
+            return f"{int(value)}M" if value == int(value) else f"{value:.1f}M"
+        if n >= 1_000:
+            value = n / 1_000
+            return f"{int(value)}K" if value == int(value) else f"{value:.0f}K"
+        return str(n)
+
     # TODO: move this to the llm model registry
-    def _get_llm(self, model_key: Optional[str] = None, tracer=None) -> "DefaultLLM":
+    def _get_llm(
+        self,
+        model_key: Optional[str] = None,
+        tracer=None,
+        on_event: EventCallback = None,
+    ) -> "DefaultLLM":
         sentry_sdk.set_tag("requested_model", model_key)
         model_entry = self.llm_model_registry.get_model_params(model_key)
         model_params = model_entry.model_dump(exclude_none=True)
@@ -519,9 +555,16 @@ class Config(RobustaBaseConfig):
             name=model_name,
             is_robusta_model=is_robusta_model,
         )  # type: ignore
-        logging.info(
-            f"Using model: {model_name} ({llm.get_context_window_size():,} total tokens, {llm.get_maximum_output_token():,} output tokens)"
-        )
+        context_size = self._format_token_count(llm.get_context_window_size())
+        max_response = self._format_token_count(llm.get_maximum_output_token())
+        if self._model_source and self._model_source != "default":
+            source_hint = f"configured {self._model_source}"
+        else:
+            source_hint = "default, change with --model, for all options see https://holmesgpt.dev/ai-providers"
+        msg = f"Model: {model_name}, {context_size} context, {max_response} max response ({source_hint})"
+        display_logger.info(msg)
+        if on_event is not None:
+            on_event(StatusEvent(kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg))
         return llm
 
     def get_models_list(self) -> List[str]:

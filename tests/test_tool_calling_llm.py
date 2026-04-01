@@ -744,7 +744,6 @@ class TestStreamApprovalFlow:
 
         approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
         assert len(approval_events) == 1
-        assert approval_events[0].data["requires_approval"] is True
         assert len(approval_events[0].data["pending_approvals"]) == 1
         assert approval_events[0].data["pending_approvals"][0]["tool_call_id"] == "tc_del"
 
@@ -1133,7 +1132,7 @@ EXPECTED_ANSWER_END_KEYS = {
 
 EXPECTED_APPROVAL_REQUIRED_KEYS = {
     "content", "messages", "pending_approvals",
-    "requires_approval", "num_llm_calls", "costs",
+    "pending_frontend_tool_calls", "num_llm_calls", "costs",
 }
 
 
@@ -1231,6 +1230,471 @@ class TestSSEEventShapes:
             f"APPROVAL_REQUIRED keys mismatch: got {set(data.keys())}"
         )
         assert set(data["costs"].keys()) == EXPECTED_COSTS_KEYS
-        assert data["requires_approval"] is True
         assert isinstance(data["pending_approvals"], list)
+        assert isinstance(data["pending_frontend_tool_calls"], list)
         assert len(data["pending_approvals"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Test: Frontend tool flows (pause-mode via FrontendPauseTool in cloned executor)
+# ---------------------------------------------------------------------------
+
+
+def _make_ai_with_frontend_tools(make_ai_fn, mock_tool_executor, tool_names=None):
+    """Create a ToolCallingLLM with FrontendPauseTool(s) injected into the executor.
+
+    This mirrors what server.py does: clone the executor, inject frontend tools,
+    create a new ToolCallingLLM with the cloned executor.
+    """
+    from holmes.core.tools_utils.frontend_tools import build_frontend_pause_tool
+    from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+    if tool_names is None:
+        tool_names = [("show_chart", "Display a chart to the user", {
+            "type": "object",
+            "properties": {
+                "chart_type": {"type": "string"},
+                "data_source": {"type": "string"},
+            },
+        })]
+
+    frontend_tools = [
+        build_frontend_pause_tool(name=name, description=desc, parameters=params)
+        for name, desc, params in tool_names
+    ]
+
+    # Build a real (not mocked) ToolExecutor clone with frontend tools
+    clone = object.__new__(ToolExecutor)
+    mock_toolset = MagicMock()
+    mock_toolset.name = "kubectl"
+    clone.toolsets = [mock_toolset]
+    clone.enabled_toolsets = [mock_toolset]
+    clone.tools_by_name = {}
+    clone._tool_to_toolset = {}
+
+    for ft in frontend_tools:
+        clone.tools_by_name[ft.name] = ft
+
+    # Include both backend + frontend tools in OpenAI format
+    backend_tools = mock_tool_executor.get_all_tools_openai_format.return_value or []
+    frontend_openai = [ft.get_openai_format() for ft in frontend_tools]
+    clone.get_all_tools_openai_format = MagicMock(
+        return_value=backend_tools + frontend_openai
+    )
+    clone.ensure_toolset_initialized = MagicMock(return_value=None)
+
+    ai = make_ai_fn()
+    ai.tool_executor = clone
+    return ai
+
+
+class TestFrontendToolPauseFlow:
+    """Test pause-mode frontend tools: LLM calls a frontend tool, stream pauses
+    with approval_required event, client resumes with frontend_tool_results.
+
+    Frontend tools are injected as FrontendPauseTool instances into a cloned
+    ToolExecutor, mirroring the server.py approach. call_stream has no
+    frontend_tool_names or frontend_tool_definitions parameters.
+    """
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_frontend_tool_pauses_stream(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """When LLM calls a frontend tool, stream emits approval_required with
+        pending_frontend_tool_calls and stops (no ANSWER_END)."""
+        ft_call = _make_mock_tool_call(
+            tool_call_id="ft_1", tool_name="show_chart",
+            arguments={"chart_type": "line", "data_source": "cpu_usage"},
+        )
+        resp = _make_llm_response(content="Let me show you a chart", tool_calls=[ft_call])
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_frontend_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Show CPU chart"}],
+            )
+        )
+
+        # Should have START_TOOL for the frontend tool
+        start_events = _events_of_type(events, StreamEvents.START_TOOL)
+        assert len(start_events) == 1
+        assert start_events[0].data["tool_name"] == "show_chart"
+
+        # Should have APPROVAL_REQUIRED with pending_frontend_tool_calls
+        approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        assert len(approval_events) == 1
+        data = approval_events[0].data
+        assert len(data["pending_frontend_tool_calls"]) == 1
+        fc = data["pending_frontend_tool_calls"][0]
+        assert fc["tool_call_id"] == "ft_1"
+        assert fc["tool_name"] == "show_chart"
+        assert fc["arguments"] == {"chart_type": "line", "data_source": "cpu_usage"}
+
+        # Should NOT have ANSWER_END (stream paused)
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 0
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_frontend_tool_mixed_with_backend(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """When LLM calls both backend and frontend tools in same iteration,
+        backend tools execute and frontend tools cause a pause."""
+        backend_call = _make_mock_tool_call(tool_call_id="bt_1", tool_name="kubectl_get")
+        frontend_call = _make_mock_tool_call(
+            tool_call_id="ft_1", tool_name="show_chart",
+            arguments={"chart_type": "bar", "data_source": "memory"},
+        )
+        resp = _make_llm_response(
+            content="checking", tool_calls=[backend_call, frontend_call],
+        )
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_frontend_tools(make_ai, mock_tool_executor)
+        ai._invoke_llm_tool_call = MagicMock(
+            side_effect=lambda tool_to_call, **kwargs: (
+                _make_tool_call_result(tool_call_id="bt_1")
+                if tool_to_call.function.name == "kubectl_get"
+                else ai._invoke_llm_tool_call.default_return_value
+            )
+        )
+        # For the show_chart tool, _invoke_llm_tool_call will go through the real
+        # FrontendPauseTool.invoke() path via _directly_invoke_tool_call, so we
+        # need to let it work. But since we mock _invoke_llm_tool_call, we need
+        # to return the right thing for each tool.
+        def _route_tool_call(tool_to_call, **kwargs):
+            if tool_to_call.function.name == "kubectl_get":
+                return _make_tool_call_result(tool_call_id=tool_to_call.id)
+            elif tool_to_call.function.name == "show_chart":
+                # Simulate what _invoke_llm_tool_call returns for FrontendPauseTool
+                params = json.loads(tool_to_call.function.arguments)
+                return ToolCallResult(
+                    tool_call_id=tool_to_call.id,
+                    tool_name="show_chart",
+                    description="show_chart(params)",
+                    result=StructuredToolResult(
+                        status=StructuredToolResultStatus.FRONTEND_PAUSE,
+                        params=params,
+                    ),
+                )
+            raise ValueError(f"Unexpected tool: {tool_to_call.function.name}")
+
+        ai._invoke_llm_tool_call = MagicMock(side_effect=_route_tool_call)
+
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Check pods and show chart"}],
+            )
+        )
+
+        # Backend tool should have a TOOL_RESULT
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) == 1
+        assert tool_results[0].data["tool_name"] == "kubectl_get"
+
+        # Frontend tool should cause APPROVAL_REQUIRED
+        approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        assert len(approval_events) == 1
+        assert len(approval_events[0].data["pending_frontend_tool_calls"]) == 1
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_frontend_tool_resume_with_results(self, _mock_limit, make_ai, mock_llm):
+        """After pause, client sends frontend_tool_results and stream resumes
+        producing TOOL_RESULT events for the injected results."""
+        from holmes.core.models import FrontendToolResult
+
+        # Build messages as if we paused: assistant with pending_frontend tool call
+        messages = [
+            {"role": "user", "content": "Show chart"},
+            {
+                "role": "assistant",
+                "content": "Let me show a chart",
+                "tool_calls": [
+                    {
+                        "id": "ft_1",
+                        "type": "function",
+                        "function": {
+                            "name": "show_chart",
+                            "arguments": '{"chart_type": "line"}',
+                        },
+                        "pending_frontend": True,
+                    }
+                ],
+            },
+        ]
+
+        # LLM response after resume (final answer)
+        resp_final = _make_llm_response(content="Here is the chart analysis", tool_calls=None)
+        mock_llm.completion.return_value = resp_final
+
+        ai = make_ai()
+
+        frontend_results = [
+            FrontendToolResult(
+                tool_call_id="ft_1",
+                tool_name="show_chart",
+                result='{"rendered": true, "points": 42}',
+            )
+        ]
+
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=messages,
+                frontend_tool_results=frontend_results,
+            )
+        )
+
+        # Should have TOOL_RESULT for the injected frontend result
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) >= 1
+        frontend_result = [
+            tr for tr in tool_results if tr.data.get("tool_name") == "show_chart"
+        ]
+        assert len(frontend_result) == 1
+
+        # Should have ANSWER_END (stream completed after resume)
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        assert answer_ends[0].data["content"] == "Here is the chart analysis"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_frontend_tool_definitions_added_to_tools(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """Frontend tool definitions are included in the tools list sent to LLM."""
+        resp = _make_llm_response(content="No tools needed", tool_calls=None)
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_frontend_tools(make_ai, mock_tool_executor)
+        _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "hello"}],
+            )
+        )
+
+        # Verify LLM was called with both backend and frontend tools
+        call_kwargs = mock_llm.completion.call_args
+        tools_sent = call_kwargs.kwargs.get("tools") or call_kwargs[1].get("tools")
+        tool_names = [t["function"]["name"] for t in tools_sent]
+        assert "kubectl_get" in tool_names, "Backend tool should be included"
+        assert "show_chart" in tool_names, "Frontend tool should be included"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_approval_required_event_shape_with_frontend_tools(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """APPROVAL_REQUIRED event has the exact expected key set when triggered by frontend tools."""
+        ft_call = _make_mock_tool_call(
+            tool_call_id="ft_shape", tool_name="show_chart",
+            arguments={"chart_type": "pie"},
+        )
+        resp = _make_llm_response(content="charting", tool_calls=[ft_call])
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_frontend_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "show chart"}],
+            )
+        )
+
+        approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        assert len(approval_events) == 1
+        data = approval_events[0].data
+
+        # Same keys as regular approval_required — wire protocol is identical
+        assert set(data.keys()) == EXPECTED_APPROVAL_REQUIRED_KEYS
+        assert isinstance(data["pending_frontend_tool_calls"], list)
+        assert isinstance(data["pending_approvals"], list)
+        # Backend approvals empty, frontend has one entry
+        assert len(data["pending_approvals"]) == 0
+        assert len(data["pending_frontend_tool_calls"]) == 1
+        assert set(data["costs"].keys()) == EXPECTED_COSTS_KEYS
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_pending_frontend_marked_in_messages(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """After frontend tool pause, the conversation messages contain
+        the pending_frontend flag on the tool call."""
+        ft_call = _make_mock_tool_call(
+            tool_call_id="ft_mark", tool_name="show_chart",
+            arguments={"chart_type": "line"},
+        )
+        resp = _make_llm_response(content="charting", tool_calls=[ft_call])
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_frontend_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "chart"}],
+            )
+        )
+
+        approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        messages = approval_events[0].data["messages"]
+
+        # Find the assistant message with tool_calls
+        assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+        assert len(assistant_msgs) >= 1
+        tool_calls_in_msg = assistant_msgs[-1].get("tool_calls", [])
+        assert len(tool_calls_in_msg) >= 1
+
+        # The tool call should be marked pending_frontend
+        ft_tc = [tc for tc in tool_calls_in_msg if tc["id"] == "ft_mark"]
+        assert len(ft_tc) == 1
+        assert ft_tc[0].get("pending_frontend") is True
+
+
+# ---------------------------------------------------------------------------
+# Test: Frontend noop tools (fire-and-forget, no pause)
+# ---------------------------------------------------------------------------
+
+
+def _make_ai_with_noop_tools(make_ai_fn, mock_tool_executor, tool_names=None):
+    """Create a ToolCallingLLM with FrontendNoopTool(s) injected into the executor."""
+    from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool
+    from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+    if tool_names is None:
+        tool_names = [("navigate_to_page", "Navigate user to a page", {
+            "type": "object",
+            "properties": {
+                "page": {"type": "string"},
+            },
+        }, None)]
+
+    noop_tools = [
+        build_frontend_noop_tool(name=name, description=desc, parameters=params, canned_response=resp)
+        for name, desc, params, resp in tool_names
+    ]
+
+    clone = object.__new__(ToolExecutor)
+    mock_toolset = MagicMock()
+    mock_toolset.name = "kubectl"
+    clone.toolsets = [mock_toolset]
+    clone.enabled_toolsets = [mock_toolset]
+    clone.tools_by_name = {}
+    clone._tool_to_toolset = {}
+
+    for nt in noop_tools:
+        clone.tools_by_name[nt.name] = nt
+
+    backend_tools = mock_tool_executor.get_all_tools_openai_format.return_value or []
+    noop_openai = [nt.get_openai_format() for nt in noop_tools]
+    clone.get_all_tools_openai_format = MagicMock(
+        return_value=backend_tools + noop_openai
+    )
+    clone.ensure_toolset_initialized = MagicMock(return_value=None)
+
+    ai = make_ai_fn()
+    ai.tool_executor = clone
+    return ai
+
+
+class TestFrontendNoopToolFlow:
+    """Test noop-mode frontend tools: LLM calls a noop tool, gets canned
+    response immediately, stream continues without pausing."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_does_not_pause(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """When LLM calls a noop tool, stream does NOT emit approval_required
+        and instead continues to ai_answer_end."""
+        noop_call = _make_mock_tool_call(
+            tool_call_id="noop_1", tool_name="navigate_to_page",
+            arguments={"page": "/dashboards/cpu"},
+        )
+        # LLM iteration 1: calls the noop tool
+        resp1 = _make_llm_response(content="Let me navigate you", tool_calls=[noop_call])
+        # LLM iteration 2: final answer after seeing the canned response
+        resp2 = _make_llm_response(content="Done, you're on the CPU dashboard", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Go to CPU dashboard"}],
+            )
+        )
+
+        # Should NOT have APPROVAL_REQUIRED
+        approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        assert len(approval_events) == 0
+
+        # Should have TOOL_RESULT with the canned response
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) == 1
+        assert tool_results[0].data["name"] == "navigate_to_page"
+        result = tool_results[0].data["result"]
+        assert result["status"] == "success"
+        assert "successfully" in result["data"].lower()
+
+        # Should have ANSWER_END
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        assert answer_ends[0].data["content"] == "Done, you're on the CPU dashboard"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_custom_response(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """Noop tool with custom canned_response returns that response."""
+        custom = "Chart rendered at /charts/overview.png"
+        noop_call = _make_mock_tool_call(
+            tool_call_id="noop_custom", tool_name="render_chart_noop",
+            arguments={"chart_type": "line"},
+        )
+        resp1 = _make_llm_response(content="Rendering", tool_calls=[noop_call])
+        resp2 = _make_llm_response(content="Chart is ready", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor, tool_names=[
+            ("render_chart_noop", "Render a chart", {"type": "object", "properties": {"chart_type": {"type": "string"}}}, custom),
+        ])
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Show chart"}],
+            )
+        )
+
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) == 1
+        assert tool_results[0].data["result"]["data"] == custom
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_visible_in_sse_events(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """Client sees start_tool_calling and tool_calling_result for noop tools."""
+        noop_call = _make_mock_tool_call(
+            tool_call_id="noop_vis", tool_name="navigate_to_page",
+            arguments={"page": "/alerts"},
+        )
+        resp1 = _make_llm_response(content="Navigating", tool_calls=[noop_call])
+        resp2 = _make_llm_response(content="Done", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Go to alerts"}],
+            )
+        )
+
+        # start_tool_calling should be emitted
+        start_events = _events_of_type(events, StreamEvents.START_TOOL)
+        assert len(start_events) == 1
+        assert start_events[0].data["tool_name"] == "navigate_to_page"
+        assert start_events[0].data["id"] == "noop_vis"
+
+        # tool_calling_result should be emitted
+        tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
+        assert len(tool_results) == 1
+        assert tool_results[0].data["tool_call_id"] == "noop_vis"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_noop_tool_included_in_tools_list(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+        """Noop tool definitions are included in the tools list sent to LLM."""
+        resp = _make_llm_response(content="No tools needed", tool_calls=None)
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "hello"}],
+            )
+        )
+
+        call_kwargs = mock_llm.completion.call_args
+        tools_sent = call_kwargs.kwargs.get("tools") or call_kwargs[1].get("tools")
+        tool_names = [t["function"]["name"] for t in tools_sent]
+        assert "kubectl_get" in tool_names, "Backend tool should be included"
+        assert "navigate_to_page" in tool_names, "Noop tool should be included"

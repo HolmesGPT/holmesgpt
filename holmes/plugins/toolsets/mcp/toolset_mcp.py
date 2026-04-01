@@ -1,10 +1,11 @@
 import asyncio
 import json
 import logging
+import os
 import threading
 from contextlib import asynccontextmanager
 from enum import Enum
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, TextIO, Tuple, Type, Union
 
 import httpx
 from mcp.client.session import ClientSession
@@ -15,6 +16,7 @@ from mcp.types import Tool as MCP_Tool
 from pydantic import AnyUrl, Field, model_validator
 
 from holmes.common.env_vars import SSE_READ_TIMEOUT
+from holmes.core.config import config_path_dir
 from holmes.core.tools import (
     CallablePrerequisite,
     StructuredToolResult,
@@ -28,6 +30,7 @@ from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
+display_logger = logging.getLogger("holmes.display.mcp_toolset")
 
 
 def _extract_root_error_message(exc: Exception) -> str:
@@ -168,6 +171,19 @@ class StdioMCPConfig(ToolsetConfig):
         return str(self.command)
 
 
+def _get_mcp_log_file(server_name: str) -> TextIO:
+    """Get a file handle for MCP server stderr output.
+
+    Redirects MCP subprocess stderr to ~/.holmes/logs/mcp/<server_name>.log
+    so it doesn't pollute the CLI output.
+    """
+    log_dir = os.path.join(config_path_dir, "logs", "mcp")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f"{server_name}.log")
+    display_logger.info(f"MCP server '{server_name}' logs: {log_path}")
+    return open(log_path, "w")
+
+
 @asynccontextmanager
 async def get_initialized_mcp_session(
     toolset: "RemoteMCPToolset", request_context: Optional[Dict[str, Any]] = None
@@ -181,13 +197,17 @@ async def get_initialized_mcp_session(
             args=toolset._mcp_config.args or [],
             env=toolset._mcp_config.env,
         )
-        async with stdio_client(server_params) as (
-            read_stream,
-            write_stream,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                _ = await session.initialize()
-                yield session
+        errlog = _get_mcp_log_file(toolset.name)
+        try:
+            async with stdio_client(server_params, errlog=errlog) as (
+                read_stream,
+                write_stream,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    _ = await session.initialize()
+                    yield session
+        finally:
+            errlog.close()
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
         httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)

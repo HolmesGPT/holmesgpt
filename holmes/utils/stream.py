@@ -84,12 +84,14 @@ def stream_chat_formatter(
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
                     "follow_up_actions": followups,
+                    "requires_approval": True,
+                    "pending_approvals": message.data.get(
+                        "pending_approvals", []
+                    ),
+                    "pending_frontend_tool_calls": message.data.get(
+                        "pending_frontend_tool_calls", []
+                    ),
                 }
-
-                response_data["requires_approval"] = True
-                response_data["pending_approvals"] = message.data.get(
-                    "pending_approvals", []
-                )
 
                 yield create_sse_message(
                     StreamEvents.APPROVAL_REQUIRED.value, response_data

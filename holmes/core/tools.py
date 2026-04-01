@@ -56,6 +56,9 @@ if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
 
 logger = logging.getLogger(__name__)
+# Named logger for user-facing display messages (tool progress lines).
+# In interactive mode this logger is silenced; the CLI renders from stream events instead.
+display_logger = logging.getLogger("holmes.display.tools")
 
 
 class StructuredToolResultStatus(str, Enum):
@@ -63,6 +66,7 @@ class StructuredToolResultStatus(str, Enum):
     ERROR = "error"
     NO_DATA = "no_data"
     APPROVAL_REQUIRED = "approval_required"
+    FRONTEND_PAUSE = "frontend_pause"
 
     def to_color(self) -> str:
         if self == StructuredToolResultStatus.SUCCESS:
@@ -71,6 +75,8 @@ class StructuredToolResultStatus(str, Enum):
             return "red"
         elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
             return "yellow"
+        elif self == StructuredToolResultStatus.FRONTEND_PAUSE:
+            return "cyan"
         else:
             return "white"
 
@@ -81,6 +87,8 @@ class StructuredToolResultStatus(str, Enum):
             return "❌"
         elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
             return "⚠️"
+        elif self == StructuredToolResultStatus.FRONTEND_PAUSE:
+            return "⏸"
         else:
             return "⚪️"
 
@@ -96,6 +104,7 @@ class StructuredToolResult(BaseModel):
     invocation: Optional[str] = None
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
+    elapsed_seconds: Optional[float] = None
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
@@ -336,14 +345,14 @@ class Tool(ABC, BaseModel):
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
         tool_number_str = f"#{context.tool_number} " if context.tool_number else ""
-        logger.info(
+        display_logger.info(
             f"Running tool {tool_number_str}[bold]{self.name}[/bold]: {self.get_parameterized_one_liner(params)}"
         )
 
         if not context.user_approved:
             approval_check = self._get_approval_requirement(params, context)
             if approval_check and approval_check.needs_approval:
-                logger.info(
+                display_logger.info(
                     f"  [yellow]Tool '{self.name}' requires approval: {approval_check.reason}[/yellow]"
                 )
                 # Bash toolset: override suggested_prefixes with filtered list
@@ -364,6 +373,7 @@ class Tool(ABC, BaseModel):
 
         transformed_result = self._apply_transformers(result)
         elapsed = time.time() - start_time
+        transformed_result.elapsed_seconds = elapsed
         output_str = (
             transformed_result.get_stringified_data()
             if hasattr(transformed_result, "get_stringified_data")
@@ -371,7 +381,7 @@ class Tool(ABC, BaseModel):
         )
         show_hint = f"/show {context.tool_number}" if context.tool_number else "/show"
         line_count = output_str.count("\n") + 1 if output_str else 0
-        logger.info(
+        display_logger.info(
             f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
@@ -729,7 +739,7 @@ class Toolset(BaseModel):
         default_factory=lambda: [ToolsetTag.CORE],
     )
     config: Optional[Any] = None
-    is_default: bool = False
+
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
@@ -866,17 +876,7 @@ class Toolset(BaseModel):
 
     @property
     def missing_config(self) -> bool:
-        """True when this toolset requires user-supplied configuration that was not provided.
-
-        A toolset does NOT have missing config when any of these hold:
-        1. Already enabled or is_default
-        2. No config_classes (YAML toolsets, simple Python toolsets)
-        3. Config classes exist but all fields have defaults
-        4. Config is required AND was provided by user
-        """
-        if self.enabled or self.is_default:
-            return False
-
+        """True when this toolset has required config fields but no config was provided."""
         if not self.config_classes:
             return False
 
@@ -888,10 +888,7 @@ class Toolset(BaseModel):
         if not requires_config:
             return False
 
-        if self.config is not None:
-            return False
-
-        return True
+        return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
         self.status = ToolsetStatusEnum.ENABLED
@@ -954,12 +951,12 @@ class Toolset(BaseModel):
                 or self.status == ToolsetStatusEnum.FAILED
             ):
                 if not silent:
-                    logger.info(f"❌ Toolset {self.name}: {self.error}")
+                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
                 return
 
         if not silent:
-            logger.info(f"✅ Toolset {self.name}")
+            display_logger.info(f"✅ Toolset {self.name}")
 
     def check_config_prerequisites(self, silent: bool = False) -> None:
         """Run only fast config-validity checks (static flags and environment variables).
@@ -994,7 +991,7 @@ class Toolset(BaseModel):
                 or self.status == ToolsetStatusEnum.FAILED
             ):
                 if not silent:
-                    logger.info(f"❌ Toolset {self.name}: {self.error}")
+                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
                 return
 
         if has_deferred_prereqs:
@@ -1024,7 +1021,7 @@ class Toolset(BaseModel):
             if self._initialized:
                 return self.status == ToolsetStatusEnum.ENABLED
 
-            logger.info(f"Lazily initializing toolset {self.name}...")
+            display_logger.info(f"Lazily initializing toolset {self.name}...")
             self.check_prerequisites(silent=silent)
             self._initialized = True
             self._lazy_init = False

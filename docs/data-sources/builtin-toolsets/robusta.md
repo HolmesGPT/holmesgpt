@@ -1,21 +1,21 @@
 # Robusta
 
-!!! warning "Optional - Requires Robusta SaaS"
-    This toolset is **NOT** enabled by default. It requires integration with the Robusta SaaS platform and proper authentication credentials.
+!!! warning "Optional - Requires Robusta"
+    This toolset is **NOT** enabled by default. It requires integration with the Robusta platform and proper authentication credentials.
 
-The Robusta toolset provides advanced observability capabilities by connecting HolmesGPT to the Robusta SaaS platform. When enabled, it gives HolmesGPT access to historical data, change tracking, and resource recommendations that are not available from standard Kubernetes APIs.
+The Robusta toolset provides advanced observability capabilities by connecting HolmesGPT to the Robusta platform. When enabled, it gives HolmesGPT access to historical data, change tracking, and resource recommendations that are not available from standard Kubernetes APIs.
 
 ## Prerequisites
 
 To use this toolset, you need:
 
-1. An active Robusta SaaS account
+1. An active Robusta account
 2. Valid authentication credentials (provided via environment variables or configuration file)
 3. The Robusta platform deployed in your cluster
 
 ## What It Adds
 
-When connected to Robusta SaaS, HolmesGPT gains access to:
+When connected to Robusta, HolmesGPT gains access to:
 
 - **Historical Alert Data**: Fetch detailed metadata about past alerts and incidents, including context that may no longer be available in Prometheus or AlertManager
 - **Change Tracking**: Query configuration changes across your entire cluster within specific time ranges, helping identify what changed before an incident
@@ -23,7 +23,7 @@ When connected to Robusta SaaS, HolmesGPT gains access to:
 
 ## Configuration
 
-The toolset requires authentication to Robusta SaaS. You can provide credentials in three ways:
+The toolset requires authentication to Robusta. You can provide credentials in three ways:
 
 ### Option 1: Automatic (via Robusta Helm Chart)
 
@@ -65,7 +65,7 @@ holmes:
 
 ### Multi-Cluster Support
 
-All tools that fetch data from Robusta SaaS support querying across multiple clusters:
+All tools that fetch data from Robusta support querying across multiple clusters:
 
 - **Default behavior**: Queries the current cluster only
 - **all_clusters=true**: Searches across all clusters in your account
@@ -88,6 +88,6 @@ This toolset is particularly useful for:
 
 ## Notes
 
-- The toolset will only be functional if valid Robusta SaaS credentials are provided
+- The toolset will only be functional if valid Robusta credentials are provided
 - If credentials are missing or invalid, the toolset will be disabled automatically
 - This integration provides read-only access to your Robusta data

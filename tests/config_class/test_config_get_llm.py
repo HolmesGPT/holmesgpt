@@ -64,12 +64,12 @@ def test_cli_config_get_llm_loads_default_gpt_4o(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "openai_api_key")
     cli_config = get_cli_config()
     llm: DefaultLLM = cli_config._get_llm()
-    assert llm.name == "gpt-4.1"
-    assert llm.model == "gpt-4.1"
+    assert llm.name == "gpt-5.4"
+    assert llm.model == "gpt-5.4"
     assert llm.api_base is None
 
     assert len(cli_config.llm_model_registry._llms) == 1
-    assert cli_config.get_models_list() == ["gpt-4.1"]
+    assert cli_config.get_models_list() == ["gpt-5.4"]
 
 
 def test_cli_config_get_llm_loads_model_from_env_var(monkeypatch):
