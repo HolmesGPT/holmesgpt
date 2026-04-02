@@ -24,3 +24,8 @@ opt_verbose: Optional[List[bool]] = typer.Option(
     "-v",
     help="Verbose output. You can pass multiple times to increase the verbosity. e.g. -v or -vv or -vvv",
 )
+opt_use_langchain_llm: Optional[bool] = typer.Option(
+    None,
+    "--use-langchain-llm/--no-use-langchain-llm",
+    help="Use LangChain ChatOpenAI/ChatAnthropic instead of LiteLLM (useful for custom proxy endpoints)",
+)

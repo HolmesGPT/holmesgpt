@@ -63,6 +63,7 @@ class Config(RobustaBaseConfig):
     fast_model: Optional[str] = None
     max_steps: int = 100
     cluster_name: Optional[str] = None
+    use_langchain_llm: bool = False  # if True, use LangChain ChatOpenAI/ChatAnthropic instead of LiteLLM
 
     alertmanager_url: Optional[str] = None
     alertmanager_username: Optional[str] = None
@@ -545,16 +546,31 @@ class Config(RobustaBaseConfig):
         api_version = model_params.pop("api_version", api_version)
         model_name = model_params.pop("name", None) or model_key or model
         sentry_sdk.set_tag("model_name", model_name)
-        llm = DefaultLLM(
-            model=model,
-            api_key=api_key,
-            api_base=api_base,
-            api_version=api_version,
-            args=model_params,
-            tracer=tracer,
-            name=model_name,
-            is_robusta_model=is_robusta_model,
-        )  # type: ignore
+
+        # Check if we should use LangChain LLM instead of direct LiteLLM
+        # Priority: config file setting > environment variable
+        use_langchain = self.use_langchain_llm or os.environ.get("USE_LANGCHAIN_LLM", "false").lower() == "true"
+
+        if use_langchain:
+            from holmes.core.langchain_llm import LangChainLLM
+            llm = LangChainLLM(
+                model=model,
+                api_key=api_key,
+                base_url=api_base,
+                **model_params,
+            )  # type: ignore
+        else:
+            llm = DefaultLLM(
+                model=model,
+                api_key=api_key,
+                api_base=api_base,
+                api_version=api_version,
+                args=model_params,
+                tracer=tracer,
+                name=model_name,
+                is_robusta_model=is_robusta_model,
+            )  # type: ignore
+
         context_size = self._format_token_count(llm.get_context_window_size())
         max_response = self._format_token_count(llm.get_maximum_output_token())
         if self._model_source and self._model_source != "default":

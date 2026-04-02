@@ -52,6 +52,7 @@ from holmes.common.cli_commons import (
     opt_api_key,
     opt_config_file,
     opt_model,
+    opt_use_langchain_llm,
     opt_verbose,
 )
 from holmes.toolset_config_tui import run_toolset_config_tui
@@ -200,6 +201,7 @@ def ask(
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
     log_costs: bool = opt_log_costs,
+    use_langchain_llm: Optional[bool] = opt_use_langchain_llm,
     # semi-common options
     destination: Optional[DestinationType] = opt_destination,
     slack_token: Optional[str] = opt_slack_token,
@@ -292,6 +294,7 @@ def ask(
         custom_toolsets_from_cli=custom_toolsets,
         slack_token=slack_token,
         slack_channel=slack_channel,
+        use_langchain_llm=use_langchain_llm,
     )
 
     # Create tracer if trace option is provided
