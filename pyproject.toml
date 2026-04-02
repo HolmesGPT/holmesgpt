@@ -74,6 +74,7 @@ clickhouse-sqlalchemy = "^0.3.2"
 pymssql = "^2.3.0"
 cryptography = "^46.0.5"
 pycognito = "^2024.5.1"
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
 
 [tool.poetry.group.dev]
 optional = true
