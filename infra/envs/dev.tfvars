@@ -95,7 +95,9 @@ aws_mcp_enabled = true
 # TF_VAR_ado_pat, TF_VAR_ado_organization, TF_VAR_ado_webhook_username, TF_VAR_ado_webhook_password
 ado_organization       = "pdidev"
 ado_webhook_username   = "holmesgpt"
-
+ado_pat = "" # Set via TF_VAR_ado_pat
+ado_webhook_password = "" # Set via TF_VAR_ado_webhook_password
+pagerduty_webhook_secret = "" # Set via TF_VAR_pagerduty_webhook_secret
 
 # DBADash Web integration — credentials stored in Secrets Manager (fetched at runtime by the pod)
 dbdash_api_url             = "https://db-monitor.shared.platform.pditechnologies.com"
