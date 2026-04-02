@@ -7,16 +7,12 @@ Security: ALL routes require authentication except /auth/login, /healthz, /ready
 This includes /api/* endpoints — no unauthenticated access.
 """
 
-import hashlib
 import hmac
 import json
 import logging
 import os
 import queue
-import secrets
 import threading
-import time
-from collections import defaultdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -28,91 +24,81 @@ from fastapi.responses import (
 )
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from okta_jwt import validate_okta_token, OKTA_ISSUER, OKTA_CLIENT_ID
+from rbac import ensure_user_exists, UserPermissions
+
 STATIC_DIR = Path("/app/static")
-SESSION_COOKIE = "holmes_session"
-SESSION_MAX_AGE = 86400  # 24 hours
-
-# In-memory session store (sufficient for single-pod deployment)
-_sessions: dict[str, str] = {}
-
-# Brute-force protection: track failed login attempts per IP
-_login_failures: dict[str, list[float]] = defaultdict(list)
-_LOGIN_WINDOW = 300  # 5-minute sliding window
-_LOGIN_MAX_ATTEMPTS = 10  # max failures before lockout
 
 
-def _check_login_rate_limit(ip: str) -> bool:
-    """Return True if the IP is allowed to attempt login, False if locked out."""
-    now = time.time()
-    attempts = _login_failures[ip]
-    # Purge attempts outside the window
-    _login_failures[ip] = [t for t in attempts if now - t < _LOGIN_WINDOW]
-    return len(_login_failures[ip]) < _LOGIN_MAX_ATTEMPTS
+class OktaAuthMiddleware(BaseHTTPMiddleware):
+    """Authenticate requests via Okta JWT or API key."""
 
-
-def _record_login_failure(ip: str) -> None:
-    _login_failures[ip].append(time.time())
-
-
-def get_credentials() -> tuple[str, str]:
-    username = os.environ.get("HOLMES_UI_USERNAME", "admin")
-    password = os.environ.get("HOLMES_UI_PASSWORD", "")
-    return username, password
-
-
-def verify_session(session_id: str | None) -> bool:
-    if not session_id:
-        return False
-    return session_id in _sessions
-
-
-def verify_api_key(request: Request) -> bool:
-    """Check for API key in Authorization header (for programmatic access)."""
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        _, expected_password = get_credentials()
-        if expected_password and hmac.compare_digest(token, expected_password):
-            return True
-    return False
-
-
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Protect ALL routes with session cookie or API key auth."""
-
-    # Only these paths are exempt from auth
-    EXEMPT_PATHS = ("/healthz", "/readyz", "/auth/login", "/auth/check", "/login")
-    # Webhook paths are exempt — they use their own HMAC signature verification
+    EXEMPT_PATHS = ("/healthz", "/readyz", "/login/callback")
     EXEMPT_PREFIXES = ("/assets/", "/favicon", "/api/webhook/")
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Health/readiness probes and login page are always accessible
         if path in self.EXEMPT_PATHS:
             return await call_next(request)
 
-        # Static assets must be accessible for the login page to render
         if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
             return await call_next(request)
 
-        # Check session cookie (browser access)
-        session_id = request.cookies.get(SESSION_COOKIE)
-        if verify_session(session_id):
-            return await call_next(request)
+        # Extract Authorization header
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            # No auth header -> serve SPA for browser requests, 401 for API
+            if request.headers.get("accept", "").startswith("text/html"):
+                index = STATIC_DIR / "index.html"
+                if index.exists():
+                    return FileResponse(index, media_type="text/html")
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
 
-        # Check API key in Authorization header (programmatic access)
-        if verify_api_key(request):
-            return await call_next(request)
+        token = auth_header[7:]
 
-        # Unauthenticated: redirect browsers to login, return 401 for API calls
-        if request.headers.get("accept", "").startswith("text/html"):
-            return HTMLResponse(
-                content='<html><head><meta http-equiv="refresh" content="0;url=/auth/login"></head></html>',
-                status_code=200,
+        # Detect token type: JWT has 2+ dots, API key is a plain string
+        if token.count(".") >= 2:
+            # JWT token -> validate with Okta
+            try:
+                claims = validate_okta_token(token)
+                permissions = ensure_user_exists(
+                    sub=claims["sub"],
+                    email=claims["email"],
+                    name=claims["name"],
+                )
+                request.state.user = claims
+                request.state.permissions = permissions
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.error("JWT validation error: %s", e)
+                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        else:
+            # API key -> check against HOLMES_API_KEY env var
+            api_key = os.environ.get("HOLMES_API_KEY", "")
+            if not api_key or not hmac.compare_digest(token, api_key):
+                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+            # Synthetic admin user for API key auth
+            from rbac import UserRecord, UserPermissions as UP
+            synthetic_user = {
+                "sub": "api-key",
+                "email": "api@holmesgpt.internal",
+                "name": "API Key",
+                "groups": [],
+            }
+            synthetic_record = UserRecord(
+                sub="api-key",
+                email="api@holmesgpt.internal",
+                name="API Key",
+                global_role="super-admin",
+                status="active",
             )
+            request.state.user = synthetic_user
+            request.state.permissions = UP(user=synthetic_record, project_roles={})
 
-        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        return await call_next(request)
 
 
 def _restore_llm_overrides_from_dynamodb(config) -> None:
@@ -390,16 +376,15 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
 def mount_frontend(app: FastAPI, config=None) -> None:
     """Add auth endpoints, integrations API, and static file serving to the FastAPI app."""
 
-    _, password = get_credentials()
-    if not password:
-        logging.warning(
-            "HOLMES_UI_PASSWORD not set - frontend auth is DISABLED. "
-            "Set HOLMES_UI_PASSWORD to secure all endpoints."
-        )
+    # Add Okta auth middleware
+    if OKTA_ISSUER and OKTA_CLIENT_ID:
+        app.add_middleware(OktaAuthMiddleware)
+        logging.info("Okta auth middleware enabled")
     else:
-        # Add auth middleware - protects ALL routes
-        app.add_middleware(AuthMiddleware)
-        logging.info("Auth middleware enabled - all routes require authentication")
+        logging.warning(
+            "OKTA_ISSUER or OKTA_CLIENT_ID not set - Okta auth is DISABLED. "
+            "Set both environment variables to enable authentication."
+        )
 
     # ── DynamoDB persistence: restore state on startup ────────────────────────
     _restore_llm_overrides_from_dynamodb(config)
@@ -407,90 +392,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     _restore_toolset_config_from_dynamodb(config)
     _restore_app_settings_from_dynamodb()
 
-    @app.get("/auth/check")
-    async def auth_check(request: Request):
-        session_id = request.cookies.get(SESSION_COOKIE)
-        if not password or verify_session(session_id):
-            return {"authenticated": True}
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    @app.get("/api/auth/me")
+    async def auth_me(request: Request):
+        """Return the current user's profile and permissions."""
+        perms: UserPermissions = request.state.permissions
+        user = perms.user
 
-    @app.post("/auth/login")
-    async def auth_login(request: Request):
-        # Brute-force protection: check rate limit before processing credentials
-        client_ip = (
-            request.headers.get(
-                "x-forwarded-for", request.client.host if request.client else "unknown"
-            )
-            .split(",")[0]
-            .strip()
-        )
-        if not _check_login_rate_limit(client_ip):
-            raise HTTPException(
-                status_code=429,
-                detail="Too many login attempts. Try again in 5 minutes.",
-            )
+        project_roles = {}
+        for pid, pr in perms.project_roles.items():
+            project_roles[pid] = pr.role
 
-        body = await request.json()
-        username = body.get("username", "")
-        password_input = body.get("password", "")
-
-        expected_username, expected_password = get_credentials()
-
-        if not expected_password:
-            # Auth disabled - allow any login
-            session_id = secrets.token_urlsafe(32)
-            _sessions[session_id] = username
-            response = JSONResponse({"ok": True})
-            response.set_cookie(
-                SESSION_COOKIE,
-                session_id,
-                max_age=SESSION_MAX_AGE,
-                httponly=True,
-                secure=True,
-                samesite="lax",
-            )
-            return response
-
-        # Constant-time comparison to prevent timing attacks
-        username_match = hmac.compare_digest(username, expected_username)
-        password_match = hmac.compare_digest(
-            hashlib.sha256(password_input.encode()).hexdigest(),
-            hashlib.sha256(expected_password.encode()).hexdigest(),
-        )
-
-        if username_match and password_match:
-            session_id = secrets.token_urlsafe(32)
-            _sessions[session_id] = username
-            response = JSONResponse({"ok": True})
-            response.set_cookie(
-                SESSION_COOKIE,
-                session_id,
-                max_age=SESSION_MAX_AGE,
-                httponly=True,
-                secure=True,
-                samesite="lax",
-            )
-            return response
-
-        _record_login_failure(client_ip)
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    @app.post("/auth/logout")
-    async def auth_logout(request: Request):
-        session_id = request.cookies.get(SESSION_COOKIE)
-        if session_id and session_id in _sessions:
-            del _sessions[session_id]
-        response = JSONResponse({"ok": True})
-        response.delete_cookie(SESSION_COOKIE)
-        return response
-
-    @app.get("/auth/login")
-    async def auth_login_page():
-        """Serve the SPA for the login page."""
-        index = STATIC_DIR / "index.html"
-        if index.exists():
-            return FileResponse(index, media_type="text/html")
-        return HTMLResponse("<h1>Frontend not built</h1>", status_code=404)
+        return JSONResponse({
+            "sub": user.sub,
+            "email": user.email,
+            "name": user.name or "",
+            "globalRole": user.global_role,
+            "projectRoles": project_roles,
+            "status": user.status,
+        })
 
     def _ensure_tool_executor():
         """Lazily initialize the tool executor if not yet created."""
@@ -2745,6 +2664,9 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         _threading.Thread(target=_run_sf_investigation, daemon=True).start()
 
         return JSONResponse({"ok": True})
+
+    from users_api import mount_users_api
+    mount_users_api(app)
 
     # Static file serving - must be registered last (catch-all)
     @app.get("/{path:path}")
