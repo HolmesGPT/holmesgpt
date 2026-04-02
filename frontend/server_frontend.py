@@ -411,6 +411,28 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             "status": user.status,
         })
 
+    def _require_super_admin(request: Request):
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
+
+    def _require_project_access(request: Request, project_id: str, min_role: str = "read-only"):
+        perms = request.state.permissions
+        if perms.user.global_role == "super-admin":
+            return
+        project_role = perms.project_roles.get(project_id)
+        if not project_role:
+            raise HTTPException(403, "No access to this project")
+        if min_role == "project-admin" and project_role.role != "project-admin":
+            raise HTTPException(403, "Project-admin required")
+
+    def _get_accessible_project_ids(request: Request) -> list[str] | None:
+        """Return list of project IDs user can access, or None for super-admin (all)."""
+        perms = request.state.permissions
+        if perms.user.global_role == "super-admin":
+            return None
+        return list(perms.project_roles.keys())
+
     def _ensure_tool_executor():
         """Lazily initialize the tool executor if not yet created."""
         if config is None:
@@ -802,6 +824,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.put("/api/app-settings")
     async def update_app_settings(request: Request):
         """Update global application settings and persist to DynamoDB."""
+        _require_super_admin(request)
         global _webhook_dev_mode, _system_prompt_additions
         body = await request.json()
 
@@ -968,13 +991,17 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     # ── Projects endpoints ────────────────────────────────────────────────────
 
     @app.get("/api/projects")
-    async def list_projects():
+    async def list_projects(request: Request):
         """Return all projects."""
         try:
             from projects import get_store  # noqa: PLC0415
 
+            all_projects = get_store().list()
+            accessible = _get_accessible_project_ids(request)
+            if accessible is not None:
+                all_projects = [p for p in all_projects if p.id in accessible]
             return JSONResponse(
-                {"projects": [p.model_dump() for p in get_store().list()]}
+                {"projects": [p.model_dump() for p in all_projects]}
             )
         except Exception as e:
             logging.error("Failed to list projects: %s", e)
@@ -983,6 +1010,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.post("/api/projects")
     async def create_project(request: Request):
         """Create a new project."""
+        _require_super_admin(request)
         try:
             from projects import get_store  # noqa: PLC0415
 
@@ -1003,8 +1031,9 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/api/projects/{project_id}")
-    async def get_project(project_id: str):
+    async def get_project(project_id: str, request: Request):
         """Return a single project by ID."""
+        _require_project_access(request, project_id)
         try:
             from projects import get_store  # noqa: PLC0415
 
@@ -1021,6 +1050,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.put("/api/projects/{project_id}")
     async def update_project(project_id: str, request: Request):
         """Update an existing project."""
+        _require_project_access(request, project_id, min_role="project-admin")
         try:
             from projects import get_store  # noqa: PLC0415
 
@@ -1038,13 +1068,20 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.delete("/api/projects/{project_id}")
-    async def delete_project(project_id: str):
+    async def delete_project(project_id: str, request: Request):
         """Delete a project."""
+        _require_super_admin(request)
         try:
-            from projects import get_store  # noqa: PLC0415
+            from projects import get_store, delete_project_roles  # noqa: PLC0415
 
             if not get_store().delete(project_id):
                 raise HTTPException(status_code=404, detail="Project not found")
+            try:
+                delete_project_roles(project_id)
+            except Exception:
+                logging.warning(
+                    "Failed to clean up project roles for project %s", project_id, exc_info=True
+                )
             return JSONResponse({"ok": True})
         except HTTPException:
             raise
@@ -1139,6 +1176,11 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.post("/api/instances")
     async def create_instance(request: Request):
         """Create a new instance."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            has_admin = any(pr.role == "project-admin" for pr in perms.project_roles.values())
+            if not has_admin:
+                raise HTTPException(403, "Project-admin required to create instances")
         try:
             from projects import get_instances_store  # noqa: PLC0415
 
@@ -1180,6 +1222,11 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.put("/api/instances/{instance_id}")
     async def update_instance(instance_id: str, request: Request):
         """Update an existing instance."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            has_admin = any(pr.role == "project-admin" for pr in perms.project_roles.values())
+            if not has_admin:
+                raise HTTPException(403, "Project-admin required to create instances")
         try:
             from projects import get_instances_store  # noqa: PLC0415
 
@@ -1195,8 +1242,13 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.delete("/api/instances/{instance_id}")
-    async def delete_instance(instance_id: str):
+    async def delete_instance(instance_id: str, request: Request):
         """Delete an instance."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            has_admin = any(pr.role == "project-admin" for pr in perms.project_roles.values())
+            if not has_admin:
+                raise HTTPException(403, "Project-admin required to create instances")
         try:
             from projects import get_instances_store  # noqa: PLC0415
 
