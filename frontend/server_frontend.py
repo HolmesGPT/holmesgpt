@@ -1072,7 +1072,8 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         """Delete a project."""
         _require_super_admin(request)
         try:
-            from projects import get_store, delete_project_roles  # noqa: PLC0415
+            from projects import get_store  # noqa: PLC0415
+            from rbac import delete_project_roles  # noqa: PLC0415
 
             if not get_store().delete(project_id):
                 raise HTTPException(status_code=404, detail="Project not found")
