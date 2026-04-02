@@ -1,21 +1,27 @@
+import { getIdToken } from './okta'
+import type { AuthUser } from './auth'
+
 const BASE = '';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = await getIdToken()
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> ?? {}),
+  }
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-    credentials: 'include',
+    headers,
   });
 
   if (res.status === 401) {
-    // Only redirect to login if we're not already on the login page
-    const onLoginPage = window.location.pathname === '/auth/login' || window.location.pathname === '/login';
-    if (!onLoginPage) {
-      window.location.href = '/auth/login';
-    }
+    window.location.href = '/'
     throw new Error('Unauthorized');
   }
 
@@ -25,6 +31,31 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return res.json();
+}
+
+async function streamFetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  const token = await getIdToken()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  })
+
+  if (res.status === 401) {
+    window.location.href = '/'
+    throw new Error('Unauthorized')
+  }
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status}: ${text}`)
+  }
+  return res
 }
 
 export interface ChatMessage {
@@ -269,6 +300,27 @@ export interface SimilarInvestigation {
   resolution_summary: string | null;
 }
 
+export interface UserRecord {
+  sub: string
+  email: string
+  name: string | null
+  global_role: 'super-admin' | null
+  status: 'active' | 'invited' | 'pending'
+  created_at: string
+  last_login: string | null
+}
+
+export interface ProjectRoleAssignment {
+  project_id: string
+  role: 'project-admin' | 'read-only'
+  assigned_by: string
+  assigned_at: string
+}
+
+export interface UserWithRoles extends UserRecord {
+  project_roles: Record<string, ProjectRoleAssignment>
+}
+
 export const api = {
   chat(data: ChatRequest): Promise<ChatResponse> {
     return request('/api/chat', {
@@ -282,15 +334,8 @@ export const api = {
     onChunk: (text: string) => void,
     signal?: AbortSignal,
   ): Promise<void> {
-    const res = await fetch(`${BASE}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ ...data, stream: true }),
-      signal,
-    });
+    const res = await streamFetch('/api/chat', { ...data, stream: true }, signal);
 
-    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
     if (!res.body) throw new Error('No response body');
 
     const reader = res.body.getReader();
@@ -316,23 +361,7 @@ export const api = {
    * Resolves with the parsed JSON from the final `data:` event.
    */
   async investigateStream(data: InvestigateRequest): Promise<InvestigateResponse> {
-    const res = await fetch(`${BASE}/api/investigate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(data),
-    });
-
-    if (res.status === 401) {
-      const onLoginPage = window.location.pathname === '/auth/login' || window.location.pathname === '/login';
-      if (!onLoginPage) window.location.href = '/auth/login';
-      throw new Error('Unauthorized');
-    }
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`${res.status}: ${text}`);
-    }
+    const res = await streamFetch('/api/investigate', data);
 
     if (!res.body) throw new Error('No response body');
 
@@ -566,30 +595,40 @@ export const api = {
     });
   },
 
-  async login(username: string, password: string): Promise<{ ok: boolean }> {
-    const res = await fetch(`${BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ username, password }),
-    });
-    if (!res.ok) throw new Error('Invalid credentials');
-    return { ok: true };
+  // Auth
+  getMe(): Promise<AuthUser> {
+    return request('/api/auth/me')
   },
 
-  async logout(): Promise<void> {
-    await fetch(`${BASE}/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    });
+  // Users (super-admin only)
+  getUsers(): Promise<UserWithRoles[]> {
+    return request('/api/users')
   },
 
-  async checkAuth(): Promise<boolean> {
-    try {
-      const res = await fetch(`${BASE}/auth/check`, { credentials: 'include' });
-      return res.ok;
-    } catch {
-      return false;
-    }
+  inviteUser(email: string): Promise<UserRecord> {
+    return request('/api/users/invite', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  },
+
+  updateUserGlobalRole(userId: string, role: 'super-admin' | null): Promise<UserRecord> {
+    return request(`/api/users/${encodeURIComponent(userId)}/global-role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    })
+  },
+
+  updateUserProjectRole(userId: string, projectId: string, role: 'project-admin' | 'read-only' | null): Promise<void> {
+    return request(`/api/users/${encodeURIComponent(userId)}/projects/${encodeURIComponent(projectId)}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    })
+  },
+
+  deleteUser(userId: string): Promise<{ ok: boolean }> {
+    return request(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    })
   },
 };
