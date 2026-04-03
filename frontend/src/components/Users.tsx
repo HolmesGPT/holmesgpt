@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { api, type UserWithRoles, type Project } from '../lib/api'
 
-// ── Invite Modal ──────────────────────────────────────────────────────────────
+// ── Add User Modal ───────────────────────────────────────────────────────────
 
-function InviteModal({
+function AddUserModal({
   onClose,
   onSuccess,
 }: {
@@ -27,9 +27,9 @@ function InviteModal({
       onSuccess()
       onClose()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to send invite'
+      const msg = e instanceof Error ? e.message : 'Failed to add user'
       if (msg.startsWith('409')) {
-        setError('A user with this email already exists or has been invited.')
+        setError('A user with this email already exists.')
       } else {
         setError(msg)
       }
@@ -42,7 +42,7 @@ function InviteModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         <div className="px-6 py-4 border-b border-pdi-cool-gray">
-          <h2 className="text-lg font-semibold text-pdi-granite">Invite User</h2>
+          <h2 className="text-lg font-semibold text-pdi-granite">Add User</h2>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div>
@@ -75,7 +75,7 @@ function InviteModal({
             disabled={sending}
             className="px-4 py-2 text-sm font-medium text-white bg-pdi-sky rounded-lg hover:bg-pdi-indigo transition-colors disabled:opacity-50"
           >
-            {sending ? 'Sending…' : 'Send Invite'}
+            {sending ? 'Adding…' : 'Add User'}
           </button>
         </div>
       </div>
@@ -402,7 +402,7 @@ function StatusBadge({ status }: { status: 'active' | 'invited' | 'pending' }) {
   // 'invited' or 'pending'
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset bg-amber-50 text-amber-700 ring-amber-600/20">
-      Invited
+      Pending
     </span>
   )
 }
@@ -425,7 +425,7 @@ export default function Users() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [showInvite, setShowInvite] = useState(false)
+  const [showAddUser, setShowAddUser] = useState(false)
   const [selectedUser, setSelectedUser] = useState<UserWithRoles | null>(null)
 
   const loadData = async () => {
@@ -485,13 +485,13 @@ export default function Users() {
             </p>
           </div>
           <button
-            onClick={() => setShowInvite(true)}
+            onClick={() => setShowAddUser(true)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-pdi-sky rounded-lg hover:bg-pdi-indigo transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
-            Invite User
+            Add User
           </button>
           <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-pdi-sky via-pdi-ocean to-pdi-indigo opacity-60" />
         </div>
@@ -528,7 +528,7 @@ export default function Users() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a4 4 0 00-5.356-3.712M9 20H4v-2a4 4 0 015.356-3.712M15 7a4 4 0 11-8 0 4 4 0 018 0zm6 3a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               <p className="text-sm">
-                {search ? 'No users match your search.' : 'No users yet. Invite someone to get started.'}
+                {search ? 'No users match your search.' : 'No users yet. Add a user to get started.'}
               </p>
             </div>
           ) : (
@@ -591,10 +591,10 @@ export default function Users() {
         </div>
       </div>
 
-      {/* Invite modal */}
-      {showInvite && (
-        <InviteModal
-          onClose={() => setShowInvite(false)}
+      {/* Add user modal */}
+      {showAddUser && (
+        <AddUserModal
+          onClose={() => setShowAddUser(false)}
           onSuccess={loadData}
         />
       )}
