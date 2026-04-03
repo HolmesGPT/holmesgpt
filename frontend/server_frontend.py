@@ -1355,6 +1355,28 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             logging.error("Failed to list investigations: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
 
+    @app.get("/api/investigations/similar")
+    async def similar_investigations(
+        q: str = "",
+        project_id: str = "",
+        limit: int = 5,
+    ):
+        """Find past investigations similar to the given query text."""
+        if not q.strip():
+            return JSONResponse([])
+        try:
+            from projects import get_investigation_store  # noqa: PLC0415
+
+            results = get_investigation_store().search_similar(
+                query=q,
+                project_id=project_id or None,
+                limit=limit,
+            )
+            return JSONResponse(results)
+        except Exception as e:
+            logging.error("Failed to search similar investigations: %s", e)
+            raise HTTPException(status_code=500, detail=str(e))
+
     @app.get("/api/investigations/{investigation_id}")
     async def get_investigation(investigation_id: str):
         """Get a single investigation by ID."""
@@ -1384,28 +1406,6 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             raise
         except Exception as e:
             logging.error("Failed to delete investigation %s: %s", investigation_id, e)
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @app.get("/api/investigations/similar")
-    async def similar_investigations(
-        q: str = "",
-        project_id: str = "",
-        limit: int = 5,
-    ):
-        """Find past investigations similar to the given query text."""
-        if not q.strip():
-            return JSONResponse([])
-        try:
-            from projects import get_investigation_store  # noqa: PLC0415
-
-            results = get_investigation_store().search_similar(
-                query=q,
-                project_id=project_id or None,
-                limit=limit,
-            )
-            return JSONResponse(results)
-        except Exception as e:
-            logging.error("Failed to search similar investigations: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.put("/api/investigations/{investigation_id}/feedback")
