@@ -17,7 +17,7 @@ const oktaAuth = new OktaAuth({
   pkce: true,
   responseType: 'code',
   tokenManager: {
-    storage: 'memory',
+    storage: 'sessionStorage',
   },
 })
 

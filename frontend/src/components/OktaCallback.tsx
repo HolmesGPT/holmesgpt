@@ -20,7 +20,9 @@ export default function OktaCallback() {
 
         if (!cancelled) {
           await refreshUser()
+          // Update URL without full page reload — tokens persist in sessionStorage
           window.history.replaceState(null, '', '/')
+          // Force React to re-render by reloading (sessionStorage survives this)
           window.location.replace('/')
         }
       } catch (err) {
