@@ -139,7 +139,7 @@ variable "holmes_super_admin_email" {
 }
 
 variable "okta_api_token" {
-  description = "Okta API token for syncing group members (read-only scope)"
+  description = "Okta API token for syncing group members — read from Secrets Manager at runtime"
   type        = string
   sensitive   = true
   default     = ""
@@ -147,6 +147,12 @@ variable "okta_api_token" {
 
 variable "okta_group_id" {
   description = "Okta group ID for HolmesGPT-Users group"
+  type        = string
+  default     = ""
+}
+
+variable "okta_api_token_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing the Okta API token (created manually)"
   type        = string
   default     = ""
 }

@@ -43,8 +43,9 @@ holmes_image_tag = "latest"
 okta_issuer              = "https://pdisoftware.okta.com/oauth2/default"
 okta_client_id           = "0oa1ae04lowCIDE9B2p8"
 holmes_super_admin_email = "srinivasreddy.v@pditechnologies.com"
-okta_group_id            = "00g1ae0b43fuHGUXw2p8"
-okta_api_token           = "" # Set via TF_VAR_okta_api_token
+okta_group_id             = "00g1ae0b43fuHGUXw2p8"
+okta_api_token            = "" # Read from Secrets Manager via okta_api_token_secret_arn
+okta_api_token_secret_arn = "arn:aws:secretsmanager:us-east-1:717423812395:secret:holmesgpt-dev/okta-api-token-32cDY1"
 
 # MCP Integration API Keys
 mcp_ado_api_key        = "" # Set via TF_VAR_mcp_ado_api_key or -var flag
