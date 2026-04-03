@@ -133,6 +133,7 @@ def validate_okta_token(token: str, issuer: str = "", client_id: str = "") -> di
                 "verify_iss": True,
                 "verify_exp": True,
                 "verify_iat": True,
+                "verify_at_hash": False,
             },
         )
     except JWTError as e:
