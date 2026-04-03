@@ -131,7 +131,9 @@ class TestMCPGeneral:
         )
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
-        assert tool.description == "desc"
+        assert tool.description == "[test_toolset] desc"
+        assert tool.mcp_tool_name == "b"
+        assert tool.name == "test_toolset__b"
 
     @pytest.mark.usefixtures("suppress_migration_warnings")
     def test_nullable_type_schema_parses_correctly(self) -> None:
@@ -403,6 +405,52 @@ class TestMCPGeneral:
         )
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_tool_names_are_prefixed_with_toolset_name(self) -> None:
+        """Test that MCP tool names are prefixed with toolset name to avoid collisions.
+
+        When multiple MCP servers of the same type are installed (e.g., two Conviva
+        instances), tool names would collide. Prefixing with toolset name ensures
+        each tool is uniquely identifiable.
+        """
+        mcp_tool = Tool(
+            name="get_data",
+            inputSchema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+            description="Fetch data",
+            annotations=None,
+        )
+
+        toolset_domestic = RemoteMCPToolset(
+            name="conviva_domestic",
+            description="Conviva domestic",
+            config={"url": "http://localhost:1234"},
+        )
+        toolset_international = RemoteMCPToolset(
+            name="conviva_international",
+            description="Conviva international",
+            config={"url": "http://localhost:5678"},
+        )
+
+        tool_domestic = RemoteMCPTool.create(mcp_tool, toolset_domestic)
+        tool_international = RemoteMCPTool.create(mcp_tool, toolset_international)
+
+        # Tool names should be unique (prefixed with toolset name)
+        assert tool_domestic.name == "conviva_domestic__get_data"
+        assert tool_international.name == "conviva_international__get_data"
+        assert tool_domestic.name != tool_international.name
+
+        # Original MCP tool name is preserved for server calls
+        assert tool_domestic.mcp_tool_name == "get_data"
+        assert tool_international.mcp_tool_name == "get_data"
+
+        # Descriptions include toolset name for LLM context
+        assert tool_domestic.description == "[conviva_domestic] Fetch data"
+        assert tool_international.description == "[conviva_international] Fetch data"
 
     def test_unreachable_server_returns_error(self, suppress_migration_warnings):
         mcp_toolset = RemoteMCPToolset(
@@ -1698,8 +1746,8 @@ class TestStdio:
         assert len(mcp_toolset.tools) > 0
         # Check for expected tools from the Python server
         tool_names = [tool.name for tool in mcp_toolset.tools]
-        assert "greet" in tool_names
-        assert "add" in tool_names
+        assert "everything_stdio__greet" in tool_names
+        assert "everything_stdio__add" in tool_names
 
     def test_everything_stdio_tool_invocation(self, suppress_migration_warnings):
         """Test invoking a tool from everything_stdio MCP server"""
@@ -1722,10 +1770,10 @@ class TestStdio:
         result = toolset.prerequisites_callable(config=yaml_config)
         assert result[0] is True
 
-        # Find the greet tool from the real server
+        # Find the greet tool from the real server (prefixed with toolset name)
         greet_tool = None
         for tool in toolset.tools:
-            if tool.name == "greet":
+            if tool.mcp_tool_name == "greet":
                 greet_tool = tool
                 break
 
@@ -1814,10 +1862,10 @@ class TestStdio:
         result = toolset.prerequisites_callable(config=yaml_config)
         assert result[0] is True, f"Failed to initialize MCP server: {result[1]}"
 
-        # Find the get_test_image tool
+        # Find the get_test_image tool (prefixed with toolset name)
         image_tool = None
         for tool in toolset.tools:
-            if tool.name == "get_test_image":
+            if tool.mcp_tool_name == "get_test_image":
                 image_tool = tool
                 break
         assert image_tool is not None, (
