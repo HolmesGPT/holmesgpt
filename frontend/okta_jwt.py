@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 OKTA_ISSUER = os.environ.get("OKTA_ISSUER", "")
 OKTA_CLIENT_ID = os.environ.get("OKTA_CLIENT_ID", "")
-OKTA_REQUIRED_GROUP = os.environ.get("OKTA_REQUIRED_GROUP", "HolmesGPT-Users")
+OKTA_REQUIRED_GROUP = os.environ.get("OKTA_REQUIRED_GROUP", "")
 
 # JWKS cache TTL: 24 hours
 _JWKS_CACHE_TTL = 86400
