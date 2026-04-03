@@ -138,6 +138,19 @@ variable "holmes_super_admin_email" {
   default     = ""
 }
 
+variable "okta_api_token" {
+  description = "Okta API token for syncing group members (read-only scope)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "okta_group_id" {
+  description = "Okta group ID for HolmesGPT-Users group"
+  type        = string
+  default     = ""
+}
+
 # MCP Integration API Keys
 variable "mcp_ado_api_key" {
   description = "API key for Azure DevOps MCP server"

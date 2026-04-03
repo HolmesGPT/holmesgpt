@@ -61,6 +61,8 @@ resource "aws_secretsmanager_secret_version" "holmes_okta_config" {
     OKTA_ISSUER              = var.okta_issuer
     OKTA_CLIENT_ID           = var.okta_client_id
     HOLMES_SUPER_ADMIN_EMAIL = var.holmes_super_admin_email
+    OKTA_API_TOKEN           = var.okta_api_token
+    OKTA_GROUP_ID            = var.okta_group_id
   })
 }
 

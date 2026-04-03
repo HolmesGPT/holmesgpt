@@ -31,6 +31,8 @@ resource "kubernetes_secret" "holmes_api_keys" {
     OKTA_ISSUER              = local.ui_creds["OKTA_ISSUER"]
     OKTA_CLIENT_ID           = local.ui_creds["OKTA_CLIENT_ID"]
     HOLMES_SUPER_ADMIN_EMAIL = local.ui_creds["HOLMES_SUPER_ADMIN_EMAIL"]
+    OKTA_API_TOKEN           = local.ui_creds["OKTA_API_TOKEN"]
+    OKTA_GROUP_ID            = local.ui_creds["OKTA_GROUP_ID"]
     MCP_ADO_API_KEY        = local.mcp_keys["MCP_ADO_API_KEY"]
     MCP_ATLASSIAN_API_KEY  = local.mcp_keys["MCP_ATLASSIAN_API_KEY"]
     MCP_SALESFORCE_API_KEY = local.mcp_keys["MCP_SALESFORCE_API_KEY"]
@@ -123,6 +125,24 @@ resource "helm_release" "holmes" {
             secretKeyRef = {
               name = kubernetes_secret.holmes_api_keys.metadata[0].name
               key  = "HOLMES_SUPER_ADMIN_EMAIL"
+            }
+          }
+        },
+        {
+          name = "OKTA_API_TOKEN"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "OKTA_API_TOKEN"
+            }
+          }
+        },
+        {
+          name = "OKTA_GROUP_ID"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "OKTA_GROUP_ID"
             }
           }
         },

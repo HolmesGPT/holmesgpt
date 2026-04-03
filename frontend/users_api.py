@@ -2,17 +2,23 @@
 User management API endpoints for HolmesGPT (super-admin only).
 
 Provides CRUD operations for users and their role assignments.
-All endpoints require super-admin permissions.
+Includes Okta group sync to auto-discover users from the HolmesGPT-Users group.
 """
 
 import logging
+import os
 
+import requests as http_requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 import rbac
 
 logger = logging.getLogger(__name__)
+
+OKTA_API_TOKEN = os.environ.get("OKTA_API_TOKEN", "")
+OKTA_GROUP_ID = os.environ.get("OKTA_GROUP_ID", "")
+OKTA_ORG_URL = os.environ.get("OKTA_ISSUER", "").replace("/oauth2/default", "")
 
 
 def _require_super_admin(request: Request) -> None:
@@ -47,14 +53,105 @@ def _serialize_user_with_roles(user: rbac.UserRecord) -> dict:
     }
 
 
+def _sync_okta_group_members() -> dict:
+    """
+    Fetch all members of the HolmesGPT-Users Okta group and ensure
+    each one has a user record in DynamoDB.
+
+    Returns a summary: { synced: int, already_existed: int, errors: int }
+    """
+    if not OKTA_API_TOKEN or not OKTA_GROUP_ID or not OKTA_ORG_URL:
+        logger.warning(
+            "Okta sync skipped: OKTA_API_TOKEN, OKTA_GROUP_ID, or OKTA_ISSUER not configured"
+        )
+        return {"synced": 0, "already_existed": 0, "errors": 0, "skipped": True}
+
+    headers = {
+        "Authorization": f"SSWS {OKTA_API_TOKEN}",
+        "Accept": "application/json",
+    }
+
+    synced = 0
+    already_existed = 0
+    errors = 0
+
+    # Okta paginates group members — follow the "next" link
+    url = f"{OKTA_ORG_URL}/api/v1/groups/{OKTA_GROUP_ID}/users?limit=200"
+
+    while url:
+        try:
+            resp = http_requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            members = resp.json()
+        except Exception as e:
+            logger.error("Failed to fetch Okta group members: %s", e)
+            return {"synced": synced, "already_existed": already_existed, "errors": errors + 1}
+
+        for member in members:
+            try:
+                profile = member.get("profile", {})
+                email = profile.get("email", "").lower()
+                name = f"{profile.get('firstName', '')} {profile.get('lastName', '')}".strip()
+                okta_id = member.get("id", "")
+
+                if not email:
+                    continue
+
+                # Check if user already exists (by sub or by email)
+                existing = rbac.get_user(okta_id)
+                if existing:
+                    already_existed += 1
+                    continue
+
+                existing_by_email = rbac.get_user_by_email(email)
+                if existing_by_email:
+                    already_existed += 1
+                    continue
+
+                # Check active users by email (they may have logged in already)
+                found = False
+                for u in rbac.list_users():
+                    if u.email.lower() == email:
+                        found = True
+                        break
+                if found:
+                    already_existed += 1
+                    continue
+
+                # Create a pending user record with their email
+                rbac.create_invited_user(email)
+                logger.info("Synced Okta user: %s (%s)", email, name)
+                synced += 1
+
+            except Exception as e:
+                logger.error("Failed to sync Okta user %s: %s", member.get("id", "?"), e)
+                errors += 1
+
+        # Check for pagination
+        link_header = resp.headers.get("link", "")
+        url = ""
+        if 'rel="next"' in link_header:
+            for part in link_header.split(","):
+                if 'rel="next"' in part:
+                    url = part.split(";")[0].strip().strip("<>")
+                    break
+
+    return {"synced": synced, "already_existed": already_existed, "errors": errors}
+
+
 def mount_users_api(app: FastAPI) -> None:
     """Register user management endpoints on the FastAPI app."""
 
     @app.get("/api/users")
     async def list_users(request: Request):
-        """List all users with their roles (super-admin only)."""
+        """List all users with their roles (super-admin only). Syncs from Okta first."""
         _require_super_admin(request)
         try:
+            # Sync Okta group members before listing
+            sync_result = _sync_okta_group_members()
+            if sync_result.get("synced", 0) > 0:
+                logger.info("Okta sync: %d new users added", sync_result["synced"])
+
             users = rbac.list_users()
             return JSONResponse([_serialize_user_with_roles(u) for u in users])
         except Exception as e:
