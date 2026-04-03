@@ -93,6 +93,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+          build-args: |
+            VITE_OKTA_ISSUER=${{ vars.VITE_OKTA_ISSUER || '' }}
+            VITE_OKTA_CLIENT_ID=${{ vars.VITE_OKTA_CLIENT_ID || '' }}
 
       - name: Comment on PR with image details
         if: env.SHOULD_PUSH == 'true' && github.event_name == 'pull_request'

@@ -121,17 +121,20 @@ variable "holmes_image_tag" {
   default     = "latest"
 }
 
-# UI Authentication
-variable "holmes_ui_username" {
-  description = "Username for Holmes UI login"
+# Okta Authentication
+variable "okta_issuer" {
+  description = "Okta OIDC issuer URL (e.g., https://your-org.okta.com/oauth2/default)"
   type        = string
-  default     = "admin"
 }
 
-variable "holmes_ui_password" {
-  description = "Password for Holmes UI login"
+variable "okta_client_id" {
+  description = "Okta SPA application client ID (public, no secret needed)"
   type        = string
-  sensitive   = true
+}
+
+variable "holmes_super_admin_email" {
+  description = "Email of the first super-admin user (auto-granted on first login)"
+  type        = string
   default     = ""
 }
 

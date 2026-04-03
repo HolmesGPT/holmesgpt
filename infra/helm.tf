@@ -5,7 +5,7 @@
 # exist in AWS yet.
 locals {
   mcp_keys          = jsondecode(data.aws_secretsmanager_secret_version.mcp_api_keys.secret_string)
-  ui_creds          = jsondecode(data.aws_secretsmanager_secret_version.holmes_ui_credentials.secret_string)
+  ui_creds          = jsondecode(data.aws_secretsmanager_secret_version.holmes_okta_config.secret_string)
   grafana           = jsondecode(data.aws_secretsmanager_secret_version.grafana.secret_string)
 }
 
@@ -28,8 +28,9 @@ resource "kubernetes_secret" "holmes_api_keys" {
   data = {
     ANTHROPIC_API_KEY      = var.anthropic_api_key
     ANTHROPIC_API_BASE     = var.anthropic_api_base
-    HOLMES_UI_USERNAME     = local.ui_creds["HOLMES_UI_USERNAME"]
-    HOLMES_UI_PASSWORD     = local.ui_creds["HOLMES_UI_PASSWORD"]
+    OKTA_ISSUER              = local.ui_creds["OKTA_ISSUER"]
+    OKTA_CLIENT_ID           = local.ui_creds["OKTA_CLIENT_ID"]
+    HOLMES_SUPER_ADMIN_EMAIL = local.ui_creds["HOLMES_SUPER_ADMIN_EMAIL"]
     MCP_ADO_API_KEY        = local.mcp_keys["MCP_ADO_API_KEY"]
     MCP_ATLASSIAN_API_KEY  = local.mcp_keys["MCP_ATLASSIAN_API_KEY"]
     MCP_SALESFORCE_API_KEY = local.mcp_keys["MCP_SALESFORCE_API_KEY"]
@@ -99,20 +100,29 @@ resource "helm_release" "holmes" {
           value = var.holmes_model
         },
         {
-          name = "HOLMES_UI_USERNAME"
+          name = "OKTA_ISSUER"
           valueFrom = {
             secretKeyRef = {
               name = kubernetes_secret.holmes_api_keys.metadata[0].name
-              key  = "HOLMES_UI_USERNAME"
+              key  = "OKTA_ISSUER"
             }
           }
         },
         {
-          name = "HOLMES_UI_PASSWORD"
+          name = "OKTA_CLIENT_ID"
           valueFrom = {
             secretKeyRef = {
               name = kubernetes_secret.holmes_api_keys.metadata[0].name
-              key  = "HOLMES_UI_PASSWORD"
+              key  = "OKTA_CLIENT_ID"
+            }
+          }
+        },
+        {
+          name = "HOLMES_SUPER_ADMIN_EMAIL"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "HOLMES_SUPER_ADMIN_EMAIL"
             }
           }
         },

@@ -48,18 +48,19 @@ data "aws_secretsmanager_secret_version" "grafana" {
   depends_on = [aws_secretsmanager_secret_version.grafana]
 }
 
-# Holmes UI credentials secret
-resource "aws_secretsmanager_secret" "holmes_ui_credentials" {
-  name                    = "${local.cluster_name}/holmes-ui-credentials"
-  description             = "Holmes UI login credentials"
+# Okta auth config secret
+resource "aws_secretsmanager_secret" "holmes_okta_config" {
+  name                    = "${local.cluster_name}/holmes-okta-config"
+  description             = "Okta OIDC configuration for Holmes UI"
   recovery_window_in_days = var.environment == "dev" ? 0 : 30
 }
 
-resource "aws_secretsmanager_secret_version" "holmes_ui_credentials" {
-  secret_id = aws_secretsmanager_secret.holmes_ui_credentials.id
+resource "aws_secretsmanager_secret_version" "holmes_okta_config" {
+  secret_id = aws_secretsmanager_secret.holmes_okta_config.id
   secret_string = jsonencode({
-    HOLMES_UI_USERNAME = var.holmes_ui_username
-    HOLMES_UI_PASSWORD = var.holmes_ui_password
+    OKTA_ISSUER              = var.okta_issuer
+    OKTA_CLIENT_ID           = var.okta_client_id
+    HOLMES_SUPER_ADMIN_EMAIL = var.holmes_super_admin_email
   })
 }
 
@@ -69,9 +70,9 @@ data "aws_secretsmanager_secret_version" "mcp_api_keys" {
   depends_on = [aws_secretsmanager_secret_version.mcp_api_keys]
 }
 
-data "aws_secretsmanager_secret_version" "holmes_ui_credentials" {
-  secret_id  = aws_secretsmanager_secret.holmes_ui_credentials.id
-  depends_on = [aws_secretsmanager_secret_version.holmes_ui_credentials]
+data "aws_secretsmanager_secret_version" "holmes_okta_config" {
+  secret_id  = aws_secretsmanager_secret.holmes_okta_config.id
+  depends_on = [aws_secretsmanager_secret_version.holmes_okta_config]
 }
 
 # Datadog secret — managed by OpenTofu; values set via variables (default empty)

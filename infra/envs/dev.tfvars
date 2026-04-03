@@ -39,9 +39,10 @@ holmes_model       = "anthropic/claude-opus-4-6"
 holmes_replicas  = 1
 holmes_image_tag = "latest"
 
-# UI Auth
-holmes_ui_username = "admin"
-holmes_ui_password = "" # Stored in Secrets Manager after first apply; set via TF_VAR_holmes_ui_password on first run
+# UI Auth — Okta OIDC (PKCE)
+okta_issuer              = "https://pdisoftware.okta.com/oauth2/default"
+okta_client_id           = "0oa1ae04lowCIDE9B2p8"
+holmes_super_admin_email = "srinivasreddy.v@pditechnologies.com"
 
 # MCP Integration API Keys
 mcp_ado_api_key        = "" # Set via TF_VAR_mcp_ado_api_key or -var flag

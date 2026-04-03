@@ -7,6 +7,8 @@ WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 RUN npm ci --no-audit
 COPY frontend/ ./
+ARG VITE_OKTA_ISSUER
+ARG VITE_OKTA_CLIENT_ID
 RUN npm run build
 
 # Stage 2: Build Holmes (reuse the existing Dockerfile logic)
@@ -147,5 +149,8 @@ COPY --from=frontend-builder /frontend/dist /app/static
 COPY ./frontend/server_frontend.py /app/server_frontend.py
 COPY ./frontend/server_with_frontend.py /app/server_with_frontend.py
 COPY ./frontend/projects.py /app/projects.py
+COPY ./frontend/okta_jwt.py /app/okta_jwt.py
+COPY ./frontend/rbac.py /app/rbac.py
+COPY ./frontend/users_api.py /app/users_api.py
 
 ENTRYPOINT ["python", "server_with_frontend.py"]
