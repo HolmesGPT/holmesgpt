@@ -13,7 +13,7 @@ const oktaAuth = new OktaAuth({
   issuer: ISSUER,
   clientId: CLIENT_ID,
   redirectUri: `${window.location.origin}/login/callback`,
-  scopes: ['openid', 'profile', 'email', 'groups'],
+  scopes: ['openid', 'profile', 'email'],
   pkce: true,
   responseType: 'code',
   tokenManager: {

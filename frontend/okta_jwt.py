@@ -163,9 +163,9 @@ def validate_okta_token(token: str, issuer: str = "", client_id: str = "") -> di
             logger.warning("JWT validation failed: %s", e)
             raise HTTPException(status_code=401, detail="Invalid token")
 
-    # Verify required group membership
+    # Group membership check — skipped if OKTA_REQUIRED_GROUP is empty or groups scope not configured
     groups = claims.get("groups", [])
-    if OKTA_REQUIRED_GROUP and OKTA_REQUIRED_GROUP not in groups:
+    if OKTA_REQUIRED_GROUP and groups and OKTA_REQUIRED_GROUP not in groups:
         logger.warning(
             "User %s not in required group '%s' (groups: %s)",
             claims.get("email", "unknown"),
