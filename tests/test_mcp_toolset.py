@@ -410,9 +410,9 @@ class TestMCPGeneral:
     def test_tool_names_are_prefixed_with_toolset_name(self) -> None:
         """Test that MCP tool names are prefixed with toolset name to avoid collisions.
 
-        When multiple MCP servers of the same type are installed (e.g., two Conviva
-        instances), tool names would collide. Prefixing with toolset name ensures
-        each tool is uniquely identifiable.
+        When multiple MCP servers of the same type are installed (e.g., two
+        instances pointing at different regions), tool names would collide.
+        Prefixing with toolset name ensures each tool is uniquely identifiable.
         """
         mcp_tool = Tool(
             name="get_data",
@@ -425,32 +425,32 @@ class TestMCPGeneral:
             annotations=None,
         )
 
-        toolset_domestic = RemoteMCPToolset(
-            name="conviva_domestic",
-            description="Conviva domestic",
+        toolset_us = RemoteMCPToolset(
+            name="metrics_us",
+            description="Metrics US region",
             config={"url": "http://localhost:1234"},
         )
-        toolset_international = RemoteMCPToolset(
-            name="conviva_international",
-            description="Conviva international",
+        toolset_eu = RemoteMCPToolset(
+            name="metrics_eu",
+            description="Metrics EU region",
             config={"url": "http://localhost:5678"},
         )
 
-        tool_domestic = RemoteMCPTool.create(mcp_tool, toolset_domestic)
-        tool_international = RemoteMCPTool.create(mcp_tool, toolset_international)
+        tool_us = RemoteMCPTool.create(mcp_tool, toolset_us)
+        tool_eu = RemoteMCPTool.create(mcp_tool, toolset_eu)
 
         # Tool names should be unique (prefixed with toolset name)
-        assert tool_domestic.name == "conviva_domestic__get_data"
-        assert tool_international.name == "conviva_international__get_data"
-        assert tool_domestic.name != tool_international.name
+        assert tool_us.name == "metrics_us__get_data"
+        assert tool_eu.name == "metrics_eu__get_data"
+        assert tool_us.name != tool_eu.name
 
         # Original MCP tool name is preserved for server calls
-        assert tool_domestic.mcp_tool_name == "get_data"
-        assert tool_international.mcp_tool_name == "get_data"
+        assert tool_us.mcp_tool_name == "get_data"
+        assert tool_eu.mcp_tool_name == "get_data"
 
         # Descriptions include toolset name for LLM context
-        assert tool_domestic.description == "[conviva_domestic] Fetch data"
-        assert tool_international.description == "[conviva_international] Fetch data"
+        assert tool_us.description == "[metrics_us] Fetch data"
+        assert tool_eu.description == "[metrics_eu] Fetch data"
 
     def test_unreachable_server_returns_error(self, suppress_migration_warnings):
         mcp_toolset = RemoteMCPToolset(
