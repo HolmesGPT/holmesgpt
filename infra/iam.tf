@@ -34,7 +34,7 @@ resource "aws_iam_policy" "holmes_secrets" {
         Resource = compact([
           aws_secretsmanager_secret.anthropic_api_key.arn,
           aws_secretsmanager_secret.mcp_api_keys.arn,
-          aws_secretsmanager_secret.holmes_ui_credentials.arn,
+          aws_secretsmanager_secret.holmes_okta_config.arn,
           aws_secretsmanager_secret.grafana.arn,
           aws_secretsmanager_secret.datadog.arn,
           aws_secretsmanager_secret.pagerduty.arn,
