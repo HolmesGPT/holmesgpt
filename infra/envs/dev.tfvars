@@ -88,6 +88,11 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::342706430250:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
+  pdi-pos-dev = {
+    account_id = "689863073433"
+    role_arn   = "arn:aws:iam::689863073433:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
@@ -99,7 +104,6 @@ aws_mcp_enabled = true
 # TF_VAR_ado_pat, TF_VAR_ado_organization, TF_VAR_ado_webhook_username, TF_VAR_ado_webhook_password
 ado_organization       = "pdidev"
 ado_webhook_username   = "holmesgpt"
-
 
 # DBADash Web integration — credentials stored in Secrets Manager (fetched at runtime by the pod)
 dbdash_api_url             = "https://db-monitor.shared.platform.pditechnologies.com"
