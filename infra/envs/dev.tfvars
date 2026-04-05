@@ -54,8 +54,8 @@ mcp_salesforce_api_key = "" # Set via TF_VAR_mcp_salesforce_api_key or -var flag
 
 # Tags
 tags = {
-  Team        = "platform"
-  CostCenter  = "engineering"
+  Team        = "Tool COE"
+  CostCenter  = "Cloud Engineering"
   Application = "holmesgpt"
 }
 
@@ -96,6 +96,11 @@ logistics_accounts = {
   pdi-pos-prod = {
     account_id = "803964703583"
     role_arn   = "arn:aws:iam::803964703583:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-stage = {
+    account_id = "415641701024"
+    role_arn   = "arn:aws:iam::415641701024:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
 }
