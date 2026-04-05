@@ -133,6 +133,11 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::773223718586:role/HolmesReadOnly"
     region     = "us-east-1"
   }
+  gb-bp-client = {
+    account_id = "607378507561"
+    role_arn   = "arn:aws:iam::607378507561:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
