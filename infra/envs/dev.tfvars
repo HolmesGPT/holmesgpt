@@ -103,17 +103,17 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::415641701024:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
-  pdi-pos-legacy = {
+  pdi-pos-legacy-prod = {
     account_id = "100161908138"
     role_arn   = "arn:aws:iam::100161908138:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
-  pdi-pos-legacy-2 = {
+  pdi-pos-legacy-uat = {
     account_id = "294818304262"
     role_arn   = "arn:aws:iam::294818304262:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
-  pdi-pos-legacy-3 = {
+  pdi-pos-legacy-demo = {
     account_id = "226168396949"
     role_arn   = "arn:aws:iam::226168396949:role/HolmesReadOnly"
     region     = "eu-central-1"
