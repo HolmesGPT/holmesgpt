@@ -118,6 +118,21 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::226168396949:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
+  gasbuddy = {
+    account_id = "896521799855"
+    role_arn   = "arn:aws:iam::896521799855:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  gasbuddy-staging = {
+    account_id = "267230788984"
+    role_arn   = "arn:aws:iam::267230788984:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  gasbuddy-marketing = {
+    account_id = "773223718586"
+    role_arn   = "arn:aws:iam::773223718586:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
