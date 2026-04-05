@@ -1,0 +1,182 @@
+description: |
+  Tests the datadog/general toolset's ability to correlate monitors with dashboards.
+  Creates a monitor tracking a custom metric and a dashboard visualizing the same metric.
+  Holmes must discover both, understand they track the same thing, and report specific
+  details that can only be found by reading both resources.
+
+  This is a multi-hop test: Holmes must (1) list monitors, (2) get monitor details,
+  (3) list dashboards, (4) get dashboard details, (5) correlate the two.
+
+user_prompt: "I'm trying to understand our payment service monitoring setup in Datadog. What monitors do we have related to payment processing, and is there a dashboard that tracks the same metrics? Tell me the monitor's alert threshold, the dashboard title, and how many widgets the dashboard has."
+
+expected_output:
+  - "Must report the monitor alert threshold of 500 (from the monitor query)"
+  - "Must report the dashboard title which is 'Payment Processing Overview - EVAL-227-vK8mR3'"
+  - "Must report the dashboard has exactly 3 widgets"
+  - "Must identify that the monitor and dashboard both track the same metric (custom.payment.processing_time)"
+
+tags:
+  - datadog
+  - hard
+
+setup_timeout: 120
+
+before_test: |
+  set -e
+
+  echo "=== Validating environment ==="
+  if [ -z "$DATADOG_API_KEY" ] || [ -z "$DATADOG_APP_KEY" ]; then
+    echo "❌ DATADOG_API_KEY and DATADOG_APP_KEY must be set"
+    exit 1
+  fi
+
+  DD_API="https://api.us5.datadoghq.com"
+
+  echo "=== Cleaning up stale resources from previous runs ==="
+  STALE_MONITORS=$(curl -s "${DD_API}/api/v1/monitor/search?query=tag:test:eval-227" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('monitors',[])]" 2>/dev/null || true)
+  for mid in $STALE_MONITORS; do
+    curl -s -X DELETE "${DD_API}/api/v1/monitor/${mid}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" > /dev/null || true
+    echo "  Cleaned up stale monitor ${mid}"
+  done
+  curl -s "${DD_API}/api/v1/dashboard" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "
+  import sys,json
+  for d in json.load(sys.stdin).get('dashboards', []):
+      if 'EVAL-227' in d.get('title',''):
+          print(d['id'])
+  " 2>/dev/null | while read did; do
+    curl -s -X DELETE "${DD_API}/api/v1/dashboard/${did}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" > /dev/null || true
+    echo "  Cleaned up stale dashboard ${did}"
+  done
+
+  echo "=== Creating monitor for payment processing ==="
+  MONITOR_RESULT=$(curl -s -X POST "${DD_API}/api/v1/monitor" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Payment Processing Latency - app-227",
+      "type": "metric alert",
+      "query": "avg(last_10m):avg:custom.payment.processing_time{service:checkout-api,env:production} > 500",
+      "message": "Payment processing latency exceeded 500ms threshold. Verification: EVAL-227-vK8mR3. Check the checkout-api service for degraded database connections.",
+      "tags": ["service:checkout-api", "env:production", "team:payments", "test:eval-227"],
+      "options": {
+        "thresholds": {
+          "critical": 500,
+          "warning": 350
+        },
+        "notify_no_data": false,
+        "evaluation_delay": 60
+      }
+    }')
+
+  MONITOR_ID=$(echo "$MONITOR_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  if [ -z "$MONITOR_ID" ]; then
+    echo "❌ Failed to create monitor: $MONITOR_RESULT"
+    exit 1
+  fi
+  echo "✅ Created monitor ID: $MONITOR_ID"
+
+  echo "=== Creating dashboard ==="
+  DASH_RESULT=$(curl -s -X POST "${DD_API}/api/v1/dashboard" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "title": "Payment Processing Overview - EVAL-227-vK8mR3",
+      "description": "Monitoring dashboard for the checkout-api payment processing pipeline",
+      "layout_type": "ordered",
+      "widgets": [
+        {
+          "definition": {
+            "type": "timeseries",
+            "title": "Payment Processing Latency (p95)",
+            "requests": [
+              {
+                "q": "avg:custom.payment.processing_time{service:checkout-api,env:production}",
+                "display_type": "line"
+              }
+            ]
+          }
+        },
+        {
+          "definition": {
+            "type": "query_value",
+            "title": "Current Error Rate",
+            "requests": [
+              {
+                "q": "sum:custom.payment.errors{service:checkout-api,env:production}.as_rate()",
+                "aggregator": "last"
+              }
+            ]
+          }
+        },
+        {
+          "definition": {
+            "type": "query_value",
+            "title": "Total Payments Processed",
+            "requests": [
+              {
+                "q": "sum:custom.payment.transactions_total{service:checkout-api,env:production}",
+                "aggregator": "last"
+              }
+            ]
+          }
+        }
+      ]
+    }')
+
+  DASH_ID=$(echo "$DASH_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  if [ -z "$DASH_ID" ]; then
+    echo "❌ Failed to create dashboard: $DASH_RESULT"
+    exit 1
+  fi
+  echo "✅ Created dashboard ID: $DASH_ID"
+
+  # Save IDs for cleanup
+  echo "$MONITOR_ID" > /tmp/eval_227_monitor_id
+  echo "$DASH_ID" > /tmp/eval_227_dash_id
+
+  echo "✅ Test setup completed successfully"
+
+after_test: |
+  DD_API="https://api.us5.datadoghq.com"
+
+  if [ -f /tmp/eval_227_monitor_id ]; then
+    MONITOR_ID=$(cat /tmp/eval_227_monitor_id)
+    curl -s -X DELETE "${DD_API}/api/v1/monitor/${MONITOR_ID}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+    rm -f /tmp/eval_227_monitor_id
+    echo "Deleted monitor ${MONITOR_ID}"
+  fi
+
+  if [ -f /tmp/eval_227_dash_id ]; then
+    DASH_ID=$(cat /tmp/eval_227_dash_id)
+    curl -s -X DELETE "${DD_API}/api/v1/dashboard/${DASH_ID}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+    rm -f /tmp/eval_227_dash_id
+    echo "Deleted dashboard ${DASH_ID}"
+  fi
+
+  # Cleanup any stale resources from failed runs by tag
+  STALE_MONITORS=$(curl -s "${DD_API}/api/v1/monitor/search?query=tag:test:eval-227" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('monitors',[])]" 2>/dev/null || true)
+  for mid in $STALE_MONITORS; do
+    curl -s -X DELETE "${DD_API}/api/v1/monitor/${mid}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+    echo "Cleaned up stale monitor ${mid}"
+  done

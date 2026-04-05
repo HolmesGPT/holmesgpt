@@ -1,0 +1,285 @@
+description: |
+  Advanced cross-resource investigation test for datadog/general toolset.
+  Creates a complex scenario with monitors, a dashboard, and a downtime schedule
+  that are semantically related but require the LLM to:
+  1. Search monitors by tag to find the relevant ones
+  2. Get each monitor's full details to read their queries and messages
+  3. List dashboards and find the relevant one
+  4. Get dashboard details to find a hidden verification code in a widget note
+  5. Check for downtimes and find the scheduled maintenance window
+  6. Synthesize information from all three resource types
+
+  The key challenge: the dashboard contains a "note" widget with a verification
+  code that can only be discovered by fetching the full dashboard definition.
+  The downtime has a recurrence schedule that must be correctly interpreted.
+
+user_prompt: "Our inventory-service team (tag: team-inventory-229) has a complex monitoring setup in Datadog. I need a full audit: what monitors exist, what dashboard is tracking their metrics, and is there any scheduled downtime? Specifically, I need to know: the exact text in the dashboard's note widget, the downtime recurrence schedule, and which monitor has the tightest alert threshold."
+
+expected_output:
+  - "Must report the note widget text containing the verification code EVAL-229-Qm7xP4nK"
+  - "Must report the downtime recurs weekly (every Monday) or has a weekly recurrence"
+  - "Must identify the inventory stock level monitor as having the tightest threshold (critical at 50 items)"
+
+include_tool_calls: true
+
+tags:
+  - datadog
+  - hard
+
+setup_timeout: 120
+
+before_test: |
+  set -e
+
+  echo "=== Validating environment ==="
+  if [ -z "$DATADOG_API_KEY" ] || [ -z "$DATADOG_APP_KEY" ]; then
+    echo "❌ DATADOG_API_KEY and DATADOG_APP_KEY must be set"
+    exit 1
+  fi
+
+  DD_API="https://api.us5.datadoghq.com"
+
+  echo "=== Cleaning up stale resources from previous runs ==="
+  STALE_MONITORS=$(curl -s "${DD_API}/api/v1/monitor/search?query=tag:test:eval-229" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('monitors',[])]" 2>/dev/null || true)
+  for mid in $STALE_MONITORS; do
+    curl -s -X DELETE "${DD_API}/api/v1/monitor/${mid}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" > /dev/null || true
+  done
+  curl -s "${DD_API}/api/v1/dashboard" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "
+  import sys,json
+  for d in json.load(sys.stdin).get('dashboards', []):
+      if 'EVAL-229' in d.get('title','') or 'Inventory Service' in d.get('title',''):
+          print(d['id'])
+  " 2>/dev/null | while read did; do
+    curl -s -X DELETE "${DD_API}/api/v1/dashboard/${did}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" > /dev/null || true
+  done
+  curl -s "${DD_API}/api/v2/downtime" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "
+  import sys,json
+  data = json.load(sys.stdin)
+  for d in data.get('data', []):
+      msg = d.get('attributes',{}).get('display_timezone','')
+      scope = d.get('attributes',{}).get('scope','')
+      if 'eval-229' in str(d):
+          print(d['id'])
+  " 2>/dev/null | while read did; do
+    curl -s -X DELETE "${DD_API}/api/v2/downtime/${did}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" > /dev/null || true
+  done
+
+  echo "=== Creating monitor 1: Inventory API error rate ==="
+  M1=$(curl -s -X POST "${DD_API}/api/v1/monitor" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Inventory API Error Rate High - eval-229",
+      "type": "metric alert",
+      "query": "avg(last_10m):avg:custom.inventory.api.error_rate{service:inventory-service,env:staging} > 5",
+      "message": "Inventory API error rate above 5%. Check recent deployments.",
+      "tags": ["service:inventory-service", "team-inventory-229", "test:eval-229"],
+      "options": {"thresholds": {"critical": 5, "warning": 2}, "notify_no_data": false}
+    }')
+  M1_ID=$(echo "$M1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  echo "✅ Monitor 1: $M1_ID"
+
+  echo "=== Creating monitor 2: Inventory stock level (tightest threshold) ==="
+  M2=$(curl -s -X POST "${DD_API}/api/v1/monitor" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Inventory Stock Level Critical - eval-229",
+      "type": "metric alert",
+      "query": "avg(last_5m):min:custom.inventory.stock_level{service:inventory-service,warehouse:us-east} < 50",
+      "message": "Stock level below 50 units! Immediate restocking required. This is the most sensitive monitor.",
+      "tags": ["service:inventory-service", "team-inventory-229", "test:eval-229"],
+      "options": {"thresholds": {"critical": 50, "warning": 100}, "notify_no_data": false}
+    }')
+  M2_ID=$(echo "$M2" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  echo "✅ Monitor 2: $M2_ID"
+
+  echo "=== Creating monitor 3: Inventory sync latency ==="
+  M3=$(curl -s -X POST "${DD_API}/api/v1/monitor" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Inventory Sync Latency Degraded - eval-229",
+      "type": "metric alert",
+      "query": "avg(last_15m):avg:custom.inventory.sync_latency{service:inventory-service,env:staging} > 30000",
+      "message": "Sync latency above 30 seconds. Check warehouse API connectivity.",
+      "tags": ["service:inventory-service", "team-inventory-229", "test:eval-229"],
+      "options": {"thresholds": {"critical": 30000, "warning": 15000}, "notify_no_data": false}
+    }')
+  M3_ID=$(echo "$M3" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  echo "✅ Monitor 3: $M3_ID"
+
+  echo "=== Creating dashboard with hidden note widget ==="
+  DASH=$(curl -s -X POST "${DD_API}/api/v1/dashboard" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "title": "Inventory Service Operations - EVAL-229",
+      "layout_type": "ordered",
+      "widgets": [
+        {
+          "definition": {
+            "type": "timeseries",
+            "title": "API Error Rate",
+            "requests": [{"q": "avg:custom.inventory.api.error_rate{service:inventory-service}", "display_type": "bars"}]
+          }
+        },
+        {
+          "definition": {
+            "type": "query_value",
+            "title": "Current Stock Level",
+            "requests": [{"q": "min:custom.inventory.stock_level{warehouse:us-east}", "aggregator": "last"}]
+          }
+        },
+        {
+          "definition": {
+            "type": "note",
+            "content": "## Operations Runbook Reference\nVerification: EVAL-229-Qm7xP4nK\nThis dashboard is maintained by the inventory platform team.\nEscalation: page the on-call inventory engineer via PagerDuty.",
+            "background_color": "yellow",
+            "font_size": "14",
+            "text_align": "left",
+            "show_tick": false
+          }
+        },
+        {
+          "definition": {
+            "type": "timeseries",
+            "title": "Sync Latency P99",
+            "requests": [{"q": "avg:custom.inventory.sync_latency{service:inventory-service}", "display_type": "line"}]
+          }
+        }
+      ]
+    }')
+  DASH_ID=$(echo "$DASH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  echo "✅ Dashboard: $DASH_ID"
+
+  echo "=== Creating weekly downtime schedule ==="
+  # Calculate next Monday timestamp
+  NEXT_MONDAY=$(python3 -c "
+  from datetime import datetime, timedelta
+  now = datetime.utcnow()
+  days_until_monday = (7 - now.weekday()) % 7
+  if days_until_monday == 0:
+      days_until_monday = 7
+  next_monday = now.replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=days_until_monday)
+  print(int(next_monday.timestamp()))
+  ")
+  NEXT_MONDAY_END=$((NEXT_MONDAY + 7200))
+
+  DT=$(curl -s -X POST "${DD_API}/api/v2/downtime" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"data\": {
+        \"type\": \"downtime\",
+        \"attributes\": {
+          \"message\": \"Weekly maintenance window for inventory-service database optimization. eval-229\",
+          \"monitor_identifier\": {\"monitor_tags\": [\"team-inventory-229\"]},
+          \"scope\": \"service:inventory-service\",
+          \"schedule\": {
+            \"start\": \"$(python3 -c "from datetime import datetime, timedelta; now=datetime.utcnow(); d=(7-now.weekday())%7; d=d if d else 7; print((now.replace(hour=6,minute=0,second=0,microsecond=0)+timedelta(days=d)).strftime('%Y-%m-%dT%H:%M:%S+00:00'))")\",
+            \"end\": \"$(python3 -c "from datetime import datetime, timedelta; now=datetime.utcnow(); d=(7-now.weekday())%7; d=d if d else 7; print((now.replace(hour=8,minute=0,second=0,microsecond=0)+timedelta(days=d)).strftime('%Y-%m-%dT%H:%M:%S+00:00'))")\",
+            \"recurrences\": [{
+              \"type\": \"weeks\",
+              \"period\": 1,
+              \"rrule\": \"FREQ=WEEKLY;INTERVAL=1;BYDAY=MO\"
+            }]
+          },
+          \"notify_end_types\": [\"canceled\", \"expired\"],
+          \"notify_end_states\": [\"alert\", \"no data\", \"warn\"]
+        }
+      }
+    }")
+  DT_ID=$(echo "$DT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))")
+  echo "✅ Downtime: $DT_ID"
+
+  if [ -z "$M1_ID" ] || [ -z "$M2_ID" ] || [ -z "$M3_ID" ] || [ -z "$DASH_ID" ]; then
+    echo "❌ Failed to create one or more resources"
+    echo "M1: $M1"
+    echo "M2: $M2"
+    echo "M3: $M3"
+    echo "DASH: $DASH"
+    echo "DT: $DT"
+    exit 1
+  fi
+
+  echo "$M1_ID" > /tmp/eval_229_m1_id
+  echo "$M2_ID" > /tmp/eval_229_m2_id
+  echo "$M3_ID" > /tmp/eval_229_m3_id
+  echo "$DASH_ID" > /tmp/eval_229_dash_id
+  echo "$DT_ID" > /tmp/eval_229_dt_id
+
+  echo "✅ Test setup completed successfully"
+
+after_test: |
+  DD_API="https://api.us5.datadoghq.com"
+
+  for f in /tmp/eval_229_m*_id; do
+    if [ -f "$f" ]; then
+      MID=$(cat "$f")
+      curl -s -X DELETE "${DD_API}/api/v1/monitor/${MID}" \
+        -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+        -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+      rm -f "$f"
+    fi
+  done
+
+  if [ -f /tmp/eval_229_dash_id ]; then
+    DID=$(cat /tmp/eval_229_dash_id)
+    curl -s -X DELETE "${DD_API}/api/v1/dashboard/${DID}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+    rm -f /tmp/eval_229_dash_id
+  fi
+
+  if [ -f /tmp/eval_229_dt_id ]; then
+    DTID=$(cat /tmp/eval_229_dt_id)
+    curl -s -X DELETE "${DD_API}/api/v2/downtime/${DTID}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+    rm -f /tmp/eval_229_dt_id
+  fi
+
+  # Cleanup stale resources
+  STALE_MONITORS=$(curl -s "${DD_API}/api/v1/monitor/search?query=tag:test:eval-229" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('monitors',[])]" 2>/dev/null || true)
+  for mid in $STALE_MONITORS; do
+    curl -s -X DELETE "${DD_API}/api/v1/monitor/${mid}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+  done
+  curl -s "${DD_API}/api/v1/dashboard" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "
+  import sys,json
+  for d in json.load(sys.stdin).get('dashboards', []):
+      if 'EVAL-229' in d.get('title',''):
+          print(d['id'])
+  " 2>/dev/null | while read did; do
+    curl -s -X DELETE "${DD_API}/api/v1/dashboard/${did}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+  done

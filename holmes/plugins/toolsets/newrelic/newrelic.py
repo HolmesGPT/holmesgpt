@@ -18,6 +18,7 @@ from holmes.core.tools import (
     ToolsetTag,
     Type,
 )
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.newrelic.new_relic_api import NewRelicAPI
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -71,7 +72,7 @@ def _build_newrelic_query_url(
         return None
 
 
-class ExecuteNRQLQuery(Tool):
+class ExecuteNRQLQuery(Tool, JsonFilterMixin):
     def __init__(self, toolset: "NewRelicToolset"):
         parameters = {
             "query": ToolParameter(
@@ -137,7 +138,7 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
             "2) Type mismatches (string vs numeric fields), "
             "3) Wrong event type. "
             "Always verify attribute names and types before querying.",
-            parameters=parameters,
+            parameters=JsonFilterMixin.extend_parameters(parameters),
         )
         self._toolset = toolset
 
@@ -171,12 +172,13 @@ SELECT count(*), transactionType FROM Transaction FACET transactionType
             nrql_query=query,
         )
 
-        return StructuredToolResult(
+        result = StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
             data=result_with_key,
             params=params,
             url=explore_url,
         )
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params) -> str:
         description = params.get("description", "")

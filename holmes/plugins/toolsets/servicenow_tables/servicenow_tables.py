@@ -16,6 +16,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
 )
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -236,7 +237,7 @@ class ServiceNowTablesToolset(Toolset):
         return response.json(), dict(response.headers)
 
 
-class BaseServiceNowTool(Tool, ABC):
+class BaseServiceNowTool(Tool, JsonFilterMixin, ABC):
     """Base class for ServiceNow tools with common HTTP request functionality."""
 
     def __init__(self, toolset: ServiceNowTablesToolset, *args, **kwargs):
@@ -286,7 +287,7 @@ class GetRecords(BaseServiceNowTool):
             toolset=toolset,
             name="servicenow_get_records",
             description="Retrieves multiple records for the specified table using GET /api/now/v2/table/{tableName}. Returns the records data along with response headers including 'Link' (for pagination) and 'X-Total-Count' (total number of records) if provided by the API.",
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "table_name": ToolParameter(
                     description="The name of the ServiceNow table to query",
                     type="string",
@@ -352,7 +353,7 @@ class GetRecords(BaseServiceNowTool):
                     type="string",
                     required=False,
                 ),
-            },
+            }),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -426,11 +427,12 @@ class GetRecords(BaseServiceNowTool):
         if "X-Total-Count" in headers:
             response_data["X-Total-Count"] = headers["X-Total-Count"]
 
-        return StructuredToolResult(
+        result = StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
             data=response_data,
             params=params,
         )
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         table_name = params.get("table_name", "unknown")
@@ -443,7 +445,7 @@ class GetRecord(BaseServiceNowTool):
             toolset=toolset,
             name="servicenow_get_record",
             description="Retrieves the record identified by the specified sys_id from the specified table using GET /api/now/v2/table/{tableName}/{sys_id}",
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "table_name": ToolParameter(
                     description="The name of the ServiceNow table",
                     type="string",
@@ -478,7 +480,7 @@ class GetRecord(BaseServiceNowTool):
                     type="string",
                     required=False,
                 ),
-            },
+            }),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -509,7 +511,8 @@ class GetRecord(BaseServiceNowTool):
             query_params["sysparm_view"] = params["sysparm_view"]
 
         endpoint = f"/api/now/v2/table/{table_name}/{sys_id}"
-        return self._make_servicenow_request(endpoint, params, context, query_params)
+        result = self._make_servicenow_request(endpoint, params, context, query_params)
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         table_name = params.get("table_name", "unknown")

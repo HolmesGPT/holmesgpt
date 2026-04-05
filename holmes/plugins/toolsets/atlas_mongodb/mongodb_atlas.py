@@ -22,6 +22,7 @@ from holmes.core.tools import (
     ToolsetTag,
     Type,
 )
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
 
@@ -92,7 +93,7 @@ class MongoDBAtlasToolset(Toolset):
             return False, "Invalid Atlas config"
 
 
-class MongoDBAtlasBaseTool(Tool):
+class MongoDBAtlasBaseTool(Tool, JsonFilterMixin):
     toolset: MongoDBAtlasToolset
 
     def return_result(
@@ -101,13 +102,14 @@ class MongoDBAtlasBaseTool(Tool):
         response.raise_for_status()
         if response.ok:
             res = response.json()
-            return StructuredToolResult(
+            result = StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS
                 if res.get(field, [])
                 else StructuredToolResultStatus.NO_DATA,
                 data=res,
                 params=params,
             )
+            return self.filter_result(result, params)
         else:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -176,13 +178,13 @@ class ReturnProjectSlowQueries(MongoDBAtlasBaseTool):
     name: str = "atlas_return_project_processes_slow_queries"
     description: str = "Returns log lines for slow queries that the Performance Advisor and Query Profiler identified for a specific process in a specific project. requires fetching the project processes first. returns queries from the last 24 hours."
     url: str = "https://cloud.mongodb.com/api/atlas/v2/groups/{project_id}/processes/{process_id}/performanceAdvisor/slowQueryLogs?includeMetrics=true"
-    parameters: Dict[str, ToolParameter] = {
+    parameters: Dict[str, ToolParameter] = JsonFilterMixin.extend_parameters({
         "process_id": ToolParameter(
             description="Combination of host and port that serves the MongoDB process. call tool atlas_return_project_processes tool to get host+port of project procecess.",
             type="string",
             required=True,
         ),
-    }
+    })
 
     def get_parameterized_one_liner(self, params) -> str:
         process_id = params.get("process_id", "")
@@ -314,13 +316,13 @@ class ReturnEventTypeFromProject(MongoDBAtlasBaseTool):
     name: str = "atlas_return_events_type_from_project"
     description: str = "Returns all events of specific EventType for the specified project. can only query the last 4 hours."
     url: str = "https://cloud.mongodb.com/api/atlas/v2/groups/{projectId}/events"
-    parameters: Dict[str, ToolParameter] = {
+    parameters: Dict[str, ToolParameter] = JsonFilterMixin.extend_parameters({
         "eventType": ToolParameter(
             description="A label of an eventType, all capital letters with snake case. examples:  INSIDE_METRIC_THRESHOLD, PRIMARY_ELECTED and DATA_EXPLORER. NEVER call this before first calling atlas_return_events_from_project to get a list of last 4 hours eventTypes.",
             type="string",
             required=True,
         ),
-    }
+    })
 
     def get_parameterized_one_liner(self, params) -> str:
         event_type = params.get("eventType", "")

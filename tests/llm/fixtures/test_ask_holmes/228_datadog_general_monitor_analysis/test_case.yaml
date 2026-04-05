@@ -1,0 +1,145 @@
+description: |
+  Tests the datadog/general toolset's ability to analyze multiple monitors and understand
+  their relationships. Creates several monitors for an interconnected microservice system
+  where one root cause (database saturation) would trigger cascading alerts.
+
+  Holmes must discover the monitors, understand their queries, and reason about which
+  monitor represents the root cause vs symptoms. This requires reading monitor details,
+  understanding Datadog query syntax, and applying causal reasoning.
+
+user_prompt: "We're getting paged about multiple Datadog monitors firing for our order-service system (tag: app-228). List all the monitors, explain what each one measures, and tell me which monitor likely represents the root cause vs downstream symptoms. Also tell me the notification channel configured on the root cause monitor."
+
+expected_output:
+  - "Must identify the database connection pool saturation monitor as the root cause"
+  - "Must explain that API latency and queue depth are symptoms/downstream effects of database saturation"
+  - "Must report the notification channel slack-oncall-payments-EVAL228 from the database monitor's message"
+  - "Must describe all 3 monitors and what metrics they track"
+
+include_tool_calls: true
+
+tags:
+  - datadog
+  - hard
+  - chain-of-causation
+
+setup_timeout: 120
+
+before_test: |
+  set -e
+
+  echo "=== Validating environment ==="
+  if [ -z "$DATADOG_API_KEY" ] || [ -z "$DATADOG_APP_KEY" ]; then
+    echo "❌ DATADOG_API_KEY and DATADOG_APP_KEY must be set"
+    exit 1
+  fi
+
+  DD_API="https://api.us5.datadoghq.com"
+
+  echo "=== Cleaning up stale resources from previous runs ==="
+  STALE_MONITORS=$(curl -s "${DD_API}/api/v1/monitor/search?query=tag:test:eval-228" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('monitors',[])]" 2>/dev/null || true)
+  for mid in $STALE_MONITORS; do
+    curl -s -X DELETE "${DD_API}/api/v1/monitor/${mid}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" > /dev/null || true
+    echo "  Cleaned up stale monitor ${mid}"
+  done
+
+  echo "=== Creating monitor 1: Database connection pool saturation (root cause) ==="
+  M1=$(curl -s -X POST "${DD_API}/api/v1/monitor" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Order DB Connection Pool Exhaustion - app-228",
+      "type": "metric alert",
+      "query": "avg(last_5m):avg:custom.order_service.db.active_connections{service:order-service,env:production} / avg:custom.order_service.db.max_connections{service:order-service,env:production} * 100 > 95",
+      "message": "Database connection pool is at >95% capacity. @slack-oncall-payments-EVAL228 Runbook: Scale the connection pool or investigate long-running queries holding connections.",
+      "tags": ["service:order-service", "env:production", "component:database", "app-228", "test:eval-228"],
+      "options": {
+        "thresholds": {"critical": 95, "warning": 80},
+        "notify_no_data": false
+      }
+    }')
+  M1_ID=$(echo "$M1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  echo "✅ Monitor 1 (DB pool): $M1_ID"
+
+  echo "=== Creating monitor 2: API latency spike (symptom) ==="
+  M2=$(curl -s -X POST "${DD_API}/api/v1/monitor" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Order API P99 Latency Critical - app-228",
+      "type": "metric alert",
+      "query": "percentile(last_10m):p99:custom.order_service.api.latency{service:order-service,env:production,endpoint:create_order} > 5000",
+      "message": "Order creation API p99 latency exceeded 5 seconds. This usually indicates a backend dependency is slow. Check database and cache health first.",
+      "tags": ["service:order-service", "env:production", "component:api", "app-228", "test:eval-228"],
+      "options": {
+        "thresholds": {"critical": 5000, "warning": 2000},
+        "notify_no_data": false
+      }
+    }')
+  M2_ID=$(echo "$M2" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  echo "✅ Monitor 2 (API latency): $M2_ID"
+
+  echo "=== Creating monitor 3: Message queue depth (symptom) ==="
+  M3=$(curl -s -X POST "${DD_API}/api/v1/monitor" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "Order Processing Queue Backlog - app-228",
+      "type": "metric alert",
+      "query": "avg(last_15m):avg:custom.order_service.queue.pending_messages{service:order-service,env:production,queue:order-processing} > 10000",
+      "message": "Order processing queue has >10K pending messages. Orders are backing up. This is typically caused by slow consumers - check if the order-service workers can process orders normally.",
+      "tags": ["service:order-service", "env:production", "component:queue", "app-228", "test:eval-228"],
+      "options": {
+        "thresholds": {"critical": 10000, "warning": 5000},
+        "notify_no_data": false
+      }
+    }')
+  M3_ID=$(echo "$M3" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+  echo "✅ Monitor 3 (Queue depth): $M3_ID"
+
+  if [ -z "$M1_ID" ] || [ -z "$M2_ID" ] || [ -z "$M3_ID" ]; then
+    echo "❌ Failed to create one or more monitors"
+    echo "M1: $M1"
+    echo "M2: $M2"
+    echo "M3: $M3"
+    exit 1
+  fi
+
+  echo "$M1_ID" > /tmp/eval_228_m1_id
+  echo "$M2_ID" > /tmp/eval_228_m2_id
+  echo "$M3_ID" > /tmp/eval_228_m3_id
+
+  echo "✅ Test setup completed successfully"
+
+after_test: |
+  DD_API="https://api.us5.datadoghq.com"
+
+  for f in /tmp/eval_228_m*_id; do
+    if [ -f "$f" ]; then
+      MID=$(cat "$f")
+      curl -s -X DELETE "${DD_API}/api/v1/monitor/${MID}" \
+        -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+        -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+      rm -f "$f"
+      echo "Deleted monitor ${MID}"
+    fi
+  done
+
+  # Cleanup any stale resources from failed runs
+  STALE_MONITORS=$(curl -s "${DD_API}/api/v1/monitor/search?query=tag:test:eval-228" \
+    -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" \
+    | python3 -c "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('monitors',[])]" 2>/dev/null || true)
+  for mid in $STALE_MONITORS; do
+    curl -s -X DELETE "${DD_API}/api/v1/monitor/${mid}" \
+      -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+      -H "DD-APPLICATION-KEY: ${DATADOG_APP_KEY}" || true
+    echo "Cleaned up stale monitor ${mid}"
+  done

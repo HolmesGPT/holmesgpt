@@ -163,7 +163,7 @@ class TestDatadogGeneralToolset:
         )
 
         assert result.status == StructuredToolResultStatus.SUCCESS
-        assert "test_response" in result.data
+        assert result.data["data"] == "test_response"
 
         # Test blocked endpoint
         result = get_tool._invoke(

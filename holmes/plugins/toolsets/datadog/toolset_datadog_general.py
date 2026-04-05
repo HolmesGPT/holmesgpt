@@ -19,6 +19,7 @@ from holmes.core.tools import (
     ToolsetTag,
     Type,
 )
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
@@ -349,7 +350,7 @@ def get_endpoint_hint(endpoint: str) -> str:
     return ""
 
 
-class BaseDatadogGeneralTool(Tool):
+class BaseDatadogGeneralTool(Tool, JsonFilterMixin):
     """Base class for general Datadog API tools."""
 
     toolset: "DatadogGeneralToolset"
@@ -362,7 +363,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
         super().__init__(
             name="datadog_api_get",
             description="[datadog/general toolset] Make a GET request to a Datadog API endpoint for read-only operations",
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "endpoint": ToolParameter(
                     description="The API endpoint path (e.g., '/api/v1/monitors', '/api/v2/events')",
                     type="string",
@@ -385,7 +386,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                     type="string",
                     required=True,
                 ),
-            },
+            }),
             toolset=toolset,
         )
 
@@ -471,12 +472,13 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                 query_params,
             )
 
-            return StructuredToolResult(
+            result = StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response_str,
                 params=params_return,
                 url=web_url,
             )
+            return self.filter_result(result, params)
 
         except DataDogRequestError as e:
             logging.exception(e, exc_info=True)
@@ -522,7 +524,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
         super().__init__(
             name="datadog_api_post_search",
             description="[datadog/general toolset] Make a POST request to Datadog search/query endpoints for complex filtering",
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "endpoint": ToolParameter(
                     description="The search API endpoint (e.g., '/api/v2/monitor/search', '/api/v2/events/search')",
                     type="string",
@@ -560,7 +562,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                     type="string",
                     required=True,
                 ),
-            },
+            }),
             toolset=toolset,
         )
 
@@ -668,12 +670,13 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                 body_query_params,
             )
 
-            return StructuredToolResult(
+            result = StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response_str,
                 params=params,
                 url=web_url,
             )
+            return self.filter_result(result, params)
 
         except DataDogRequestError as e:
             logging.exception(e, exc_info=True)

@@ -13,6 +13,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.coralogix.api import (
     CoralogixTier,
@@ -66,13 +67,13 @@ def _build_coralogix_query_url(
         return None
 
 
-class ExecuteDataPrimeQuery(Tool):
+class ExecuteDataPrimeQuery(Tool, JsonFilterMixin):
     def __init__(self, toolset: "CoralogixToolset"):
         super().__init__(
             name="coralogix_execute_dataprime_query",
             description="Execute a DataPrime query against Coralogix to fetch logs, traces, metrics, and other telemetry data. "
             "Returns the raw query results from Coralogix.",
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "query": ToolParameter(
                     description="DataPrime query string. Examples: `source logs | lucene 'error' | limit 100`, `source spans | lucene 'my-service' | limit 100`. Always include a `limit` clause.",
                     type="string",
@@ -103,7 +104,7 @@ class ExecuteDataPrimeQuery(Tool):
                     type="string",
                     required=False,
                 ),
-            },
+            }),
         )
         self._toolset = toolset
 
@@ -176,12 +177,13 @@ class ExecuteDataPrimeQuery(Tool):
 
         # Return a pretty-printed JSON string for readability by the model/user.
         final_result = json.dumps(result_dict, indent=2, sort_keys=False)
-        return StructuredToolResult(
+        result = StructuredToolResult(
             status=status,
             data=final_result,
             params=params,
             url=explore_url,
         )
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params) -> str:
         description = params.get("description", "")

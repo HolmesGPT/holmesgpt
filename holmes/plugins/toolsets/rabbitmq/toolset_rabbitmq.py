@@ -16,6 +16,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
+from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.rabbitmq.api import (
     ClusterConnectionStatus,
     RabbitMQClusterConfig,
@@ -92,18 +93,18 @@ class ListConfiguredClusters(BaseRabbitMQTool):
         )
 
 
-class GetRabbitMQClusterStatus(BaseRabbitMQTool):
+class GetRabbitMQClusterStatus(BaseRabbitMQTool, JsonFilterMixin):
     def __init__(self, toolset: "RabbitMQToolset"):
         super().__init__(
             name="get_rabbitmq_cluster_status",
             description="Fetches the overall status of the RabbitMQ cluster, including node information, listeners, and partition details. Crucial for detecting split-brain scenarios",
-            parameters={
+            parameters=JsonFilterMixin.extend_parameters({
                 "cluster_id": ToolParameter(
                     description="The id of the cluster obtained with list_configured_clusters. Only required if more than one rabbitmq cluster is configured.",
                     type="string",
                     required=False,
                 ),
-            },
+            }),
             toolset=toolset,
         )
 
@@ -114,8 +115,12 @@ class GetRabbitMQClusterStatus(BaseRabbitMQTool):
                 cluster_id=params.get("cluster_id")
             )
             result = get_cluster_status(cluster_config)
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS, data=result
+            return self.filter_result(
+                StructuredToolResult(
+                    status=StructuredToolResultStatus.SUCCESS,
+                    data=result.model_dump(),
+                ),
+                params,
             )
 
         except Exception as e:
