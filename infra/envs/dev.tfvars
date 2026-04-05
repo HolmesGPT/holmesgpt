@@ -103,6 +103,21 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::415641701024:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
+  pdi-pos-legacy = {
+    account_id = "100161908138"
+    role_arn   = "arn:aws:iam::100161908138:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-legacy-2 = {
+    account_id = "294818304262"
+    role_arn   = "arn:aws:iam::294818304262:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-legacy-3 = {
+    account_id = "226168396949"
+    role_arn   = "arn:aws:iam::226168396949:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
