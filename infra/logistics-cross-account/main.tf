@@ -243,6 +243,30 @@ resource "aws_iam_policy" "holmes_triage" {
         ]
         Resource = "*"
       },
+      # ── Cache ────────────────────────────────────────────────────────────
+      {
+        Sid    = "ElastiCacheRead"
+        Effect = "Allow"
+        Action = [
+          "elasticache:Describe*",
+          "elasticache:List*"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DAXRead"
+        Effect = "Allow"
+        Action = [
+          "dax:DescribeClusters",
+          "dax:DescribeDefaultParameters",
+          "dax:DescribeEvents",
+          "dax:DescribeParameterGroups",
+          "dax:DescribeParameters",
+          "dax:DescribeSubnetGroups",
+          "dax:ListTags"
+        ]
+        Resource = "*"
+      },
       # ── Observability ────────────────────────────────────────────────────
       {
         Sid    = "CloudWatchRead"
