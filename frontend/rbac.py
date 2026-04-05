@@ -338,7 +338,7 @@ def set_project_role(
 
 
 def list_users() -> list[UserRecord]:
-    """List all users (both active and invited)."""
+    """List all users (active and invited, excluding removed)."""
     table = _get_table()
     filter_expr = Attr("pk").begins_with("USER#") & Attr("sk").eq("META")
     items: list = []
@@ -352,6 +352,8 @@ def list_users() -> list[UserRecord]:
         kwargs["ExclusiveStartKey"] = last_key
 
     users = [UserRecord.model_validate_json(item["data"]) for item in items]
+    # Exclude soft-deleted users
+    users = [u for u in users if u.status != "removed"]
     return sorted(users, key=lambda u: u.created_at)
 
 
@@ -408,7 +410,7 @@ def delete_project_roles(project_id: str) -> None:
 
 
 def delete_user(sub: str) -> bool:
-    """Delete a user and all their role assignments."""
+    """Soft-delete a user by setting status to 'removed'. Preserves the record so Okta sync won't re-create it."""
     table = _get_table()
 
     # Determine the correct pk
@@ -421,13 +423,18 @@ def delete_user(sub: str) -> bool:
     if not user:
         return False
 
-    # Query all items for this user
-    resp = table.query(KeyConditionExpression=Key("pk").eq(pk))
-    items = resp.get("Items", [])
+    # Soft-delete: set status to "removed" and clear roles
+    user.status = "removed"
+    user.global_role = None
+    table.put_item(
+        Item={"pk": pk, "sk": "META", "data": user.model_dump_json()}
+    )
 
-    # Delete all items
-    for item in items:
-        table.delete_item(Key={"pk": pk, "sk": item["sk"]})
+    # Delete all project role assignments
+    resp = table.query(KeyConditionExpression=Key("pk").eq(pk))
+    for item in resp.get("Items", []):
+        if item["sk"] != "META":
+            table.delete_item(Key={"pk": pk, "sk": item["sk"]})
 
     invalidate_cache(sub)
     return True
