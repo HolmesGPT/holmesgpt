@@ -207,7 +207,10 @@ resource "aws_iam_policy" "holmes_triage" {
           "s3:GetEncryptionConfiguration",
           "s3:GetLifecycleConfiguration",
           "s3:ListAllMyBuckets",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:GetObjectTagging"
         ]
         Resource = "*"
       },
@@ -218,6 +221,25 @@ resource "aws_iam_policy" "holmes_triage" {
         Action = [
           "rds:Describe*",
           "rds:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DynamoDBRead"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:DescribeTable",
+          "dynamodb:DescribeContinuousBackups",
+          "dynamodb:DescribeTimeToLive",
+          "dynamodb:DescribeGlobalTable",
+          "dynamodb:ListTables",
+          "dynamodb:ListTagsOfResource",
+          "dynamodb:GetItem",
+          "dynamodb:BatchGetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:DescribeStream",
+          "dynamodb:ListStreams"
         ]
         Resource = "*"
       },
