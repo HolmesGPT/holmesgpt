@@ -391,7 +391,7 @@ def do_request(
     url: str,
     params: Optional[Dict] = None,
     data: Optional[Dict] = None,
-    timeout: int = 60,
+    timeout: float = 60.0,
     verify: Optional[bool] = None,
     headers: Optional[Dict] = None,
     method: str = "GET",
@@ -484,6 +484,14 @@ def adjust_step_for_max_points(
     # Use override if provided and valid, otherwise use default
     max_points = MAX_GRAPH_POINTS
     if max_points_override is not None:
+        try:
+            max_points_override = float(max_points_override)
+        except (TypeError, ValueError):
+            logging.warning(
+                f"max_points override ({max_points_override!r}) is not a valid number, using default {MAX_GRAPH_POINTS}"
+            )
+            max_points_override = None
+    if max_points_override is not None:
         if max_points_override > hard_limit:
             logging.warning(
                 f"max_points override ({max_points_override}) exceeds hard limit ({hard_limit}), using {hard_limit}"
@@ -504,6 +512,20 @@ def adjust_step_for_max_points(
     time_range_seconds = (end_dt - start_dt).total_seconds()
 
     # If no step provided, calculate default targeting max_points data points
+    if step is not None:
+        try:
+            step = float(step)
+        except (TypeError, ValueError):
+            logging.warning(
+                f"step ({step!r}) is not a valid number, will calculate default"
+            )
+            step = None
+        else:
+            if step <= 0:
+                logging.warning(
+                    f"step ({step!r}) must be positive, will calculate default"
+                )
+                step = None
     if step is None:
         step = max(1, time_range_seconds / max_points)
         logging.debug(
@@ -1377,7 +1399,13 @@ class ExecuteInstantQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            try:
+                timeout = float(params.get("timeout", default_timeout))
+            except (TypeError, ValueError):
+                logging.warning(
+                    f"timeout ({params.get('timeout')!r}) is not a valid number, using default {default_timeout}s"
+                )
+                timeout = default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
@@ -1631,7 +1659,13 @@ class ExecuteRangeQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            try:
+                timeout = float(params.get("timeout", default_timeout))
+            except (TypeError, ValueError):
+                logging.warning(
+                    f"timeout ({params.get('timeout')!r}) is not a valid number, using default {default_timeout}s"
+                )
+                timeout = default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(

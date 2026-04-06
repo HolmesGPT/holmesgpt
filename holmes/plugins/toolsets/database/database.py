@@ -274,7 +274,14 @@ class DatabaseToolset(Toolset):
                     f"Received: {sql[:80]}"
                 )
 
-        effective_limit = min(limit or self.database_config.max_rows, self.database_config.max_rows)
+        if limit is not None:
+            limit = int(limit)
+            if limit < 1:
+                raise ValueError(
+                    f"limit must be >= 1, got {limit}. "
+                    f"SQL: {sql[:200]}"
+                )
+        effective_limit = min(limit if limit is not None else self.database_config.max_rows, self.database_config.max_rows)
         url = _normalise_url(self.database_config.connection_url)
         engine = self._create_engine(url)
         try:
@@ -382,13 +389,15 @@ class DatabaseQuery(BaseDatabaseTool):
                 params=params,
             )
         except ValueError as e:
+            logger.warning(f"DatabaseQuery ValueError: {e}")
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=str(e),
+                error=f"{e}. SQL: {sql[:200]}, limit: {limit}",
                 params=params,
             )
         except Exception as e:
             error_msg = str(e)
+            logger.error(f"DatabaseQuery failed: {type(e).__name__}: {error_msg}", exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Query failed: {error_msg}. SQL: {sql[:200]}",
