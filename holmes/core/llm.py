@@ -347,6 +347,11 @@ class DefaultLLM(LLM):
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
+        elif provider == "github_copilot":
+            # GitHub Copilot uses OAuth device flow for authentication, not
+            # traditional API keys.  LiteLLM handles the token lifecycle
+            # internally, so skip the standard key validation.
+            model_requirements = {"keys_in_environment": True, "missing_keys": []}
         elif provider == "azure":
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base, api_version=api_version
@@ -558,6 +563,21 @@ class DefaultLLM(LLM):
 
         if EXTRA_HEADERS:
             self.args.setdefault("extra_headers", json.loads(EXTRA_HEADERS))
+
+        # GitHub Copilot API requires IDE-identifying headers on every request.
+        # LiteLLM should auto-inject these, but some versions don't do it
+        # reliably, so we ensure the required headers are always present.
+        if self.model.startswith("github_copilot/"):
+            copilot_headers = {
+                "Editor-Version": "vscode/1.85.1",
+                "Editor-Plugin-Version": "copilot-chat/0.26.7",
+                "Copilot-Integration-Id": "vscode-chat",
+                "User-Agent": "GithubCopilot/1.155.0",
+            }
+            existing_headers = self.args.get("extra_headers", {})
+            # Only set headers that aren't already explicitly configured
+            merged = {**copilot_headers, **existing_headers}
+            self.args["extra_headers"] = merged
 
         litellm.modify_params = True
 
