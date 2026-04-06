@@ -25,6 +25,7 @@ nav:
   - Helm: helm.md
   - Inspektor Gadget: inspektor-gadget.md
   - Internet: internet.md
+  - Jenkins (MCP): jenkins-mcp.md
   - Kafka: kafka.md
   - Kubectl Run: kubectl-run.md
   - Kubernetes: kubernetes.md
