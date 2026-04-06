@@ -314,6 +314,16 @@ Frontend tools have two modes:
 - **`pause`** (default): The stream pauses when the LLM calls the tool. The client executes the tool and resumes by sending results back. The LLM receives real results and continues reasoning with that data.
 - **`noop`**: The server returns a canned response immediately and the LLM continues without pausing. The client sees the tool call in SSE events (`start_tool_calling` + `tool_calling_result`) and can execute it as a fire-and-forget side effect.
 
+**Pause mode spans two HTTP requests.** What would normally be a single request is split across a request–pause–resume cycle:
+
+1. **Request 1** — the client sends `ask` + `frontend_tools`. The server streams SSE events until the LLM calls a pause-mode tool, then emits an `approval_required` event containing `pending_frontend_tool_calls` and `conversation_history`. The stream ends here.
+2. The client executes the tool locally (render a chart, query a local DB, etc.).
+3. **Request 2** — the client sends a new POST to `/api/chat` with the `conversation_history` from request 1, plus `frontend_tool_results` containing the tool output. The server feeds the results back to the LLM, which continues reasoning and streams the rest of its answer.
+
+If the LLM calls multiple pause-mode tools in one iteration, they all appear in a single `approval_required` event — the client executes all of them and sends all results together in request 2. If the LLM calls another pause-mode tool in a later iteration, the cycle repeats (request 3, 4, etc.).
+
+Noop-mode tools do **not** pause — the entire request completes without interruption, regardless of how many LLM iterations it takes.
+
 **Declaring frontend tools:**
 
 Each tool in the `frontend_tools` array has:
@@ -395,6 +405,159 @@ Noop tools execute instantly on the server with a canned response. The client se
 - Frontend tool names must not conflict with built-in Holmes tool names (returns HTTP 400)
 - `frontend_tool_results.result` must be a string (JSON-encode objects)
 - Both `pending_approvals` and `pending_frontend_tool_calls` can appear in the same `approval_required` event if the LLM calls both types in one iteration
+
+#### Implementing Frontend Tools in Your Client
+
+This section walks through building client-side support for pause-mode frontend tools. The key thing to understand is that what would normally be a single request is split across **two HTTP requests**: the first streams until the LLM calls your tool, and the second resumes the LLM after you return results.
+
+**1. Define your tools in the request**
+
+Pass tool definitions in the `frontend_tools` array. Each tool needs a `name`, `description`, and optionally `parameters` (JSON Schema) and `mode`.
+
+```javascript
+const frontendTools = [
+  {
+    name: "render_chart",
+    description: "Render a chart in the UI with the given metric and time range.",
+    mode: "pause",
+    parameters: {
+      type: "object",
+      properties: {
+        chart_type: { type: "string", enum: ["line", "bar", "pie"] },
+        metric: { type: "string" },
+        time_range: { type: "string" }
+      },
+      required: ["chart_type", "metric"]
+    }
+  },
+  {
+    name: "navigate_to_page",
+    description: "Navigate the user to a page in the application.",
+    mode: "noop",
+    noop_response: "Navigation triggered."
+  }
+];
+```
+
+**2. Send the streaming request and parse SSE events**
+
+Since `/api/chat` is a POST endpoint, use an SSE library that supports POST requests, such as [fetch-event-source](https://github.com/Azure/fetch-event-source) or [sse.js](https://github.com/mpetazzoni/sse.js).
+
+This helper is called for both request 1 (initial) and request 2 (resume with tool results):
+
+```javascript
+import { fetchEventSource } from "@microsoft/fetch-event-source";
+
+function streamChat({ ask, conversationHistory, frontendToolResults }) {
+  fetchEventSource("http://<HOLMES-URL>/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ask,
+      stream: true,
+      frontend_tools: frontendTools,
+      conversation_history: conversationHistory,       // undefined on first request
+      frontend_tool_results: frontendToolResults,       // undefined on first request
+    }),
+    onmessage(event) {
+      const payload = JSON.parse(event.data);
+      handleEvent(event.event, payload);
+    },
+  });
+}
+```
+
+**3. Handle the stream pause (end of request 1)**
+
+When the LLM calls a pause-mode frontend tool, the stream emits an `approval_required` event with `pending_frontend_tool_calls` and then ends. Execute the tool locally, then start request 2 to resume.
+
+```javascript
+function handleEvent(eventType, payload) {
+  switch (eventType) {
+    case "approval_required":
+      // Handle frontend tool calls
+      if (payload.pending_frontend_tool_calls?.length > 0) {
+        handleFrontendToolCalls(
+          payload.pending_frontend_tool_calls,
+          payload.conversation_history
+        );
+      }
+      break;
+
+    case "start_tool_calling":
+      console.log(`Tool started: ${payload.tool_name}`);
+      break;
+
+    case "tool_calling_result":
+      console.log(`Tool result: ${payload.name}`, payload.result);
+      break;
+
+    case "ai_message":
+      renderMarkdown(payload.content);
+      break;
+
+    case "ai_answer_end":
+      // Store conversation_history for follow-up messages
+      saveConversationHistory(payload.conversation_history);
+      break;
+  }
+}
+```
+
+**4. Execute tools and send request 2 to resume**
+
+For each pending frontend tool call, run your local implementation, then open a new stream (request 2) with the results. The server feeds the results back to the LLM, which continues its answer.
+
+```javascript
+async function handleFrontendToolCalls(pendingCalls, conversationHistory) {
+  const results = [];
+
+  for (const call of pendingCalls) {
+    let result;
+    switch (call.tool_name) {
+      case "render_chart":
+        result = await renderChartInUI(call.arguments);
+        break;
+      default:
+        result = { error: `Unknown tool: ${call.tool_name}` };
+    }
+
+    results.push({
+      tool_call_id: call.tool_call_id,
+      tool_name: call.tool_name,
+      result: JSON.stringify(result)  // Must be a string
+    });
+  }
+
+  // Request 2: resume the LLM with tool results
+  streamChat({
+    ask: originalQuestion,
+    conversationHistory,
+    frontendToolResults: results,
+  });
+}
+```
+
+**5. Handle noop-mode tools (fire-and-forget)**
+
+Noop tools don't pause the stream. Watch for `start_tool_calling` events and execute side effects.
+
+```javascript
+case "start_tool_calling":
+  if (payload.tool_name === "navigate_to_page") {
+    // Fire-and-forget: execute without blocking the stream
+    navigateToPage(payload);
+  }
+  break;
+```
+
+**Key implementation notes:**
+
+- **Re-send `frontend_tools`** on every request, including resume requests — tool definitions are not persisted server-side
+- **`result` must be a string** — JSON-encode objects before sending
+- **`conversation_history`** from the `approval_required` event must be passed back when resuming
+- **Mixed pauses**: If both `pending_approvals` and `pending_frontend_tool_calls` appear in the same event, send both `tool_decisions` and `frontend_tool_results` in the resume request
+- **Error handling**: If your tool fails, return a JSON error string as the `result` — the LLM will see it and can adapt
 
 ---
 
