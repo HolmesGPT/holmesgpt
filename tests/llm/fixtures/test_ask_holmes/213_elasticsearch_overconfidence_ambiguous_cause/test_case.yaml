@@ -1,0 +1,155 @@
+# Test: Overconfidence - Ambiguous Root Cause
+# Tests that Holmes presents multiple possibilities when several services fail
+# simultaneously and there is no dependency/topology information to determine
+# which failure caused which.
+#
+# The index contains error logs from three services that all start failing
+# at roughly the same time. Each service shows different error patterns:
+# - checkout-api: connection timeouts to downstream services
+# - inventory-service: high latency and data consistency errors
+# - notification-service: queue processing failures
+#
+# Without dependency topology or infrastructure metrics, it is impossible to
+# determine which service failure is the root cause and which are cascading effects.
+#
+# An overconfident LLM will pick one service as THE root cause.
+# A well-calibrated LLM will present multiple hypotheses and acknowledge the ambiguity.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "Three services are failing simultaneously according to logs in the 'app-213-service-errors' index: checkout-api, inventory-service, and notification-service. Analyze the error logs and determine which service is the root cause of the cascading failure."
+
+expected_output:
+  - "Must identify errors in all three services: checkout-api (connection timeouts), inventory-service (latency/consistency errors), and notification-service (queue failures)"
+  - "Must present multiple possible explanations or hypotheses rather than claiming a single definitive root cause. Since all three services began failing at approximately the same time and the logs contain no dependency chain or topology information, the response should acknowledge this ambiguity"
+  - "Must recommend additional investigation steps or data sources (such as distributed traces, service dependency maps, infrastructure metrics, or network diagnostics) that would help narrow down the actual root cause"
+
+tags:
+  - elasticsearch
+  - overconfidence
+  - hard
+  - fast
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  export HOLMES_ES_TEST_INDEX="app-213-service-errors"
+
+  # Clean up any existing index
+  curl -sk -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create the index with structured log mapping
+  echo "Creating test index with service error log mapping..."
+  CREATE_RESPONSE=$(curl -sk -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+      "mappings": {
+        "properties": {
+          "timestamp": {"type": "date"},
+          "service": {"type": "keyword"},
+          "level": {"type": "keyword"},
+          "message": {"type": "text"},
+          "error_type": {"type": "keyword"},
+          "trace_id": {"type": "keyword"}
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  sleep 2
+
+  BULK_FILE=$(es_temp_file "bulk" "213")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"timestamp":"2025-06-15T09:58:00Z","service":"checkout-api","level":"INFO","message":"Request processed successfully for order ORD-99281","error_type":"none","trace_id":"tr-001"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T09:58:02Z","service":"inventory-service","level":"INFO","message":"Stock check completed for SKU-44821","error_type":"none","trace_id":"tr-002"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T09:58:05Z","service":"notification-service","level":"INFO","message":"Email notification sent for order ORD-99280","error_type":"none","trace_id":"tr-003"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:01Z","service":"checkout-api","level":"ERROR","message":"Connection timeout while calling downstream service: read tcp 10.0.5.12:443 i/o timeout after 30s","error_type":"connection_timeout","trace_id":"tr-010"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:02Z","service":"inventory-service","level":"ERROR","message":"Data consistency check failed: expected stock count 150 but found 147 for SKU-33019","error_type":"data_consistency","trace_id":"tr-011"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:03Z","service":"notification-service","level":"ERROR","message":"Failed to dequeue message from processing queue: consumer group rebalancing in progress","error_type":"queue_failure","trace_id":"tr-012"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:08Z","service":"checkout-api","level":"ERROR","message":"Connection timeout while calling downstream service: read tcp 10.0.5.14:443 i/o timeout after 30s","error_type":"connection_timeout","trace_id":"tr-013"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:10Z","service":"inventory-service","level":"ERROR","message":"High latency detected on stock reservation: 8500ms for SKU-22017 (threshold: 500ms)","error_type":"high_latency","trace_id":"tr-014"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:12Z","service":"notification-service","level":"ERROR","message":"Queue message processing timeout: message msg-7729 exceeded 60s processing limit","error_type":"queue_failure","trace_id":"tr-015"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:15Z","service":"checkout-api","level":"ERROR","message":"Connection refused by downstream service at 10.0.5.16:443: connection reset by peer","error_type":"connection_refused","trace_id":"tr-016"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:18Z","service":"inventory-service","level":"ERROR","message":"Data consistency check failed: expected stock count 82 but found 79 for SKU-10455","error_type":"data_consistency","trace_id":"tr-017"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:20Z","service":"notification-service","level":"ERROR","message":"Failed to acknowledge message msg-7731: broker connection lost","error_type":"queue_failure","trace_id":"tr-018"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:22Z","service":"checkout-api","level":"ERROR","message":"Connection timeout while calling downstream service: read tcp 10.0.5.18:443 i/o timeout after 30s","error_type":"connection_timeout","trace_id":"tr-019"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:25Z","service":"inventory-service","level":"ERROR","message":"High latency detected on stock reservation: 12300ms for SKU-55093 (threshold: 500ms)","error_type":"high_latency","trace_id":"tr-020"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:28Z","service":"checkout-api","level":"WARN","message":"Circuit breaker tripped for downstream-service-alpha after 5 consecutive failures","error_type":"circuit_breaker","trace_id":"tr-021"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:30Z","service":"notification-service","level":"ERROR","message":"Dead letter queue threshold exceeded: 15 messages moved to DLQ in last 5 minutes","error_type":"queue_failure","trace_id":"tr-022"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:33Z","service":"inventory-service","level":"ERROR","message":"Failed to acquire distributed lock for stock update batch-7712: lock timeout after 10s","error_type":"lock_timeout","trace_id":"tr-023"}
+  {"index":{}}
+  {"timestamp":"2025-06-15T10:00:35Z","service":"checkout-api","level":"ERROR","message":"Connection timeout while calling downstream service: read tcp 10.0.5.20:443 i/o timeout after 30s","error_type":"connection_timeout","trace_id":"tr-024"}
+  BULK_EOF
+
+  # Remove leading spaces from the bulk file
+  sed -i 's/^  //' "$BULK_FILE"
+
+  BULK_RESPONSE=$(curl -sk -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+
+  rm -f "$BULK_FILE"
+
+  # Refresh the index
+  curl -sk -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify
+  TOTAL=$(curl -sk -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  ERROR_COUNT=$(curl -sk -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"term":{"level":"ERROR"}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  echo "Test index created: $TOTAL total logs, $ERROR_COUNT errors across 3 services"
+
+  if [ "$TOTAL" != "18" ]; then
+    echo "Expected 18 logs but found: $TOTAL"
+    exit 1
+  fi
+
+  echo "Setup complete - three services failing simultaneously with no dependency info"
+
+after_test: |
+  echo "Cleaning up test index: app-213-service-errors"
+  curl -sk -X DELETE "${ELASTICSEARCH_URL}/app-213-service-errors" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "Cleanup complete"
