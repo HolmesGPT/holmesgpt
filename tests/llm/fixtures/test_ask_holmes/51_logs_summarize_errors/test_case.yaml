@@ -2,6 +2,7 @@ user_prompt: "Show me the errors in the logs of my-app-51"
 tags:
   - logs
   - easy
+  - regression
 expected_output: |
   A summary with the following errors in whichever order:
     1. Login issues due to redis timeouts

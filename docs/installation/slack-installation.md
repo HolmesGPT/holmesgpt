@@ -2,7 +2,7 @@
 
 The HolmesGPT Slack bot is available via [Robusta.dev](https://home.robusta.dev/), which created HolmesGPT and donated it to the CNCF.
 
-First install [Robusta SaaS](ui-installation.md), then tag HolmesGPT in any Slack message for instant analysis.
+First install [Robusta](ui-installation.md), then tag HolmesGPT in any Slack message for instant analysis.
 
 ![Robusta Slack Bot powered by Holmes](../assets/RobustaSlackBot-Poweredby-Holmes.png)
 

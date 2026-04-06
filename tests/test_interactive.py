@@ -413,9 +413,15 @@ class TestRunInteractiveLoop(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.history_file = os.path.join(self.temp_dir, "history")
 
+        # Patch the sample questions menu so it doesn't run prompt_toolkit Application in tests
+        self._sample_questions_patcher = patch(
+            "holmes.interactive._show_sample_questions_menu", return_value=None
+        )
+        self._sample_questions_patcher.start()
+
     def tearDown(self):
         """Clean up test fixtures."""
-
+        self._sample_questions_patcher.stop()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     @patch("holmes.interactive.check_version_async")
@@ -1775,3 +1781,75 @@ class TestInlineMenu(unittest.TestCase):
         """Escape returns None (cancelled)."""
         result = self._run_menu("\x1b", ["Yes", "No", "Cancel"])
         self.assertIsNone(result)
+
+    def _run_menu_with_default(self, keys: str, options: list[str], default_index: int) -> int | None:
+        """Run the menu with simulated keystrokes and a default_index."""
+        from prompt_toolkit.input import create_pipe_input
+        from prompt_toolkit.output import DummyOutput
+
+        console = Console(file=StringIO(), force_terminal=True, width=120)
+
+        with create_pipe_input() as pipe_input:
+            pipe_input.send_text(keys)
+            with patch("holmes.interactive.Application") as MockApp:
+
+                def fake_run(self_app):
+                    from prompt_toolkit.application import Application as RealApp
+                    real_app = RealApp(
+                        layout=self_app.layout,
+                        key_bindings=self_app.key_bindings,
+                        style=self_app.style,
+                        full_screen=False,
+                        erase_when_done=False,
+                        input=pipe_input,
+                        output=DummyOutput(),
+                    )
+                    real_app.run()
+
+                MockApp.side_effect = lambda **kwargs: type(
+                    "_FakeApp", (),
+                    {**kwargs, "run": lambda self: fake_run(self)},
+                )()
+
+                return _run_inline_menu(options, console, default_index=default_index)
+
+    def test_default_index_enter_selects_default(self):
+        """Pressing Enter with default_index=2 selects the third option."""
+        result = self._run_menu_with_default("\r", ["A", "B", "C"], default_index=2)
+        self.assertEqual(result, 2)
+
+    def test_default_index_up_then_enter(self):
+        """Up arrow from default_index=2 selects the second option."""
+        result = self._run_menu_with_default("\x1b[A\r", ["A", "B", "C"], default_index=2)
+        self.assertEqual(result, 1)
+
+
+class TestSampleQuestionsMenu(unittest.TestCase):
+    """Test _show_sample_questions_menu behavior."""
+
+    def test_returns_none_when_last_option_selected(self):
+        """Selecting 'Ask my own question' returns None."""
+        with patch("holmes.interactive._run_inline_menu", return_value=5) as mock_menu:
+            from holmes.interactive import _show_sample_questions_menu, SAMPLE_QUESTIONS
+            console = Console(file=StringIO(), force_terminal=True, width=120)
+            result = _show_sample_questions_menu(console)
+            self.assertIsNone(result)
+            # Verify default_index is last item
+            call_kwargs = mock_menu.call_args
+            self.assertEqual(call_kwargs.kwargs["default_index"], len(SAMPLE_QUESTIONS))
+
+    def test_returns_question_when_sample_selected(self):
+        """Selecting a sample question returns the question text."""
+        with patch("holmes.interactive._run_inline_menu", return_value=0):
+            from holmes.interactive import _show_sample_questions_menu, SAMPLE_QUESTIONS
+            console = Console(file=StringIO(), force_terminal=True, width=120)
+            result = _show_sample_questions_menu(console)
+            self.assertEqual(result, SAMPLE_QUESTIONS[0])
+
+    def test_returns_none_when_cancelled(self):
+        """Pressing Escape (None result) returns None."""
+        with patch("holmes.interactive._run_inline_menu", return_value=None):
+            from holmes.interactive import _show_sample_questions_menu
+            console = Console(file=StringIO(), force_terminal=True, width=120)
+            result = _show_sample_questions_menu(console)
+            self.assertIsNone(result)

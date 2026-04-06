@@ -36,7 +36,7 @@ metadata:
   namespace: default
 spec:
   schedule: "0 * * * *"  # Every hour at :00
-  query: "Are all pods in namespace 'default' healthy and running?"
+  query: "Is the default namespace healthy? Check pod status, recent restarts, resource usage, and warning events."
 ```
 
 Apply this check:
@@ -64,7 +64,7 @@ metadata:
   namespace: production
 spec:
   schedule: "*/15 * * * *"  # Every 15 minutes
-  query: "Are all 'critical' labeled pods in 'production' namespace healthy?"
+  query: "Are all critical pods in production healthy? Check pod status, resource pressure, error rates, and logs for anomalies."
   timeout: 60
   mode: alert
   destinations:
@@ -110,7 +110,7 @@ Natural language question about system health.
 
 - Min length: 1 character
 - Max length: 5000 characters
-- Example: `"Are all pods with label 'app=api' ready?"`
+- Example: `"Are the app=api pods healthy? Check pod status, logs, and resource usage."`
 
 ### Optional Fields
 

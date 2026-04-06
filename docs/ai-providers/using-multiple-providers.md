@@ -301,7 +301,7 @@ Clients can specify the model in their API requests:
 ```
 
 ### Robusta AI Integration
-If you're a Robusta SaaS customer, you can also use [Robusta AI](robusta-ai.md) which provides access to multiple models without managing individual API keys.
+If you're a Robusta customer, you can also use [Robusta AI](robusta-ai.md) which provides access to multiple models without managing individual API keys.
 
 ## See Also
 

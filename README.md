@@ -55,6 +55,7 @@ HolmesGPT integrates with popular observability and cloud platforms. The followi
 | [<img src="images/integration_logos/opensearchserverless-icon.png" alt="Elasticsearch" width="20" style="vertical-align: middle;"> **Elasticsearch / OpenSearch**](https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/) | Query logs, cluster health, shard and index diagnostics |
 | [<img src="images/integration_logos/gcpmonitoring-icon.png" alt="GCP" width="20" style="vertical-align: middle;"> **GCP**](https://holmesgpt.dev/data-sources/builtin-toolsets/gcp/) | Google Cloud Platform resources (MCP) |
 | [<img src="images/integration_logos/github_logo.png" alt="GitHub" width="20" style="vertical-align: middle;"> **GitHub**](https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/) | Repositories, issues, and pull requests (MCP) |
+| [<img src="images/integration_logos/jenkins-icon.png" alt="Jenkins" width="20" style="vertical-align: middle;"> **Jenkins (MCP)**](https://holmesgpt.dev/data-sources/builtin-toolsets/jenkins-mcp/) | Build status, pipeline logs, and job history (MCP) |
 | [<img src="images/integration_logos/grafana-icon.png" alt="Grafana" width="20" style="vertical-align: middle;"> **Grafana**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanadashboards/) | Query and analyze dashboard configurations and panels |
 | [<img src="images/integration_logos/helm_logo.png" alt="Helm" width="20" style="vertical-align: middle;"> **Helm**](https://holmesgpt.dev/data-sources/builtin-toolsets/helm/) | Release status, chart metadata, and values |
 | [<img src="images/integration_logos/http-icon.png" alt="Internet" width="20" style="vertical-align: middle;"> **Internet**](https://holmesgpt.dev/data-sources/builtin-toolsets/internet/) | Public runbooks, community docs etc |
@@ -86,9 +87,9 @@ HolmesGPT can fetch alerts/tickets to investigate from external systems, then wr
 
 | Integration             | Status    | Notes |
 |-------------------------|-----------|-------|
-| Slack                   | ✅        | [Demo.](https://www.loom.com/share/afcd81444b1a4adfaa0bbe01c37a4847) Available via [Robusta.dev](https://home.robusta.dev/) (commercial platform) |
-| Microsoft Teams         | ✅        | Available via [Robusta.dev](https://home.robusta.dev/) (commercial platform) |
-| Prometheus/AlertManager | ✅        | Robusta SaaS or HolmesGPT CLI |
+| Slack                   | ✅        | [Demo.](https://www.loom.com/share/afcd81444b1a4adfaa0bbe01c37a4847) Available via [Robusta](https://home.robusta.dev/) |
+| Microsoft Teams         | ✅        | Available via [Robusta](https://home.robusta.dev/) |
+| Prometheus/AlertManager | ✅        | Robusta or HolmesGPT CLI |
 | PagerDuty               | ✅        | HolmesGPT CLI only |
 | OpsGenie                | ✅        | HolmesGPT CLI only |
 | Jira                    | ✅        | HolmesGPT CLI only |
