@@ -1,4 +1,8 @@
+import atexit
+import base64
 import logging
+import os
+import tempfile
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -93,6 +97,161 @@ class KafkaClusterConfig(ToolsetConfig):
         title="Client ID",
         description="Client ID for Kafka connections",
     )
+
+    # --- mTLS / SSL fields (mirrors kafka-mcp-server KAFKA_TLS_* env vars) ---
+    ssl_ca_cert_path: Optional[str] = Field(
+        default=None,
+        title="CA Certificate Path",
+        description=(
+            "Path to the CA certificate file (PEM format) for broker verification. "
+            "Use this when certs are mounted as Kubernetes secrets. "
+            "Equivalent to KAFKA_TLS_CA_CERT_FILE in kafka-mcp-server."
+        ),
+        examples=["/etc/kafka-tls/kafka_dellca2018-bundle.crt"],
+    )
+    ssl_client_cert_path: Optional[str] = Field(
+        default=None,
+        title="Client Certificate Path",
+        description=(
+            "Path to the client certificate file (PEM format) for mTLS. "
+            "Equivalent to KAFKA_TLS_CERT_FILE in kafka-mcp-server."
+        ),
+        examples=["/etc/kafka-tls/kafka_certificate.pem"],
+    )
+    ssl_client_key_path: Optional[str] = Field(
+        default=None,
+        title="Client Key Path",
+        description=(
+            "Path to the client private key file (PEM format) for mTLS. "
+            "Equivalent to KAFKA_TLS_KEY_FILE in kafka-mcp-server."
+        ),
+        examples=["/etc/kafka-tls/kafka_private_key.pem"],
+    )
+    ssl_ca_cert: Optional[str] = Field(
+        default=None,
+        title="CA Certificate (base64)",
+        description=(
+            "Base64-encoded CA certificate (PEM format). "
+            "Alternative to ssl_ca_cert_path when certs are passed inline."
+        ),
+        examples=["{{ env.KAFKA_CA_CERT_BASE64 }}"],
+    )
+    ssl_client_cert: Optional[str] = Field(
+        default=None,
+        title="Client Certificate (base64)",
+        description=(
+            "Base64-encoded client certificate (PEM format) for mTLS. "
+            "Alternative to ssl_client_cert_path."
+        ),
+        examples=["{{ env.KAFKA_CLIENT_CERT_BASE64 }}"],
+    )
+    ssl_client_key: Optional[str] = Field(
+        default=None,
+        title="Client Key (base64)",
+        description=(
+            "Base64-encoded client private key (PEM format) for mTLS. "
+            "Alternative to ssl_client_key_path."
+        ),
+        examples=["{{ env.KAFKA_CLIENT_KEY_BASE64 }}"],
+    )
+
+
+def _build_ssl_config(
+    cluster: "KafkaClusterConfig",
+) -> Tuple[Dict[str, str], List[str]]:
+    """Build the confluent-kafka SSL property dict for *cluster*.
+
+    Supports two sources for certificates (same precedence order as
+    kafka-mcp-server's environment-variable approach):
+
+    1. File-path fields (``ssl_*_path``) — preferred for Kubernetes mounted
+       secrets; no temporary files created.
+    2. Base64-encoded inline fields (``ssl_*``) — decoded and written to
+       secure temporary files.  The returned ``temp_files`` list contains
+       the paths; callers should register them for cleanup (e.g. via
+       ``atexit``) because the file paths are also stored in ``ssl_configs``
+       for later reuse by Consumer creation in ``group_has_topic()``.
+
+    Returns
+    -------
+    ssl_config : dict
+        Ready-to-merge dict for an ``AdminClient`` or ``Consumer`` config.
+    temp_files : list[str]
+        Paths to any temporary files created for base64-decoded certs.
+    """
+    ssl_config: Dict[str, str] = {}
+    temp_files: List[str] = []
+
+    def _resolve_cert(
+        path_val: Optional[str], b64_val: Optional[str], label: str
+    ) -> Optional[str]:
+        """Return file path: prefer explicit path, fall back to base64 temp file."""
+        if path_val:
+            if not os.path.isfile(path_val):
+                raise FileNotFoundError(
+                    f"Kafka SSL {label} file not found: {path_val}"
+                )
+            return path_val
+        if b64_val:
+            try:
+                data = base64.b64decode(b64_val, validate=True)
+            except Exception as exc:
+                raise ValueError(
+                    f"Kafka SSL {label}: failed to base64-decode value: {exc}"
+                ) from exc
+            # Create the file atomically with restrictive permissions.
+            # mkstemp() already produces a 0o600 file on most Unix systems.
+            fd, tmp_path = tempfile.mkstemp(
+                suffix=".pem", prefix=f"holmes_kafka_{label}_"
+            )
+            try:
+                os.write(fd, data)
+            finally:
+                os.close(fd)
+            temp_files.append(tmp_path)
+            return tmp_path
+        return None
+
+    def _cleanup_temp_files() -> None:
+        for tmp in temp_files:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+    try:
+        ca_path = _resolve_cert(cluster.ssl_ca_cert_path, cluster.ssl_ca_cert, "ca_cert")
+        cert_path = _resolve_cert(
+            cluster.ssl_client_cert_path, cluster.ssl_client_cert, "client_cert"
+        )
+        key_path = _resolve_cert(
+            cluster.ssl_client_key_path, cluster.ssl_client_key, "client_key"
+        )
+    except Exception:
+        _cleanup_temp_files()
+        raise
+
+    # cert and key must be provided as a pair
+    if bool(cert_path) != bool(key_path):
+        _cleanup_temp_files()
+        raise ValueError(
+            f"Kafka SSL for cluster '{cluster.name}': "
+            "ssl_client_cert* and ssl_client_key* must both be provided or both omitted"
+        )
+
+    if ca_path:
+        ssl_config["ssl.ca.location"] = ca_path
+    if cert_path:
+        ssl_config["ssl.certificate.location"] = cert_path
+    if key_path:
+        ssl_config["ssl.key.location"] = key_path
+
+    # Auto-set security.protocol to SSL when cert material is present and the
+    # user has not already configured a protocol (e.g. SASL_SSL).
+    if ssl_config and not cluster.security_protocol:
+        ssl_config["security.protocol"] = "SSL"
+
+    return ssl_config, temp_files
 
 
 class KafkaConfig(ToolsetConfig):
@@ -223,9 +382,8 @@ class ListKafkaConsumers(BaseKafkaTool):
 
             futures = client.list_consumer_groups()
             list_groups_result: ListConsumerGroupsResult = futures.result()
-            groups_text = ""
-            if list_groups_result.valid and len(list_groups_result.valid) > 0:
-                groups = []
+            groups = []
+            if list_groups_result.valid:
                 for group in list_groups_result.valid:
                     groups.append(
                         {
@@ -235,9 +393,7 @@ class ListKafkaConsumers(BaseKafkaTool):
                             "type": str(group.type),
                         }
                     )
-                groups_text = yaml.dump({"consumer_groups": groups})
-            else:
-                groups_text = "No consumer group was found"
+            groups_text = yaml.dump({"consumer_groups": groups})
 
             errors_text = format_list_consumer_group_errors(list_groups_result.errors)
 
@@ -295,10 +451,12 @@ class DescribeConsumerGroup(BaseKafkaTool):
                     params=params,
                 )
 
-            futures = client.describe_consumer_groups([group_id])
+            futures = client.describe_consumer_groups(
+                [group_id], request_timeout=10
+            )
 
             if futures.get(group_id):
-                group_metadata = futures.get(group_id).result()
+                group_metadata = futures.get(group_id).result(timeout=15)
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
                     data=convert_to_dict(group_metadata),
@@ -448,7 +606,36 @@ def group_has_topic(
     topic_name: str,
     bootstrap_servers: str,
     topic_metadata: Any,
+    kafka_cluster_name: str,
+    ssl_config: Optional[Dict[str, str]] = None,
 ):
+    """Return True if *consumer_group_description* is actively consuming *topic_name*.
+
+    Checks two places in order:
+    1. Active member assignments — fast, no network round-trip beyond the admin call.
+    2. Committed offsets via a temporary Consumer — catches inactive/empty groups
+       that still have committed offsets for the topic.
+
+    Parameters
+    ----------
+    client:
+        AdminClient used to fetch committed offsets.
+    consumer_group_description:
+        Group description returned by ``describe_consumer_groups``.
+    topic_name:
+        The topic to check for.
+    bootstrap_servers:
+        Comma-separated broker list, forwarded to the temporary Consumer.
+    topic_metadata:
+        Cluster metadata (from ``list_topics``) used to enumerate topic partitions.
+    kafka_cluster_name:
+        Logical cluster name, used in log messages for diagnostics.
+    ssl_config:
+        SSL/mTLS and SASL auth properties to merge into the Consumer config so it
+        can connect to a TLS- or SASL-protected broker.  Should include all
+        auth-related keys (``security.protocol``, ``sasl.*``, ``ssl.*``) that
+        were used to build the AdminClient for this cluster.
+    """
     # Check active member assignments
     for member in consumer_group_description.members:
         for topic_partition in member.assignment.topic_partitions:
@@ -467,33 +654,41 @@ def group_has_topic(
             "auto.offset.reset": "earliest",
             "enable.auto.commit": False,  # Don't auto-commit to avoid side effects
         }
+        if ssl_config:
+            consumer_config.update(ssl_config)
         consumer = Consumer(consumer_config)
 
-        # Check topic metadata to know which partitions exist
-        if topic_name not in topic_metadata.topics:
-            consumer.close()
+        try:
+            # Check topic metadata to know which partitions exist
+            if topic_name not in topic_metadata.topics:
+                return False
+
+            # Create TopicPartition objects for all partitions of the topic
+            topic_partitions = []
+            for partition_id in topic_metadata.topics[topic_name].partitions:
+                topic_partitions.append(TopicPartition(topic_name, partition_id))
+
+            # Check committed offsets for this consumer group on these topic partitions
+
+            committed_offsets = consumer.committed(topic_partitions, timeout=10.0)
+
+            # Check if any partition has a valid committed offset
+            for tp in committed_offsets:
+                if tp.offset != -1001:  # -1001 means no committed offset
+                    return True
+
             return False
-
-        # Create TopicPartition objects for all partitions of the topic
-        topic_partitions = []
-        for partition_id in topic_metadata.topics[topic_name].partitions:
-            topic_partitions.append(TopicPartition(topic_name, partition_id))
-
-        # Check committed offsets for this consumer group on these topic partitions
-
-        committed_offsets = consumer.committed(topic_partitions, timeout=10.0)
-        consumer.close()
-
-        # Check if any partition has a valid committed offset
-        for tp in committed_offsets:
-            if tp.offset != -1001:  # -1001 means no committed offset
-                return True
-
-        return False
+        finally:
+            consumer.close()
 
     except Exception:
         # If we can't check offsets, fall back to just the active assignment check
-        pass
+        logging.warning(
+            f"group_has_topic: failed to check committed offsets for group "
+            f"{consumer_group_description.group_id!r} on topic {topic_name!r} "
+            f"in cluster {kafka_cluster_name!r}; falling back to active assignment check",
+            exc_info=True,
+        )
 
     return False
 
@@ -530,6 +725,31 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
                     params=params,
                 )
 
+            # Early exit: if the topic doesn't exist there can't be any consumers
+            topic_metadata = client.list_topics(topic_name, timeout=10)
+            topic_meta = topic_metadata.topics.get(topic_name)
+            if topic_meta is None:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.SUCCESS,
+                    data=f"No consumer group were found for topic {topic_name}",
+                    params=params,
+                )
+            if topic_meta.error is not None:
+                if topic_meta.error.code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.SUCCESS,
+                        data=f"No consumer group were found for topic {topic_name}",
+                        params=params,
+                    )
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=(
+                        f"Error looking up topic {topic_name!r} on cluster {kafka_cluster_name!r}"
+                        f" via list_topics(topic={topic_name!r}, timeout=10): {topic_meta.error}"
+                    ),
+                    params=params,
+                )
+
             groups_future = client.list_consumer_groups()
             groups: ListConsumerGroupsResult = groups_future.result()
 
@@ -553,13 +773,14 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
                         consumer_group_description_future.result()
                     )
                     bootstrap_servers = self.get_bootstrap_servers(kafka_cluster_name)
-                    topic_metadata = client.list_topics(topic_name, timeout=10)
                     if group_has_topic(
                         client=client,
                         consumer_group_description=consumer_group_description,
                         topic_name=topic_name,
                         bootstrap_servers=bootstrap_servers,
                         topic_metadata=topic_metadata,
+                        kafka_cluster_name=kafka_cluster_name,
+                        ssl_config=self.toolset.ssl_configs.get(kafka_cluster_name),
                     ):
                         consumer_groups.append(
                             convert_to_dict(consumer_group_description)
@@ -624,6 +845,8 @@ class KafkaToolset(Toolset):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     clients: Dict[str, AdminClient] = {}
     kafka_config: Optional[KafkaConfig] = None
+    # Per-cluster SSL config dicts (ready to merge into any confluent-kafka config)
+    ssl_configs: Dict[str, Dict[str, str]] = Field(default_factory=dict)
 
     def __init__(self):
         super().__init__(
@@ -649,12 +872,15 @@ class KafkaToolset(Toolset):
         errors = []
         try:
             kafka_config = KafkaConfig(**config)
+            # Reset cached state so re-validation starts from a clean slate.
+            self.clients.clear()
+            self.ssl_configs.clear()
             self.kafka_config = kafka_config
 
             for cluster in kafka_config.clusters:
                 try:
                     logging.info(f"Setting up Kafka client for cluster: {cluster.name}")
-                    admin_config = {
+                    admin_config: Dict[str, Any] = {
                         "bootstrap.servers": cluster.broker,
                         "client.id": cluster.client_id,
                         "socket.timeout.ms": 15000,  # 15 second timeout
@@ -668,6 +894,37 @@ class KafkaToolset(Toolset):
                     if cluster.username and cluster.password:
                         admin_config["sasl.username"] = cluster.username
                         admin_config["sasl.password"] = cluster.password
+
+                    # Build auth_config — all auth keys shared with the Consumer in
+                    # group_has_topic() so it can authenticate identically to the
+                    # AdminClient.  Includes security.protocol, sasl.*, and ssl.*.
+                    auth_config: Dict[str, Any] = {}
+                    if cluster.security_protocol:
+                        auth_config["security.protocol"] = cluster.security_protocol
+                    if cluster.sasl_mechanism:
+                        auth_config["sasl.mechanisms"] = cluster.sasl_mechanism
+                    if cluster.username and cluster.password:
+                        auth_config["sasl.username"] = cluster.username
+                        auth_config["sasl.password"] = cluster.password
+
+                    # SSL / mTLS configuration — mirrors kafka-mcp-server TLS logic.
+                    # Temp files (base64 path) must survive past AdminClient creation
+                    # because ssl_configs is also used for Consumer in group_has_topic();
+                    # register atexit cleanup instead of deleting immediately.
+                    ssl_config, temp_files = _build_ssl_config(cluster)
+                    if ssl_config:
+                        admin_config.update(ssl_config)
+                        auth_config.update(ssl_config)
+                        logging.info(
+                            f"SSL/mTLS configured for cluster '{cluster.name}': "
+                            f"protocol={admin_config.get('security.protocol')}, "
+                            f"ca={ssl_config.get('ssl.ca.location', 'none')}, "
+                            f"cert={ssl_config.get('ssl.certificate.location', 'none')}"
+                        )
+                    if auth_config:
+                        self.ssl_configs[cluster.name] = auth_config
+                    for tmp in temp_files:
+                        atexit.register(os.unlink, tmp)
 
                     client = AdminClient(admin_config)
                     # Test the connection by trying to list topics with a timeout
