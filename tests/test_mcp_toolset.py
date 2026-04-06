@@ -2287,3 +2287,76 @@ class TestMCPExtraHeadersPreservedDuringEnvResolution:
 
         # regular headers SHOULD be resolved by replace_env_vars_values
         assert config["config"]["headers"]["X-Static"] == "resolved_value"
+
+
+class TestJenkinsMCPConfig:
+    """Validate that the Jenkins MCP integration config documented in
+    docs/data-sources/builtin-toolsets/jenkins-mcp.md is accepted by
+    RemoteMCPToolset and that its fields are preserved correctly.
+    """
+
+    _JENKINS_URL = "https://jenkins.example.com/mcp-server/mcp"
+    _JENKINS_AUTH = "dXNlcjp0b2tlbg=="  # base64("user:token")
+
+    def _make_toolset(self) -> RemoteMCPToolset:
+        """Return a RemoteMCPToolset configured exactly as shown in the Jenkins docs."""
+        return RemoteMCPToolset(
+            name="jenkins",
+            description="Jenkins CI/CD server",
+            config={
+                "url": self._JENKINS_URL,
+                "mode": "streamable-http",
+                "headers": {"Authorization": f"Basic {self._JENKINS_AUTH}"},
+                "verify_ssl": False,
+            },
+        )
+
+    def _stub_get_server_tools(self, monkeypatch, toolset: RemoteMCPToolset) -> None:
+        """Patch _get_server_tools so prerequisites_callable makes no network calls."""
+
+        async def _no_op():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(toolset, "_get_server_tools", _no_op)
+
+    def test_jenkins_config_url_and_mode_parsed(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Documented Jenkins URL and streamable-http mode must be stored verbatim."""
+        toolset = self._make_toolset()
+        self._stub_get_server_tools(monkeypatch, toolset)
+        toolset.prerequisites_callable(config=toolset.config)
+
+        assert str(toolset._mcp_config.url) == self._JENKINS_URL
+        assert toolset._mcp_config.mode == MCPMode.STREAMABLE_HTTP
+
+    def test_jenkins_config_auth_header_preserved(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Basic auth header must survive config parsing unchanged."""
+        toolset = self._make_toolset()
+        self._stub_get_server_tools(monkeypatch, toolset)
+        toolset.prerequisites_callable(config=toolset.config)
+
+        assert toolset._mcp_config.headers is not None
+        assert toolset._mcp_config.headers.get("Authorization") == (
+            f"Basic {self._JENKINS_AUTH}"
+        )
+
+    def test_jenkins_config_ssl_verification_disabled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """verify_ssl=False must be reflected in the parsed config."""
+        toolset = self._make_toolset()
+        self._stub_get_server_tools(monkeypatch, toolset)
+        toolset.prerequisites_callable(config=toolset.config)
+
+        assert toolset._mcp_config.verify_ssl is False
+
+    def test_jenkins_config_missing_url_fails_prerequisites(self):
+        """A Jenkins toolset with no URL must fail prerequisites with a clear error."""
+        toolset = RemoteMCPToolset(name="jenkins", description="Jenkins CI/CD server")
+        ok, msg = toolset.prerequisites_callable(config=toolset.config)
+
+        assert ok is False
+        assert msg  # error message must be non-empty
