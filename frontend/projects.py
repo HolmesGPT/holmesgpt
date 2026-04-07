@@ -37,10 +37,13 @@ class ToolsetInstance(BaseModel):
     type: str  # base toolset type: "grafana/dashboards", "aws_api", "salesforce", "ado", "atlassian"
     name: str  # unique instance name: "grafana-logistics", "aws_api"
     secret_arn: Optional[str] = None  # Secrets Manager ARN for per-instance credentials
+    config: Optional[dict] = None  # Per-instance toolset config (api_key, api_url, etc.)
     # For MCP toolsets: override the MCP server URL (leave None to use global URL)
     mcp_url: Optional[str] = None
     # For aws_api: restrict to these account profile names (None = all configured accounts)
     aws_accounts: Optional[list[str]] = None
+    # For aws_api: restrict to these AWS regions (None = no restriction)
+    aws_regions: Optional[list[str]] = None
 
 
 class TagFilter(BaseModel):
@@ -61,7 +64,9 @@ class Instance(BaseModel):
     ] = {}  # free-form key-value tags; empty = global (always included)
     secret_arn: Optional[str] = None
     mcp_url: Optional[str] = None
+    config: Optional[dict] = None  # Per-instance toolset config (api_key, api_url, etc.)
     aws_accounts: Optional[list[str]] = None
+    aws_regions: Optional[list[str]] = None  # e.g. ["eu-central-1", "us-east-1"]
     # AWS cross-account fields
     aws_account_name: Optional[str] = None
     aws_account_id: Optional[str] = None
@@ -170,8 +175,10 @@ class InstancesStore:
         name: str,
         tags: dict[str, str] = {},
         secret_arn: Optional[str] = None,
+        config: Optional[dict] = None,
         mcp_url: Optional[str] = None,
         aws_accounts: Optional[list[str]] = None,
+        aws_regions: Optional[list[str]] = None,
         aws_account_name: Optional[str] = None,
         aws_account_id: Optional[str] = None,
         aws_role_arn: Optional[str] = None,
@@ -181,8 +188,10 @@ class InstancesStore:
             name=name,
             tags=tags,
             secret_arn=secret_arn,
+            config=config,
             mcp_url=mcp_url,
             aws_accounts=aws_accounts,
+            aws_regions=aws_regions,
             aws_account_name=aws_account_name,
             aws_account_id=aws_account_id,
             aws_role_arn=aws_role_arn,
@@ -878,16 +887,18 @@ def _build_mcp_toolset(instance: ToolsetInstance, api_key: str) -> object:
     )
 
 
-def _build_aws_toolset_with_account_filter(
-    global_toolset: object, allowed_accounts: list[str]
+def _build_aws_toolset_with_filters(
+    global_toolset: object,
+    allowed_accounts: list[str],
+    allowed_regions: list[str] | None = None,
 ) -> object:
     """
     Return a copy of the global AWS MCP toolset with LLM instructions restricted
-    to only the allowed account profiles.
+    to only the allowed account profiles and (optionally) specific regions.
 
     We do this by cloning the toolset and overriding its llm_instructions to
-    list only the permitted --profile values, so the LLM won't attempt to use
-    accounts outside the project's scope.
+    list only the permitted --profile values and --region values, so the LLM
+    won't attempt to use accounts or regions outside the project's scope.
     """
     import copy
 
@@ -903,6 +914,23 @@ def _build_aws_toolset_with_account_filter(
     for acct in allowed_accounts:
         account_lines.append(f"  --profile {acct}")
 
+    # Add region restrictions if configured
+    if allowed_regions:
+        account_lines.append("")
+        account_lines.append(
+            "IMPORTANT: This project is deployed in the following regions ONLY:"
+        )
+        for region in allowed_regions:
+            account_lines.append(f"  --region {region}")
+        account_lines.append("")
+        account_lines.append(
+            "ALWAYS specify --region in every AWS CLI command. "
+            f"Query {allowed_regions[0]} FIRST, then check the other regions listed above."
+        )
+        account_lines.append(
+            "Do NOT query regions outside this list unless the user explicitly asks."
+        )
+
     ts.llm_instructions = "\n".join(account_lines)
     return ts
 
@@ -913,8 +941,10 @@ def _instance_to_toolset_instance(instance: Instance) -> ToolsetInstance:
         type=instance.type,
         name=instance.name,
         secret_arn=instance.secret_arn,
+        config=instance.config,
         mcp_url=instance.mcp_url,
         aws_accounts=instance.aws_accounts,
+        aws_regions=instance.aws_regions,
     )
 
 
@@ -986,15 +1016,15 @@ def build_project_tool_executor(
                 project_toolsets.append(ts)
                 continue
 
-            # ── AWS toolset with account filter ───────────────────────────────
+            # ── AWS toolset with account/region filter ────────────────────────
             if instance.type == "aws_api":
                 if instance.aws_accounts:
                     global_ts = global_by_name.get(instance.name) or global_by_name.get(
                         "aws_api"
                     )
                     if global_ts is not None:
-                        ts = _build_aws_toolset_with_account_filter(
-                            global_ts, instance.aws_accounts
+                        ts = _build_aws_toolset_with_filters(
+                            global_ts, instance.aws_accounts, instance.aws_regions
                         )
                         project_toolsets.append(ts)
                     else:
@@ -1020,9 +1050,9 @@ def build_project_tool_executor(
             # ── Global toolset reuse (no per-project overrides) ───────────────
             # Match by instance name first, then by instance type (which IS the toolset name
             # for built-in toolsets like datadog/general, datadog/logs, grafana/dashboards, etc.)
-            # Skip global reuse if instance has a secret_arn — it needs dynamic instantiation
-            # with per-project credentials/config from the secret.
-            if not instance.secret_arn:
+            # Skip global reuse if instance has a secret_arn or config — it needs dynamic
+            # instantiation with per-project credentials.
+            if not instance.secret_arn and not instance.config:
                 if instance.name in global_by_name:
                     project_toolsets.append(global_by_name[instance.name])
                     continue
@@ -1030,8 +1060,13 @@ def build_project_tool_executor(
                     project_toolsets.append(global_by_name[instance.type])
                     continue
 
-            # ── Dynamically instantiate Python toolset with Secrets Manager creds ──
-            creds = _fetch_secret(instance.secret_arn) if instance.secret_arn else {}
+            # ── Dynamically instantiate Python toolset with per-project creds ──
+            if instance.secret_arn:
+                creds = _fetch_secret(instance.secret_arn)
+            elif instance.config:
+                creds = instance.config
+            else:
+                creds = {}
             # For toolsets registered in PYTHON_TOOLSET_FACTORIES (e.g. "dbdash"),
             # inject _python_base so load_toolsets_from_config uses the factory.
             from holmes.plugins.toolsets import PYTHON_TOOLSET_FACTORIES

@@ -51,9 +51,9 @@ class DatadogTracesToolset(Toolset):
 
     dd_config: Optional[DatadogTracesConfig] = None
 
-    def __init__(self):
+    def __init__(self, name: str = "datadog/traces"):
         super().__init__(
-            name="datadog/traces",
+            name=name,
             description="Toolset for interacting with Datadog APM to fetch and analyze traces",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",

@@ -207,8 +207,10 @@ export interface Instance {
   name: string;
   tags: Record<string, string>;
   secret_arn: string | null;
+  config?: Record<string, unknown> | null;
   mcp_url?: string | null;
   aws_accounts?: string[] | null;
+  aws_regions?: string[] | null;
   aws_account_name?: string | null;
   aws_account_id?: string | null;
   aws_role_arn?: string | null;

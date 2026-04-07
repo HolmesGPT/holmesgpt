@@ -217,9 +217,9 @@ class DatadogGeneralToolset(Toolset):
     dd_config: Optional[DatadogGeneralConfig] = None
     openapi_spec: Optional[Dict[str, Any]] = None
 
-    def __init__(self):
+    def __init__(self, name: str = "datadog/general"):
         super().__init__(
-            name="datadog/general",
+            name=name,
             description="General-purpose Datadog API access for read-only operations including monitors, dashboards, SLOs, incidents, synthetics, logs, metrics, and more. Note: For logs and metrics, prefer using the specialized datadog/logs and datadog/metrics toolsets when available as they provide optimized functionality",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",

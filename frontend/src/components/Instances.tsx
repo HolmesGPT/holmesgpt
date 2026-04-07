@@ -114,6 +114,7 @@ function InstanceFormDialog({
   const [awsAccountName, setAwsAccountName] = useState(instance?.aws_account_name ?? '')
   const [awsAccountId, setAwsAccountId] = useState(instance?.aws_account_id ?? '')
   const [awsRoleArn, setAwsRoleArn] = useState(instance?.aws_role_arn ?? '')
+  const [awsRegions, setAwsRegions] = useState<string[]>(instance?.aws_regions ?? [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
@@ -129,7 +130,7 @@ function InstanceFormDialog({
       setError('Instance name is required')
       return
     }
-    if (isAws) {
+    if (isAws && !instance) {
       if (!awsAccountName.trim()) { setError('Account Name is required'); return }
       if (!awsAccountId.trim()) { setError('Account Number is required'); return }
       if (!awsRoleArn.trim()) { setError('Role ARN is required'); return }
@@ -150,6 +151,7 @@ function InstanceFormDialog({
         aws_account_name: isAws ? (awsAccountName.trim() || null) : null,
         aws_account_id: isAws ? (awsAccountId.trim() || null) : null,
         aws_role_arn: isAws ? (awsRoleArn.trim() || null) : null,
+        aws_regions: isAws && awsRegions.length > 0 ? awsRegions : null,
       }
       if (instance) {
         await api.updateInstance(instance.id, payload)
@@ -254,7 +256,7 @@ function InstanceFormDialog({
               <p className="text-xs font-medium text-pdi-slate uppercase tracking-wider">AWS Account Details</p>
               <div>
                 <label className="block text-sm font-medium text-pdi-granite mb-1">
-                  Account Name <span className="text-pdi-orange">*</span>
+                  Account Name {!instance && <span className="text-pdi-orange">*</span>}
                 </label>
                 <input
                   type="text"
@@ -266,7 +268,7 @@ function InstanceFormDialog({
               </div>
               <div>
                 <label className="block text-sm font-medium text-pdi-granite mb-1">
-                  Account Number <span className="text-pdi-orange">*</span>
+                  Account Number {!instance && <span className="text-pdi-orange">*</span>}
                 </label>
                 <input
                   type="text"
@@ -279,7 +281,7 @@ function InstanceFormDialog({
               </div>
               <div>
                 <label className="block text-sm font-medium text-pdi-granite mb-1">
-                  Role ARN <span className="text-pdi-orange">*</span>
+                  Role ARN {!instance && <span className="text-pdi-orange">*</span>}
                 </label>
                 <input
                   type="text"
@@ -290,6 +292,38 @@ function InstanceFormDialog({
                 />
                 <p className="text-xs text-pdi-slate mt-1">
                   IAM role ARN created by the setup script. See Docs &gt; AWS Account tab.
+                </p>
+              </div>
+
+              {/* AWS Regions */}
+              <div>
+                <label className="block text-sm font-medium text-pdi-granite mb-1">Regions</label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {awsRegions.map((r) => (
+                    <span key={r} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-pdi-sky/10 text-pdi-sky border border-pdi-sky/20 rounded-md">
+                      {r}
+                      <button type="button" onClick={() => setAwsRegions(awsRegions.filter((x) => x !== r))} className="hover:text-pdi-orange">
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value && !awsRegions.includes(e.target.value)) {
+                      setAwsRegions([...awsRegions, e.target.value])
+                    }
+                  }}
+                  className="w-full text-sm border border-pdi-cool-gray rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pdi-sky"
+                >
+                  <option value="">Add a region...</option>
+                  {['us-east-1', 'us-east-2', 'us-west-2', 'eu-central-1', 'eu-west-1', 'eu-west-2', 'ap-southeast-1', 'ap-northeast-1'].filter((r) => !awsRegions.includes(r)).map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-pdi-slate mt-1">
+                  Restrict investigations to these AWS regions. Leave empty to allow all regions.
                 </p>
               </div>
 

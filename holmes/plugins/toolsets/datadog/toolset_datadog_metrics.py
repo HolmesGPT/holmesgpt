@@ -712,9 +712,9 @@ class DatadogMetricsToolset(Toolset):
 
     dd_config: Optional[DatadogMetricsConfig] = None
 
-    def __init__(self):
+    def __init__(self, name: str = "datadog/metrics"):
         super().__init__(
-            name="datadog/metrics",
+            name=name,
             description="Toolset for fetching metrics and metadata from Datadog, including historical data for pods no longer in the cluster",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",
