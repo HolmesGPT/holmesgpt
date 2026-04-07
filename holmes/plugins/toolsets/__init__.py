@@ -273,6 +273,10 @@ PYTHON_TOOLSET_FACTORIES: dict[str, type] = {
     "grafana/loki": GrafanaLokiToolset,
     "grafana/tempo": GrafanaTempoToolset,
     "dbdash": DBADashToolset,
+    "datadog/general": DatadogGeneralToolset,
+    "datadog/logs": DatadogLogsToolset,
+    "datadog/metrics": DatadogMetricsToolset,
+    "datadog/traces": DatadogTracesToolset,
 }
 
 # PrometheusToolset is conditionally imported, so add it only when available
