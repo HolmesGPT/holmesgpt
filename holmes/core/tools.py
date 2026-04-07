@@ -188,7 +188,7 @@ class ToolParameter(BaseModel):
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
-    enum: Optional[List[str]] = None  # For restricting to specific values
+    enum: Optional[List[Any]] = None  # For restricting to specific values (JSON Schema allows any type)
     # For object types: stores the additionalProperties JSON Schema value.
     # None = not specified, False = no additional properties allowed,
     # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
