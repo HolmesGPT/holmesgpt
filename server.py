@@ -452,7 +452,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
                 logging.info(f"Completed {req_info}")
                 return ChatResponse(
-                    analysis=llm_call.result,
+                    analysis=llm_call.result or "",
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
                     follow_up_actions=follow_up_actions,
