@@ -1437,6 +1437,14 @@ def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
         # Get the full output
         output = tool_call.result.get_stringified_data()
         output = strip_ansi_codes(output)
+
+        # Insert a truncation marker at the inline display boundary so the
+        # user can see what was visible inline vs what was hidden.
+        MAX_CHARS = 500  # must match format_tool_call_output
+        if len(output) > MAX_CHARS:
+            marker = "\n--- inline display truncated here ---\n"
+            output = output[:MAX_CHARS] + marker + output[MAX_CHARS:]
+
         title = build_modal_title(tool_call, "off")  # Word wrap starts disabled
 
         # Detect appropriate syntax highlighting
