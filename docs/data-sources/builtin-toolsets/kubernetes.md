@@ -1,6 +1,6 @@
 # Kubernetes Toolsets
 
-## Core ✓
+## Core
 
 !!! info "Enabled by Default"
     This toolset is enabled by default and should typically remain enabled.
@@ -31,7 +31,7 @@ holmes:
 | kubectl_memory_requests_namespace | Get memory requests for all pods in a specific namespace in MiB |
 | kubernetes_jq_query | Query Kubernetes resources using jq filters |
 
-## Logs ✓
+## Logs
 
 !!! info "Enabled by Default"
     This toolset is enabled by default. You do not need to configure it.
