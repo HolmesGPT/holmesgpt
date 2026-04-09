@@ -39,7 +39,7 @@ from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tracing import SpanType, TracingFactory
-from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
+from holmes.interactive import run_interactive_loop
 from holmes.plugins.destinations import DestinationType
 from holmes.plugins.interfaces import Issue
 from holmes.plugins.prompts import load_and_render_prompt
@@ -231,7 +231,7 @@ def ask(
     trace: Optional[str] = typer.Option(
         None,
         "--trace",
-        help="Enable tracing to the specified provider (e.g., 'braintrust')",
+        help="Enable tracing to the specified provider ('braintrust' or 'otel'). OTel auto-enables if OTEL_EXPORTER_OTLP_ENDPOINT is set.",
     ),
     system_prompt_additions: Optional[str] = typer.Option(
         None,
@@ -277,11 +277,6 @@ def ask(
                 "[bold yellow]Interactive mode disabled when reading piped input[/bold yellow]"
             )
             interactive = False
-
-    # Silence display loggers early for interactive mode so that
-    # init messages are rendered via the InitProgressRenderer instead.
-    if interactive:
-        silence_display_loggers()
 
     config = Config.load_from_file(
         config_file,
@@ -336,26 +331,13 @@ def ask(
         }
 
     with tool_result_storage() as tool_results_dir:
-        init_renderer = None
-        on_event = None
-        if interactive:
-            init_renderer = InitProgressRenderer(
-                console, model_name=model or config.model or ""
-            )
-            on_event = init_renderer.on_event
-            init_renderer.start()
-
         ai = config.create_console_toolcalling_llm(
             dal=None,  # type: ignore
             refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
             tracer=tracer,
             model_name=model,
             tool_results_dir=tool_results_dir,
-            on_event=on_event,
         )
-
-        if init_renderer is not None:
-            init_renderer.stop()
 
         if interactive:
             run_interactive_loop(
@@ -1035,9 +1017,6 @@ def version() -> None:
 
 
 def run():
-    # Default to "ask" command when no subcommand is given
-    if len(sys.argv) == 1:
-        sys.argv.insert(1, "ask")
     app()
 
 
