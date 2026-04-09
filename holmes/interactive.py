@@ -1813,9 +1813,8 @@ def _run_inline_menu(
     )
     app.run()
 
-    # erase_when_done clears the menu; also erase the Rich header above it.
-    # Only emit ANSI escapes on interactive terminals.
-    if header_lines > 0 and sys.stdout.isatty():
+    # erase_when_done clears the menu; also erase the Rich header above it
+    if header_lines > 0:
         sys.stdout.write(f"\x1b[{header_lines}A\x1b[0J")
         sys.stdout.flush()
 
