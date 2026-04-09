@@ -198,6 +198,10 @@ class ToolParameter(BaseModel):
     # These are passed through to the OpenAI-formatted schema so the LLM
     # knows about constraints.
     json_schema_extra: Optional[Dict[str, Any]] = None
+    # For union types with multiple non-null branches (anyOf in JSON Schema).
+    # When set, type_to_open_ai_schema emits {"anyOf": [...]} instead of a
+    # single type.  Each entry is a ToolParameter representing one branch.
+    any_of: Optional[List["ToolParameter"]] = None
 
     def is_strict_compatible(self) -> bool:
         """Check if this parameter (and all nested parameters) can be used in strict mode.
@@ -217,6 +221,11 @@ class ToolParameter(BaseModel):
         # Recursively check array items
         if self.items and not self.items.is_strict_compatible():
             return False
+        # Recursively check anyOf branches
+        if self.any_of:
+            for branch in self.any_of:
+                if not branch.is_strict_compatible():
+                    return False
         return True
 
     @property

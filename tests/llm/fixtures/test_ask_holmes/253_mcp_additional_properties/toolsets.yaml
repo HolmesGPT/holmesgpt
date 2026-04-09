@@ -6,7 +6,7 @@ toolsets:
     config:
       mode: stdio
       command: "python"
-      args: ["tests/llm/fixtures/test_ask_holmes/234_mcp_additional_properties/mcp_cdn_server.py"]
+      args: ["tests/llm/fixtures/test_ask_holmes/253_mcp_additional_properties/mcp_cdn_server.py"]
   kubernetes/core:
     enabled: false
   kubernetes/logs:

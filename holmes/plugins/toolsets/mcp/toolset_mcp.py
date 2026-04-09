@@ -385,15 +385,37 @@ class RemoteMCPTool(Tool):
                                         merged[k] = v
                     return merged
                 else:
+                    # Resolve $ref inside each branch, then decide whether to
+                    # flatten (single non-null branch = nullable shorthand) or
+                    # preserve the full union (multiple non-null branches).
+                    resolved_branches: list[dict] = []
+                    has_null = False
                     for sub_schema in schema[compound_key]:
                         if isinstance(sub_schema, dict):
                             resolved_sub = cls._resolve_schema(sub_schema, root_schema)
-                            # Skip null types, pick the first valid underlying schema type
-                            if resolved_sub.get("type") != "null":
-                                merged = dict(schema)
-                                merged.pop(compound_key)
-                                merged.update(resolved_sub)
-                                return merged
+                            if resolved_sub.get("type") == "null":
+                                has_null = True
+                            else:
+                                resolved_branches.append(resolved_sub)
+
+                    if len(resolved_branches) == 1:
+                        # Nullable shorthand: anyOf[<type>, null] → collapse to the single type.
+                        # The nullable flag is handled downstream via required=False / type list.
+                        merged = dict(schema)
+                        merged.pop(compound_key)
+                        merged.update(resolved_branches[0])
+                        return merged
+                    elif len(resolved_branches) > 1:
+                        # True union — preserve as anyOf so _parse_tool_parameter
+                        # can populate ToolParameter.any_of.  Convert oneOf → anyOf
+                        # since OpenAI strict mode supports anyOf but not oneOf.
+                        merged = dict(schema)
+                        merged.pop(compound_key)
+                        branches = resolved_branches
+                        if has_null:
+                            branches = resolved_branches + [{"type": "null"}]
+                        merged["anyOf"] = branches
+                        return merged
 
         return schema
 
@@ -408,6 +430,31 @@ class RemoteMCPTool(Tool):
         complex parameter types (arrays, objects).
         """
         schema = cls._resolve_schema(schema, root_schema)
+
+        # If _resolve_schema preserved a multi-branch anyOf, parse each branch
+        # into a ToolParameter and store on the any_of field.
+        any_of_params = None
+        if "anyOf" in schema and isinstance(schema["anyOf"], list):
+            branches = schema["anyOf"]
+            non_null = [b for b in branches if isinstance(b, dict) and b.get("type") != "null"]
+            if len(non_null) > 1:
+                # True union — parse each branch as a ToolParameter
+                has_null = any(
+                    isinstance(b, dict) and b.get("type") == "null" for b in branches
+                )
+                any_of_params = [
+                    cls._parse_tool_parameter(branch, root_schema, required=True)
+                    for branch in non_null
+                ]
+                # Use a placeholder type; type_to_open_ai_schema will use any_of instead
+                return ToolParameter(
+                    description=schema.get("description"),
+                    type="anyOf",
+                    required=required if not has_null else False,
+                    any_of=any_of_params,
+                    json_schema_extra={k: v for k, v in schema.items()
+                                       if k in {"default"}} or None,
+                )
 
         param_type = schema.get("type", "string")
 
