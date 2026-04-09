@@ -14,6 +14,7 @@ from holmes.core.issue import Issue, IssueStatus
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.plugins.destinations.slack.plugin import SlackDestination
+from holmes.plugins.destinations.webhook.plugin import WebhookDestination
 
 checks_app = FastAPI()
 
@@ -192,6 +193,37 @@ def execute_health_check(
                                 f"Failed to send Slack notification: {e}", exc_info=True
                             )
 
+                        notifications.append(notification)
+                    elif dest_type == "webhook":
+                        notification = NotificationStatus(type="webhook", status="pending")
+                        try:
+                            webhook_url = (
+                                dest_config.get("url")
+                                or os.environ.get(dest_config.get("url_env", ""))
+                                or os.environ.get("WEBHOOK_URL")
+                            )
+                            if not webhook_url:
+                                notification.status = "skipped"
+                                notification.error = "webhook url not configured"
+                                logging.warning(
+                                    "Webhook destination missing url (set 'url' in config, 'url_env' pointing to an env var, or WEBHOOK_URL env var), skipping"
+                                )
+                            else:
+                                webhook_headers = dest_config.get("headers")
+                                webhook_payload = dest_config.get("payload")
+                                webhook_dest = WebhookDestination(
+                                    url=webhook_url,
+                                    headers=webhook_headers,
+                                    payload_template=webhook_payload,
+                                )
+                                webhook_dest.send_issue(issue, llm_result)
+                                notification.status = "sent"
+                        except Exception as e:
+                            notification.status = "failed"
+                            notification.error = str(e)
+                            logging.error(
+                                f"Failed to send webhook notification: {e}", exc_info=True
+                            )
                         notifications.append(notification)
                     # Add other destination types here (pagerduty, etc.) as needed
 

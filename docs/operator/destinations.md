@@ -15,10 +15,11 @@ Destinations are used when a HealthCheck or ScheduledHealthCheck has `mode: aler
 
 ## Supported Destinations
 
-Holmes Operator currently supports two alert destination types:
+Holmes Operator currently supports three alert destination types:
 
 - **Slack** - Send formatted messages to Slack channels
 - **PagerDuty** - Create incidents in PagerDuty
+- **Webhook** - POST a JSON payload to any HTTP endpoint
 
 ## Slack Destination
 
@@ -220,6 +221,152 @@ PagerDuty incidents created by Holmes include:
 **Links:**
 - If the check has an associated URL, it's included as a link in the incident
 
+
+## Webhook Destination
+
+Send a JSON notification to any HTTP endpoint when a health check fails. The payload structure is fully defined by you, making it compatible with any system that accepts HTTP POST requests.
+
+### Configuration
+
+**Option 1: WEBHOOK_URL environment variable (Recommended)**
+
+Store the full webhook URL in a Kubernetes secret and mount it as `WEBHOOK_URL`:
+
+```yaml
+# values.yaml
+additionalEnvVars:
+  - name: WEBHOOK_URL
+    valueFrom:
+      secretKeyRef:
+        name: holmes-webhook
+        key: url
+```
+
+Create the secret:
+
+```bash
+kubectl create secret generic holmes-webhook \
+  --from-literal=url="https://your-system.example.com/webhook/endpoint/secret-token" \
+  -n <holmes-namespace>
+```
+
+Checks omit the URL entirely — it resolves from the environment:
+
+```yaml
+apiVersion: holmesgpt.dev/v1alpha1
+kind: HealthCheck
+metadata:
+  name: production-check
+spec:
+  query: "Is production healthy?"
+  mode: alert
+  destinations:
+    - type: webhook
+      config:
+        payload:
+          event_type: "health_check_failure"
+          message: "{{analysis}}"
+          event_source: "holmesgpt"
+          metadata: "{{check_name}}"
+```
+
+**Option 2: Named environment variable (Multiple webhooks)**
+
+Use `url_env` to name a specific environment variable, allowing different checks to send to different endpoints:
+
+```yaml
+# values.yaml
+additionalEnvVars:
+  - name: SERVICENOW_WEBHOOK_URL
+    valueFrom:
+      secretKeyRef:
+        name: servicenow-webhook
+        key: url
+  - name: TEAMS_WEBHOOK_URL
+    valueFrom:
+      secretKeyRef:
+        name: teams-webhook
+        key: url
+```
+
+```yaml
+# HealthCheck 1 → Sample1 Webhook
+destinations:
+  - type: webhook
+    config:
+      url_env: "SAMPLE1_WEBHOOK_URL"
+      payload:
+        message: "{{analysis}}"
+
+# HealthCheck 2 → Sample2 Webhook
+destinations:
+  - type: webhook
+    config:
+      url_env: "SAMPLE2_WEBHOOK_URL"
+      payload:
+        message: "{{analysis}}"
+```
+
+**Option 3: URL directly in config**
+
+```yaml
+destinations:
+  - type: webhook
+    config:
+      url: "https://your-system.example.com/webhook/endpoint"
+      payload:
+        message: "{{analysis}}"
+```
+
+!!! warning "Security Best Practice"
+
+    Avoid putting URLs that contain secret tokens directly in check resources — they are stored unencrypted in etcd and visible to anyone with `kubectl` access. Use environment variables loaded from Kubernetes secrets instead.
+
+### Configuration Fields
+
+**url** (string, optional)
+
+Literal webhook URL. Takes priority over `url_env` and `WEBHOOK_URL`.
+
+**url_env** (string, optional)
+
+Name of an environment variable containing the webhook URL. Useful when multiple checks send to different endpoints.
+
+**payload** (object, optional)
+
+JSON object to POST. Supports `{{variable}}` placeholders substituted at send time. If omitted, a default payload is sent.
+
+**headers** (object, optional)
+
+Additional HTTP headers to include in the request. Useful for authentication headers.
+
+- Example: `Authorization: "Bearer token"`
+
+### Payload Variables
+
+Use these placeholders in any string value within `payload`:
+
+| Placeholder | Value |
+|---|---|
+| `{{check_name}}` | Name of the health check |
+| `{{analysis}}` | Full LLM analysis text |
+| `{{status}}` | Issue status (`open` or `unknown`) |
+| `{{source_type}}` | Source type (e.g. `HealthCheck`) |
+| `{{url}}` | Issue URL if available, otherwise empty |
+
+### Default Payload
+
+When `payload` is not specified, Holmes sends:
+
+```json
+{
+  "check_name": "...",
+  "status": "open",
+  "analysis": "...",
+  "source_type": "HealthCheck",
+  "url": "..."
+}
+```
 
 ## Notification Status
 

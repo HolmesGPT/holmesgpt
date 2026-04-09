@@ -33,6 +33,7 @@ from holmes.plugins.skills.skill_loader import (
 if TYPE_CHECKING:
     from holmes.core.tool_calling_llm import ToolCallingLLM
     from holmes.plugins.destinations.slack import SlackDestination
+    from holmes.plugins.destinations.webhook import WebhookDestination
     from holmes.plugins.sources.github import GitHubSource
     from holmes.plugins.sources.jira import JiraServiceManagementSource, JiraSource
     from holmes.plugins.sources.opsgenie import OpsGenieSource
@@ -97,6 +98,10 @@ class Config(RobustaBaseConfig):
     opsgenie_query: Optional[str] = None
 
     custom_skill_paths: List[Union[str, FilePath]] = []
+
+    webhook_url: Optional[SecretStr] = None
+    webhook_headers: Optional[dict] = None
+    webhook_payload: Optional[dict] = None
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -246,6 +251,7 @@ class Config(RobustaBaseConfig):
             "github_repository",
             "github_pat",
             "github_query",
+            "webhook_url",
         ]:
             val = os.getenv(field_name.upper(), None)
             if val is not None:
@@ -623,6 +629,18 @@ class Config(RobustaBaseConfig):
         if self.slack_channel is None:
             raise ValueError("--slack-channel must be specified")
         return SlackDestination(self.slack_token.get_secret_value(), self.slack_channel)
+    
+    def create_webhook_destination(self) -> "WebhookDestination":
+        from holmes.plugins.destinations.webhook import WebhookDestination
+
+        if self.webhook_url is None:
+            raise ValueError("--webhook-url must be specified")
+        
+        return WebhookDestination(
+            url=self.webhook_url.get_secret_value(),
+            headers=self.webhook_headers,
+            payload_template=self.webhook_payload,
+        )
 
     @staticmethod
     def _format_token_count(n: int) -> str:
